@@ -1,0 +1,13 @@
+﻿node_modules/
+.next/
+out/
+dist/
+coverage/
+*.tsbuildinfo
+.env
+.env.local
+.env.*.local
+logs/*
+!logs/.gitkeep
+data/*
+!data/.gitkeep

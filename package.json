@@ -1,13 +1,18 @@
 {
-  "name": "brighteditorplatform",
+  "name": "bright-editor-platform",
   "version": "1.0.0",
-  "description": "",
+  "description": "> AI-powered Content Lifecycle Platform",
   "main": "index.js",
   "directories": {
     "test": "tests"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
   },
   "repository": {
     "type": "git",
@@ -16,9 +21,25 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
   "bugs": {
     "url": "https://github.com/wooooman1-dev/Bright-Editor-Platform/issues"
   },
-  "homepage": "https://github.com/wooooman1-dev/Bright-Editor-Platform#readme"
+  "homepage": "https://github.com/wooooman1-dev/Bright-Editor-Platform#readme",
+  "dependencies": {
+    "next": "^16.2.10",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.2",
+    "@types/node": "^26.1.1",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.2.10",
+    "postcss": "^8.5.16",
+    "tailwindcss": "^4.3.2",
+    "typescript": "^6.0.3"
+  }
 }
