@@ -2,8 +2,8 @@
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Bright Editor Platform",
-  description: "AI-powered Content Lifecycle Platform",
+  title: "Bright Studio",
+  description: "AI 콘텐츠 자동화 플랫폼",
 };
 
 export default function RootLayout({

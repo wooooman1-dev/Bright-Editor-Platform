@@ -13,17 +13,22 @@ async function renderDashboard(blogName?: string): Promise<string> {
   return renderToStaticMarkup(page);
 }
 
-describe("Developer Dashboard", () => {
+describe("개발 대시보드", () => {
   it("renders the development notice and completed module status", async () => {
     const html = await renderDashboard();
 
-    expect(html).toContain("Developer Dashboard");
-    expect(html).toContain("Development only");
+    expect(html).toContain("Bright Studio");
+    expect(html).toContain("AI 콘텐츠 자동화 플랫폼");
+    expect(html).toContain("Development Mode");
+    expect(html).toContain("개발 현황");
     expect(html).toContain("BrowserManager");
     expect(html).toContain("BrowserSessionManager");
     expect(html).toContain("BrowserContextManager");
-    expect(html).toContain("Tistory Application");
-    expect(html).toContain("Login page foundation");
+    expect(html).toContain("티스토리");
+    expect(html).toContain("워드프레스");
+    expect(html).toContain("유튜브");
+    expect(html).toContain("네이버 카페");
+    expect(html).not.toContain("Bright Editor Platform");
   });
 
   it("renders generated URLs for a valid blog identifier", async () => {
@@ -44,7 +49,7 @@ describe("Developer Dashboard", () => {
   it("renders a safe validation message for an invalid identifier", async () => {
     const html = await renderDashboard("https://example.tistory.com");
 
-    expect(html).toContain("Enter a valid Tistory blog identifier.");
+    expect(html).toContain("올바른 티스토리 블로그 이름을 입력해 주세요.");
     expect(html).not.toContain("TypeError");
     expect(html).not.toContain("at createTistoryUrls");
   });
