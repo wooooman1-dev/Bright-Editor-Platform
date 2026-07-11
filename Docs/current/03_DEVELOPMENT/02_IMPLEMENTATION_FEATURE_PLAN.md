@@ -225,10 +225,83 @@ Add the smallest Tistory-specific workflow that navigates an injected Playwright
 
 ---
 
+## Feature #10 - Tistory Stored Session Context Preparation
+
+Status: Approved - Current
+
+### Purpose
+
+Add a Tistory application-level coordinator that applies Tistory stored-session preparation policy while reusing the existing platform-independent Core browser capabilities.
+
+### Scope
+
+- Add a stored-session context preparation workflow under `apps/tistory/workflows`.
+- Accept explicitly injected dependencies consistent with repository conventions.
+- Require the caller to provide the storage-state path explicitly.
+- Use the existing `BrowserSessionManager` for path validation and storage-state file existence checks.
+- If the storage-state file is missing, do not request context creation and return a small immutable result that clearly indicates `missing` with no context.
+- If the storage-state file exists, use the existing `BrowserContextManager` to prepare a context with the stored state.
+- Return a small immutable result that clearly indicates `prepared` and contains the prepared `BrowserContext` unchanged.
+- Leave ownership of closing the returned context with the caller.
+- Normalize Core failures into the smallest repository-consistent Tistory workflow error only when needed.
+- Export the public workflow API through `apps/tistory/index.ts`.
+- Add automated unit tests with no Chromium process or external network access.
+- Preserve all existing behavior and leave the Core Browser Layer unchanged.
+
+### Architecture Ownership
+
+- Tistory session-preparation policy and coordinator: `apps/tistory/workflows`
+- Storage-state path validation and file existence checks: existing `BrowserSessionManager`
+- BrowserContext creation and stored-state loading: existing `BrowserContextManager`
+- Browser lifecycle: Core Browser Layer
+- Authentication validity verification: separate future `apps/tistory` feature
+- Returned BrowserContext shutdown: caller
+
+### Policy Decisions
+
+- The caller explicitly supplies the storage-state path; no environment-variable loading or default real-user path is introduced.
+- A missing storage-state file produces a predictable immutable `missing` result and no BrowserContext is created.
+- An available storage-state file is passed through the existing Core managers to prepare a BrowserContext.
+- The presence or successful loading of storage state does not prove that Tistory considers the session authenticated or valid.
+- The workflow does not close the returned BrowserContext automatically.
+
+### Exclusions
+
+- Direct browser launch or Chromium control in the Tistory coordinator
+- Chromium execution or external network access in automated tests
+- Tistory navigation, including login-entry, administration, or editor navigation
+- Credential loading, credential entry, Kakao authentication, or login execution
+- Session validity or authentication verification
+- Manual cookie inspection or storage-state contents parsing
+- Environment-variable loading or a default real-user storage path
+- Automatic BrowserContext closing
+- HTML input, draft saving, or publishing
+- Core Browser Layer changes
+- Developer Dashboard controls
+- External dependencies
+
+### Acceptance Criteria
+
+- The storage-state path is explicitly supplied by the caller.
+- Path validation and file existence checks use the existing `BrowserSessionManager` rather than duplicated file logic.
+- A missing storage-state file returns an immutable `missing` result with no context and does not request context creation.
+- An available storage-state file requests context preparation through the existing `BrowserContextManager`.
+- A prepared result is immutable and returns the created BrowserContext unchanged.
+- Neither result implies that the Tistory session is authenticated or valid.
+- The workflow does not close the returned context; shutdown remains the caller's responsibility.
+- Unit tests verify Core coordination through mocks without launching Chromium or accessing the network.
+- Core failures are handled predictably if workflow-level error normalization is implemented.
+- The public workflow API is exported through `apps/tistory/index.ts`.
+- Existing tests continue to pass.
+- Typecheck, lint, tests, build, and `git diff --check` pass.
+- Core Browser Layer files remain unchanged.
+
+---
+
 ## Current Development State
 
 Completed through: Feature #9
 
-Next implementation feature: Not yet approved
+Immediate next implementation unit: Feature #10 - Tistory Stored Session Context Preparation
 
-Feature #10 must not begin until its purpose, scope, exclusions, architecture ownership, and acceptance criteria receive explicit approval.
+Feature #10 is approved for implementation, testing, review, and an independent feature commit.
