@@ -3,3 +3,4 @@ export {
   createTistoryUrls,
   type TistoryUrls,
 } from "./config/TistoryUrls";
+export { TistoryLoginPage } from "./pages/TistoryLoginPage";
