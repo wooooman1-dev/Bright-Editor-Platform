@@ -5,6 +5,20 @@ import { TistoryLoginPage } from "../../../../../apps/tistory";
 import { tistoryLoginSelectors } from "../../../../../apps/tistory/selectors/TistoryLoginSelectors";
 
 describe("TistoryLoginPage", () => {
+  it("waits for the minimum login-entry element to become visible", async () => {
+    const waitFor = vi.fn().mockResolvedValue(undefined);
+    const getByRole = vi.fn(() => ({ waitFor }) as unknown as Locator);
+    const page = { getByRole } as unknown as Page;
+    const loginPage = new TistoryLoginPage(page);
+
+    await loginPage.waitForLoginEntry(10_000);
+
+    expect(waitFor).toHaveBeenCalledWith({
+      state: "visible",
+      timeout: 10_000,
+    });
+  });
+
   it("creates the Kakao login-entry locator from the injected page", () => {
     const kakaoLoginLocator = {} as Locator;
     const getByRole = vi.fn(() => kakaoLoginLocator);
