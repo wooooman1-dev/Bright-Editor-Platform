@@ -1,27 +1,57 @@
-# Bright Editor Platform
+# 04_FEATURE_SPEC.md 수정안
 
-# 04_FEATURE_SPEC.md
+## Feature 관리 구조
 
-## Core Features
+Roadmap
 
-- AI Engine
-- Prompt Engine
-- Editor Engine
-- Quality Engine
-- Image Strategy Engine
-- Publishing Engine
+↓
 
-## Tistory Edition
+Epic
 
-- Login
-- Draft
-- HTML Input
-- Image Upload
-- Save Draft
+↓
 
-## Future Apps
+Feature
 
-- YouTube
-- Naver Cafe
-- Blog
-- Shopping
+↓
+
+Task
+
+↓
+
+Commit
+
+------------------------------------------------------------------------
+
+## Epic 예시
+
+### Browser Core
+
+-   Browser Lifecycle
+-   Session
+-   Context
+
+### Platform Integration
+
+-   URL Configuration
+-   Login Foundation
+-   Login Navigation
+-   Stored Session Context
+
+### Publishing
+
+-   Draft
+-   Schedule
+-   Publish
+
+### AI
+
+-   Writer
+-   SEO
+-   Review
+-   Image
+-   Video
+
+### Developer Experience
+
+-   Developer Dashboard
+-   Developer Console
