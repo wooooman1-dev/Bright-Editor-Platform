@@ -178,10 +178,8 @@ After each task provide:
 
 # Immediate Next Task
 
-Feature #8 - Add Developer Dashboard is completed.
+Feature #9 - Add Tistory Login Entry Navigation is completed.
 
-Implement Feature #9 - Add Tistory Login Entry Navigation.
+The next implementation feature is not yet approved or assigned.
 
-Follow `Docs/current/03_DEVELOPMENT/02_IMPLEMENTATION_FEATURE_PLAN.md` for the approved purpose, scope, exclusions, architecture ownership, and acceptance criteria.
-
-Do not implement credentials, login execution, session handling, editor navigation, or features beyond Feature #9.
+Do not begin Feature #10 until the user explicitly approves its purpose, scope, exclusions, architecture ownership, and acceptance criteria in `Docs/current/03_DEVELOPMENT/02_IMPLEMENTATION_FEATURE_PLAN.md`.

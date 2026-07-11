@@ -167,7 +167,9 @@ Add a development-only web verification page at `/dev` while keeping it separate
 
 ## Feature #9 - Add Tistory Login Entry Navigation
 
-Status: Approved - Current
+Status: Completed
+
+Implementation Commit: `ef7c029 feat: add tistory login entry navigation`
 
 ### Purpose
 
@@ -225,8 +227,8 @@ Add the smallest Tistory-specific workflow that navigates an injected Playwright
 
 ## Current Development State
 
-Completed through: Feature #8
+Completed through: Feature #9
 
-Immediate next implementation unit: Feature #9 - Add Tistory Login Entry Navigation
+Next implementation feature: Not yet approved
 
-Feature #9 is approved for implementation, testing, review, and an independent feature commit.
+Feature #10 must not begin until its purpose, scope, exclusions, architecture ownership, and acceptance criteria receive explicit approval.
