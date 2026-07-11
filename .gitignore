@@ -3,6 +3,7 @@
 out/
 dist/
 coverage/
+debug.log
 *.tsbuildinfo
 .env
 .env.local
