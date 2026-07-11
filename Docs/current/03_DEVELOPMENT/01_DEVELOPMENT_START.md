@@ -180,6 +180,8 @@ After each task provide:
 
 Feature #8 - Add Developer Dashboard is completed.
 
-The next implementation feature is not yet approved or assigned.
+Implement Feature #9 - Add Tistory Login Entry Navigation.
 
-Do not begin Feature #9 until the user explicitly approves its purpose, scope, exclusions, architecture ownership, and acceptance criteria in `Docs/current/03_DEVELOPMENT/02_IMPLEMENTATION_FEATURE_PLAN.md`.
+Follow `Docs/current/03_DEVELOPMENT/02_IMPLEMENTATION_FEATURE_PLAN.md` for the approved purpose, scope, exclusions, architecture ownership, and acceptance criteria.
+
+Do not implement credentials, login execution, session handling, editor navigation, or features beyond Feature #9.

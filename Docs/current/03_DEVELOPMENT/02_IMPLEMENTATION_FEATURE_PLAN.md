@@ -165,10 +165,68 @@ Add a development-only web verification page at `/dev` while keeping it separate
 
 ---
 
+## Feature #9 - Add Tistory Login Entry Navigation
+
+Status: Approved - Current
+
+### Purpose
+
+Add the smallest Tistory-specific workflow that navigates an injected Playwright `Page` to the existing Tistory login entry and verifies that the expected login-entry screen is available.
+
+### Scope
+
+- Add a login-entry navigation workflow under `apps/tistory/workflows`.
+- Accept an injected Playwright `Page` without launching a browser or creating a browser context.
+- Accept the Tistory blog identifier required by the existing URL API.
+- Reuse `createTistoryUrls` to obtain the existing login URL.
+- Navigate with a clear finite wait strategy and no arbitrary sleeps or `networkidle` dependency.
+- Reuse `TistoryLoginPage` to wait for and verify the minimum approved login-entry element.
+- Return a small predictable result on success.
+- Throw a small Tistory-specific error with predictable messages on failure.
+- Export the public workflow API through `apps/tistory/index.ts`.
+- Add automated unit tests with mocked Playwright dependencies and no external network access.
+- Preserve existing behavior and leave the Core Browser Layer unchanged.
+
+### Architecture Ownership
+
+- Workflow orchestration: `apps/tistory/workflows`
+- Tistory URLs: `apps/tistory/config`
+- Tistory selectors: `apps/tistory/selectors`
+- Tistory Page Objects: `apps/tistory/pages`
+- Browser lifecycle and context ownership: unchanged in `core/automation/browser`
+
+### Exclusions
+
+- Browser launch or browser context creation
+- Environment variables, credentials, or credential entry
+- Kakao login or account lookup clicks
+- Login execution or login-success detection
+- Cookie saving, session restoration, or storage-state validation
+- Blog administration or editor navigation
+- HTML input, draft saving, or publishing
+- Developer Dashboard controls
+- External dependencies
+- Core Browser Layer changes
+- Real external network access in automated tests
+
+### Acceptance Criteria
+
+- The workflow uses the login URL returned by the existing `createTistoryUrls` implementation.
+- The injected `Page` is navigated with an explicit finite timeout and state-based wait.
+- Login-entry availability is verified through `TistoryLoginPage` without duplicating selectors.
+- Success returns a small predictable result containing the generated login URL.
+- Navigation and missing login-entry failures produce predictable Tistory-specific errors.
+- Tests mock the injected `Page` and required locator behavior without external network access.
+- Existing tests continue to pass.
+- Typecheck, lint, tests, build, and `git diff --check` pass.
+- Core Browser Layer files remain unchanged.
+
+---
+
 ## Current Development State
 
 Completed through: Feature #8
 
-Next implementation feature: Not yet approved
+Immediate next implementation unit: Feature #9 - Add Tistory Login Entry Navigation
 
-Feature #9 must not begin until its purpose, scope, exclusions, architecture ownership, and acceptance criteria receive explicit approval.
+Feature #9 is approved for implementation, testing, review, and an independent feature commit.
