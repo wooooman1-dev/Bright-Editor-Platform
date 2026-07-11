@@ -15,7 +15,7 @@ Before writing code, read:
 1. Docs/current/00_FOUNDATION
 2. Docs/current/01_PRODUCT
 3. Docs/current/02_ARCHITECTURE
-4. Docs/current/03_DEVELOPMENT (if present)
+4. Docs/current/04_DEVELOPMENT (if present)
 
 If documentation conflicts with code, documentation wins.
 
