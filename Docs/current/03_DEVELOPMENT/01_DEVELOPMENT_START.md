@@ -13,6 +13,7 @@ Before implementing any code, AI agents and developers should read:
 3. Docs/current/01_PRODUCT
 4. Docs/current/02_ARCHITECTURE
 5. This document
+6. Docs/current/03_DEVELOPMENT/02_IMPLEMENTATION_FEATURE_PLAN.md
 
 ---
 
@@ -168,7 +169,8 @@ After each task provide:
 
 # Immediate Next Task
 
-Initialize the application foundation using the approved architecture.
+Implement Feature #7 - Add Tistory Login Page Foundation.
 
-Do not implement additional features until the current step is verified.
+Follow `Docs/current/03_DEVELOPMENT/02_IMPLEMENTATION_FEATURE_PLAN.md` for the approved scope, exclusions, and acceptance criteria.
 
+Do not begin Feature #8 until Feature #7 is implemented, tested, reviewed, and committed.
