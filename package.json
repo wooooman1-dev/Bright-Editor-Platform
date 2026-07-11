@@ -1,0 +1,24 @@
+{
+  "name": "brighteditorplatform",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wooooman1-dev/Bright-Editor-Platform.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/wooooman1-dev/Bright-Editor-Platform/issues"
+  },
+  "homepage": "https://github.com/wooooman1-dev/Bright-Editor-Platform#readme"
+}
