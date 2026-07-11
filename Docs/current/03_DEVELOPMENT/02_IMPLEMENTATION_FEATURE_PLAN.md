@@ -62,7 +62,9 @@ Commits:
 
 ## Feature #7 - Add Tistory Login Page Foundation
 
-Status: Approved - Next
+Status: Completed
+
+Commit: `c2cdc0d feat: add tistory login page foundation`
 
 ### Purpose
 
@@ -116,7 +118,7 @@ The current documentation does not confirm that the Tistory login entry exposes 
 
 ## Feature #8 - Add Developer Dashboard
 
-Status: Approved - Queued After Feature #7
+Status: Approved - Next
 
 ### Purpose
 
@@ -161,8 +163,8 @@ Add a development-only web verification page at `/dev` while keeping it separate
 
 ## Current Development State
 
-Completed through: Feature #6
+Completed through: Feature #7
 
-Immediate next implementation unit: Feature #7 - Add Tistory Login Page Foundation
+Immediate next implementation unit: Feature #8 - Add Developer Dashboard
 
-Feature #8 must not begin until Feature #7 is implemented, tested, reviewed, and committed.
+Feature #8 must be implemented, tested, reviewed, and committed as one independent development unit.

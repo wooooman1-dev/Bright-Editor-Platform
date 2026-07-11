@@ -169,8 +169,8 @@ After each task provide:
 
 # Immediate Next Task
 
-Implement Feature #7 - Add Tistory Login Page Foundation.
+Implement Feature #8 - Add Developer Dashboard.
 
 Follow `Docs/current/03_DEVELOPMENT/02_IMPLEMENTATION_FEATURE_PLAN.md` for the approved scope, exclusions, and acceptance criteria.
 
-Do not begin Feature #8 until Feature #7 is implemented, tested, reviewed, and committed.
+Do not implement features beyond Feature #8 until the current step is verified.
