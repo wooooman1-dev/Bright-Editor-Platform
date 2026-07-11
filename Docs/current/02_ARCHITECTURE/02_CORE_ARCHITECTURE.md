@@ -1,10 +1,26 @@
-# Core Architecture
+# Appendix: Browser Automation Core
 
-Content Strategy Engine
-AI Editor Engine
-Quality Engine
-Image Strategy Engine
-Publishing Engine
-Content Transformation Engine
-Analytics Engine
-AI Provider Layer
+## Browser Automation
+
+Platform-independent browser automation belongs in:
+
+```text
+core/
+  automation/
+    browser/
+      BrowserManager
+      BrowserSession
+      BrowserOptions
+      BrowserErrors
+```
+
+### Responsibilities
+
+- Browser launch/shutdown
+- BrowserContext lifecycle
+- Page creation
+- Shared timeout policy
+- Shared logging
+- Session persistence primitives
+
+Core must never contain platform URLs, selectors, login logic, editor workflows, or publishing logic.

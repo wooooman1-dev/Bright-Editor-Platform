@@ -1,59 +1,36 @@
-# 08_PLATFORM_ADAPTER
+# Appendix: Browser Automation Layer
 
-## Purpose
+## Layer
 
-Separate platform-specific logic from the reusable Core.
-
-## Architecture
-
-``` text
-Core
-   ↓
-Platform Adapter
-   ├── Tistory
-   ├── WordPress
-   ├── YouTube
-   ├── Naver Cafe
-   └── Shopping
+```text
+Apps
+    │
+    ▼
+Core Automation Browser
+    │
+    ▼
+Playwright
 ```
 
-## Responsibilities
+### Core
 
-Platform adapters should implement:
+- Launch browser
+- Close browser
+- Context management
+- Shared browser configuration
 
--   Authentication
--   Content Upload
--   Image Upload
--   Draft Save
--   Publish
--   Status Retrieval
+### App
 
-## Core Responsibility
+- Login
+- Navigation
+- Selectors
+- Page Objects
+- HTML input
+- Draft save
+- Publishing (future)
 
-Core must never contain platform-specific code.
+Dependency direction:
 
-## Adapter Interface (Concept)
+Apps -> Core -> Playwright
 
--   Login
--   Open Editor
--   Upload Images
--   Insert HTML
--   Save Draft
--   Publish
--   Get Status
-
-## Initial Target
-
-Tistory Adapter
-
--   Playwright
--   Cookie Login
--   HTML Editor
--   Draft Save
-
-## Future Platforms
-
--   WordPress
--   YouTube
--   Naver Cafe
--   Shopping
+Core must never depend on Apps.
