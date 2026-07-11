@@ -118,7 +118,11 @@ The current documentation does not confirm that the Tistory login entry exposes 
 
 ## Feature #8 - Add Developer Dashboard
 
-Status: Approved - Next
+Status: Completed
+
+Implementation Commit: `912cabb feat: add developer dashboard`
+
+UI Redesign Commit: `3a277b6 style: redesign developer dashboard`
 
 ### Purpose
 
@@ -163,8 +167,8 @@ Add a development-only web verification page at `/dev` while keeping it separate
 
 ## Current Development State
 
-Completed through: Feature #7
+Completed through: Feature #8
 
-Immediate next implementation unit: Feature #8 - Add Developer Dashboard
+Next implementation feature: Not yet approved
 
-Feature #8 must be implemented, tested, reviewed, and committed as one independent development unit.
+Feature #9 must not begin until its purpose, scope, exclusions, architecture ownership, and acceptance criteria receive explicit approval.

@@ -50,6 +50,15 @@ The architecture must support future applications:
 
 ---
 
+# Product Naming
+
+- Internal project and repository name: Bright Editor Platform
+- User-facing web product name: Bright Studio
+- Bright Studio represents the full content lifecycle, including generation, SEO, quality review, image strategy, automation, publishing, and platform management; it is not limited to editing.
+- Repository paths, package names, architecture layers, and internal project documentation retain the Bright Editor Platform name unless a future approved task explicitly changes them.
+
+---
+
 # Current Technology Stack
 
 Framework
@@ -169,8 +178,8 @@ After each task provide:
 
 # Immediate Next Task
 
-Implement Feature #8 - Add Developer Dashboard.
+Feature #8 - Add Developer Dashboard is completed.
 
-Follow `Docs/current/03_DEVELOPMENT/02_IMPLEMENTATION_FEATURE_PLAN.md` for the approved scope, exclusions, and acceptance criteria.
+The next implementation feature is not yet approved or assigned.
 
-Do not implement features beyond Feature #8 until the current step is verified.
+Do not begin Feature #9 until the user explicitly approves its purpose, scope, exclusions, architecture ownership, and acceptance criteria in `Docs/current/03_DEVELOPMENT/02_IMPLEMENTATION_FEATURE_PLAN.md`.
