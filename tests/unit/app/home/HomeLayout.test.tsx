@@ -28,6 +28,13 @@ describe("HomeLayout", () => {
     expect(html).not.toContain("<aside");
   });
 
+  it("links the selected Workspace context to its Workspace route", () => {
+    const html = renderHome({ name: "working", workspaces: [workspace], selectedWorkspaceId: workspace.id, recentProjects: [] });
+
+    expect(html).toContain('href="/workspaces/bright-studio"');
+    expect(html).toContain("Open workspace");
+  });
+
   it("renders Continue Working only when an active project exists", () => {
     const workingHtml = renderHome({ name: "working", workspaces: [workspace], activeProject, recentProjects: [] });
     const inactiveHtml = renderHome({ name: "working", workspaces: [workspace], recentProjects: [] });

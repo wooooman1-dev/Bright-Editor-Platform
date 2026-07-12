@@ -1,8 +1,7 @@
-import Link from "next/link";
+import type { ProjectSummary } from "../shared/view-models/workspace";
+import { GlobalHeader } from "../shared/ui/GlobalHeader";
+import type { HomeState } from "./home-state";
 
-import type { HomeState, ProjectSummary } from "./home-state";
-
-const navigationItems = ["Home", "Projects", "Library", "Templates", "Publish", "Analytics", "Settings"] as const;
 const quickActions = [
   { label: "New project", detail: "Start with a clear goal", symbol: "+" },
   { label: "Open library", detail: "Reuse trusted content", symbol: "L" },
@@ -15,7 +14,7 @@ export function HomeLayout({ state }: { state: HomeState }) {
 
   return (
     <main className="min-h-screen bg-[#f8f8fa] text-[#19191b]">
-      <HomeHeader state={state} />
+      <GlobalHeader activeItem="Home" selectedWorkspaceId={state.selectedWorkspaceId} workspaces={state.workspaces} />
       <div className="mx-auto w-full max-w-6xl px-5 py-8 sm:px-8 sm:py-10 lg:px-10 lg:py-12">
         <section aria-labelledby="home-title" className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
@@ -23,7 +22,10 @@ export function HomeLayout({ state }: { state: HomeState }) {
             <h1 id="home-title" className="mt-2 text-3xl font-semibold tracking-[-0.04em] sm:text-4xl">{homeCopy[state.name].title}</h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-[#77777f] sm:text-base">{homeCopy[state.name].description}</p>
           </div>
-          {state.name !== "first-visit" ? <PrimaryLink href="#quick-actions">New project</PrimaryLink> : null}
+          <div className="flex flex-wrap gap-3">
+            {workspace ? <PrimaryLink href={`/workspaces/${workspace.id}`}>Open workspace</PrimaryLink> : null}
+            {state.name !== "first-visit" ? <PrimaryLink href="#quick-actions">New project</PrimaryLink> : null}
+          </div>
         </section>
 
         <div className="mt-8 space-y-8">
@@ -35,42 +37,6 @@ export function HomeLayout({ state }: { state: HomeState }) {
         </div>
       </div>
     </main>
-  );
-}
-
-function HomeHeader({ state }: { state: HomeState }) {
-  return (
-    <header className="border-b border-black/6 bg-white">
-      <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-4 px-5 py-4 sm:px-8 lg:px-10">
-        <Link className="flex shrink-0 items-center gap-3" href="/" aria-label="Bright Studio home">
-          <span aria-hidden="true" className="flex size-10 items-center justify-center rounded-[13px] bg-[#ff6b6b] font-bold text-white shadow-[0_8px_24px_rgba(255,107,107,0.24)]">B</span>
-          <span className="text-lg font-semibold tracking-[-0.03em]">Bright Studio</span>
-        </Link>
-        <WorkspaceSelector state={state} />
-        <nav aria-label="Global navigation" className="order-3 w-full overflow-x-auto lg:order-2 lg:ml-auto lg:w-auto">
-          <ul className="flex min-w-max items-center gap-1">
-            {navigationItems.map((item) => (
-              <li key={item}>
-                <a aria-current={item === "Home" ? "page" : undefined} className={`block rounded-lg px-3 py-2 text-sm font-medium transition ${item === "Home" ? "bg-[#fff0f0] text-[#d94848]" : "text-[#65656d] hover:bg-[#f8f8fa] hover:text-[#19191b]"}`} href={item === "Home" ? "/" : `#${item.toLowerCase()}`}>{item}</a>
-              </li>
-            ))}
-          </ul>
-        </nav>
-      </div>
-    </header>
-  );
-}
-
-function WorkspaceSelector({ state }: { state: HomeState }) {
-  if (state.workspaces.length === 0) return <span className="order-2 ml-auto rounded-xl border border-black/8 bg-[#fafafa] px-3 py-2 text-xs font-medium text-[#77777f]">No workspace</span>;
-
-  return (
-    <label className="order-2 ml-auto lg:order-3 lg:ml-3">
-      <span className="sr-only">Workspace</span>
-      <select className="max-w-44 rounded-xl border border-black/8 bg-[#fafafa] px-3 py-2 text-sm font-medium text-[#44444b] outline-none focus:border-[#ff6b6b]/60 focus:ring-4 focus:ring-[#ff6b6b]/10" defaultValue={state.selectedWorkspaceId ?? state.workspaces[0].id}>
-        {state.workspaces.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}
-      </select>
-    </label>
   );
 }
 
