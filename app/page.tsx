@@ -1,7 +1,6 @@
-﻿export default function Home() {
-  return (
-    <main className="flex min-h-screen items-center justify-center">
-      <h1 className="text-3xl font-bold">Bright Studio</h1>
-    </main>
-  );
+import { HomeLayout } from "./home/HomeLayout";
+import { sprintThreeHomeState } from "./home/home-state";
+
+export default function Home() {
+  return <HomeLayout state={sprintThreeHomeState} />;
 }
