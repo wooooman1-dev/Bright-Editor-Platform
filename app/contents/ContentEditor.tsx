@@ -7,6 +7,7 @@ import { ContentEditorForm } from "./ContentEditorForm";
 
 export function ContentEditor({ state }: { state: ContentEditorState }) {
   const dashboardHref = `/workspaces/${state.workspace.id}/projects/${state.project.id}`;
+  const publishHref = `/workspaces/${state.workspace.id}/projects/${state.project.id}/contents/${state.content.id}/publish`;
 
   return (
     <main className="min-h-screen bg-[#f8f8fa] text-[#19191b]">
@@ -29,6 +30,7 @@ export function ContentEditor({ state }: { state: ContentEditorState }) {
         <ContentEditorForm content={state.content} />
 
         <section aria-label="Editor actions" className="mt-4 flex flex-wrap gap-2">
+          <Link className="rounded-xl border border-[#ff6b6b]/20 bg-[#fff0f0] px-4 py-2.5 text-sm font-semibold text-[#d94848] transition hover:bg-[#ffe7e7]" href={publishHref}>Review publish readiness</Link>
           <button aria-disabled="true" className="cursor-not-allowed rounded-xl border border-black/8 bg-white px-4 py-2.5 text-sm font-semibold text-[#8b8b93]" disabled type="button">More editor actions · Coming soon</button>
         </section>
       </div>

@@ -72,4 +72,12 @@ describe("ContentEditor", () => {
     expect(html).toContain("md:flex-row");
     expect(html).toContain("sm:min-h-96");
   });
+
+  it("links the current Content to its Publish preparation route", () => {
+    const state = getContentEditorState("bright-studio", "content-operations", "content-workflow-map")!;
+    const html = renderToStaticMarkup(<ContentEditor state={state} />);
+
+    expect(html).toContain('href="/workspaces/bright-studio/projects/content-operations/contents/content-workflow-map/publish"');
+    expect(html).toContain("Review publish readiness");
+  });
 });
