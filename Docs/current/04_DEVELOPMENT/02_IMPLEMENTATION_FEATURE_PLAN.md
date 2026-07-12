@@ -300,10 +300,38 @@ Add a Tistory application-level coordinator that applies Tistory stored-session 
 
 ---
 
+## Feature #11 - Tistory Editor Entry Navigation
+
+Status: Completed
+
+Implementation Commit: `11d8a78 feat: add tistory editor entry navigation`
+
+### Implementation Summary
+
+- Added a Tistory editor-entry navigation workflow under `apps/tistory/workflows`.
+- Accepted an injected Playwright `Page` and reused `createTistoryUrls(...).editor`.
+- Navigated with an explicit finite timeout and `domcontentloaded` wait strategy.
+- Verified the minimum editor-entry success condition through the resulting page URL.
+- Returned a small immutable result containing the generated editor URL.
+- Normalized invalid blog identifiers, navigation failures, and unavailable editor entry into predictable Tistory-specific errors.
+- Exported the public workflow API through `apps/tistory/index.ts`.
+- Added unit tests using mocked Playwright behavior with no external network access.
+- Left Core Browser Layer files unchanged.
+
+### Validation Results
+
+- `npm run typecheck`: Passed
+- `npm run lint`: Passed
+- `npm test`: Passed (9 test files, 46 tests)
+- `npm run build`: Passed
+- `git diff --check`: Passed
+
+---
+
 ## Current Development State
 
-Completed through: Feature #10
+Completed through: Feature #11
 
 Immediate next implementation unit: Not yet approved
 
-Feature #11 must be explicitly approved before implementation begins.
+Feature #12 must be explicitly approved before implementation begins.
