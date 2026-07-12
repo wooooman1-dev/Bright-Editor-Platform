@@ -178,8 +178,8 @@ After each task provide:
 
 # Immediate Next Task
 
-Feature #11 - Tistory Editor Entry Navigation is completed.
+Feature #12 - Tistory Editor Ready Check is completed.
 
 The next implementation feature is not yet approved.
 
-Do not begin Feature #12 until it is explicitly approved in `Docs/current/04_DEVELOPMENT/02_IMPLEMENTATION_FEATURE_PLAN.md`.
+Do not begin Feature #13 until it is explicitly approved in `Docs/current/04_DEVELOPMENT/02_IMPLEMENTATION_FEATURE_PLAN.md`.

@@ -328,10 +328,42 @@ Implementation Commit: `11d8a78 feat: add tistory editor entry navigation`
 
 ---
 
+## Feature #12 - Tistory Editor Ready Check
+
+Status: Completed
+
+Implementation Commit: `96770fc feat: add tistory editor ready check`
+
+### Implementation Summary
+
+- Added a Tistory editor-ready check workflow under `apps/tistory/workflows`.
+- Accepted an injected Playwright `Page` and reused the existing Tistory editor-entry navigation workflow.
+- Applied an explicit finite timeout while waiting for the Playwright `load` state.
+- Used the completed `load` state and final page URL as the minimum editor-ready check.
+- Classified login URL redirects as expired sessions and other unavailable entry states as predictable Tistory-specific errors.
+- Returned a small immutable ready result containing the generated editor URL and `ready` status.
+- Exported the public workflow API through `apps/tistory/index.ts`.
+- Added unit tests using mocked Playwright behavior with no external network access.
+- Added no selectors, Page Objects, editor DOM automation, or Core Browser Layer changes.
+
+### Validation Results
+
+- `npm run typecheck`: Passed
+- `npm run lint`: Passed
+- `npm test`: Passed (10 test files, 51 tests)
+- `npm run build`: Passed
+- `git diff --check`: Passed
+
+### Ready Check Boundary
+
+The ready decision is intentionally limited to Playwright's completed `load` state and the final page URL. It does not inspect the editor DOM or automate editor controls.
+
+---
+
 ## Current Development State
 
-Completed through: Feature #11
+Completed through: Feature #12
 
 Immediate next implementation unit: Not yet approved
 
-Feature #12 must be explicitly approved before implementation begins.
+Feature #13 must be explicitly approved before implementation begins.
