@@ -178,8 +178,8 @@ After each task provide:
 
 # Immediate Next Task
 
-Feature #12 - Tistory Editor Ready Check is completed.
+Feature #13 - Editor Adapter Foundation is completed.
 
 The next implementation feature is not yet approved.
 
-Do not begin Feature #13 until it is explicitly approved in `Docs/current/04_DEVELOPMENT/02_IMPLEMENTATION_FEATURE_PLAN.md`.
+Do not begin Feature #14 until it is explicitly approved in `Docs/current/04_DEVELOPMENT/02_IMPLEMENTATION_FEATURE_PLAN.md`.

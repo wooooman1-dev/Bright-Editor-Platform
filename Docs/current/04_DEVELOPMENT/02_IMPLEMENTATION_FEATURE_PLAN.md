@@ -360,10 +360,37 @@ The ready decision is intentionally limited to Playwright's completed `load` sta
 
 ---
 
+## Feature #13 - Editor Adapter Foundation
+
+Status: Completed
+
+Implementation Commit: `acef2d4 feat: add editor adapter foundation`
+
+### Implementation Summary
+
+- Added the platform-independent `EditorAdapter` contract under `core/editor`.
+- Added the Tistory-specific `TistoryEditorAdapter` foundation under `apps/tistory/editor`.
+- Defined a Playwright `Page` injection boundary for the Tistory adapter while leaving browser lifecycle ownership unchanged.
+- Defined the future editor capability contract for preparation, readiness, title, content, image, video, button, draft saving, and publishing.
+- Exported the Tistory adapter foundation through `apps/tistory/index.ts` and the platform-independent contract through `core/editor/index.ts`.
+- Added unit tests for contract compatibility and the no-DOM foundation boundary.
+- Implemented no DOM manipulation, selectors, title or content input, image, video, button, draft saving, or publishing behavior.
+- Left the existing workflows and Core Browser Layer unchanged.
+
+### Validation Results
+
+- `npm run typecheck`: Passed
+- `npm run lint`: Passed
+- `npm test`: Passed (11 test files, 53 tests)
+- `npm run build`: Passed
+- `git diff --check`: Passed
+
+---
+
 ## Current Development State
 
-Completed through: Feature #12
+Completed through: Feature #13
 
 Immediate next implementation unit: Not yet approved
 
-Feature #13 must be explicitly approved before implementation begins.
+Feature #14 must be explicitly approved before implementation begins.
