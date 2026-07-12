@@ -9,31 +9,31 @@ export const workspaceFixtures: readonly WorkspaceSummary[] = [
   {
     id: "bright-studio",
     name: "Bright Studio",
-    description: "A quality-first brand for building professional content systems.",
-    audience: "Content creators and operators",
-    updatedAt: "Updated today",
+    description: "전문적인 콘텐츠 시스템을 만드는 품질 중심 브랜드입니다.",
+    audience: "콘텐츠 제작자와 운영자",
+    updatedAt: "오늘 수정",
   },
   {
     id: "bright-health",
     name: "Bright Health",
-    description: "A trusted health information brand for practical daily guidance.",
-    audience: "Health-conscious readers",
-    updatedAt: "Updated 5 days ago",
+    description: "실용적인 일상 지침을 제공하는 신뢰도 높은 건강 정보 브랜드입니다.",
+    audience: "건강에 관심 있는 독자",
+    updatedAt: "5일 전 수정",
   },
   {
     id: "new-brand",
-    name: "New Brand",
-    description: "A new brand workspace ready for its first focused project.",
-    audience: "Audience not defined",
-    updatedAt: "Created today",
+    name: "새 브랜드",
+    description: "첫 번째 목적 중심 프로젝트를 시작할 새 브랜드 워크스페이스입니다.",
+    audience: "대상 독자 미정",
+    updatedAt: "오늘 생성",
   },
 ] as const;
 
 export const projectFixtures: readonly ProjectSummary[] = [
-  { id: "content-operations", workspaceId: "bright-studio", name: "Content Operations Foundation", description: "Build the first repeatable content workflow.", status: "in-progress", updatedAt: "Today" },
-  { id: "editorial-system", workspaceId: "bright-studio", name: "Editorial System", description: "Define a consistent quality-first production process.", status: "review", updatedAt: "Yesterday" },
-  { id: "launch-series", workspaceId: "bright-studio", name: "Launch Series", description: "Plan the first multi-channel publishing series.", status: "planning", updatedAt: "3 days ago" },
-  { id: "healthy-habits", workspaceId: "bright-health", name: "Healthy Habits Series", description: "Create a practical evergreen health series.", status: "in-progress", updatedAt: "2 days ago" },
+  { id: "content-operations", workspaceId: "bright-studio", name: "콘텐츠 운영 기반", description: "반복 가능한 첫 콘텐츠 작업 흐름을 구축합니다.", status: "in-progress", updatedAt: "오늘" },
+  { id: "editorial-system", workspaceId: "bright-studio", name: "편집 시스템", description: "일관된 품질 중심 제작 과정을 정의합니다.", status: "review", updatedAt: "어제" },
+  { id: "launch-series", workspaceId: "bright-studio", name: "출시 시리즈", description: "첫 멀티채널 콘텐츠 시리즈를 기획합니다.", status: "planning", updatedAt: "3일 전" },
+  { id: "healthy-habits", workspaceId: "bright-health", name: "건강한 습관 시리즈", description: "실용적인 상시 건강 콘텐츠 시리즈를 만듭니다.", status: "in-progress", updatedAt: "2일 전" },
 ] as const;
 
 export function getWorkspaceViewState(workspaceId: string): WorkspaceViewState | undefined {

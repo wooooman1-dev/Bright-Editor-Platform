@@ -11,11 +11,11 @@ describe("ProjectDashboard", () => {
     expect(state).toBeDefined();
     const html = renderToStaticMarkup(<ProjectDashboard state={state!} />);
 
-    expect(html).toContain("Content Operations Foundation");
-    expect(html).toContain("Back to Bright Studio");
+    expect(html).toContain("콘텐츠 운영 기반");
+    expect(html).toContain("Bright Studio(으)로 돌아가기");
     expect(html).toContain('href="/workspaces/bright-studio"');
-    expect(html).toContain("Build the first repeatable content workflow.");
-    expect(html).toContain("June 18, 2026");
+    expect(html).toContain("반복 가능한 첫 콘텐츠 작업 흐름을 구축합니다.");
+    expect(html).toContain("2026년 6월 18일");
   });
 
   it("includes only Content owned by the current Project", () => {
@@ -25,8 +25,8 @@ describe("ProjectDashboard", () => {
 
     expect(state!.contents.length).toBe(3);
     expect(state!.contents.every((content) => content.projectId === state!.project.id)).toBe(true);
-    expect(html).toContain("A practical content workflow map");
-    expect(html).not.toContain("Editorial principles that scale");
+    expect(html).toContain("실용적인 콘텐츠 작업 흐름");
+    expect(html).not.toContain("확장 가능한 편집 원칙");
     expect(contentSummaryFixtures.some((content) => content.projectId === "editorial-system")).toBe(true);
   });
 
@@ -36,17 +36,17 @@ describe("ProjectDashboard", () => {
     const html = renderToStaticMarkup(<ProjectDashboard state={state!} />);
 
     expect(state!.contents).toHaveLength(0);
-    expect(html).toContain("No content yet");
-    expect(html).toContain("This project is ready for its first content");
-    expect(html).toContain("Launch Series");
+    expect(html).toContain("아직 콘텐츠가 없습니다");
+    expect(html).toContain("첫 콘텐츠를 시작할 준비가 되었습니다");
+    expect(html).toContain("출시 시리즈");
   });
 
   it("uses safe disabled controls without Editor or Publish destination links", () => {
     const state = getProjectDashboardState("bright-studio", "content-operations");
     const html = renderToStaticMarkup(<ProjectDashboard state={state!} />);
 
-    expect(html).toContain("Edit project · Coming soon");
-    expect(html).toContain("New content · Coming soon");
+    expect(html).toContain("프로젝트 수정 · 준비 중");
+    expect(html).toContain("새 콘텐츠 · 준비 중");
     expect(html).toContain("disabled");
     expect(html).not.toContain('href="/editor');
     expect(html).not.toContain('href="/publish');
@@ -58,8 +58,8 @@ describe("ProjectDashboard", () => {
     const html = renderToStaticMarkup(<ProjectDashboard state={state!} />);
 
     expect(html).toContain('href="/workspaces/bright-studio/projects/content-operations/contents/content-workflow-map/edit"');
-    expect(html).toContain("New content · Coming soon");
-    expect(html).toMatch(/<button[^>]*disabled[^>]*>New content/);
+    expect(html).toContain("새 콘텐츠 · 준비 중");
+    expect(html).toMatch(/<button[^>]*disabled[^>]*>새 콘텐츠/);
   });
 
   it("has no sidebar and includes mobile, tablet, and desktop layout rules", () => {

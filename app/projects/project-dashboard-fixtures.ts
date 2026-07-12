@@ -23,25 +23,25 @@ export type ProjectDashboardState = Readonly<{
 const projectDetailsFixtures: readonly ProjectDashboardDetails[] = [
   {
     projectId: "content-operations",
-    createdAt: "June 18, 2026",
+    createdAt: "2026년 6월 18일",
     publishProgress: { published: 1, total: 3 },
     actions: ["Edit project", "Archive project"],
   },
   {
     projectId: "editorial-system",
-    createdAt: "June 23, 2026",
+    createdAt: "2026년 6월 23일",
     publishProgress: { published: 0, total: 2 },
     actions: ["Edit project", "Archive project"],
   },
   {
     projectId: "launch-series",
-    createdAt: "July 2, 2026",
+    createdAt: "2026년 7월 2일",
     publishProgress: { published: 0, total: 0 },
     actions: ["Edit project", "Archive project"],
   },
   {
     projectId: "healthy-habits",
-    createdAt: "June 28, 2026",
+    createdAt: "2026년 6월 28일",
     publishProgress: { published: 1, total: 2 },
     actions: ["Edit project", "Archive project"],
   },

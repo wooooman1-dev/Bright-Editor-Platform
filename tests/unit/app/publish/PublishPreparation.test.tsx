@@ -16,14 +16,14 @@ describe("PublishPreparation", () => {
     expect(state).toBeDefined();
     const html = renderToStaticMarkup(<PublishPreparation state={state!} />);
 
-    expect(html).toContain("Bright Studio / Content Operations Foundation");
-    expect(html).toContain("A practical content workflow map");
-    expect(html).toContain("Publish readiness");
-    expect(html).toContain("Content selected");
-    expect(html).toContain("Draft available");
-    expect(html).toContain("Platform connection");
-    expect(html).toContain("Not connected");
-    expect(html).toContain("Needs connection");
+    expect(html).toContain("Bright Studio / 콘텐츠 운영 기반");
+    expect(html).toContain("실용적인 콘텐츠 작업 흐름");
+    expect(html).toContain("발행 준비 상태");
+    expect(html).toContain("콘텐츠 선택");
+    expect(html).toContain("초안 확인");
+    expect(html).toContain("플랫폼 연결");
+    expect(html).toContain("연결되지 않음");
+    expect(html).toContain("발행 연결 준비 중");
   });
 
   it("links back to the current Editor and Project Dashboard", () => {
@@ -41,10 +41,10 @@ describe("PublishPreparation", () => {
 
     expect(initial.notice).toBeNull();
     expect(afterPublish.notice).toBe(publishUnavailableNotice);
-    expect(afterPublish.notice).toBe("Publishing is not connected yet. No content was published.");
-    expect(html).toContain("This preparation screen cannot publish content.");
-    expect(html).toContain(">Publish</button>");
-    expect(html).not.toContain("Successfully published");
+    expect(afterPublish.notice).toBe("발행 기능은 아직 연결되지 않았습니다. 아직 어떤 콘텐츠도 발행되지 않았습니다.");
+    expect(html).toContain("이 화면에서는 발행 준비 상태만 확인할 수 있습니다.");
+    expect(html).toContain(">발행 연결 확인</button>");
+    expect(html).not.toContain("발행 완료");
   });
 
   it("has no sidebar and includes mobile, tablet, and desktop layout rules", () => {

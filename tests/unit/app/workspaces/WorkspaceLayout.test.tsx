@@ -25,9 +25,9 @@ describe("WorkspaceLayout", () => {
     expect(state).toBeDefined();
     const html = renderToStaticMarkup(<WorkspaceLayout state={state!} />);
 
-    expect(html).toContain("Content Operations Foundation");
-    expect(html).toContain("Editorial System");
-    expect(html).not.toContain("Healthy Habits Series");
+    expect(html).toContain("콘텐츠 운영 기반");
+    expect(html).toContain("편집 시스템");
+    expect(html).not.toContain("건강한 습관 시리즈");
     expect(state!.projects.every((project) => project.workspaceId === state!.workspace.id)).toBe(true);
   });
 
@@ -36,9 +36,9 @@ describe("WorkspaceLayout", () => {
     expect(state).toBeDefined();
     const html = renderToStaticMarkup(<WorkspaceLayout state={state!} />);
 
-    expect(html).toContain("Empty Workspace");
-    expect(html).toContain("Create the first project for New Brand");
-    expect(html).not.toContain("Project details");
+    expect(html).toContain("비어 있는 워크스페이스");
+    expect(html).toContain("새 브랜드의 첫 프로젝트를 만드세요");
+    expect(html).not.toContain("프로젝트 열기");
   });
 
   it("has no sidebar and includes narrow-screen grid rules", () => {

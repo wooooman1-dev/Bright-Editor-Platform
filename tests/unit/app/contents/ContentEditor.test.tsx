@@ -16,12 +16,12 @@ describe("ContentEditor", () => {
     expect(state).toBeDefined();
     const html = renderToStaticMarkup(<ContentEditor state={state!} />);
 
-    expect(html).toContain("Bright Studio / Content Operations Foundation");
-    expect(html).toContain("Content Editor");
-    expect(html).toContain('value="A practical content workflow map"');
-    expect(html).toContain("A dependable content workflow starts with a clear goal.");
-    expect(html).toContain("Published");
-    expect(html).toContain("Updated Today");
+    expect(html).toContain("Bright Studio / 콘텐츠 운영 기반");
+    expect(html).toContain("콘텐츠 편집기");
+    expect(html).toContain('value="실용적인 콘텐츠 작업 흐름"');
+    expect(html).toContain("신뢰할 수 있는 콘텐츠 작업 흐름은 명확한 목표에서 시작합니다.");
+    expect(html).toContain("발행됨");
+    expect(html).toContain("최근 수정 오늘");
   });
 
   it("updates title and body only in the local Editor state", () => {
@@ -32,7 +32,7 @@ describe("ContentEditor", () => {
 
     expect(withTitle.title).toBe("Locally edited title");
     expect(withBody.body).toBe("Locally edited body");
-    expect(content.title).toBe("A practical content workflow map");
+    expect(content.title).toBe("실용적인 콘텐츠 작업 흐름");
     expect(content.body).not.toBe("Locally edited body");
   });
 
@@ -41,11 +41,11 @@ describe("ContentEditor", () => {
     const html = renderToStaticMarkup(<ContentEditorForm content={content} />);
     const afterSave = reduceEditorLocalState(createEditorLocalState(content), { type: "save-draft" });
 
-    expect(html).toContain("Save Draft");
-    expect(html).toContain("This preview does not persist changes.");
+    expect(html).toContain("임시저장 확인");
+    expect(html).toContain("현재 버전에서는 변경 내용이 실제로 저장되지 않습니다.");
     expect(afterSave.notice).toBe(nonPersistentDraftNotice);
-    expect(afterSave.notice).toContain("were not saved");
-    for (const forbidden of ["Draft saved", "Successfully saved", "Last saved at", "Saved"]) {
+    expect(afterSave.notice).toContain("저장되지 않았습니다");
+    for (const forbidden of ["저장 완료", "성공적으로 저장됨", "초안 저장됨"]) {
       expect(html).not.toContain(forbidden);
       expect(afterSave.notice).not.toContain(forbidden);
     }
@@ -78,6 +78,6 @@ describe("ContentEditor", () => {
     const html = renderToStaticMarkup(<ContentEditor state={state} />);
 
     expect(html).toContain('href="/workspaces/bright-studio/projects/content-operations/contents/content-workflow-map/publish"');
-    expect(html).toContain("Review publish readiness");
+    expect(html).toContain("발행 준비 확인");
   });
 });

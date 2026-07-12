@@ -16,7 +16,7 @@ export type PublishPreparationState = Readonly<{
   content: ContentSummary;
   readiness: "needs-connection";
   platform: Readonly<{
-    name: "Not connected";
+    name: "연결되지 않음";
     status: "unavailable";
   }>;
   checklist: readonly PublishChecklistItem[];
@@ -37,15 +37,15 @@ export function getPublishPreparationState(workspaceId: string, projectId: strin
     project,
     content,
     readiness: "needs-connection",
-    platform: { name: "Not connected", status: "unavailable" },
+    platform: { name: "연결되지 않음", status: "unavailable" },
     checklist: [
-      { id: "content-selected", label: "Content selected", status: "ready", detail: content.title },
-      { id: "draft-available", label: "Draft available", status: "ready", detail: `Current status: ${formatStatus(content.status)}` },
-      { id: "platform-connection", label: "Platform connection", status: "pending", detail: "No publishing platform is connected." },
+      { id: "content-selected", label: "콘텐츠 선택", status: "ready", detail: content.title },
+      { id: "draft-available", label: "초안 확인", status: "ready", detail: `현재 상태: ${formatStatus(content.status)}` },
+      { id: "platform-connection", label: "플랫폼 연결", status: "pending", detail: "연결된 발행 플랫폼이 없습니다." },
     ],
   };
 }
 
 function formatStatus(status: string): string {
-  return status.split("-").map((part) => part[0].toUpperCase() + part.slice(1)).join(" ");
+  return { draft: "초안", "in-review": "검토 중", ready: "준비됨", published: "발행됨" }[status] ?? status;
 }

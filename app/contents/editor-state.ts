@@ -1,6 +1,6 @@
 import type { ContentEditorViewModel } from "./content-editor-fixtures";
 
-export const nonPersistentDraftNotice = "Changes remain only in this browser session and were not saved.";
+export const nonPersistentDraftNotice = "변경 내용은 현재 화면에만 유지되며 저장되지 않았습니다.";
 
 export type EditorLocalState = Readonly<{
   title: string;

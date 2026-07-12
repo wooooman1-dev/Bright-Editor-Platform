@@ -1,4 +1,4 @@
-export const publishUnavailableNotice = "Publishing is not connected yet. No content was published.";
+export const publishUnavailableNotice = "발행 기능은 아직 연결되지 않았습니다. 아직 어떤 콘텐츠도 발행되지 않았습니다.";
 
 export type PublishActionState = Readonly<{
   notice: string | null;
