@@ -3,6 +3,7 @@ export {
   createTistoryUrls,
   type TistoryUrls,
 } from "./config/TistoryUrls";
+export { TistoryEditorAdapter } from "./editor/TistoryEditorAdapter";
 export { TistoryLoginPage } from "./pages/TistoryLoginPage";
 export {
   navigateToTistoryEditorEntry,
