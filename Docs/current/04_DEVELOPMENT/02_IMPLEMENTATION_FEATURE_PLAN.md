@@ -451,6 +451,46 @@ Pipeline policy:
 
 ---
 
+## Sprint 2 Verification Tool - Content Processing Playground
+
+Status: Approved and Completed
+
+Implementation Commit: `e75e3b7 chore(dev): add content processing playground`
+
+Route: `/dev/content-processing`
+
+### Purpose and Architecture
+
+- Manually verifies the real Sprint 2 `ContentPipeline` in the running web application.
+- Keeps the route and UI outside Core and uses the real `ContentPipeline` through the public Core API.
+- Duplicates no Content processing logic and adds no Sprint 3 Content Composer functionality.
+- Is available in development; production returns HTTP 404 through `notFound` behavior.
+
+### Samples
+
+- Valid Document
+- Missing Image Alt
+- Duplicate Block ID
+- Invalid Video URL
+- Invalid Heading Hierarchy
+- Empty Paragraph
+- Missing Block IDs
+- Mixed Valid Blocks
+
+### Verification Results
+
+- Focused tests: Passed (1 test file, 8 tests)
+- `npm test`: Passed (18 test files, 87 tests)
+- `npm run typecheck`: Passed
+- `npm run lint`: Passed
+- `npm run build`: Passed
+- `git diff --check`: Passed
+- Development route: HTTP 200
+- Production route: HTTP 404
+- Sprint 3 has not started.
+
+---
+
 ## Current Development State
 
 Sprint 1: Completed
