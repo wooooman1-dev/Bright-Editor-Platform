@@ -51,12 +51,12 @@ describe("WorkspaceLayout", () => {
     expect(html).toContain("w-full overflow-x-auto");
   });
 
-  it("uses disabled placeholders instead of links to missing Project routes", () => {
+  it("links each Project to its Workspace-scoped Dashboard route", () => {
     const state = getWorkspaceViewState("bright-studio");
     const html = renderToStaticMarkup(<WorkspaceLayout state={state!} />);
 
-    expect(html).toContain("Project details · Coming soon");
-    expect(html).toContain("disabled");
-    expect(html).not.toContain("/projects/");
+    expect(html).toContain('href="/workspaces/bright-studio/projects/content-operations"');
+    expect(html).toContain('href="/workspaces/bright-studio/projects/editorial-system"');
+    expect(html).not.toContain('href="/projects/');
   });
 });

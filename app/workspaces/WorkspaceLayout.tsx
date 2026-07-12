@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { GlobalHeader } from "../shared/ui/GlobalHeader";
 import type { ProjectSummary } from "../shared/view-models/workspace";
 import { workspaceFixtures, type WorkspaceViewState } from "./workspace-fixtures";
@@ -41,7 +43,7 @@ function ProjectList({ projects }: { projects: readonly ProjectSummary[] }) {
             <div className="flex items-start justify-between gap-3"><StatusBadge status={project.status} /><span className="text-xs text-[#92929a]">{project.updatedAt}</span></div>
             <h3 className="mt-4 text-lg font-semibold tracking-[-0.025em]">{project.name}</h3>
             <p className="mt-2 text-sm leading-6 text-[#77777f]">{project.description}</p>
-            <button aria-disabled="true" className="mt-5 cursor-not-allowed text-sm font-semibold text-[#a0a0a8]" disabled type="button">Project details · Coming soon</button>
+            <Link className="mt-5 inline-flex text-sm font-semibold text-[#d94848]" href={`/workspaces/${project.workspaceId}/projects/${project.id}`}>Open project</Link>
           </article>
         ))}
       </div>
