@@ -178,8 +178,8 @@ After each task provide:
 
 # Immediate Next Task
 
-Feature #13 - Editor Adapter Foundation is completed.
+Sprint 1 - Content Foundation is completed.
 
-The next implementation feature is not yet approved.
+Sprint 2 - Content Processing Engine is completed and received final review verdict `APPROVE`.
 
-Do not begin Feature #14 until it is explicitly approved in `Docs/current/04_DEVELOPMENT/02_IMPLEMENTATION_FEATURE_PLAN.md`.
+Sprint 3 - Content Composer has not started and remains pending Product Owner approval.
