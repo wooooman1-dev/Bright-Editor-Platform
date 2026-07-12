@@ -70,10 +70,16 @@ describe("content contracts", () => {
   });
 
   it("returns structured validation results through the validator contract", () => {
-    const validate = vi.fn(() => ({ issues: [], valid: true } as const));
+    const validate = vi.fn(() => ({
+      issues: [{ code: "CUSTOM_RULE", message: "Compatible issue" }],
+      valid: false,
+    } as const));
     const validator: ContentValidator = { validate };
 
-    expect(validator.validate(document)).toEqual({ issues: [], valid: true });
+    expect(validator.validate(document)).toEqual({
+      issues: [{ code: "CUSTOM_RULE", message: "Compatible issue" }],
+      valid: false,
+    });
     expect(validate).toHaveBeenCalledWith(document);
   });
 });
