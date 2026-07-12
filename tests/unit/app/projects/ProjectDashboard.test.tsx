@@ -2,10 +2,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { ProjectDashboard } from "../../../../app/projects/ProjectDashboard";
-import {
-  contentSummaryFixtures,
-  getProjectDashboardState,
-} from "../../../../app/projects/project-dashboard-fixtures";
+import { getProjectDashboardState } from "../../../../app/projects/project-dashboard-fixtures";
+import { contentSummaryFixtures } from "../../../../app/shared/fixtures/content";
 
 describe("ProjectDashboard", () => {
   it("renders the selected Workspace and Project context", () => {
@@ -53,6 +51,15 @@ describe("ProjectDashboard", () => {
     expect(html).not.toContain('href="/editor');
     expect(html).not.toContain('href="/publish');
     expect(html).not.toMatch(/href="\/workspaces\/[^"]+\/(editor|publish)/i);
+  });
+
+  it("links existing Content to its Workspace-scoped Editor and keeps creation disabled", () => {
+    const state = getProjectDashboardState("bright-studio", "content-operations");
+    const html = renderToStaticMarkup(<ProjectDashboard state={state!} />);
+
+    expect(html).toContain('href="/workspaces/bright-studio/projects/content-operations/contents/content-workflow-map/edit"');
+    expect(html).toContain("New content · Coming soon");
+    expect(html).toMatch(/<button[^>]*disabled[^>]*>New content/);
   });
 
   it("has no sidebar and includes mobile, tablet, and desktop layout rules", () => {

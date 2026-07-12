@@ -1,9 +1,10 @@
 import Link from "next/link";
 
 import { GlobalHeader } from "../shared/ui/GlobalHeader";
+import type { ContentSummary } from "../shared/view-models/content";
 import type { ProjectSummary } from "../shared/view-models/workspace";
 import { workspaceFixtures } from "../workspaces/workspace-fixtures";
-import type { ContentSummary, ProjectDashboardState } from "./project-dashboard-fixtures";
+import type { ProjectDashboardState } from "./project-dashboard-fixtures";
 
 export function ProjectDashboard({ state }: { state: ProjectDashboardState }) {
   const contentCount = state.contents.length;
@@ -71,7 +72,7 @@ export function ProjectDashboard({ state }: { state: ProjectDashboardState }) {
             </button>
           </div>
 
-          {contentCount > 0 ? <ContentList contents={state.contents} /> : <EmptyContentState />}
+          {contentCount > 0 ? <ContentList contents={state.contents} projectId={state.project.id} workspaceId={state.workspace.id} /> : <EmptyContentState />}
         </section>
       </div>
     </main>
@@ -87,14 +88,16 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ContentList({ contents }: { contents: readonly ContentSummary[] }) {
+function ContentList({ contents, projectId, workspaceId }: { contents: readonly ContentSummary[]; projectId: string; workspaceId: string }) {
   return (
     <div className="mt-4 overflow-hidden rounded-[24px] border border-black/6 bg-white shadow-[0_10px_40px_rgba(24,24,27,0.045)]">
       <ul className="divide-y divide-black/6">
         {contents.map((content) => (
           <li className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6" key={content.id}>
             <div className="min-w-0">
-              <h3 className="font-semibold tracking-[-0.015em]">{content.title}</h3>
+              <h3 className="font-semibold tracking-[-0.015em]">
+                <Link className="transition hover:text-[#d94848]" href={`/workspaces/${workspaceId}/projects/${projectId}/contents/${content.id}/edit`}>{content.title}</Link>
+              </h3>
               <p className="mt-1 text-xs text-[#92929a]">Updated {content.updatedAt}</p>
             </div>
             <ContentStatusBadge status={content.status} />
