@@ -1,6 +1,5 @@
-import { HomeLayout } from "./home/HomeLayout";
-import { sprintThreeHomeState } from "./home/home-state";
+import { FirstRunExperience } from "./user-flow/FirstRunExperience";
 
 export default function Home() {
-  return <HomeLayout state={sprintThreeHomeState} />;
+  return <FirstRunExperience />;
 }

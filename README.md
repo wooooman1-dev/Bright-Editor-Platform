@@ -1,147 +1,34 @@
-# Bright Editor Platform
+# 적용 안내
 
-> AI-powered Content Lifecycle Platform
+이 패키지는 기존 문서를 전부 교체하지 않습니다.
 
-Bright Editor Platform is a platform that helps creators plan, generate, review, publish, analyze, and continuously improve content.
+## 추가할 파일
 
-The first supported application is **Tistory Edition**, but the architecture is designed to support additional publishing platforms such as WordPress, YouTube, Naver Cafe, Instagram, Blog, and Shopping.
+- `Docs/current/02_ARCHITECTURE/12_PLATFORM_AUTOMATION_PERMISSIONS.md`
+- `Docs/current/01_PRODUCT/10_PUBLISHING_ACCOUNT_PERMISSIONS.md`
 
----
+## Decision Log 반영
 
-## Vision
+`Docs/current/00_FOUNDATION/DECISION_007_PLATFORM_AUTOMATION_PERMISSIONS.md`의 내용을 확인한 뒤,
+기존 `Docs/current/00_FOUNDATION/06_DECISION_LOG.md`에 Decision #007로 추가하세요.
 
-Bright Editor is **not** a simple AI writing tool.
+기존 Decision Log의 형식이 다르면 제목과 필드 순서는 기존 문서 형식에 맞추되, 의사결정
+내용과 보안 원칙은 변경하지 마세요.
 
-It is an **AI Editorial Platform** that supports the complete content lifecycle.
+## 현재 승인 범위
 
-```text
-Discover
-    ↓
-Decide
-    ↓
-Create
-    ↓
-Publish
-    ↓
-Measure
-    ↓
-Improve
-    ↓
-Repurpose
-```
+- Publishing Account별 권한
+- 다중 계정 연결
+- 서버 측 Permission Gate
+- 등록된 Workflow Allowlist
+- Review First 기본 정책
+- 순차 발행 기본 정책
+- 공개 발행 기본 비활성화
 
----
+## 아직 승인하지 않은 범위
 
-## Project Goals
-
-### Current (v0.x)
-
-- Personal high-quality content platform
-- Playwright-based Tistory automation
-- AI Editor
-- Quality Review
-- Reusable Core architecture
-
-### Future (Commercial)
-
-- Multi-user Workspace
-- Authentication
-- Subscription & Billing
-- SEO & SSR
-- Cloud deployment
-- Multi-platform publishing
-
----
-
-## Technology Stack
-
-- Next.js (App Router)
-- React
-- TypeScript
-- Tailwind CSS
-- Playwright
-- Vitest
-- npm
-
----
-
-## Project Structure
-
-```text
-Docs/
-apps/
-core/
-shared/
-assets/
-data/
-logs/
-scripts/
-tests/
-```
-
----
-
-## Documentation
-
-The official documentation is located in:
-
-```text
-Docs/current
-```
-
-Read in the following order:
-
-1. 00_FOUNDATION
-2. 01_PRODUCT
-3. 02_ARCHITECTURE
-4. 03_DEVELOPMENT
-
----
-
-## Development Principles
-
-- Platform First
-- Core / Apps separation
-- Small incremental development
-- Test after every feature
-- Reusable architecture
-- Long-term maintainability
-
----
-
-## AI Development
-
-All AI coding agents must read **AGENTS.md** before making any code changes.
-
-AGENTS.md defines:
-
-- Development rules
-- Coding standards
-- Architecture rules
-- Technology stack
-- Git workflow
-- Project goals
-
----
-
-## Current Milestone
-
-**v0.1.0**
-
-Goal:
-
-```text
-Playwright
-    ↓
-Open Tistory Editor
-    ↓
-Input HTML
-    ↓
-Save Draft
-```
-
----
-
-## License
-
-Private project.
+- 외부 게시물 삭제
+- 계정 설정 변경
+- AI의 자유형 브라우저 조작
+- 기본 공개 발행
+- 무제한 권한 프리셋

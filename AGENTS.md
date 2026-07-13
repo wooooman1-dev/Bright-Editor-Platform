@@ -1,3 +1,8 @@
+Decision Log(00_FOUNDATION/08_DECISION_LOG.md)는
+프로젝트의 최상위 Source of Truth이다.
+
+문서가 충돌하면 Decision Log를 따른다.
+
 # Bright Editor Platform - AI Agent Rules (v2.1)
 
 > This document is the mandatory operating manual for all AI coding agents.

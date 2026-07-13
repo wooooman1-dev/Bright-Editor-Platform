@@ -1,5 +1,14 @@
 ﻿node_modules/
 .next/
+.next-*/
+.next-build/
+.next-webpack/
+.next-dev/
+.next-production/
+.next-production-*/
+.next-verification/
+.next-verification-*/
+.bright-studio/
 out/
 dist/
 coverage/

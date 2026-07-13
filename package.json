@@ -9,7 +9,8 @@
   "scripts": {
     "test": "vitest run",
     "playwright:install": "playwright install chromium",
-    "dev": "next dev",
+    "tistory:login": "set RUN_TISTORY_LOGIN=1&& vitest run tests/manual/tistory-login.test.ts",
+    "dev": "next dev --webpack",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",

@@ -1,5 +1,9 @@
-﻿import type { NextConfig } from "next";
+import type { NextConfig } from "next";
+import { PHASE_DEVELOPMENT_SERVER } from "next/constants";
 
-const nextConfig: NextConfig = {};
+export default function nextConfig(phase: string): NextConfig {
+  const defaultDistDir =
+    phase === PHASE_DEVELOPMENT_SERVER ? ".next-dev" : ".next-production-v2";
 
-export default nextConfig;
+  return { distDir: process.env.BRIGHT_STUDIO_DIST_DIR ?? defaultDistDir };
+}

@@ -48,3 +48,11 @@ The default Project route remains Workspace-scoped:
 ```
 
 Brand association does not require `brandId` in the default Project route. A future Brand management or filtering screen may be added separately, but it must not become a prerequisite for Project creation.
+
+## Content Creation Metadata
+
+Content is created after plan confirmation and before final generation. It persists Workspace and Project ownership, optional Brand reference, natural-language request, interpreted intent, domain, primary and related keywords, search intent, audience, goal, content type, Publishing Account references, status, creation method, and timestamps.
+
+Generated or revised output is stored as the canonical `ContentDocument`. Rendered platform HTML is derived output and is never the only source of truth. Generation retries update the same Content ID.
+
+Project default publishing targets and Content targets contain only Workspace-owned `PlatformConnection` IDs. They never contain credentials, cookies, session paths, or copied secrets.

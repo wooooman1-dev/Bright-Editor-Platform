@@ -4,6 +4,45 @@
   color-scheme: light;
 }
 
+html[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+html[data-theme="dark"] body,
+html[data-theme="dark"] main {
+  background: #141416 !important;
+  color: #f4f4f5 !important;
+}
+
+html[data-theme="dark"] header,
+html[data-theme="dark"] section,
+html[data-theme="dark"] article,
+html[data-theme="dark"] [class*="bg-white"] {
+  background-color: #202024 !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+html[data-theme="dark"] input,
+html[data-theme="dark"] textarea,
+html[data-theme="dark"] select,
+html[data-theme="dark"] [class*="bg-[#f8f8fa]"],
+html[data-theme="dark"] [class*="bg-[#fafafa]"] {
+  background-color: #2a2a2f !important;
+  color: #f4f4f5 !important;
+}
+
+@media (prefers-color-scheme: dark) {
+  html[data-theme="system"] body,
+  html[data-theme="system"] main { background: #141416 !important; color: #f4f4f5 !important; }
+  html[data-theme="system"] header,
+  html[data-theme="system"] section,
+  html[data-theme="system"] article,
+  html[data-theme="system"] [class*="bg-white"] { background-color: #202024 !important; border-color: rgba(255, 255, 255, 0.1) !important; }
+  html[data-theme="system"] input,
+  html[data-theme="system"] textarea,
+  html[data-theme="system"] select { background-color: #2a2a2f !important; color: #f4f4f5 !important; }
+}
+
 body {
   margin: 0;
   background: #ffffff;

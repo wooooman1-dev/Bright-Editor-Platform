@@ -6,7 +6,10 @@ import {
   connectionStatus,
   fixtureCounts,
   implementedRoutes,
+  liveStatus,
+  loadLiveCounts,
   verificationCommands,
+  type DashboardMode,
   type VerificationItem,
 } from "./developer-verification";
 
@@ -18,12 +21,15 @@ export const metadata: Metadata = {
 const coreBrowserModules = ["BrowserManager", "BrowserSessionManager", "BrowserContextManager"] as const;
 
 type DevDashboardProps = {
-  searchParams: Promise<{ blogName?: string | string[] }>;
+  searchParams: Promise<{ blogName?: string | string[]; mode?: string | string[] }>;
 };
 
 export default async function DevDashboard({ searchParams }: DevDashboardProps) {
   const params = await searchParams;
   const submittedBlogName = Array.isArray(params.blogName) ? (params.blogName[0] ?? "") : params.blogName;
+  const mode = readMode(params.mode);
+  const counts = mode === "fixture" ? fixtureCounts : await loadLiveCounts();
+  const modeLabel = mode === "fixture" ? "Fixture" : "Live";
   const urlResult = buildTistoryUrlResult(submittedBlogName);
 
   return (
@@ -47,11 +53,15 @@ export default async function DevDashboard({ searchParams }: DevDashboardProps) 
           <section aria-labelledby="verification-title" className="overflow-hidden rounded-[24px] border border-black/6 bg-white p-6 shadow-[0_16px_50px_rgba(24,24,27,0.06)] sm:p-8">
             <p className="text-xs font-semibold tracking-[0.14em] text-[#ff6b6b] uppercase">Feature #6</p>
             <h1 className="mt-2 text-2xl font-semibold tracking-[-0.035em] sm:text-3xl" id="verification-title">Developer Verification</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-[#77777f]">A fixture-based view of implemented product routes and Sprint 3 boundaries. No operational data is loaded.</p>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-[#77777f]">{mode === "fixture" ? "Architecture-verification data only. No operational data is loaded." : "Operational counts from the persisted Bright Studio application state. No fixture data is included."}</p>
+            <nav aria-label="Dashboard data mode" className="mt-5 inline-flex rounded-xl border border-black/8 bg-[#f8f8fa] p-1">
+              <ModeLink active={mode === "fixture"} href="/dev?mode=fixture">Fixture</ModeLink>
+              <ModeLink active={mode === "live"} href="/dev?mode=live">Live</ModeLink>
+            </nav>
             <dl className="mt-7 grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <CountCard label="Workspaces" value={fixtureCounts.workspaces} />
-              <CountCard label="Projects" value={fixtureCounts.projects} />
-              <CountCard label="Contents" value={fixtureCounts.contents} />
+              <CountCard label="Workspaces" modeLabel={modeLabel} value={counts.workspaces} />
+              <CountCard label="Projects" modeLabel={modeLabel} value={counts.projects} />
+              <CountCard label="Contents" modeLabel={modeLabel} value={counts.contents} />
             </dl>
           </section>
 
@@ -61,9 +71,9 @@ export default async function DevDashboard({ searchParams }: DevDashboardProps) 
           </div>
 
           <section aria-labelledby="status-title">
-            <SectionHeading description="Connections and architecture boundaries represented by fixtures." id="status-title" title="Current Fixture Status" />
+            <SectionHeading description={mode === "fixture" ? "Architecture boundaries represented only by fixtures." : "Operational application-state source and architecture boundaries."} id="status-title" title={`Current ${modeLabel} Status`} />
             <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {connectionStatus.map((item) => <StatusCard item={item} key={item.label} />)}
+              {(mode === "fixture" ? connectionStatus : liveStatus).map((item) => <StatusCard item={item} key={item.label} />)}
             </div>
           </section>
 
@@ -90,6 +100,7 @@ export default async function DevDashboard({ searchParams }: DevDashboardProps) 
             <section aria-labelledby="url-builder-title" className="rounded-[24px] border border-black/6 bg-white p-6 shadow-[0_10px_40px_rgba(24,24,27,0.045)] sm:p-7">
               <SectionHeading description="Preserved development-only verification using the existing URL API." id="url-builder-title" title="Tistory URL Verification" />
               <form action="/dev" className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-end" method="get">
+                <input name="mode" type="hidden" value={mode} />
                 <label className="flex-1">
                   <span className="mb-2 block text-sm font-medium">Blog identifier</span>
                   <div className="flex overflow-hidden rounded-xl border border-black/10 bg-[#fafafa] transition focus-within:border-[#ff6b6b]/60 focus-within:ring-4 focus-within:ring-[#ff6b6b]/10">
@@ -109,7 +120,7 @@ export default async function DevDashboard({ searchParams }: DevDashboardProps) 
 
         <footer className="flex flex-col gap-2 border-t border-black/6 py-6 text-xs text-[#92929a] sm:flex-row sm:items-center sm:justify-between">
           <span className="font-medium text-[#65656d]">Bright Studio</span>
-          <span>Development Build · Fixture Only</span>
+          <span>Development Build · {modeLabel} Mode</span>
         </footer>
       </div>
     </main>
@@ -125,8 +136,17 @@ function buildTistoryUrlResult(blogName: string | undefined): { error?: string; 
   }
 }
 
-function CountCard({ label, value }: { label: string; value: number }) {
-  return <div className="rounded-[20px] bg-[#f8f8fa] p-5"><dt className="text-sm text-[#77777f]">{label}</dt><dd className="mt-2 text-2xl font-semibold tracking-[-0.03em]">{value}</dd></div>;
+function readMode(value: string | string[] | undefined): DashboardMode {
+  const selected = Array.isArray(value) ? value[0] : value;
+  return selected === "fixture" ? "fixture" : "live";
+}
+
+function CountCard({ label, modeLabel, value }: { label: string; modeLabel: "Fixture" | "Live"; value: number }) {
+  return <div className="rounded-[20px] bg-[#f8f8fa] p-5"><dt className="text-sm text-[#77777f]">{modeLabel} {label}</dt><dd className="mt-2 text-2xl font-semibold tracking-[-0.03em]">{value}</dd><p className="mt-2 text-xs font-semibold text-[#92929a]">{modeLabel} data</p></div>;
+}
+
+function ModeLink({ active, children, href }: { active: boolean; children: React.ReactNode; href: string }) {
+  return <a aria-current={active ? "page" : undefined} className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${active ? "bg-white text-[#19191b] shadow-sm" : "text-[#77777f] hover:text-[#19191b]"}`} href={href}>{children}</a>;
 }
 
 function VerificationList({ description, items, monospace = false, title }: { description: string; items: readonly string[]; monospace?: boolean; title: string }) {

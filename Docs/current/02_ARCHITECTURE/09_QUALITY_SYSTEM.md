@@ -57,3 +57,9 @@ If the quality target is not achieved:
 
 Support automated quality scoring across all supported publishing
 platforms.
+
+## Current scoring contract
+
+The canonical weights are defined once in `core/quality/QualityScoringPolicy.ts`: Search Intent 12, SEO 12, Readability 10, Structure 12, Completeness 14, Usefulness 12, HTML 10, Image Strategy 7, Internal Links 6, and CTA 5. The server computes and persists the report against the canonical document revision. UI code only renders the returned report.
+
+Manual document edits create a new revision and invalidate the previous approval. Publishing compares the persisted reviewed revision with the current revision and also recalculates the current document before permitting an external workflow. When required context cannot be measured, the dimension is blocked with `not_evaluated` evidence rather than receiving a passing score.

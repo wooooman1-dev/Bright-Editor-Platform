@@ -31,6 +31,7 @@ describe("Application layout stabilization", () => {
 
     expect(html).toContain(">Bright Studio</span>");
     expect(html).not.toContain("<select");
+    expect(html).toContain('href="/workspaces/bright-studio/settings"');
   });
 
   it("shows a disabled Select only for two or more workspaces", () => {

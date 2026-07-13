@@ -186,3 +186,23 @@ Quality Review
 - 실제 플랫폼 테스트: 제한된 테스트 계정 또는 Draft 기반 테스트
 
 모든 새 기능은 작은 단위로 구현하고 바로 테스트한다.
+
+## 9. Current Application-Service Flow
+
+```text
+Natural-language request
+-> AIProvider planning request
+-> confirmed planning result
+-> durable Content metadata
+-> AIProvider editorial generation
+-> canonical ContentDocument
+-> bounded AI review + rule Quality Review
+-> TistoryHtmlRenderer
+-> server Permission Gate
+-> registered Tistory draft workflow
+-> structured post-save verification and safe audit record
+```
+
+Client code cannot submit URLs, selectors, JavaScript, or arbitrary workflow names. Preview and draft save share the same renderer. Credentials remain in server-only connection infrastructure.
+
+Local destructive operations use server-calculated ownership impact and versioned snapshots under the gitignored `.bright-studio/backups` directory. Project rollback restores the prior application snapshot if local reference cleanup fails.

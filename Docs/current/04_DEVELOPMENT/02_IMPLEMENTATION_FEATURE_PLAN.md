@@ -502,3 +502,33 @@ Sprint 3: Not started
 Next planned Sprint: Sprint 3 - Content Composer
 
 Sprint 3 requires Product Owner approval before implementation begins.
+
+---
+
+## Tistory Usable Flow Completion
+
+Status: Implemented in working tree; final real-account verification pending environment availability.
+
+- Replaced the normal post-Project dead end with natural-language planning, confirmation, durable Content creation, generation/manual fallback, Editor, autosave/history, Quality Review, exact Tistory preview, and permission-gated draft save.
+- Extended the approved PlatformConnection boundary with least-privilege account permissions and safe audit records.
+- Added backup-first Project and Workspace deletion without deleting shared Brands for Project deletion or any external platform content.
+- Automated coverage includes planning, duplicate prevention, permission denial, renderer verification states, deletion impact, backup creation, preservation, and rollback.
+
+## Editor Quality and Tistory Preparation Completion
+
+Status: Implemented in working tree; harmless real-account category retrieval remains an environment-dependent verification step.
+
+- Replaced the five binary checks with server-calculated, revision-bound ten-dimension scoring and canonical weights.
+- Added content-type-aware completeness thresholds and conservative planning/placeholder/structure/link/image/CTA signals.
+- Added canonical-text Editor metrics and retained heading structure in the editable representation.
+- Added permission-gated Tistory category retrieval through the existing adapter and registered workflow, safe selection persistence, and selected category ID reuse in the draft worker.
+- Preserved Draft Only, Review First, final confirmation, stored-session, enabled-platform, account ownership, and current-review enforcement.
+
+## Workspace Settings Integration
+
+Status: Implemented in working tree; real-account verification remains environment-dependent.
+
+- Added a Workspace-scoped user Settings route backed by existing `studioStore`, connection repositories, provider configuration, permission gate, registered automation workflow, backup writer, and deletion service.
+- Kept API keys, credentials, cookies, sessions, and secret references server-only.
+- Preserved Review First, Draft Only, public-publish denial, and the registered workflow allowlist.
+- Connected Create Content to verified Settings accounts while preserving AI and Editor use without a publishing connection.

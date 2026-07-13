@@ -35,7 +35,7 @@ export function GlobalHeader({
           <ul className="flex min-w-max items-center gap-1">
             {navigationItems.map((item) => (
               <li key={item.id}>
-                <Link aria-current={item.id === activeItem ? "page" : undefined} className={`block rounded-lg px-3 py-2 text-sm font-medium transition ${item.id === activeItem ? "bg-[#fff0f0] text-[#d94848]" : "text-[#65656d] hover:bg-[#f8f8fa] hover:text-[#19191b]"}`} href={item.id === "Home" ? "/" : `#${item.id.toLowerCase()}`}>{item.label}</Link>
+                <Link aria-current={item.id === activeItem ? "page" : undefined} className={`block rounded-lg px-3 py-2 text-sm font-medium transition ${item.id === activeItem ? "bg-[#fff0f0] text-[#d94848]" : "text-[#65656d] hover:bg-[#f8f8fa] hover:text-[#19191b]"}`} href={item.id === "Home" ? "/" : item.id === "Settings" && selectedWorkspaceId ? `/workspaces/${selectedWorkspaceId}/settings` : `#${item.id.toLowerCase()}`}>{item.label}</Link>
               </li>
             ))}
           </ul>

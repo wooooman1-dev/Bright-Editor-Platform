@@ -4,6 +4,8 @@ export {
   type ContentBlockType,
 } from "./ContentBlockType";
 export type { ContentDocument } from "./ContentDocument";
+export { calculateContentMetrics, canonicalDocumentText } from "./ContentMetrics";
+export type { ContentMetrics } from "./ContentMetrics";
 export type { ContentMetadata } from "./ContentMetadata";
 export {
   ContentPipeline,
