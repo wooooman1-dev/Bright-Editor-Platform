@@ -34,7 +34,7 @@ export function normalizeQualityReview(
   const issues = dimensions.flatMap((dimension) => dimension.reasons);
   const actionableTasks = normalizeTasks(value.tasks, dimensions);
   const stale = Boolean(context.currentRevisionId && revisionId !== context.currentRevisionId);
-  const notEvaluated = dimensions.some((dimension) => dimension.evaluation === "not_evaluated" || dimension.status === "blocked");
+  const notEvaluated = dimensions.some((dimension) => dimension.status === "blocked");
   const approved = value.approved === true;
   const status: QualityUiStatus = stale ? "stale" : notEvaluated ? "not_evaluated" : approved ? "ready" : "improvement_required";
   return Object.freeze({ dimensions: Object.freeze(dimensions), overallScore, status, revisionId, reviewedAt, issues: Object.freeze(issues), actionableTasks: Object.freeze(actionableTasks) });

@@ -5,6 +5,7 @@ export {
 } from "./ContentBlockType";
 export type { ContentDocument } from "./ContentDocument";
 export { calculateContentMetrics, canonicalDocumentText } from "./ContentMetrics";
+export { placeRecommendedPosts, rankRelatedPosts, type PublicPostCandidate } from "./RelatedPostRecommendation";
 export type { ContentMetrics } from "./ContentMetrics";
 export type { ContentMetadata } from "./ContentMetadata";
 export {

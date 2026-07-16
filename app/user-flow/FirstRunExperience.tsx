@@ -19,6 +19,8 @@ import {
   emptyUserData,
   hasConfiguredEnabledPlatforms,
   parseStoredUserData,
+  renameProject,
+  resolveProjectStrategy,
   saveDraft,
   updateProjectTargets,
   type UserContent,
@@ -30,7 +32,7 @@ type Screen =
   | Readonly<{ name: "home" }>
   | Readonly<{ name: "connections" }>
   | Readonly<{ name: "project"; projectId: string }>
-  | Readonly<{ name: "create"; projectId: string }>
+  | Readonly<{ name: "create"; projectId: string; automatic?: boolean }>
   | Readonly<{ name: "editor"; projectId: string; contentId: string }>;
 
 export function FirstRunExperience() {
@@ -65,8 +67,9 @@ export function FirstRunExperience() {
 
   if (!hasConfiguredEnabledPlatforms(data)) return <WorkspacePlatformOnboarding workspaceId={data.workspace.id} />;
 
-  const activeProject = screen.name === "project" || screen.name === "create" || screen.name === "editor" ? data.projects.find((project) => project.id === screen.projectId) : undefined;
-  const activeContent = screen.name === "editor" ? data.contents.find((content) => content.id === screen.contentId) : undefined;
+  const requestedProjectId = screen.name === "project" || screen.name === "create" || screen.name === "editor" ? screen.projectId : undefined;
+  const activeProject = requestedProjectId ? data.projects.find((project) => project.id === requestedProjectId && project.workspaceId === data.workspace!.id) : undefined;
+  const activeContent = screen.name === "editor" && activeProject ? data.contents.find((content) => content.id === screen.contentId && content.workspaceId === data.workspace!.id && content.projectId === activeProject.id) : undefined;
 
   return (
     <main className="min-h-screen bg-[#f8f8fa] text-[#19191b]">
@@ -81,14 +84,16 @@ export function FirstRunExperience() {
           project={activeProject}
           onBack={() => setScreen({ name: "home" })}
           onOpenContent={(contentId) => setScreen({ name: "editor", projectId: activeProject.id, contentId })}
-          onCreateContent={() => setScreen({ name: "create", projectId: activeProject.id })}
+          onCreateContent={(automatic) => setScreen({ name: "create", projectId: activeProject.id, automatic })}
           onDeleted={() => { window.location.assign("/"); }}
           onPersist={persist}
+          onRename={async (name) => persist(renameProject(data, activeProject.id, name, nowLabel()))}
         />
       ) : null}
-      {screen.name === "create" && activeProject ? <ContentCreationFlow data={data} onBack={() => setScreen({ name: "project", projectId: activeProject.id })} onOpenEditor={(contentId) => setScreen({ name: "editor", projectId: activeProject.id, contentId })} onPersist={persist} project={activeProject} /> : null}
+      {screen.name === "create" && activeProject ? <ContentCreationFlow key={activeProject.id} automatic={screen.automatic === true} data={data} onBack={() => setScreen({ name: "project", projectId: activeProject.id })} onOpenEditor={(contentId) => setScreen({ name: "editor", projectId: activeProject.id, contentId })} onPersist={persist} project={activeProject} /> : null}
       {screen.name === "editor" && activeProject && activeContent ? (
         <EditorWorkspace
+          key={`${activeProject.id}:${activeContent.id}`}
           content={activeContent}
           data={data}
           onBack={() => setScreen({ name: "project", projectId: activeProject.id })}
@@ -96,6 +101,7 @@ export function FirstRunExperience() {
           project={activeProject}
         />
       ) : null}
+      {(screen.name === "project" || screen.name === "create" || screen.name === "editor") && (!activeProject || (screen.name === "editor" && !activeContent)) ? <PageContainer className="py-16"><section className="rounded-2xl border border-red-200 bg-white p-6"><h1 className="text-xl font-semibold">프로젝트 또는 콘텐츠를 찾을 수 없습니다.</h1><p className="mt-2 text-sm text-[#77777f]">현재 작업 공간에 속한 프로젝트와 콘텐츠인지 확인해 주세요.</p><button className="mt-4 rounded-xl border px-4 py-2 text-sm font-semibold" onClick={() => setScreen({ name: "home" })} type="button">작업 공간으로 돌아가기</button></section></PageContainer> : null}
     </main>
   );
 }
@@ -183,20 +189,31 @@ function ProjectCreationForm({ data, onCancel, onCreate }: { data: UserData; onC
   );
 }
 
-function ProjectScreen({ data, onBack, onCreateContent, onDeleted, onOpenContent, onPersist, project }: { data: UserData; onBack: () => void; onCreateContent: () => void; onDeleted: () => void; onOpenContent: (contentId: string) => void; onPersist: (data: UserData) => Promise<void>; project: UserProject }) {
+function ProjectScreen({ data, onBack, onCreateContent, onDeleted, onOpenContent, onPersist, onRename, project }: { data: UserData; onBack: () => void; onCreateContent: (automatic: boolean) => void; onDeleted: () => void; onOpenContent: (contentId: string) => void; onPersist: (data: UserData) => Promise<void>; onRename: (name: string) => Promise<void>; project: UserProject }) {
   const contents = data.contents.filter((content) => content.projectId === project.id);
   const brand = project.brandId ? data.brands.find((item) => item.id === project.brandId) : undefined;
+  const strategy = resolveProjectStrategy(project);
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState(project.name);
+  const [renameState, setRenameState] = useState<"idle" | "saving" | "error" | "saved">("idle");
+  const saveName = async () => {
+    setRenameState("saving");
+    try { await onRename(nameDraft); setRenameState("saved"); setEditingName(false); }
+    catch { setRenameState("error"); }
+  };
   return (
     <PageContainer className="py-8 sm:py-10 lg:py-12">
       <button className="text-sm font-semibold text-[#77777f]" onClick={onBack} type="button">← 작업 공간으로 돌아가기</button>
       <header className="mt-6 flex flex-wrap items-end justify-between gap-4 border-b border-black/6 pb-8">
         <div>
         <p className="text-xs font-semibold tracking-[0.14em] text-[#ff6b6b] uppercase">{brand?.name ?? "브랜드 없음"}</p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-[-0.04em] sm:text-4xl">{project.name}</h1>
+        {editingName ? <div className="mt-2 flex flex-wrap items-center gap-2"><input aria-label="프로젝트 이름" autoFocus className="rounded-xl border px-3 py-2 text-2xl font-semibold tracking-[-0.04em]" onChange={(event) => { setNameDraft(event.target.value); setRenameState("idle"); }} value={nameDraft} /><button className="rounded-lg bg-[#ff6b6b] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={renameState === "saving" || !nameDraft.trim()} onClick={() => void saveName()} type="button">{renameState === "saving" ? "저장 중" : "저장"}</button><button className="rounded-lg border px-3 py-2 text-sm" disabled={renameState === "saving"} onClick={() => { setEditingName(false); setNameDraft(project.name); setRenameState("idle"); }} type="button">취소</button></div> : <div className="mt-2 flex flex-wrap items-center gap-3"><h1 className="text-3xl font-semibold tracking-[-0.04em] sm:text-4xl">{project.name}</h1><button className="rounded-lg border px-3 py-1.5 text-sm font-semibold" onClick={() => { setNameDraft(project.name); setEditingName(true); setRenameState("idle"); }} type="button">프로젝트명 수정</button></div>}
         <p className="mt-2 text-sm text-[#77777f]">{project.description || "프로젝트 설명이 없습니다."}</p>
         </div>
-        <button className="rounded-xl bg-[#ff6b6b] px-5 py-3 text-sm font-semibold text-white" onClick={onCreateContent} type="button">Create Content</button>
+        <div className="flex flex-wrap gap-2"><button className="rounded-xl bg-[#ff6b6b] px-5 py-3 text-sm font-semibold text-white" onClick={() => onCreateContent(true)} type="button">오늘 글 작성</button><button className="rounded-xl border bg-white px-5 py-3 text-sm font-semibold" onClick={() => onCreateContent(false)} type="button">주제를 직접 입력해 작성</button></div>
+      {renameState === "error" ? <p className="w-full text-sm text-red-700">프로젝트 이름을 저장하지 못했습니다. 이름을 확인한 뒤 다시 시도해 주세요.</p> : null}{renameState === "saved" ? <p className="w-full text-sm text-emerald-700">프로젝트 이름을 저장했습니다.</p> : null}
       </header>
+      <section className="mt-6 rounded-[20px] border border-black/6 bg-white p-5"><h2 className="font-semibold">{project.name} 프로젝트의 콘텐츠 전략을 사용합니다.</h2><dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4"><div><dt className="text-[#77777f]">대표 주제</dt><dd className="mt-1 font-semibold">{strategy.primaryTopic}</dd></div><div><dt className="text-[#77777f]">기본 플랫폼</dt><dd className="mt-1 font-semibold">{strategy.defaultPlatform === "tistory" ? "티스토리" : strategy.defaultPlatform}</dd></div><div><dt className="text-[#77777f]">기본 카테고리</dt><dd className="mt-1 font-semibold">{strategy.defaultTistoryCategory?.name ?? "첫 임시저장 준비에서 선택"}</dd></div><div><dt className="text-[#77777f]">목표 분량</dt><dd className="mt-1 font-semibold">{strategy.targetLength}</dd></div></dl></section>
       <PublishingTargetSelector data={data} onPersist={onPersist} project={project} workspaceId={data.workspace!.id} />
       <section className="mt-8">
         <h2 className="text-lg font-semibold">콘텐츠</h2>

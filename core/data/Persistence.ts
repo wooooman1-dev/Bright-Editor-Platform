@@ -3,6 +3,7 @@ export interface PersistenceStore {
   get<T>(collection: string, id: string): Promise<T | undefined>;
   list<T>(collection: string): Promise<readonly T[]>;
   set<T>(collection: string, id: string, value: T): Promise<void>;
+  update<T>(collection: string, id: string, update: (current: T | undefined) => T): Promise<T>;
 }
 
 export class InMemoryPersistenceStore implements PersistenceStore {
@@ -24,6 +25,12 @@ export class InMemoryPersistenceStore implements PersistenceStore {
     const values = this.collections.get(collection) ?? new Map<string, unknown>();
     values.set(id, value);
     this.collections.set(collection, values);
+  }
+
+  async update<T>(collection: string, id: string, update: (current: T | undefined) => T): Promise<T> {
+    const value = update(this.collections.get(collection)?.get(id) as T | undefined);
+    await this.set(collection, id, value);
+    return value;
   }
 }
 
@@ -64,11 +71,21 @@ export class SnapshotPersistenceStore implements PersistenceStore {
     }));
   }
 
+  async update<T>(collection: string, id: string, update: (current: T | undefined) => T): Promise<T> {
+    let value!: T;
+    await this.mutate((snapshot) => {
+      value = update(snapshot[collection]?.[id] as T | undefined);
+      return { ...snapshot, [collection]: { ...(snapshot[collection] ?? {}), [id]: value } };
+    });
+    return value;
+  }
+
   private mutate(update: (snapshot: PersistenceSnapshot) => PersistenceSnapshot): Promise<void> {
-    this.queue = this.queue.then(async () => {
+    const operation = this.queue.then(async () => {
       const snapshot = (await this.driver.read()) ?? {};
       await this.driver.write(update(snapshot));
     });
-    return this.queue;
+    this.queue = operation.catch(() => undefined);
+    return operation;
   }
 }

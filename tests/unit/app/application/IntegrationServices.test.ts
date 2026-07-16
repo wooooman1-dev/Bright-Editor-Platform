@@ -46,9 +46,20 @@ describe("integration infrastructure", () => {
 
   it("converts one AI JSON response into canonical blocks", () => {
     const strategy = new EditorialGenerationStrategy();
-    const document = strategy.parse('{"title":"Guide","blocks":[{"type":"heading","level":1,"text":"Guide"},{"type":"paragraph","text":"Body"}]}', {
+    const prose = "A complete and useful explanation for the reader with concrete context, actions, examples, and outcomes. ".repeat(20);
+    const document = strategy.parse(JSON.stringify({ title: "Guide", blocks: [{ type: "heading", level: 1, text: "Guide" }, { type: "paragraph", text: prose }, { type: "heading", level: 2, text: "Step one" }, { type: "paragraph", text: prose }, { type: "heading", level: 2, text: "Step two" }, { type: "paragraph", text: prose }, { type: "paragraph", text: prose }, { type: "paragraph", text: prose }, { type: "button", purpose: "cta", label: "Start", targetUrl: "https://example.com", target: "_blank" }] }), {
       contentType: "article" as never, keywords: ["guide"], platform: "tistory" as never, projectId: "project-1",
     });
-    expect(document.blocks.map((block) => block.type)).toEqual(["heading", "paragraph"]);
+    expect(document.blocks.map((block) => block.type)).toContain("button");
+    expect(document.blocks.map((block) => block.type)).toContain("image");
+    expect(document.blocks).toHaveLength(10);
+    expect(document.blocks.at(-1)).toMatchObject({ type: "button", purpose: "cta", target: "_blank" });
+  });
+
+  it("rejects a planning outline instead of persisting it as an article", () => {
+    const strategy = new EditorialGenerationStrategy();
+    expect(() => strategy.parse('{"title":"기획안","blocks":[{"type":"paragraph","text":"1) 인트로\\n2) 준비물\\n3) 단계별 루틴\\n4) 결론"}]}', {
+      contentType: "long-form blog" as never, keywords: ["루틴"], platform: "tistory" as never, projectId: "project-1",
+    })).toThrow("planning outline");
   });
 });

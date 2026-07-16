@@ -10,7 +10,7 @@ export type TistoryCategoryResult = Readonly<{
 }>;
 
 export class TistoryCategoryWorkflowError extends Error {
-  constructor(readonly code: "worker_not_registered" | "session_expired" | "browser_launch_failed" | "category_read_failed", message: string, readonly remediation: string) { super(message); this.name = "TistoryCategoryWorkflowError"; }
+  constructor(readonly code: "worker_not_registered" | "session_expired" | "browser_launch_failed" | "selector_error" | "connection_error" | "category_read_failed", message: string, readonly remediation: string, readonly diagnostic?: unknown) { super(message); this.name = "TistoryCategoryWorkflowError"; }
 }
 
 export async function runTistoryCategoryReadWorkflow(input: Readonly<{ blogId: string; storageStatePath: string }>, workerPath = resolveTistoryCategoryWorkerPath()): Promise<TistoryCategoryResult> {
@@ -24,10 +24,10 @@ export async function runTistoryCategoryReadWorkflow(input: Readonly<{ blogId: s
     child.on("exit", () => {
       const line = stdout.trim().split(/\r?\n/).at(-1);
       try {
-        const result = JSON.parse(line ?? "") as TistoryCategoryResult & { errorCode?: TistoryCategoryWorkflowError["code"]; safeMessage?: string; remediation?: string };
+        const result = JSON.parse(line ?? "") as TistoryCategoryResult & { errorCode?: TistoryCategoryWorkflowError["code"]; safeMessage?: string; remediation?: string; diagnostic?: unknown };
         if (result.errorCode) {
           console.error("[tistory-category] registered workflow failed", { errorCode: result.errorCode, stderr });
-          reject(new TistoryCategoryWorkflowError(result.errorCode, result.safeMessage ?? "카테고리를 불러오지 못했습니다.", result.remediation ?? "잠시 후 다시 시도해 주세요.")); return;
+          reject(new TistoryCategoryWorkflowError(result.errorCode, result.safeMessage ?? "카테고리를 불러오지 못했습니다.", result.remediation ?? "잠시 후 다시 시도해 주세요.", result.diagnostic)); return;
         }
         resolve(Object.freeze({ categories: Object.freeze(result.categories.map((item) => Object.freeze(item))), supportsUncategorized: true, retrievedAt: result.retrievedAt }));
       } catch (error) { console.error("[tistory-category] invalid worker result", { error, stderr }); reject(new TistoryCategoryWorkflowError("category_read_failed", "카테고리 응답을 확인할 수 없습니다.", "연결을 다시 확인한 뒤 재시도해 주세요.")); }

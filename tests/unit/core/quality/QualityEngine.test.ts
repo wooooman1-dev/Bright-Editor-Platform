@@ -59,4 +59,33 @@ describe("QualityEngine dimension scoring", () => {
     expect(report.reviewedRevisionId).toBe(revision);
     expect(() => new PublishingGate().assertReady({ ...report, approved: true }, "rev-stale")).toThrow("stale");
   });
+
+  it("distinguishes recommendations from placed image, internal-link, and CTA blocks", () => {
+    const recommended: ContentDocument = { id: "recommendations", title: "추천만 있는 문서", blocks: [
+      { id: "p", type: "paragraph", text: "이미지 전략과 CTA 전략, 내부 링크 계획을 추천합니다." },
+      { id: "image", type: "image", source: "", alt: "추천 이미지" },
+      { id: "internal", type: "button", purpose: "internal_link", label: "관련 글", targetUrl: "https://bright-health.tistory.com/entry/related" },
+    ] };
+    const report = new QualityEngine().review(recommended, { primaryKeyword: "추천", searchIntent: "추천" });
+    expect(report.dimensions.find((item) => item.category === "imageStrategy")).toMatchObject({ score: 100 });
+    expect(report.dimensions.find((item) => item.category === "internalLinks")?.evidence).toContainEqual({ signal: "placedInternalLinks", value: 1 });
+    expect(report.dimensions.find((item) => item.category === "cta")).toMatchObject({ score: 100, status: "ready", evaluation: "not_evaluated" });
+  });
+
+  it("can approve a complete article without uploaded images or an unnecessary CTA", () => {
+    const base = structured();
+    const filler = "독자가 실천할 수 있는 기준과 확인 순서를 구체적으로 설명합니다. 결과를 기록하고 비교하면 상황에 맞게 방법을 조정할 수 있습니다. ";
+    const document: ContentDocument = { ...base, metadata: { buttonCount: 4, createdAt: "now", generator: "test", imageCount: 1, language: "ko", readingTime: 5, source: "test", updatedAt: "now", version: 1, videoCount: 0, wordCount: 1000, metaDescription: "건강 관리 실천 방법을 구체적인 단계와 사례로 설명합니다.", primarySearchIntent: "건강 관리 방법을 찾는 독자에게 실천 기준을 제공합니다." }, blocks: [
+      ...base.blocks.filter((block) => block.type !== "button").flatMap((block) => block.type === "paragraph" && block.text.length > 500 ? [{ ...block, id: `${block.id}-a`, text: block.text.slice(0, Math.ceil(block.text.length / 2)) }, { ...block, id: `${block.id}-b`, text: block.text.slice(Math.ceil(block.text.length / 2)) }] : [block]).map((block) => block.type === "image" ? { ...block, source: "" } : block),
+      ...Array.from({ length: 8 }, (_, index) => ({ id: `filler-${index}`, type: "paragraph" as const, text: filler.repeat(3) })),
+      { id: "internal", type: "button", purpose: "internal_link", label: "건강 기록", targetUrl: "https://bright-health.tistory.com/entry/health-log" },
+      ...Array.from({ length: 3 }, (_, index) => ({ id: `related-${index}`, type: "button" as const, purpose: "related_post" as const, label: `관련 건강 글 ${index + 1}`, targetUrl: `https://bright-health.tistory.com/entry/related-${index + 1}` })),
+    ] };
+    const report = new QualityEngine().review(document, { contentType: "long-form blog article", platform: "tistory", primaryKeyword: "건강 관리", searchIntent: "건강 관리 방법" });
+    expect(report.overallScore).toBeGreaterThanOrEqual(95);
+    expect(report.approved).toBe(true);
+    expect(report.reviewedRevisionId).toBe(contentRevisionId(document));
+    expect(report.dimensions.find((item) => item.category === "imageStrategy")?.evidence).toContainEqual({ signal: "uploadedImageBlocks", value: 0 });
+    expect(report.dimensions.find((item) => item.category === "cta")).toMatchObject({ evaluation: "not_evaluated", status: "ready" });
+  });
 });

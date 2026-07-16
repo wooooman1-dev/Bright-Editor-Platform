@@ -1,6 +1,7 @@
 import type { PreparedPublication, PublicationRequest, PublicationResult, PublishingAdapter } from "../../../core/publishing";
 import { TistoryHtmlRenderer } from "./TistoryHtmlRenderer";
 import { runTistoryCategoryReadWorkflow, type TistoryCategoryResult } from "../workflows/TistoryCategoryReadWorkflow";
+import { runTistoryPostReadWorkflow, type TistoryPostCatalogResult } from "../workflows/TistoryPostReadWorkflow";
 
 export type TistoryDraftCommand = Readonly<{ html: string; title: string; type: "save-draft" }>;
 export type TistoryPreparedPublication = PreparedPublication & Readonly<{ payload: TistoryDraftCommand }>;
@@ -21,5 +22,8 @@ export class TistoryPublishingAdapter implements PublishingAdapter {
   }
   readCategories(input: Readonly<{ blogId: string; storageStatePath: string }>): Promise<TistoryCategoryResult> {
     return runTistoryCategoryReadWorkflow(input);
+  }
+  readPosts(input: Readonly<{ blogId: string; storageStatePath: string }>): Promise<TistoryPostCatalogResult> {
+    return runTistoryPostReadWorkflow(input);
   }
 }

@@ -32,8 +32,16 @@ export type UserProject = Readonly<{
   name: string;
   description: string;
   selectedPublishingAccountIds?: readonly string[];
+  strategy?: ProjectContentStrategy;
   createdAt: string;
   updatedAt: string;
+}>;
+export type ProjectContentStrategy = Readonly<{
+  primaryTopic: string; subtopics: readonly string[]; excludedTopics: readonly string[];
+  defaultContentType: string; defaultPlatform: string; targetLength: string; targetAudience: string; tone: string;
+  internalLinkPolicy: string; relatedPostPolicy: string; ctaPolicy: string; imageStrategy: string; seoPolicy: string;
+  defaultPublishingAccountId?: string;
+  defaultTistoryCategory?: Readonly<{ publishingAccountId: string; id: string | null; name: string | null }>;
 }>;
 
 export type ContentPlanningResult = Readonly<{
@@ -71,6 +79,7 @@ export type UserContent = Readonly<{
   contentGoal?: string;
   contentType?: string;
   selectedPublishingAccountIds?: readonly string[];
+  publishingAccountId?: string;
   title: string;
   body: string;
   status: UserContentStatus;
@@ -80,13 +89,14 @@ export type UserContent = Readonly<{
   document?: ContentDocument;
   quality?: QualityReport;
   platform?: string;
+  publishedUrl?: string;
   generationError?: string;
   finalConfirmationAt?: string;
   publishingPreparation?: Readonly<{
     tistory?: Readonly<{
       publishingAccountId: string;
       platformCategoryId: string | null;
-      platformCategoryName: string;
+      platformCategoryName: string | null;
       updatedAt: string;
     }>;
   }>;
@@ -160,7 +170,7 @@ export function createProject(
   const project: UserProject = {
     id: input.id, workspaceId: data.workspace.id, ...(brandId ? { brandId } : {}), name,
     description: normalizeRequiredName(input.description ?? ""), selectedPublishingAccountIds: [],
-    createdAt: input.now, updatedAt: input.now,
+    strategy: defaultProjectStrategy(name, input.description ?? ""), createdAt: input.now, updatedAt: input.now,
   };
   return { ...data, brands, projects: [...data.projects, project] };
 }
@@ -195,11 +205,32 @@ export function createContentFromPlan(data: UserData, input: Readonly<{
     naturalLanguageRequest: request, interpretedIntent: input.plan.interpretedIntent, domain: input.plan.domain,
     primaryKeyword: keyword, relatedKeywords: input.plan.relatedKeywords, searchIntent: input.plan.searchIntent,
     targetAudience: input.plan.targetAudience, contentGoal: input.plan.contentGoal, contentType: input.plan.recommendedContentType,
-    selectedPublishingAccountIds: [...new Set(input.selectedPublishingAccountIds)], title: input.plan.suggestedTitleAngles[0] ?? keyword,
+    selectedPublishingAccountIds: [...new Set(input.selectedPublishingAccountIds)],
+    ...(input.selectedPublishingAccountIds.length === 1 ? { publishingAccountId: input.selectedPublishingAccountIds[0], platform: "tistory" } : {}),
+    title: input.plan.suggestedTitleAngles[0] ?? keyword,
     body: "", status: "planning", creationMethod: "natural_language", createdAt: input.now, updatedAt: input.now,
+    ...(project.strategy?.defaultTistoryCategory ? { publishingPreparation: { tistory: { publishingAccountId: project.strategy.defaultTistoryCategory.publishingAccountId, platformCategoryId: project.strategy.defaultTistoryCategory.id, platformCategoryName: project.strategy.defaultTistoryCategory.name, updatedAt: input.now } } } : {}),
   };
   return { ...data, contents: [...data.contents, content] };
 }
+
+export function updateProjectStrategy(data: UserData, projectId: string, strategy: ProjectContentStrategy, now: string): UserData {
+  return { ...data, projects: data.projects.map((project) => project.id === projectId ? { ...project, strategy, updatedAt: now } : project) };
+}
+export function renameProject(data: UserData, projectId: string, name: string, now: string): UserData {
+  const normalized = normalizeRequiredName(name);
+  if (!normalized) throw new Error("프로젝트 이름을 입력해 주세요.");
+  let found = false;
+  const projects = data.projects.map((project) => {
+    if (project.id !== projectId) return project;
+    found = true;
+    return { ...project, name: normalized, updatedAt: now };
+  });
+  if (!found) throw new Error("프로젝트를 찾을 수 없습니다.");
+  return { ...data, projects };
+}
+export function resolveProjectStrategy(project: UserProject): ProjectContentStrategy { return project.strategy ?? defaultProjectStrategy(project.name, project.description); }
+function defaultProjectStrategy(name: string, description: string): ProjectContentStrategy { return { primaryTopic: name, subtopics: description ? [description] : [], excludedTopics: [], defaultContentType: "Google SEO 장문 블로그", defaultPlatform: "tistory", targetLength: "4,500~6,000자", targetAudience: "주제에 관심 있는 일반 독자", tone: "친절하고 신뢰할 수 있는 설명", internalLinkPolicy: "본문 중간 실제 공개 글 1개 자동 배치", relatedPostPolicy: "문서 마지막 실제 공개 글 최대 3개 자동 배치", ctaPolicy: "필요한 경우 최대 1~2개", imageStrategy: "주요 섹션에 설명적인 ALT가 있는 이미지 placeholder", seoPolicy: "Helpful · Reliable · People-first" }; }
 
 export function updateProjectTargets(data: UserData, projectId: string, accountIds: readonly string[], now: string): UserData {
   return { ...data, projects: data.projects.map((project) => project.id === projectId ? { ...project, selectedPublishingAccountIds: [...new Set(accountIds)], updatedAt: now } : project) };

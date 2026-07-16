@@ -10,4 +10,9 @@ export type ContentMetadata = Readonly<{
   version: number;
   videoCount: number;
   wordCount: number;
+  metaDescription?: string;
+  primarySearchIntent?: string;
+  secondaryIntent?: string;
+  secondaryKeywords?: readonly string[];
+  relatedTerms?: readonly string[];
 }>;

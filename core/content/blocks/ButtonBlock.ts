@@ -1,6 +1,12 @@
 export type ButtonBlock = Readonly<{
   id: string;
   label: string;
+  description?: string;
+  affiliate?: boolean;
+  purpose?: "cta" | "internal_link" | "monetization" | "related_post";
+  target?: "_self" | "_blank";
   targetUrl: string;
+  /** Stable platform identifier retained with links selected from a public post catalog. */
+  sourceExternalPostId?: string;
   type: "button";
 }>;
