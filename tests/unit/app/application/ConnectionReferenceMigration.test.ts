@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import type { PlatformConnection } from "../../../../core/connections";
 import {
   assertCompatibleConnectionReplacement,
+  contentReferencesConnection,
   migrateConnectionReferences,
+  projectReferencesConnection,
   replacementPublishingTarget,
 } from "../../../../app/application/connections/ConnectionReferenceMigration";
 import type { UserData } from "../../../../app/user-flow/user-data";
@@ -12,14 +14,19 @@ const sourceId = "connection-old";
 const replacementId = "connection-new";
 const updatedAt = "2026-07-18T02:00:00.000Z";
 
-function connection(id: string, status: PlatformConnection["status"], blogId = "bright-healthy"): PlatformConnection {
+function connection(
+  id: string,
+  status: PlatformConnection["status"],
+  blogId = "bright-healthy",
+  sessionStateAvailable = status === "connected",
+): PlatformConnection {
   return {
     id,
     workspaceId: "workspace-1",
     platform: "tistory",
     displayName: blogId,
     status,
-    publicMetadata: { blogId, blogUrl: `https://${blogId}.tistory.com` },
+    publicMetadata: { blogId, blogUrl: `https://${blogId}.tistory.com`, sessionStateAvailable },
     createdAt: "2026-07-17T00:00:00.000Z",
     updatedAt: "2026-07-17T00:00:00.000Z",
     selectedAsDefault: false,
@@ -140,7 +147,27 @@ describe("connection reference migration", () => {
     expect(migration.data.publishingRecords).toBe(source.publishingRecords);
   });
 
-  it("allows only a connected replacement for the same Workspace, platform, and publishing site", () => {
+  it("detects references stored only in defaults or publishing preparation", () => {
+    const source = data();
+    const project = {
+      ...source.projects[0],
+      selectedPublishingAccountIds: [],
+      strategy: {
+        ...source.projects[0].strategy!,
+        defaultPublishingAccountId: sourceId,
+      },
+    };
+    const content = {
+      ...source.contents[0],
+      selectedPublishingAccountIds: [],
+      publishingAccountId: undefined,
+    };
+
+    expect(projectReferencesConnection(project, sourceId)).toBe(true);
+    expect(contentReferencesConnection(content, sourceId)).toBe(true);
+  });
+
+  it("allows only a connected replacement for the same Workspace, platform, site, and verified session", () => {
     expect(() => assertCompatibleConnectionReplacement(
       connection(sourceId, "disconnected"),
       connection(replacementId, "connected"),
@@ -155,6 +182,11 @@ describe("connection reference migration", () => {
       connection(sourceId, "disconnected"),
       connection(replacementId, "disconnected"),
     )).toThrow("must be connected");
+
+    expect(() => assertCompatibleConnectionReplacement(
+      connection(sourceId, "disconnected"),
+      connection(replacementId, "connected", "bright-healthy", false),
+    )).toThrow("verified stored session");
   });
 
   it("creates a replacement Publishing Target for the affected Project", () => {
