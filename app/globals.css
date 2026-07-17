@@ -62,16 +62,21 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-[aria-busy="true"][aria-live="polite"] {
-  position: sticky;
-  top: 0.75rem;
-  z-index: 60;
+.bright-operation-notice {
+  position: fixed;
+  top: max(0.75rem, env(safe-area-inset-top));
+  left: 50%;
+  z-index: 100;
+  width: min(calc(100vw - 2rem), 52rem);
+  margin: 0;
   overflow: hidden;
+  transform: translateX(-50%);
+  pointer-events: none;
   box-shadow: 0 12px 30px rgb(33 24 24 / 0.14);
   backdrop-filter: blur(10px);
 }
 
-[aria-busy="true"][aria-live="polite"]::after {
+.bright-operation-notice::after {
   position: absolute;
   right: 0;
   bottom: 0;
@@ -83,13 +88,13 @@ body {
   animation: bright-operation-progress 1.35s ease-in-out infinite;
 }
 
-[aria-busy="true"][aria-live="polite"] > p:first-child {
+.bright-operation-notice > p:first-child {
   display: flex;
   align-items: center;
   gap: 0.55rem;
 }
 
-[aria-busy="true"][aria-live="polite"] > p:first-child::before {
+.bright-operation-notice > p:first-child::before {
   width: 1rem;
   height: 1rem;
   flex: 0 0 auto;
@@ -111,12 +116,12 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  [aria-busy="true"][aria-live="polite"]::after,
-  [aria-busy="true"][aria-live="polite"] > p:first-child::before {
+  .bright-operation-notice::after,
+  .bright-operation-notice > p:first-child::before {
     animation: none;
   }
 
-  [aria-busy="true"][aria-live="polite"]::after {
+  .bright-operation-notice::after {
     transform: none;
     background: #ff6b6b;
   }
