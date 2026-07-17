@@ -1,4 +1,4 @@
-import type { ContentDocument } from "../content";
+import type { ContentDocument } from "../content/ContentDocument";
 import type { PlatformId, ThemeReference } from "./PresentationModel";
 
 export type UnsupportedComponentPolicy = "error" | "fallback" | "warning";
