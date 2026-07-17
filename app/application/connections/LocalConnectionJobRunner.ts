@@ -14,6 +14,11 @@ export class LocalConnectionJobRunner implements ConnectionJobRunner {
     return initial;
   }
   status(id: string) { return this.jobs.get(id)?.status; }
+  statusByConnection(connectionId: string) {
+    return [...this.jobs.values()]
+      .map((record) => record.status)
+      .find((status) => status.connectionId === connectionId && active(status.state));
+  }
   async cancel(id: string) { const record = this.jobs.get(id); if (!record) throw new Error("Connection job was not found."); record.controller.abort(); clearTimeout(record.timer); record.status = frozen(id, record.status.connectionId, "cancelled", "Connection cancelled."); return record.status; }
 }
 function frozen(id: string, connectionId: string, state: ConnectionJobState, message: string, failure?: ConnectionFailureDiagnostic) { return Object.freeze({ id, connectionId, state, message, updatedAt: new Date().toISOString(), ...(failure ? { failureCode: failure.failureCode, safeMessage: safeMessage(failure.safeMessage), remediation: safeMessage(failure.remediation) } : {}) }); }
