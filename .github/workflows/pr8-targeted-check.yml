@@ -1,0 +1,37 @@
+name: PR8 Targeted Check
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  seo-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --silent
+      - run: npx vitest run tests/unit/core/content/SeoKeywordPlacement.test.ts --reporter=verbose
+  seo-route:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --silent
+      - run: npx vitest run tests/unit/app/api/QualityImprovementCandidateRoute.test.ts --reporter=verbose
+  progress-style:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --silent
+      - run: npx vitest run tests/unit/app/user-flow/OperationProgressStyle.test.ts --reporter=verbose
