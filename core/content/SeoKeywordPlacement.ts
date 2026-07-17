@@ -2,7 +2,9 @@ import { calculateContentMetrics } from "./ContentMetrics";
 import type { ContentDocument } from "./ContentDocument";
 import type { ContentMetadata } from "./ContentMetadata";
 
+const MAX_TITLE_LENGTH = 68;
 const placeholderKeywords = new Set(["article", "content", "guide", "본문"]);
+const titleIntentPattern = /(?:가이드|방법|식단|효과|원인|증상|관리|추천|주의|완화|예방|비교|정리)/u;
 
 export function ensureSeoKeywordPlacement(
   document: ContentDocument,
@@ -13,10 +15,7 @@ export function ensureSeoKeywordPlacement(
     return document;
   }
 
-  const title = containsExactKeyword(document.title, keyword)
-    ? document.title
-    : `${keyword}: ${document.title}`;
-
+  const title = buildReadableSeoTitle(document.title, keyword);
   const bodyText = document.blocks
     .filter((block) => block.type === "heading" || block.type === "paragraph")
     .map((block) => block.text)
@@ -58,6 +57,84 @@ export function ensureSeoKeywordPlacement(
       : document.metadata,
     title,
   });
+}
+
+export function buildReadableSeoTitle(originalTitle: string, keyword: string): string {
+  const normalizedTitle = normalizeTitle(originalTitle);
+  const colonCount = (normalizedTitle.match(/:/gu) ?? []).length;
+  const listSeparatorCount = (normalizedTitle.match(/[·,/]/gu) ?? []).length;
+
+  if (
+    containsExactKeyword(normalizedTitle, keyword)
+    && normalizedTitle.length <= MAX_TITLE_LENGTH
+    && colonCount <= 1
+    && listSeparatorCount <= 2
+  ) {
+    return normalizedTitle;
+  }
+
+  const segments = normalizedTitle
+    .split(/\s*:\s*/u)
+    .map((segment) => compactTitleSegment(segment, keyword))
+    .filter(Boolean);
+  const supportCandidates = segments.filter((segment) => !containsExactKeyword(segment, keyword));
+  let support = supportCandidates.sort((left, right) => titleSupportScore(right) - titleSupportScore(left))[0] ?? "";
+
+  if (!support && !containsExactKeyword(normalizedTitle, keyword)) {
+    support = compactTitleSegment(normalizedTitle, keyword);
+  }
+  if (support && /가이드/u.test(normalizedTitle) && !/(?:가이드|방법|정리)$/u.test(support)) {
+    support = `${support} 가이드`;
+  }
+
+  const available = Math.max(0, MAX_TITLE_LENGTH - keyword.length - 2);
+  support = shortenAtWordBoundary(support, available);
+  return normalizeTitle(support ? `${keyword}: ${support}` : keyword);
+}
+
+function compactTitleSegment(value: string, keyword: string): string {
+  let segment = normalizeWhitespace(value.replace(keyword, ""))
+    .replace(/^[\-–—:·,\s]+|[\-–—:·,\s]+$/gu, "")
+    .replace(/\([^)]{18,}\)/gu, "")
+    .trim();
+
+  const listParts = segment.split(/\s*[·,/]\s*/u).filter(Boolean);
+  if (listParts.length >= 3) {
+    const ending = listParts.at(-1)?.match(/(?:실천\s*)?(?:가이드|방법|정리)$/u)?.[0] ?? "";
+    segment = `${listParts[0]}${ending ? ` ${ending}` : ""}`;
+  }
+
+  return normalizeWhitespace(segment);
+}
+
+function titleSupportScore(value: string): number {
+  const intentBonus = titleIntentPattern.test(value) ? 24 : 0;
+  const listPenalty = (value.match(/[·,/]/gu) ?? []).length * 10;
+  const lengthPenalty = Math.max(0, value.length - 28) * 1.5;
+  return intentBonus - listPenalty - lengthPenalty;
+}
+
+function shortenAtWordBoundary(value: string, maxLength: number): string {
+  if (!value || maxLength <= 0) return "";
+  if (value.length <= maxLength) return value;
+
+  const words = value.split(/\s+/u);
+  let result = "";
+  for (const word of words) {
+    const candidate = result ? `${result} ${word}` : word;
+    if (candidate.length > maxLength) break;
+    result = candidate;
+  }
+  return result || value.slice(0, maxLength).replace(/[\s:·,/-]+$/gu, "");
+}
+
+function normalizeTitle(value: string): string {
+  return normalizeWhitespace(value)
+    .replace(/\s*:\s*/gu, ": ")
+    .replace(/(?::\s*){2,}/gu, ": ")
+    .replace(/\s+([?!])/gu, "$1")
+    .replace(/[:\s]+$/gu, "")
+    .trim();
 }
 
 function createMetadata(
