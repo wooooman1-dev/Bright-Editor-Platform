@@ -9,6 +9,13 @@ import { parseTistoryBlogAddress } from "../../../apps/tistory/config/TistoryBlo
 import { TistoryLoginJob } from "../../../apps/tistory/connections/TistoryLoginJob";
 import { WordPressConnectionAdapter } from "../../../apps/wordpress";
 import { connectionJobRunner, connectionRepository, connectionRoot, secretStore, targetRepository } from "../../application/connections/connection-runtime";
+import {
+  assertCompatibleConnectionReplacement,
+  contentReferencesConnection,
+  migrateConnectionReferences,
+  projectReferencesConnection,
+  replacementPublishingTarget,
+} from "../../application/connections/ConnectionReferenceMigration";
 import { isPlatformEnabled, resolveWorkspaceSettings } from "../../application/settings/WorkspaceSettingsService";
 import { studioStore } from "../../application/studio-store";
 import type { UserData, WorkspacePlatform } from "../../user-flow/user-data";
@@ -29,7 +36,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { action?: string; workspaceId?: string; connectionId?: string; projectId?: string; blogAddress?: string; siteUrl?: string; username?: string; applicationPassword?: string; confirmation?: string; displayName?: string };
+    const body = await request.json() as { action?: string; workspaceId?: string; connectionId?: string; replacementConnectionId?: string; projectId?: string; blogAddress?: string; siteUrl?: string; username?: string; applicationPassword?: string; confirmation?: string; displayName?: string };
     const workspaceId = required(body.workspaceId, "Workspace is required."); const data = await workspaceData(workspaceId);
     if (body.action === "cancel") {
       const jobId = required(body.connectionId, "Connection job is required."), job = connectionJobRunner.status(jobId);
@@ -45,6 +52,12 @@ export async function POST(request: Request) {
     if (body.action === "rename") return await renameConnection(workspaceId, required(body.connectionId, "Connection is required."), required(body.displayName, "Account name is required."));
     if (body.action === "connection-impact") return await connectionImpact(workspaceId, required(body.connectionId, "Connection is required."));
     if (body.action === "delete-connection") return await deleteConnection(workspaceId, required(body.connectionId, "Connection is required."), body.confirmation);
+    if (body.action === "migrate-delete-connection") return await migrateAndDeleteConnection(
+      workspaceId,
+      required(body.connectionId, "Connection is required."),
+      required(body.replacementConnectionId, "Replacement account is required."),
+      body.confirmation,
+    );
     if (body.action === "select-target") { const connection = await ownedConnection(workspaceId, required(body.connectionId, "Connection is required.")); assertPlatformEnabled(data, connection.platform); return await selectTarget(workspaceId, required(body.projectId, "Project is required."), connection.id); }
     throw new Error("Unsupported connection action.");
   } catch (error) { return failure(error); }
@@ -104,9 +117,10 @@ async function renameConnection(workspaceId: string, id: string, displayName: st
 }
 
 async function connectionImpact(workspaceId: string, id: string) {
-  const connection = await ownedConnection(workspaceId, id), state = await studioStore.get<{ projects?: Array<{ selectedPublishingAccountIds?: readonly string[] }>; contents?: Array<{ selectedPublishingAccountIds?: readonly string[] }> }>("application", "user-data");
-  const projectCount = (state?.projects ?? []).filter((project) => project.selectedPublishingAccountIds?.includes(id)).length;
-  const contentCount = (state?.contents ?? []).filter((content) => content.selectedPublishingAccountIds?.includes(id)).length;
+  const connection = await ownedConnection(workspaceId, id);
+  const state = await studioStore.get<UserData>("application", "user-data");
+  const projectCount = (state?.projects ?? []).filter((project) => projectReferencesConnection(project, id)).length;
+  const contentCount = (state?.contents ?? []).filter((content) => contentReferencesConnection(content, id)).length;
   return NextResponse.json({ impact: { name: connection.displayName, projectCount, contentCount, canDelete: connection.status === "disconnected" && projectCount === 0 && contentCount === 0 } });
 }
 
@@ -119,6 +133,51 @@ async function deleteConnection(workspaceId: string, id: string, confirmation?: 
   await targetRepository.deleteByConnection(id);
   await connectionRepository.delete(id);
   return NextResponse.json({ deleted: true });
+}
+
+async function migrateAndDeleteConnection(
+  workspaceId: string,
+  sourceId: string,
+  replacementId: string,
+  confirmation?: string,
+) {
+  const source = await ownedConnection(workspaceId, sourceId);
+  const replacement = await ownedConnection(workspaceId, replacementId);
+  if (confirmation !== source.displayName) throw new Error("Account name confirmation does not match exactly.");
+  assertCompatibleConnectionReplacement(source, replacement);
+
+  const data = await workspaceData(workspaceId);
+  const updatedAt = new Date().toISOString();
+  const migration = migrateConnectionReferences(data, source.id, replacement.id, updatedAt);
+  const affectedContentProjectIds = migration.data.contents
+    .filter((content) => migration.affectedContentIds.includes(content.id))
+    .map((content) => content.projectId);
+  const targetProjectIds = [...new Set([...migration.affectedProjectIds, ...affectedContentProjectIds])];
+
+  for (const projectId of targetProjectIds) {
+    const existingTargets = targetRepository.listByProject ? await targetRepository.listByProject(projectId) : [];
+    if (!existingTargets.some((target) => target.platformConnectionId === replacement.id)) {
+      await targetRepository.save(replacementPublishingTarget(projectId, replacement, updatedAt));
+    }
+  }
+
+  const remainingProjectReferences = migration.data.projects.filter((project) => projectReferencesConnection(project, source.id));
+  const remainingContentReferences = migration.data.contents.filter((content) => contentReferencesConnection(content, source.id));
+  if (remainingProjectReferences.length || remainingContentReferences.length) {
+    throw new Error("Connection references could not be migrated completely. Nothing was deleted.");
+  }
+
+  await studioStore.set("application", "user-data", migration.data);
+  await targetRepository.deleteByConnection(source.id);
+  await connectionRepository.delete(source.id);
+
+  return NextResponse.json({
+    deleted: true,
+    migrated: true,
+    projectCount: migration.affectedProjectIds.length,
+    contentCount: migration.affectedContentIds.length,
+    replacementConnectionId: replacement.id,
+  });
 }
 
 async function ownedConnection(workspaceId: string, id: string) {
@@ -147,7 +206,7 @@ function safe(value: PlatformConnection) {
     : { siteUrl: value.publicMetadata.siteUrl, siteTitle: value.publicMetadata.siteTitle, username: value.publicMetadata.username, cleanupRequired: value.publicMetadata.cleanupRequired === true, safeError: value.publicMetadata.safeError };
   const { secretReference: _secret, ...safeValue } = value; void _secret; return { ...safeValue, publicMetadata: metadata };
 }
-function wordpressInput(body: Record<string, unknown>) { return { siteUrl: required(body.siteUrl, "Enter a WordPress site address."), username: required(body.username, "Enter a WordPress username."), applicationPassword: required(body.applicationPassword, "Enter a WordPress Application Password.") }; }
+function wordpressInput(body: Record<string, unknown>) { return { siteUrl: required(body.siteUrl, "Enter a WordPress site address."), username: required(body.username, "Enter a WordPress username."), applicationPassword: required(body.applicationPassword, "Enter a WordPress Application Password."), }; }
 function required(value: unknown, message: string): string { if (typeof value !== "string" || !value.trim()) throw new Error(message); return value.trim(); }
 function failure(error: unknown) {
   const message = error instanceof Error ? error.message : "Connection request failed.";
