@@ -73,4 +73,34 @@ describe("ConnectionPublicState", () => {
       contentReferenceCount: 1,
     });
   });
+
+  it("keeps connecting while the matching runtime job is active", () => {
+    const connecting = { ...connection, status: "connecting" as const };
+    expect(publicConnectionRuntimeState(connecting, data, false, true)).toEqual({
+      status: "connecting",
+      sessionStateAvailable: false,
+      projectReferenceCount: 1,
+      contentReferenceCount: 1,
+    });
+  });
+
+  it("recovers a stale connecting record to connected when the session file exists", () => {
+    const connecting = { ...connection, status: "connecting" as const };
+    expect(publicConnectionRuntimeState(connecting, data, true, false)).toEqual({
+      status: "connected",
+      sessionStateAvailable: true,
+      projectReferenceCount: 1,
+      contentReferenceCount: 1,
+    });
+  });
+
+  it("recovers a stale connecting record to disconnected when no session or job exists", () => {
+    const connecting = { ...connection, status: "connecting" as const };
+    expect(publicConnectionRuntimeState(connecting, data, false, false)).toEqual({
+      status: "disconnected",
+      sessionStateAvailable: false,
+      projectReferenceCount: 1,
+      contentReferenceCount: 1,
+    });
+  });
 });
