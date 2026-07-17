@@ -1,5 +1,7 @@
 import { chromium } from "playwright";
 
+import { extractPublicPostRows, listingHasNoPostsMessage, publicPostListingUrls } from "./TistoryPostDiscovery.mjs";
+
 const [blogId, storageStatePath] = process.argv.slice(2);
 const origin = `https://${blogId}.tistory.com`;
 const maxPages = 50;
@@ -14,31 +16,30 @@ try {
   const collected = []; const discoveredUrls = new Set(); let pagesRead = 0; let partial = false; let diagnostic;
   for (let pageNumber = 1; pageNumber <= maxPages; pageNumber += 1) {
     try {
-      await page.goto(`${origin}/?page=${pageNumber}`, { waitUntil: "domcontentloaded", timeout: 30000 });
-      await page.waitForTimeout(500);
-      const rows = await page.evaluate(({ expectedOrigin }) => {
-        const anchors = [...document.querySelectorAll('a[href*="/entry/"]')];
-        return anchors.flatMap((anchor) => {
-          const href = anchor instanceof HTMLAnchorElement ? anchor.href : "";
-          if (!href.startsWith(`${expectedOrigin}/entry/`)) return [];
-          const container = anchor.closest("article, li, .post-item, .entry, .list_content") ?? anchor.parentElement;
-          const titleNode = container?.querySelector("h1, h2, h3, [class*=title], [class*=tit_post], [class*=link_post]");
-          const title = (anchor.getAttribute("title") || titleNode?.textContent || "").replace(/\s+/g, " ").trim();
-          if (!title) return [];
-          const categoryAnchor = container?.querySelector('a[href*="/category/"]');
-          const time = container?.querySelector("time");
-          const excerpt = (container?.querySelector("p, .summary, .excerpt")?.textContent ?? "").replace(/\s+/g, " ").trim();
-          return [{ title, publishedUrl: href.split("#")[0], categoryName: categoryAnchor?.textContent?.trim(), publishedAt: time?.getAttribute("datetime") || time?.textContent?.trim(), excerpt }];
-        });
-      }, { expectedOrigin: origin });
+      let rows = []; let reachableListing = false; let confirmedEmpty = false;
+      for (const listingUrl of publicPostListingUrls(origin, pageNumber)) {
+        try {
+          await page.goto(listingUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+          reachableListing = true;
+          await page.waitForTimeout(500);
+          rows = await extractPublicPostRows(page, origin);
+          if (rows.length) break;
+          confirmedEmpty = confirmedEmpty || await listingHasNoPostsMessage(page);
+        } catch {
+          continue;
+        }
+      }
       if (!rows.length) {
-        if (pageNumber === 1) { const bodyText = await page.locator("body").innerText().catch(() => ""); if (!/게시물이?\s*없|등록된\s*글이\s*없|no posts/i.test(bodyText)) throw coded("selector_error"); }
+        if (pageNumber === 1 && reachableListing && !confirmedEmpty) throw coded("selector_error");
         break;
       }
       const freshRows = rows.filter((row) => !discoveredUrls.has(row.publishedUrl));
       if (!freshRows.length) break;
       freshRows.forEach((row) => discoveredUrls.add(row.publishedUrl)); pagesRead += 1; collected.push(...freshRows);
-    } catch { partial = collected.length > 0; diagnostic = `${pageNumber}페이지 조회 중 중단되었습니다.`; break; }
+    } catch (error) {
+      if (error?.code === "selector_error" && collected.length === 0) throw error;
+      partial = collected.length > 0; diagnostic = `${pageNumber}페이지 조회 중 중단되었습니다.`; break;
+    }
   }
   const seen = new Set(); const retrievedAt = new Date().toISOString(); const posts = [];
   const unique = collected.filter((item) => { const url = safePublicUrl(item.publishedUrl, origin); if (!url || seen.has(url)) return false; seen.add(url); return true; });
@@ -46,7 +47,8 @@ try {
     const verified = await Promise.all(unique.slice(start, start + 6).map(async (item) => ({ item, response: await context.request.get(item.publishedUrl, { timeout: 10000 }).catch(() => undefined) })));
     for (const { item, response } of verified) { if (!response?.ok()) { partial = true; continue; } const externalPostId = decodeURIComponent(new URL(item.publishedUrl).pathname.slice("/entry/".length)); posts.push({ platform: "tistory", externalPostId, title: item.title, publishedUrl: item.publishedUrl, ...(item.categoryName ? { categoryName: item.categoryName } : {}), ...(item.publishedAt ? { publishedAt: item.publishedAt } : {}), ...(item.excerpt ? { excerpt: item.excerpt.slice(0, 400) } : {}), keywords: terms(`${item.title} ${item.categoryName ?? ""}`), status: "public", retrievedAt }); }
   }
-  process.stdout.write(`${JSON.stringify({ posts, state: partial ? "partial" : posts.length ? "success" : "empty", retrievedAt, pagesRead, ...(diagnostic ? { diagnostic } : {}) })}\n`);
+  const emptyDiagnostic = !posts.length && !diagnostic ? "공개 글 목록 페이지에서 검증 가능한 게시글을 찾지 못했습니다." : diagnostic;
+  process.stdout.write(`${JSON.stringify({ posts, state: partial ? "partial" : posts.length ? "success" : "empty", retrievedAt, pagesRead, ...(emptyDiagnostic ? { diagnostic: emptyDiagnostic } : {}) })}\n`);
   await context.close();
 } catch (error) {
   const code = error?.code ?? (/browserType\.launch|Executable doesn't exist/i.test(String(error?.message)) ? "browser_launch_failed" : "connection_error");
