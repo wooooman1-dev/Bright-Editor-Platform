@@ -23,12 +23,17 @@ const workspace = {
   },
 };
 
+const prose = "이 글은 장 건강을 관리하는 데 필요한 생활 습관과 식사 원칙을 구체적인 예시와 함께 설명합니다. 독자가 바로 실천할 수 있도록 단계별 방법과 주의사항을 안내합니다. ".repeat(18);
 const document = {
   id: "content-1",
   title: "장 건강 가이드",
   blocks: [
-    { id: "h", type: "heading", level: 2, text: "장 건강" },
-    { id: "p", type: "paragraph", text: "짧은 본문입니다." },
+    { id: "intro", type: "paragraph", text: prose },
+    ...Array.from({ length: 5 }, (_, index) => [
+      { id: `h-${index}`, type: "heading", level: 2, text: `장 건강 관리 ${index + 1}` },
+      { id: `p-${index}`, type: "paragraph", text: prose },
+    ]).flat(),
+    { id: "conclusion", type: "paragraph", text: prose },
   ],
 };
 
