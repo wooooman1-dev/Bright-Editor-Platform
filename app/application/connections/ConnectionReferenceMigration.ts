@@ -16,12 +16,37 @@ export function assertCompatibleConnectionReplacement(
   if (source.platform !== replacement.platform) throw new Error("Replacement account must use the same platform.");
   if (source.status !== "disconnected") throw new Error("Disconnect the old account before moving references.");
   if (replacement.status !== "connected") throw new Error("Replacement account must be connected.");
+  if (replacement.platform === "tistory" && replacement.publicMetadata.sessionStateAvailable !== true) {
+    throw new Error("Replacement Tistory account must have a verified stored session.");
+  }
 
   const sourceIdentity = connectionIdentity(source);
   const replacementIdentity = connectionIdentity(replacement);
   if (!sourceIdentity || sourceIdentity !== replacementIdentity) {
     throw new Error("Replacement account must point to the same publishing site.");
   }
+}
+
+export function projectReferencesConnection(
+  project: UserProject,
+  connectionId: string,
+): boolean {
+  return Boolean(
+    project.selectedPublishingAccountIds?.includes(connectionId)
+      || project.strategy?.defaultPublishingAccountId === connectionId
+      || project.strategy?.defaultTistoryCategory?.publishingAccountId === connectionId,
+  );
+}
+
+export function contentReferencesConnection(
+  content: UserContent,
+  connectionId: string,
+): boolean {
+  return Boolean(
+    content.selectedPublishingAccountIds?.includes(connectionId)
+      || content.publishingAccountId === connectionId
+      || content.publishingPreparation?.tistory?.publishingAccountId === connectionId,
+  );
 }
 
 export function migrateConnectionReferences(
@@ -71,6 +96,8 @@ function migrateProject(
   replacementConnectionId: string,
   updatedAt: string,
 ): UserProject {
+  if (!projectReferencesConnection(project, sourceConnectionId)) return project;
+
   const selectedPublishingAccountIds = replaceIds(
     project.selectedPublishingAccountIds,
     sourceConnectionId,
@@ -94,11 +121,6 @@ function migrateProject(
     }
     : undefined;
 
-  const changed = selectedPublishingAccountIds !== project.selectedPublishingAccountIds
-    || nextStrategy?.defaultPublishingAccountId !== strategy?.defaultPublishingAccountId
-    || nextStrategy?.defaultTistoryCategory?.publishingAccountId !== strategy?.defaultTistoryCategory?.publishingAccountId;
-
-  if (!changed) return project;
   return Object.freeze({
     ...project,
     selectedPublishingAccountIds,
@@ -113,6 +135,8 @@ function migrateContent(
   replacementConnectionId: string,
   updatedAt: string,
 ): UserContent {
+  if (!contentReferencesConnection(content, sourceConnectionId)) return content;
+
   const selectedPublishingAccountIds = replaceIds(
     content.selectedPublishingAccountIds,
     sourceConnectionId,
@@ -126,11 +150,6 @@ function migrateContent(
     ? Object.freeze({ ...tistory, publishingAccountId: replacementConnectionId, updatedAt })
     : tistory;
 
-  const changed = selectedPublishingAccountIds !== content.selectedPublishingAccountIds
-    || publishingAccountId !== content.publishingAccountId
-    || nextTistory !== tistory;
-
-  if (!changed) return content;
   return Object.freeze({
     ...content,
     selectedPublishingAccountIds,
