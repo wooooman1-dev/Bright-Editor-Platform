@@ -188,21 +188,29 @@ async function migrateAndDeleteConnection(
 
 async function publicConnection(value: PlatformConnection, data: UserData) {
   const storedSessionExists = value.platform !== "tistory" || await tistorySessionExists(value.id);
-  const runtime = publicConnectionRuntimeState(value, data, storedSessionExists);
+  const activeJob = value.platform === "tistory" ? connectionJobRunner.statusByConnection(value.id) : undefined;
+  const runtime = publicConnectionRuntimeState(value, data, storedSessionExists, Boolean(activeJob));
   let current = value;
 
-  if (value.platform === "tistory" && value.status === "connected" && runtime.status === "disconnected") {
+  if (value.platform === "tistory" && (
+    value.status !== runtime.status
+    || value.publicMetadata.sessionStateAvailable !== runtime.sessionStateAvailable
+  )) {
+    const updatedAt = new Date().toISOString();
     current = Object.freeze({
       ...value,
-      status: "disconnected",
-      secretReference: undefined,
-      updatedAt: new Date().toISOString(),
-      publicMetadata: { ...value.publicMetadata, sessionStateAvailable: false },
+      status: runtime.status,
+      secretReference: runtime.status === "connected"
+        ? value.secretReference ?? `tistory-session-${value.id}`
+        : undefined,
+      ...(runtime.status === "connected" && !value.lastVerifiedAt ? { lastVerifiedAt: updatedAt } : {}),
+      updatedAt,
+      publicMetadata: { ...value.publicMetadata, sessionStateAvailable: runtime.sessionStateAvailable },
     });
     await connectionRepository.save(current);
   }
 
-  return safe(current, runtime);
+  return safe(current, runtime, activeJob?.id);
 }
 
 async function tistorySessionExists(id: string): Promise<boolean> {
@@ -234,7 +242,7 @@ async function selectTarget(workspaceId: string, projectId: string, connectionId
 async function assertWorkspace(workspaceId: string) { await workspaceData(workspaceId); }
 async function workspaceData(workspaceId: string) { const state = await studioStore.get<UserData>("application", "user-data"); if (state?.workspace?.id !== workspaceId) throw new Error("Workspace was not found."); return state; }
 function assertPlatformEnabled(data: UserData, platform: WorkspacePlatform) { if (!isPlatformEnabled(data, platform)) throw new Error("This platform is disabled in Workspace Settings."); }
-function safe(value: PlatformConnection, runtime?: PublicConnectionRuntimeState) {
+function safe(value: PlatformConnection, runtime?: PublicConnectionRuntimeState, activeJobId?: string) {
   const metadata = value.platform === "tistory"
     ? { blogId: value.publicMetadata.blogId, blogUrl: value.publicMetadata.blogUrl, sessionStateAvailable: runtime?.sessionStateAvailable ?? value.publicMetadata.sessionStateAvailable === true, cleanupRequired: value.publicMetadata.cleanupRequired === true, safeError: value.publicMetadata.safeError }
     : { siteUrl: value.publicMetadata.siteUrl, siteTitle: value.publicMetadata.siteTitle, username: value.publicMetadata.username, cleanupRequired: value.publicMetadata.cleanupRequired === true, safeError: value.publicMetadata.safeError };
@@ -248,6 +256,7 @@ function safe(value: PlatformConnection, runtime?: PublicConnectionRuntimeState)
       projectReferenceCount: runtime.projectReferenceCount,
       contentReferenceCount: runtime.contentReferenceCount,
     } : {}),
+    ...(activeJobId ? { activeJobId } : {}),
   };
 }
 function wordpressInput(body: Record<string, unknown>) { return { siteUrl: required(body.siteUrl, "Enter a WordPress site address."), username: required(body.username, "Enter a WordPress username."), applicationPassword: required(body.applicationPassword, "Enter a WordPress Application Password."), }; }

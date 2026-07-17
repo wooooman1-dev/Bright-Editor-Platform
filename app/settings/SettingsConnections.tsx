@@ -23,10 +23,11 @@ export function SettingsConnections({ connections, enabledPlatforms, onRefresh, 
   const [applicationPassword, setApplicationPassword] = useState("");
   const [notice, setNotice] = useState<NoticeState>();
   const [jobId, setJobId] = useState<string>();
+  const observedJobId = jobId ?? connections.find((connection) => connection.activeJobId)?.activeJobId;
 
   useEffect(() => {
-    if (!jobId) return;
-    const timer = window.setInterval(() => void fetch(`/api/connections?jobId=${encodeURIComponent(jobId)}&workspaceId=${encodeURIComponent(workspaceId)}`, { cache: "no-store" }).then((response) => response.json()).then((result: { job?: { state: string; message: string; failureCode?: string; safeMessage?: string; remediation?: string } }) => {
+    if (!observedJobId) return;
+    const timer = window.setInterval(() => void fetch(`/api/connections?jobId=${encodeURIComponent(observedJobId)}&workspaceId=${encodeURIComponent(workspaceId)}`, { cache: "no-store" }).then((response) => response.json()).then((result: { job?: { state: string; message: string; failureCode?: string; safeMessage?: string; remediation?: string } }) => {
       if (!result.job) return;
       const terminalFailure = ["failed", "cancelled", "timed_out"].includes(result.job.state);
       setNotice({
@@ -40,7 +41,7 @@ export function SettingsConnections({ connections, enabledPlatforms, onRefresh, 
       }
     }), 1000);
     return () => window.clearInterval(timer);
-  }, [jobId, onRefresh, workspaceId]);
+  }, [observedJobId, onRefresh, workspaceId]);
 
   const action = async (body: Record<string, unknown>) => {
     setNotice({ tone: "info", message: "처리 중입니다." });
@@ -78,7 +79,7 @@ export function SettingsConnections({ connections, enabledPlatforms, onRefresh, 
 
   return <div className="space-y-6">
     {notice ? <p aria-live="polite" className={`sticky top-4 z-30 rounded-xl border px-4 py-3 text-sm font-semibold shadow-sm ${notice.tone === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-900" : notice.tone === "error" ? "border-red-200 bg-red-50 text-red-800" : "border-blue-200 bg-blue-50 text-blue-800"}`}>{notice.tone === "success" ? "✓ " : notice.tone === "error" ? "주의: " : "↻ "}{notice.message}</p> : null}
-    {enabledPlatforms.includes("tistory") ? <Platform title="Tistory" description="브라우저 로그인 후 안전한 임시저장 workflow를 사용합니다. 기존 계정은 카드의 ‘다시 연결’을 사용하면 Project와 Content 참조가 그대로 유지됩니다."><div className="grid gap-3 sm:grid-cols-[1fr_auto]"><Field label="새 Tistory 계정 연결" onChange={setBlogAddress} placeholder="https://example.tistory.com" value={blogAddress} /><button className="self-end rounded-xl bg-[#ff6b6b] px-5 py-3 text-sm font-semibold text-white" disabled={!blogAddress.trim() || Boolean(jobId)} onClick={() => void action({ action: "tistory-connect", blogAddress })} type="button">새 계정 연결</button></div>{jobId ? <button className="mt-3 rounded-xl border px-4 py-2" onClick={() => void action({ action: "cancel", connectionId: jobId })} type="button">연결 취소</button> : null}<AccountList connections={tistory} onAction={action} /></Platform> : null}
+    {enabledPlatforms.includes("tistory") ? <Platform title="Tistory" description="브라우저 로그인 후 안전한 임시저장 workflow를 사용합니다. 기존 계정은 카드의 ‘다시 연결’을 사용하면 Project와 Content 참조가 그대로 유지됩니다."><div className="grid gap-3 sm:grid-cols-[1fr_auto]"><Field label="새 Tistory 계정 연결" onChange={setBlogAddress} placeholder="https://example.tistory.com" value={blogAddress} /><button className="self-end rounded-xl bg-[#ff6b6b] px-5 py-3 text-sm font-semibold text-white" disabled={!blogAddress.trim() || Boolean(observedJobId)} onClick={() => void action({ action: "tistory-connect", blogAddress })} type="button">새 계정 연결</button></div>{observedJobId ? <button className="mt-3 rounded-xl border px-4 py-2" onClick={() => void action({ action: "cancel", connectionId: observedJobId })} type="button">연결 취소</button> : null}<AccountList connections={tistory} onAction={action} /></Platform> : null}
     {enabledPlatforms.includes("wordpress") ? <Platform title="WordPress" description="Application Password는 브라우저로 다시 반환하지 않습니다."><div className="grid gap-3 sm:grid-cols-2"><Field label="사이트 주소" onChange={setSiteUrl} placeholder="https://example.com" value={siteUrl} /><Field label="사용자 이름" onChange={setUsername} value={username} /></div><label className="mt-3 block text-sm font-semibold">Application Password<input autoComplete="new-password" className="mt-2 w-full rounded-xl border px-4 py-3 font-normal" onChange={(event) => setApplicationPassword(event.target.value)} type="password" value={applicationPassword} /></label><div className="mt-3 flex gap-2"><button className="rounded-xl border px-4 py-2.5 text-sm font-semibold" onClick={() => void action({ action: "wordpress-test", siteUrl, username, applicationPassword })} type="button">연결 테스트</button><button className="rounded-xl bg-[#ff6b6b] px-4 py-2.5 text-sm font-semibold text-white" onClick={() => void action({ action: "wordpress-save", siteUrl, username, applicationPassword })} type="button">안전하게 저장</button></div><AccountList connections={wordpress} onAction={action} /></Platform> : null}
     {enabledPlatforms.includes("youtube") ? <Unsupported title="YouTube" /> : null}
     {enabledPlatforms.includes("naver_cafe") ? <Unsupported title="Naver Cafe" /> : null}

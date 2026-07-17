@@ -31,16 +31,20 @@ export function publicConnectionRuntimeState(
   connection: PlatformConnection,
   data: UserData,
   storedSessionExists: boolean,
+  connectionAttemptActive = true,
 ): PublicConnectionRuntimeState {
   const counts = connectionReferenceCounts(data, connection.id);
-  const sessionStateAvailable = connection.platform === "tistory"
+  let sessionStateAvailable = connection.platform === "tistory"
     ? connection.publicMetadata.sessionStateAvailable === true && storedSessionExists
     : true;
-  const status = connection.platform === "tistory"
-    && connection.status === "connected"
-    && !sessionStateAvailable
-    ? "disconnected"
-    : connection.status;
+  let status = connection.status;
+
+  if (connection.platform === "tistory" && connection.status === "connecting" && !connectionAttemptActive) {
+    status = storedSessionExists ? "connected" : "disconnected";
+    sessionStateAvailable = storedSessionExists;
+  } else if (connection.platform === "tistory" && connection.status === "connected" && !sessionStateAvailable) {
+    status = "disconnected";
+  }
 
   return Object.freeze({
     status,

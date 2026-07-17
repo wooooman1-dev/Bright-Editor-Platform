@@ -14,6 +14,7 @@ export type PublicConnection = Readonly<{
   publicMetadata: Readonly<Record<string, unknown>>;
   projectReferenceCount?: number;
   contentReferenceCount?: number;
+  activeJobId?: string;
 }>;
 
 export type StatusSummary = Readonly<{
