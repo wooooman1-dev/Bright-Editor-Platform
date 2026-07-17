@@ -67,8 +67,9 @@ function tagCandidates(source: string): string[] {
   for (const segment of segments) {
     const words = segment
       .split(/\s+/u)
-      .map(stripKoreanParticle)
       .map((word) => word.replace(/[^\p{L}\p{N}-]/gu, ""))
+      .filter((word) => word.length > 0 && !genericTerms.has(word.toLocaleLowerCase("ko-KR")))
+      .map(stripKoreanParticle)
       .filter((word) => word.length > 0 && !genericTerms.has(word.toLocaleLowerCase("ko-KR")));
     if (!words.length) continue;
 
