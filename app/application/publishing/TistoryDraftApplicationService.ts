@@ -4,12 +4,12 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 
 import type { PlatformConnection } from "../../../core/connections";
-import type { ContentDocument } from "../../../core/content";
+import { deriveContentTags, type ContentDocument } from "../../../core/content";
 import { PublishingPermissionGate } from "../../../core/publishing";
 import { TistoryPublishingAdapter } from "../../../apps/tistory/publishing/TistoryPublishingAdapter";
 import type { TistoryDraftSaveResult } from "../../../apps/tistory/workflows/TistoryDraftSaveWorkflow";
 
-export type TistoryDraftExecution = Readonly<{ workspaceId: string; projectId: string; contentId: string; connection: PlatformConnection; document: ContentDocument; finalConfirmation: boolean; selectedTarget: boolean; categoryId?: string | null; categoryName?: string | null; diagnosticMode?: "body_editor_probe" | "category_verification_probe" | "draft_reopen_verify" }>;
+export type TistoryDraftExecution = Readonly<{ workspaceId: string; projectId: string; contentId: string; connection: PlatformConnection; document: ContentDocument; primaryKeyword?: string; finalConfirmation: boolean; selectedTarget: boolean; categoryId?: string | null; categoryName?: string | null; diagnosticMode?: "body_editor_probe" | "category_verification_probe" | "draft_reopen_verify" }>;
 export type PublishingAuditRecord = Readonly<{ operationId: string; workspaceId: string; projectId: string; contentId: string; platformConnectionId: string; platform: "tistory"; workflow: "draft.create" | "draft.verify"; requiredPermission: "draft.create" | "draft.verify"; initiatedBy: "user"; confirmationState: "confirmed" | "missing"; startedAt: string; completedAt: string; result: TistoryDraftSaveResult["status"]; safeErrorCode?: string }>;
 export interface PublishingAuditRepository { save(record: PublishingAuditRecord): Promise<void>; }
 
@@ -33,9 +33,10 @@ export class TistoryDraftApplicationService {
     const blogId = String(input.connection.publicMetadata.blogId ?? ""); if (!blogId) throw new Error("Tistory account metadata is invalid. Reconnect the account.");
     if (!("categoryId" in input)) throw new Error("Tistory 카테고리를 선택하거나 '카테고리 없음'을 명시해 주세요.");
     const prepared = await new TistoryPublishingAdapter().prepare({ content: input.document, platform: "tistory" });
+    const tags = deriveContentTags(input.document, input.primaryKeyword);
     const jobs = path.join(this.root, "publishing-jobs"), commandPath = path.join(jobs, `${operationId}.json`);
     await mkdir(jobs, { recursive: true });
-    await writeFile(commandPath, JSON.stringify({ blogId, storageStatePath: path.join(this.root, "connections", "tistory", input.connection.id, "storage-state.json"), title: prepared.payload.title, html: prepared.payload.html, categoryId: input.categoryId, categoryName: input.categoryName, diagnosticMode: input.diagnosticMode }), { encoding: "utf8", mode: 0o600 });
+    await writeFile(commandPath, JSON.stringify({ blogId, storageStatePath: path.join(this.root, "connections", "tistory", input.connection.id, "storage-state.json"), title: prepared.payload.title, html: prepared.payload.html, tags, categoryId: input.categoryId, categoryName: input.categoryName, diagnosticMode: input.diagnosticMode }), { encoding: "utf8", mode: 0o600 });
     try { return await this.executeWorker(commandPath); } finally { await rm(commandPath, { force: true }); }
   }
 }
