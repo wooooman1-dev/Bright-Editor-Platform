@@ -1,0 +1,37 @@
+name: Temporary Quality Preview Type Fix
+
+on:
+  push:
+    branches:
+      - fix/quality-improvement-preview-and-confirmation
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/quality-improvement-preview-and-confirmation
+      - name: Apply exhaustive union fix
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('app/user-flow/QualityImprovementPreview.tsx')
+          text = path.read_text(encoding='utf-8')
+          old = '    return `${index + 1}번째 블록 · ${block.type}`;'
+          new = '    return `${index + 1}번째 블록 · 지원하지 않는 블록`;'
+          if text.count(old) != 1:
+              raise SystemExit('expected preview fallback was not found exactly once')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+      - name: Commit fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/user-flow/QualityImprovementPreview.tsx
+          git commit -m "fix: handle exhaustive preview block union"
+          git push origin HEAD:fix/quality-improvement-preview-and-confirmation
