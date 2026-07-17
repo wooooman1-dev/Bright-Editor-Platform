@@ -94,7 +94,7 @@ function measure(document: ContentDocument, context: QualityReviewContext) {
 
 function evaluate(s: Signals): QualityDimensionResult[] {
   const intro = s.paragraphs[0]?.text.trim() ?? "", conclusion = s.paragraphs.at(-1)?.text.trim() ?? "";
-  const internalLinks = s.buttons.filter((item) => (item.purpose === "internal_link" || item.purpose === "related_post") && isPublicContentUrl(item.targetUrl, s.context.platform));
+  const contextualInternalLinks = s.buttons.filter((item) => item.purpose === "internal_link" && isPublicContentUrl(item.targetUrl, s.context.platform));
   const relatedPosts = s.buttons.filter((item) => item.purpose === "related_post" && isPublicContentUrl(item.targetUrl, s.context.platform));
   const ctaButtons = s.buttons.filter((item) => (item.purpose === "cta" || (!item.purpose && !item.targetUrl.startsWith("/"))) && Boolean(item.targetUrl.trim()));
   const externalClaims = /(?:\d+(?:\.\d+)?%|연구에 따르면|통계에 따르면|according to (?:research|a study))/i.test(s.text);
@@ -108,6 +108,11 @@ function evaluate(s: Signals): QualityDimensionResult[] {
   const intentMetadata = Boolean(s.document.metadata?.primarySearchIntent?.trim());
   const searchIntentScore = !s.context.searchIntent ? 0 : intentMetadata && intro.length >= 80 && depthScore >= 85 ? 100 : reflectedIntentTerms >= Math.min(3, intentTerms.length) && intro.length >= 80 ? 95 : 68;
   const imageStrategyComplete = s.images.length > 0 && s.images.every((item) => item.alt.trim().length >= 4);
+  const internalLinkScore = contextualInternalLinks.length > 0 && relatedPosts.length >= 3 ? 100 : contextualInternalLinks.length > 0 ? 55 + Math.min(20, relatedPosts.length * 10) : 10 + Math.min(30, relatedPosts.length * 10);
+  const internalLinkReasons = [
+    ...(contextualInternalLinks.length ? [] : ["본문 중간에 실제 URL이 있는 내부 링크가 없습니다."]),
+    ...(relatedPosts.length >= 3 ? [] : ["실제 관련 글 링크가 3개보다 적습니다."]),
+  ];
 
   return [
     dimension("searchIntent", searchIntentScore,
@@ -126,8 +131,8 @@ function evaluate(s: Signals): QualityDimensionResult[] {
       [...(!s.document.blocks.length ? ["렌더링할 canonical block이 없습니다."] : []), ...(invalidHeadingOrder ? ["제목 단계가 건너뛰어 HTML 문서 구조가 올바르지 않습니다."] : [])], ["빈 블록을 제거하고 제목 단계를 순서대로 정리하세요."], [{ signal: "blockCount", value: s.document.blocks.length }, { signal: "headingHierarchyValid", value: !invalidHeadingOrder }]),
     dimension("imageStrategy", imageStrategyComplete ? 100 : s.images.length ? 60 : 35,
       imageStrategyComplete ? [] : s.images.length ? ["이미지 추천 블록의 설명 텍스트가 부족합니다."] : ["본문에 이미지 전략 블록이 없습니다."], ["본문 흐름에 맞는 이미지 placeholder와 구체적인 ALT 설명을 배치하세요."], [{ signal: "recommendedImageBlocks", value: s.images.length }, { signal: "descriptiveImageBlocks", value: s.images.filter((item) => item.alt.trim().length >= 4).length }, { signal: "uploadedImageBlocks", value: s.images.filter((item) => Boolean(item.source.trim())).length }]),
-    dimension("internalLinks", internalLinks.length ? Math.min(100, 55 + internalLinks.length * 10 + relatedPosts.length * 5) : 10,
-      internalLinks.length ? (relatedPosts.length < 3 ? ["실제 관련 글 링크가 3개보다 적습니다."] : []) : ["본문에 실제 배치된 내부 링크가 없습니다."], ["관련 섹션 뒤에 내부 링크를 배치하고 문서 마지막에 실제 URL이 있는 관련 글 3개를 연결하세요."], [{ signal: "placedInternalLinks", value: internalLinks.length }, { signal: "placedRelatedPosts", value: relatedPosts.length }]),
+    dimension("internalLinks", internalLinkScore,
+      internalLinkReasons, ["관련 섹션 뒤에 실제 URL이 있는 내부 링크 1개를 배치하고 문서 마지막에 실제 URL이 있는 관련 글 3개를 연결하세요."], [{ signal: "placedContextualInternalLinks", value: contextualInternalLinks.length }, { signal: "placedRelatedPosts", value: relatedPosts.length }]),
     dimension("cta", 100,
       [], [], [{ signal: "placedCtaBlocks", value: ctaButtons.length }, { signal: "requiredForTopic", value: ctaButtons.length > 0 }], ctaButtons.length ? "evaluated" : "optional"),
   ];
