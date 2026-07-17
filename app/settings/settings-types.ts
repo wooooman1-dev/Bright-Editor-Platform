@@ -12,6 +12,8 @@ export type PublicConnection = Readonly<{
   permissions: readonly AutomationPermission[];
   publishingPolicy: "review_first";
   publicMetadata: Readonly<Record<string, unknown>>;
+  projectReferenceCount?: number;
+  contentReferenceCount?: number;
 }>;
 
 export type StatusSummary = Readonly<{

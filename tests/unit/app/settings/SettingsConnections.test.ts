@@ -63,4 +63,15 @@ describe("SettingsConnections migration UI", () => {
     expect(source).toContain("bg-emerald-50");
     expect(source).toContain('aria-live="polite"');
   });
+
+  it("distinguishes same-ID reconnect from duplicate-account migration", () => {
+    const source = readFileSync(join(process.cwd(), "app/settings/SettingsConnections.tsx"), "utf8");
+    expect(source).toContain("다시 연결");
+    expect(source).toContain("새 Tistory 계정 연결");
+    expect(source).toContain("기존 Project ${projectReferences}개 · Content ${contentReferences}개 참조 유지 중");
+    expect(source).toContain("Project ${projectReferences}개 · Content ${contentReferences}개 참조 유지됨");
+    expect(source).toContain("const activeDeletion");
+    expect(source).toContain('connection.status === "disconnected"');
+    expect(source).toContain("setDeletion(undefined)");
+  });
 });
