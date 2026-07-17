@@ -1,6 +1,6 @@
 # Bright Editor Platform
 
-# 04_AI_DEVELOPMENT_RULE.md
+# 03_AI_DEVELOPMENT_RULE.md
 
 ## AI Development Rules
 
