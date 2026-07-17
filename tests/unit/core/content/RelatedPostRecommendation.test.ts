@@ -54,16 +54,29 @@ describe("placeRecommendedPosts", () => {
     expect(links.filter((block) => block.type === "button" && block.purpose === "related_post" && block.targetUrl.startsWith("https://blog.tistory.com/entry/"))).toHaveLength(3);
   });
 
-  it("does not treat empty or management links as satisfying mandatory slots", () => {
+  it("removes invalid mandatory placeholders before filling verified links", () => {
     const invalid = { ...document, blocks: [...document.blocks,
       { id: "empty-internal", type: "button" as const, purpose: "internal_link" as const, label: "빈 링크", targetUrl: "", target: "_self" as const },
       { id: "manage-related", type: "button" as const, purpose: "related_post" as const, label: "관리 링크", targetUrl: "https://blog.tistory.com/manage/posts", target: "_self" as const },
     ] };
     const candidates = Array.from({ length: 4 }, (_, index) => ({ externalPostId: String(index), title: `검증된 공개 글 ${index}`, publishedUrl: `https://blog.tistory.com/entry/verified-${index}` }));
     const placed = placeRecommendedPosts(invalid, candidates);
-    const verified = placed.blocks.filter((block) => block.type === "button" && block.sourceExternalPostId);
-    expect(verified.filter((block) => block.type === "button" && block.purpose === "internal_link")).toHaveLength(1);
-    expect(verified.filter((block) => block.type === "button" && block.purpose === "related_post")).toHaveLength(3);
+    const mandatory = placed.blocks.filter((block) => block.type === "button" && (block.purpose === "internal_link" || block.purpose === "related_post"));
+    expect(mandatory).toHaveLength(4);
+    expect(mandatory.every((block) => block.type === "button" && block.targetUrl.startsWith("https://blog.tistory.com/entry/"))).toBe(true);
+    expect(mandatory.some((block) => block.id === "empty-internal" || block.id === "manage-related")).toBe(false);
+  });
+
+  it("deduplicates existing related posts and fills three unique final links", () => {
+    const duplicate = { ...document, blocks: [...document.blocks,
+      { id: "related-a", type: "button" as const, purpose: "related_post" as const, label: "같은 글 A", targetUrl: "https://blog.tistory.com/entry/same", target: "_self" as const },
+      { id: "related-b", type: "button" as const, purpose: "related_post" as const, label: "같은 글 B", targetUrl: "https://blog.tistory.com/entry/same#fragment", target: "_self" as const },
+    ] };
+    const candidates = Array.from({ length: 3 }, (_, index) => ({ externalPostId: String(index), title: `추가 글 ${index}`, publishedUrl: `https://blog.tistory.com/entry/add-${index}` }));
+    const placed = placeRecommendedPosts(duplicate, candidates);
+    const related = placed.blocks.filter((block) => block.type === "button" && block.purpose === "related_post");
+    expect(related).toHaveLength(3);
+    expect(new Set(related.map((block) => block.type === "button" ? new URL(block.targetUrl).pathname : "")).size).toBe(3);
   });
 
   it("uses every available verified post without inventing duplicates when fewer than four exist", () => {
