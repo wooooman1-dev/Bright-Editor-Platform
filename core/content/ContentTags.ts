@@ -10,30 +10,44 @@ export function deriveContentTags(
   primaryKeyword?: string,
   limit = 8,
 ): readonly string[] {
-  const sources = [
-    primaryKeyword,
-    ...(document.metadata?.secondaryKeywords ?? []),
-    ...(document.metadata?.relatedTerms ?? []),
-    document.title,
-    ...document.blocks
-      .filter((block) => block.type === "heading")
-      .slice(0, 6)
-      .map((block) => block.text),
-  ].filter((value): value is string => Boolean(value?.trim()));
-
   const tags: string[] = [];
   const seen = new Set<string>();
+  const maximum = Math.max(1, limit);
 
-  for (const source of sources) {
-    for (const candidate of tagCandidates(source)) {
+  const add = (candidates: readonly string[], perSource: number) => {
+    let added = 0;
+    for (const candidate of candidates) {
       const normalized = normalizeTag(candidate);
       const key = normalized.toLocaleLowerCase("ko-KR");
       if (!normalized || seen.has(key) || genericTerms.has(key)) continue;
       if (normalized.length < 2 || normalized.length > 24) continue;
       seen.add(key);
       tags.push(normalized);
-      if (tags.length >= Math.max(1, limit)) return Object.freeze(tags);
+      added += 1;
+      if (tags.length >= maximum || added >= perSource) break;
     }
+  };
+
+  if (primaryKeyword?.trim()) add(tagCandidates(primaryKeyword), 3);
+  for (const keyword of document.metadata?.secondaryKeywords ?? []) {
+    if (tags.length >= maximum) break;
+    add(tagCandidates(keyword), 1);
+  }
+  for (const term of document.metadata?.relatedTerms ?? []) {
+    if (tags.length >= maximum) break;
+    add(tagCandidates(term), 1);
+  }
+
+  const fallbackSources = [
+    document.title,
+    ...document.blocks
+      .filter((block) => block.type === "heading")
+      .slice(0, 6)
+      .map((block) => block.text),
+  ];
+  for (const source of fallbackSources) {
+    if (tags.length >= maximum) break;
+    add(tagCandidates(source), 1);
   }
 
   return Object.freeze(tags);
@@ -56,18 +70,23 @@ function tagCandidates(source: string): string[] {
       .map(stripKoreanParticle)
       .map((word) => word.replace(/[^\p{L}\p{N}-]/gu, ""))
       .filter((word) => word.length > 0 && !genericTerms.has(word.toLocaleLowerCase("ko-KR")));
+    if (!words.length) continue;
 
+    if (words.length === 1) {
+      candidates.push(words[0]);
+      continue;
+    }
+    if (words.length === 2) {
+      candidates.push(words.join(""));
+      continue;
+    }
+
+    const leadingPair = `${words[0]}${words[1]}`;
+    if (leadingPair.length >= 3 && leadingPair.length <= 18) candidates.push(leadingPair);
+    const last = words.at(-1) ?? "";
+    if (last.length >= 2 && last.length <= 16) candidates.push(last);
     const compact = words.join("");
-    if (words.length <= 3 && compact.length <= 20) candidates.push(compact);
-
-    for (let index = 0; index < words.length - 1; index += 1) {
-      const pair = `${words[index]}${words[index + 1]}`;
-      if (pair.length >= 3 && pair.length <= 18) candidates.push(pair);
-    }
-
-    for (const word of words) {
-      if (word.length >= 2 && word.length <= 16) candidates.push(word);
-    }
+    if (compact.length <= 18) candidates.push(compact);
   }
 
   return candidates;
