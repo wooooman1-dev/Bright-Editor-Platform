@@ -67,6 +67,6 @@ function documentToPreview(document: ContentDocument) {
     if (block.type === "image") return `${index + 1}번째 블록 · [이미지: ${block.alt}]`;
     if (block.type === "button") return `${index + 1}번째 블록 · [${block.purpose ?? "button"}: ${block.label}]`;
     if (block.type === "video") return `${index + 1}번째 블록 · [동영상]`;
-    return `${index + 1}번째 블록 · ${block.type}`;
+    return `${index + 1}번째 블록 · 지원하지 않는 블록`;
   }).join("\n\n");
 }
