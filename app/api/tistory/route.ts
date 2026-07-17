@@ -7,6 +7,7 @@ import { connectionRepository, connectionStore, targetRepository } from "../../a
 import { studioStore } from "../../application/studio-store";
 import { isPlatformEnabled, resolveWorkspaceSettings } from "../../application/settings/WorkspaceSettingsService";
 import { TistoryDraftApplicationService, type PublishingAuditRecord } from "../../application/publishing/TistoryDraftApplicationService";
+import { isRetryableDraftStartupFailure, normalizeDraftStartupFailure } from "../../application/publishing/TistoryDraftStartupRecovery";
 import { applyTistoryPublishingAccount, calculateTistoryReadiness, usableTistoryConnections } from "../../application/publishing/TistoryPublishingPreparation";
 
 export async function GET(request: Request) {
@@ -52,7 +53,15 @@ export async function POST(request: Request) {
     const preparation = content.publishingPreparation?.tistory;
     if (!preparation || preparation.publishingAccountId !== connectionId) throw new Error("Tistory 카테고리를 선택하거나 '카테고리 없음'을 명시해 주세요.");
     const diagnosticMode = body.action === "body_editor_probe" || body.action === "category_verification_probe" || body.action === "draft_reopen_verify" ? body.action : undefined;
-    const result = await new TistoryDraftApplicationService(audits).execute({ workspaceId, projectId, contentId, connection, document: content.document, finalConfirmation: body.finalConfirmation === true, selectedTarget, categoryId: preparation.platformCategoryId, categoryName: preparation.platformCategoryName, ...(diagnosticMode ? { diagnosticMode } : {}) });
+    const execution = { workspaceId, projectId, contentId, connection, document: content.document, finalConfirmation: body.finalConfirmation === true, selectedTarget, categoryId: preparation.platformCategoryId, categoryName: preparation.platformCategoryName, ...(diagnosticMode ? { diagnosticMode } : {}) };
+    const service = new TistoryDraftApplicationService(audits);
+    let result = await service.execute(execution);
+    let attempts = 1;
+    if (!diagnosticMode && isRetryableDraftStartupFailure(result)) {
+      attempts = 2;
+      result = await service.execute(execution);
+    }
+    if (isRetryableDraftStartupFailure(result)) result = normalizeDraftStartupFailure(result, attempts);
     return NextResponse.json({ result }, { status: result.status === "failed" || result.status === "partial_failure" ? 400 : 200 });
   } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Tistory draft save failed." }, { status: 400 }); }
 }
