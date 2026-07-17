@@ -1,4 +1,4 @@
-import { rm } from "node:fs/promises";
+import { access, rm } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
@@ -16,6 +16,11 @@ import {
   projectReferencesConnection,
   replacementPublishingTarget,
 } from "../../application/connections/ConnectionReferenceMigration";
+import {
+  connectionReferenceCounts,
+  publicConnectionRuntimeState,
+  type PublicConnectionRuntimeState,
+} from "../../application/connections/ConnectionPublicState";
 import { isPlatformEnabled, resolveWorkspaceSettings } from "../../application/settings/WorkspaceSettingsService";
 import { studioStore } from "../../application/studio-store";
 import type { UserData, WorkspacePlatform } from "../../user-flow/user-data";
@@ -30,7 +35,10 @@ export async function GET(request: Request) {
       return NextResponse.json({ job: job ?? null });
     }
     const data = await workspaceData(workspaceId), enabledPlatforms = resolveWorkspaceSettings(data).enabledPlatforms;
-    return NextResponse.json({ enabledPlatforms, connections: (await connectionRepository.listByWorkspace(workspaceId)).filter((connection) => enabledPlatforms.includes(connection.platform)).map(safe) });
+    const storedConnections = (await connectionRepository.listByWorkspace(workspaceId))
+      .filter((connection) => enabledPlatforms.includes(connection.platform));
+    const connections = await Promise.all(storedConnections.map((connection) => publicConnection(connection, data)));
+    return NextResponse.json({ enabledPlatforms, connections });
   } catch (error) { return failure(error); }
 }
 
@@ -117,9 +125,8 @@ async function renameConnection(workspaceId: string, id: string, displayName: st
 
 async function connectionImpact(workspaceId: string, id: string) {
   const connection = await ownedConnection(workspaceId, id);
-  const state = await studioStore.get<UserData>("application", "user-data");
-  const projectCount = (state?.projects ?? []).filter((project) => projectReferencesConnection(project, id)).length;
-  const contentCount = (state?.contents ?? []).filter((content) => contentReferencesConnection(content, id)).length;
+  const state = await workspaceData(workspaceId);
+  const { projectCount, contentCount } = connectionReferenceCounts(state, id);
   return NextResponse.json({ impact: { name: connection.displayName, projectCount, contentCount, canDelete: connection.status === "disconnected" && projectCount === 0 && contentCount === 0 } });
 }
 
@@ -179,6 +186,34 @@ async function migrateAndDeleteConnection(
   });
 }
 
+async function publicConnection(value: PlatformConnection, data: UserData) {
+  const storedSessionExists = value.platform !== "tistory" || await tistorySessionExists(value.id);
+  const runtime = publicConnectionRuntimeState(value, data, storedSessionExists);
+  let current = value;
+
+  if (value.platform === "tistory" && value.status === "connected" && runtime.status === "disconnected") {
+    current = Object.freeze({
+      ...value,
+      status: "disconnected",
+      secretReference: undefined,
+      updatedAt: new Date().toISOString(),
+      publicMetadata: { ...value.publicMetadata, sessionStateAvailable: false },
+    });
+    await connectionRepository.save(current);
+  }
+
+  return safe(current, runtime);
+}
+
+async function tistorySessionExists(id: string): Promise<boolean> {
+  try {
+    await access(path.join(connectionRoot, "tistory", id, "storage-state.json"));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function ownedConnection(workspaceId: string, id: string) {
   const connection = await connectionRepository.findById(id);
   if (!connection || connection.workspaceId !== workspaceId) throw new Error("Connection was not found.");
@@ -199,11 +234,21 @@ async function selectTarget(workspaceId: string, projectId: string, connectionId
 async function assertWorkspace(workspaceId: string) { await workspaceData(workspaceId); }
 async function workspaceData(workspaceId: string) { const state = await studioStore.get<UserData>("application", "user-data"); if (state?.workspace?.id !== workspaceId) throw new Error("Workspace was not found."); return state; }
 function assertPlatformEnabled(data: UserData, platform: WorkspacePlatform) { if (!isPlatformEnabled(data, platform)) throw new Error("This platform is disabled in Workspace Settings."); }
-function safe(value: PlatformConnection) {
+function safe(value: PlatformConnection, runtime?: PublicConnectionRuntimeState) {
   const metadata = value.platform === "tistory"
-    ? { blogId: value.publicMetadata.blogId, blogUrl: value.publicMetadata.blogUrl, sessionStateAvailable: value.publicMetadata.sessionStateAvailable === true, cleanupRequired: value.publicMetadata.cleanupRequired === true, safeError: value.publicMetadata.safeError }
+    ? { blogId: value.publicMetadata.blogId, blogUrl: value.publicMetadata.blogUrl, sessionStateAvailable: runtime?.sessionStateAvailable ?? value.publicMetadata.sessionStateAvailable === true, cleanupRequired: value.publicMetadata.cleanupRequired === true, safeError: value.publicMetadata.safeError }
     : { siteUrl: value.publicMetadata.siteUrl, siteTitle: value.publicMetadata.siteTitle, username: value.publicMetadata.username, cleanupRequired: value.publicMetadata.cleanupRequired === true, safeError: value.publicMetadata.safeError };
-  const { secretReference: _secret, ...safeValue } = value; void _secret; return { ...safeValue, publicMetadata: metadata };
+  const { secretReference: _secret, ...safeValue } = value;
+  void _secret;
+  return {
+    ...safeValue,
+    status: runtime?.status ?? value.status,
+    publicMetadata: metadata,
+    ...(runtime ? {
+      projectReferenceCount: runtime.projectReferenceCount,
+      contentReferenceCount: runtime.contentReferenceCount,
+    } : {}),
+  };
 }
 function wordpressInput(body: Record<string, unknown>) { return { siteUrl: required(body.siteUrl, "Enter a WordPress site address."), username: required(body.username, "Enter a WordPress username."), applicationPassword: required(body.applicationPassword, "Enter a WordPress Application Password."), }; }
 function required(value: unknown, message: string): string { if (typeof value !== "string" || !value.trim()) throw new Error(message); return value.trim(); }
