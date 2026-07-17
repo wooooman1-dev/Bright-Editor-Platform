@@ -45,6 +45,19 @@ describe("ensureSeoKeywordPlacement", () => {
     expect(result.blocks[2]).toEqual(source.blocks[2]);
   });
 
+  it("reduces a long keyword-list title to one readable colon while preserving the exact keyword", () => {
+    const source = {
+      ...createDocument(),
+      title: "만성 염증 완화 식단: 장내 마이크로바이옴 정신 건강: 식이섬유·프로바이오틱스·프리바이오틱스 실천 가이드",
+    };
+    const result = ensureSeoKeywordPlacement(source, keyword);
+
+    expect(result.title).toBe("장내 마이크로바이옴 정신 건강: 만성 염증 완화 식단 가이드");
+    expect(result.title.length).toBeLessThanOrEqual(68);
+    expect(result.title.match(/:/gu)).toHaveLength(1);
+    expect(result.title.match(/[·,/]/gu) ?? []).toHaveLength(0);
+  });
+
   it("does not duplicate an exact keyword that is already placed", () => {
     const source = createDocument();
     const placed = ensureSeoKeywordPlacement(source, keyword);
