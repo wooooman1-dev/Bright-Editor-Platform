@@ -1,0 +1,22 @@
+name: Temp Operation SEO
+on:
+  push:
+    branches: [fix/quality-operation-and-seo-keyword]
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/quality-operation-and-seo-keyword
+      - run: python .github/scripts/apply-operation-seo-fix.py
+      - run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add app/api/studio/route.ts app/user-flow/EditorWorkspace.tsx
+          git diff --cached --check
+          git commit -m "fix: preserve operation state and enforce seo keyword" || exit 0
+          git push
