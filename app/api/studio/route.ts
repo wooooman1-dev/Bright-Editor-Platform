@@ -184,6 +184,7 @@ export async function POST(request: Request) {
       const quality = new QualityEngine().review(document, { ...qualityContext(content), revisionId: contentRevisionId(document), reviewedAt: appliedAt });
       const improvement = evaluateQualityImprovement(baselineQuality, quality);
       if (!improvement.accepted) throw new Error(qualityImprovementRejectionMessage(improvement));
+      if (!quality.approved) throw new Error(`개선안이 품질 승인 기준을 충족하지 못했습니다. 전체 ${quality.overallScore}점이며 모든 필수 항목이 기준을 충족해야 합니다.`);
       let next = applyCanonicalDocument(data, contentId, document, "ai_revision", appliedAt);
       next = updateContent(next, contentId, { quality, status: quality.approved ? "ready" : "in_review", updatedAt: appliedAt });
       next = { ...next, qualityReports: [...(next.qualityReports ?? []).filter((item) => item.contentId !== contentId), { contentId, report: quality }] };
