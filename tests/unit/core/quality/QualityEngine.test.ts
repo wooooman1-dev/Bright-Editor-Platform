@@ -68,8 +68,19 @@ describe("QualityEngine dimension scoring", () => {
     ] };
     const report = new QualityEngine().review(recommended, { primaryKeyword: "추천", searchIntent: "추천" });
     expect(report.dimensions.find((item) => item.category === "imageStrategy")).toMatchObject({ score: 100 });
-    expect(report.dimensions.find((item) => item.category === "internalLinks")?.evidence).toContainEqual({ signal: "placedInternalLinks", value: 1 });
+    expect(report.dimensions.find((item) => item.category === "internalLinks")?.evidence).toContainEqual({ signal: "placedContextualInternalLinks", value: 1 });
     expect(report.dimensions.find((item) => item.category === "cta")).toMatchObject({ score: 100, status: "ready", evaluation: "not_evaluated" });
+  });
+
+  it("does not award a ready internal-link score when only final related posts exist", () => {
+    const document: ContentDocument = { id: "related-only", title: "관련 글만 있는 원고", blocks: [
+      { id: "p", type: "paragraph", text: "본문 중간 링크 없이 관련 글만 배치된 원고입니다. 두 번째 문장으로 품질 평가 조건을 설명합니다." },
+      ...Array.from({ length: 3 }, (_, index) => ({ id: `related-${index}`, type: "button" as const, purpose: "related_post" as const, label: `관련 글 ${index + 1}`, targetUrl: `https://bright-health.tistory.com/entry/related-${index + 1}`, target: "_self" as const })),
+    ] };
+    const dimension = new QualityEngine().review(document, { platform: "tistory", primaryKeyword: "관련 글", searchIntent: "관련 글 확인" }).dimensions.find((item) => item.category === "internalLinks");
+    expect(dimension?.score).toBeLessThan(85);
+    expect(dimension?.reasons).toContain("본문 중간에 실제 URL이 있는 내부 링크가 없습니다.");
+    expect(dimension?.evidence).toContainEqual({ signal: "placedRelatedPosts", value: 3 });
   });
 
   it("penalizes repeated one-sentence paragraphs and keyword stuffing", () => {
