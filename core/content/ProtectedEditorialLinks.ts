@@ -3,7 +3,7 @@ import type { ContentDocument } from "./ContentDocument";
 import type { ButtonBlock } from "./blocks/ButtonBlock";
 
 type MandatoryLinkPurpose = "internal_link" | "related_post";
-type ProtectedLink = Readonly<{ anchorId?: string; block: ButtonBlock; index: number }>;
+type ProtectedLink = Readonly<{ anchorId?: string; block: ButtonBlock }>;
 
 export function restoreVerifiedEditorialLinks(base: ContentDocument, candidate: ContentDocument): ContentDocument {
   const protectedLinks = collectProtectedLinks(base.blocks);
@@ -37,7 +37,7 @@ function collectProtectedLinks(blocks: readonly ContentBlock[]): ProtectedLink[]
     const key = `${block.purpose}:${normalizeUrl(block.targetUrl)}`;
     if (seen.has(key)) return [];
     seen.add(key);
-    return [{ block, index, ...(block.purpose === "internal_link" ? { anchorId: nearestAnchorId(blocks, index) } : {}) }];
+    return [{ block, ...(block.purpose === "internal_link" ? { anchorId: nearestAnchorId(blocks, index) } : {}) }];
   });
 }
 
@@ -54,7 +54,11 @@ function resolveInternalLinkPosition(blocks: ContentBlock[], anchorId?: string):
     const anchorIndex = blocks.findIndex((block) => block.id === anchorId);
     if (anchorIndex >= 0) {
       let insertAt = anchorIndex + 1;
-      while (insertAt < blocks.length && blocks[insertAt].type === "button" && blocks[insertAt].purpose === "internal_link") insertAt += 1;
+      while (insertAt < blocks.length) {
+        const next = blocks[insertAt];
+        if (next.type !== "button" || next.purpose !== "internal_link") break;
+        insertAt += 1;
+      }
       return insertAt;
     }
   }
