@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  targeted:
+  route-candidate:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -19,4 +19,28 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --silent
-      - run: npx vitest run tests/unit/app/api/QualityImprovementCandidateRoute.test.ts tests/unit/app/user-flow/OperationProgressStyle.test.ts tests/unit/app/user-flow/QualityImprovementPreview.test.tsx --reporter=verbose
+      - run: npx vitest run tests/unit/app/api/QualityImprovementCandidateRoute.test.ts --reporter=verbose
+
+  progress-style:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --silent
+      - run: npx vitest run tests/unit/app/user-flow/OperationProgressStyle.test.ts --reporter=verbose
+
+  preview-ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --silent
+      - run: npx vitest run tests/unit/app/user-flow/QualityImprovementPreview.test.tsx --reporter=verbose
