@@ -88,19 +88,16 @@ export function SettingsConnections({ connections, enabledPlatforms, onRefresh, 
 
 function AccountList({ connections, onAction }: { connections: readonly PublicConnection[]; onAction: (body: Record<string, unknown>) => Promise<unknown> }) {
   const [deletion, setDeletion] = useState<DeletionState>();
-
-  useEffect(() => {
-    if (!deletion) return;
-    const source = connections.find((connection) => connection.id === deletion.id);
-    if (!source || source.status !== "disconnected") setDeletion(undefined);
-  }, [connections, deletion]);
+  const activeDeletion = deletion && connections.some((connection) => connection.id === deletion.id && connection.status === "disconnected")
+    ? deletion
+    : undefined;
 
   if (!connections.length) return <p className="mt-4 rounded-xl border border-dashed p-4 text-sm text-[#77777f]">연결된 계정이 없습니다.</p>;
 
   return <div className="mt-4 space-y-3">{connections.map((connection) => {
     const replacements = compatibleReplacementConnections(connections, connection);
-    const needsMigration = deletion?.id === connection.id && (deletion.projectCount > 0 || deletion.contentCount > 0);
-    const canDelete = Boolean(deletion?.id === connection.id && (!needsMigration || deletion.replacementConnectionId));
+    const needsMigration = activeDeletion?.id === connection.id && (activeDeletion.projectCount > 0 || activeDeletion.contentCount > 0);
+    const canDelete = Boolean(activeDeletion?.id === connection.id && (!needsMigration || activeDeletion.replacementConnectionId));
     const projectReferences = connection.projectReferenceCount ?? 0;
     const contentReferences = connection.contentReferenceCount ?? 0;
     const hasReferences = projectReferences > 0 || contentReferences > 0;
@@ -126,11 +123,11 @@ function AccountList({ connections, onAction }: { connections: readonly PublicCo
         </div>
       </div>
 
-      {deletion?.id === connection.id ? <div className="mt-4 rounded-xl border border-red-200 p-4">
-        <p className="text-sm text-red-800">참조 Project {deletion.projectCount}개 · Content {deletion.contentCount}개</p>
+      {activeDeletion?.id === connection.id ? <div className="mt-4 rounded-xl border border-red-200 p-4">
+        <p className="text-sm text-red-800">참조 Project {activeDeletion.projectCount}개 · Content {activeDeletion.contentCount}개</p>
         {needsMigration ? <div className="mt-3">
           <label className="block text-sm font-semibold">참조를 이전할 정상 연결
-            <select className="mt-2 w-full rounded-lg border px-3 py-2 font-normal" onChange={(event) => setDeletion({ ...deletion, replacementConnectionId: event.target.value })} value={deletion.replacementConnectionId}>
+            <select className="mt-2 w-full rounded-lg border px-3 py-2 font-normal" onChange={(event) => setDeletion({ ...activeDeletion, replacementConnectionId: event.target.value })} value={activeDeletion.replacementConnectionId}>
               <option value="">정상 연결 선택</option>
               {replacements.map((replacement) => <option key={replacement.id} value={replacement.id}>{replacement.displayName} · 연결됨{replacement.lastVerifiedAt ? ` · ${new Date(replacement.lastVerifiedAt).toLocaleString("ko-KR")}` : ""}</option>)}
             </select>
@@ -138,7 +135,7 @@ function AccountList({ connections, onAction }: { connections: readonly PublicCo
           {replacements.length ? <p className="mt-2 text-xs text-[#77777f]">Project·Content·카테고리 준비 정보를 선택한 연결로 이전한 뒤 현재 연결 메타데이터를 삭제합니다.</p> : <p className="mt-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">같은 사이트의 별도 정상 연결이 없습니다. 이 카드의 ‘다시 연결’을 사용하면 같은 연결 ID와 기존 참조가 그대로 유지됩니다.</p>}
         </div> : <p className="mt-3 text-sm text-[#77777f]">현재 연결을 참조하는 Project와 Content가 없어 바로 삭제할 수 있습니다.</p>}
         <div className="mt-3 flex flex-wrap gap-2">
-          <button className="rounded-lg bg-red-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40" disabled={!canDelete} onClick={() => void onAction(needsMigration ? { action: "migrate-delete-connection", connectionId: connection.id, replacementConnectionId: deletion.replacementConnectionId } : { action: "delete-connection", connectionId: connection.id }).then(() => setDeletion(undefined))} type="button">{needsMigration ? "참조 이전 후 삭제" : "메타데이터 삭제"}</button>
+          <button className="rounded-lg bg-red-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40" disabled={!canDelete} onClick={() => void onAction(needsMigration ? { action: "migrate-delete-connection", connectionId: connection.id, replacementConnectionId: activeDeletion.replacementConnectionId } : { action: "delete-connection", connectionId: connection.id }).then(() => setDeletion(undefined))} type="button">{needsMigration ? "참조 이전 후 삭제" : "메타데이터 삭제"}</button>
           <button className="rounded-lg border px-3 py-2 text-sm" onClick={() => setDeletion(undefined)} type="button">취소</button>
         </div>
       </div> : null}
