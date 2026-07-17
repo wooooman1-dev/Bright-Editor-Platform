@@ -29,6 +29,7 @@ const document = {
   title: "장 건강 가이드",
   blocks: [
     { id: "intro", type: "paragraph", text: prose },
+    { id: "image", type: "image", source: "", alt: "장 건강 생활 습관을 설명하는 이미지" },
     ...Array.from({ length: 5 }, (_, index) => [
       { id: `h-${index}`, type: "heading", level: 2, text: `장 건강 관리 ${index + 1}` },
       { id: `p-${index}`, type: "paragraph", text: prose },
