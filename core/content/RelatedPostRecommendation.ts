@@ -22,7 +22,7 @@ export function rankRelatedPosts(document: ContentDocument, candidates: readonly
 export function placeRecommendedPosts(document: ContentDocument, ranked: readonly PublicPostCandidate[]): ContentDocument {
   if (!ranked.length) return document;
 
-  const blocks = [...document.blocks];
+  const blocks = normalizeMandatoryLinks(document.blocks);
   const existingUrls = new Set(blocks.flatMap((block) => block.type === "button" && block.targetUrl ? [normalizeUrl(block.targetUrl)] : []));
   const available = uniqueValidCandidates(ranked).filter((item) => !existingUrls.has(normalizeUrl(item.publishedUrl)));
 
@@ -43,6 +43,19 @@ export function placeRecommendedPosts(document: ContentDocument, ranked: readonl
   }
 
   return { ...document, blocks };
+}
+
+function normalizeMandatoryLinks(blocks: ContentDocument["blocks"]): ContentDocument["blocks"][number][] {
+  const relatedUrls = new Set<string>();
+  return blocks.filter((block) => {
+    if (block.type !== "button" || (block.purpose !== "internal_link" && block.purpose !== "related_post")) return true;
+    if (!validPlacedLink(block, block.purpose)) return false;
+    if (block.purpose === "internal_link") return true;
+    const normalizedUrl = normalizeUrl(block.targetUrl);
+    if (relatedUrls.has(normalizedUrl) || relatedUrls.size >= 3) return false;
+    relatedUrls.add(normalizedUrl);
+    return true;
+  });
 }
 
 function uniqueValidCandidates(candidates: readonly PublicPostCandidate[]): PublicPostCandidate[] {
