@@ -229,7 +229,8 @@ async function selectCategory(targetPage, categoryId, categoryName) {
   const control = await findCategoryControl(targetPage, undefined, categoryName);
   if (!await control.isVisible({ timeout: 10000 }).catch(() => false)) return { passed: false, code: "category_selector_not_found", message: "카테고리 선택 버튼을 찾지 못했습니다." };
   const descriptor = await describeCategoryControl(control);
-  await control.click();
+  const categoryClicked = await control.click({ timeout: 5000 }).then(() => true).catch(() => false);
+  if (!categoryClicked) return { passed: false, code: "category_control_not_clickable", message: "보이는 Tistory 카테고리 버튼을 클릭하지 못했습니다." };
   const root = targetPage.getByRole("listbox").first();
   if (!await root.isVisible({ timeout: 10000 }).catch(() => false)) return { passed: false, code: "category_list_not_opened", message: "카테고리 목록을 열지 못했습니다." };
   const selected = await root.evaluate((element, input) => {
@@ -262,7 +263,10 @@ async function findCategoryControl(targetPage, descriptor, categoryName) {
   for (const candidate of candidates) {
     for (let index = 0; index < await candidate.count(); index += 1) {
       const control = candidate.nth(index);
-      if (await control.isVisible().catch(() => false)) return control;
+      const visible = await control.isVisible().catch(() => false);
+      const enabled = await control.isEnabled().catch(() => false);
+      const clickable = visible && enabled && await control.click({ trial: true, timeout: 1000 }).then(() => true).catch(() => false);
+      if (clickable) return control;
     }
   }
   return targetPage.locator("button").filter({ hasText: "__bright_studio_missing_category_control__" }).first();
