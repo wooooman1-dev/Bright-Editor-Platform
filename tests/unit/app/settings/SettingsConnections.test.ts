@@ -74,4 +74,12 @@ describe("SettingsConnections migration UI", () => {
     expect(source).toContain('connection.status === "disconnected"');
     expect(source).toContain("setDeletion(undefined)");
   });
+
+  it("resumes polling an active connection job after the settings page reloads", () => {
+    const source = readFileSync(join(process.cwd(), "app/settings/SettingsConnections.tsx"), "utf8");
+    expect(source).toContain("connection.activeJobId");
+    expect(source).toContain("const observedJobId");
+    expect(source).toContain("jobId=${encodeURIComponent(observedJobId)}");
+    expect(source).toContain("Boolean(observedJobId)");
+  });
 });
