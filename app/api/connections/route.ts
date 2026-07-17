@@ -11,7 +11,9 @@ import { WordPressConnectionAdapter } from "../../../apps/wordpress";
 import { connectionJobRunner, connectionRepository, connectionRoot, secretStore, targetRepository } from "../../application/connections/connection-runtime";
 import {
   assertCompatibleConnectionReplacement,
+  contentReferencesConnection,
   migrateConnectionReferences,
+  projectReferencesConnection,
   replacementPublishingTarget,
 } from "../../application/connections/ConnectionReferenceMigration";
 import { isPlatformEnabled, resolveWorkspaceSettings } from "../../application/settings/WorkspaceSettingsService";
@@ -115,9 +117,10 @@ async function renameConnection(workspaceId: string, id: string, displayName: st
 }
 
 async function connectionImpact(workspaceId: string, id: string) {
-  const connection = await ownedConnection(workspaceId, id), state = await studioStore.get<{ projects?: Array<{ selectedPublishingAccountIds?: readonly string[] }>; contents?: Array<{ selectedPublishingAccountIds?: readonly string[] }> }>("application", "user-data");
-  const projectCount = (state?.projects ?? []).filter((project) => project.selectedPublishingAccountIds?.includes(id)).length;
-  const contentCount = (state?.contents ?? []).filter((content) => content.selectedPublishingAccountIds?.includes(id)).length;
+  const connection = await ownedConnection(workspaceId, id);
+  const state = await studioStore.get<UserData>("application", "user-data");
+  const projectCount = (state?.projects ?? []).filter((project) => projectReferencesConnection(project, id)).length;
+  const contentCount = (state?.contents ?? []).filter((content) => contentReferencesConnection(content, id)).length;
   return NextResponse.json({ impact: { name: connection.displayName, projectCount, contentCount, canDelete: connection.status === "disconnected" && projectCount === 0 && contentCount === 0 } });
 }
 
@@ -146,12 +149,22 @@ async function migrateAndDeleteConnection(
   const data = await workspaceData(workspaceId);
   const updatedAt = new Date().toISOString();
   const migration = migrateConnectionReferences(data, source.id, replacement.id, updatedAt);
+  const affectedContentProjectIds = migration.data.contents
+    .filter((content) => migration.affectedContentIds.includes(content.id))
+    .map((content) => content.projectId);
+  const targetProjectIds = [...new Set([...migration.affectedProjectIds, ...affectedContentProjectIds])];
 
-  for (const projectId of migration.affectedProjectIds) {
+  for (const projectId of targetProjectIds) {
     const existingTargets = targetRepository.listByProject ? await targetRepository.listByProject(projectId) : [];
     if (!existingTargets.some((target) => target.platformConnectionId === replacement.id)) {
       await targetRepository.save(replacementPublishingTarget(projectId, replacement, updatedAt));
     }
+  }
+
+  const remainingProjectReferences = migration.data.projects.filter((project) => projectReferencesConnection(project, source.id));
+  const remainingContentReferences = migration.data.contents.filter((content) => contentReferencesConnection(content, source.id));
+  if (remainingProjectReferences.length || remainingContentReferences.length) {
+    throw new Error("Connection references could not be migrated completely. Nothing was deleted.");
   }
 
   await studioStore.set("application", "user-data", migration.data);
