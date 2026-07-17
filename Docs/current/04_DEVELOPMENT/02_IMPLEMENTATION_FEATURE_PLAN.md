@@ -493,15 +493,21 @@ Route: `/dev/content-processing`
 
 ## Current Development State
 
-Sprint 1: Completed
+Sprint 1 — Platform and Content Foundation: Completed
 
-Sprint 2: Completed
+Sprint 2 — Content Processing Engine: Completed
 
-Sprint 3: Not started
+Sprint 3 — Product UI Foundation: Completed
 
-Next planned Sprint: Sprint 3 - Content Composer
+Sprint 4 — Usable Content and Safe Draft Workflow: Implemented and automatically verified; real Tistory `saved` verification pending
 
-Sprint 3 requires Product Owner approval before implementation begins.
+Sprint 5 — Editorial Quality Pipeline: Completed
+
+Sprint 6 — Presentation Architecture and Bright Components: Design Approved; detailed design and implementation pending
+
+Current external-environment gate: Editor → Preview → Tistory Category → Draft Save → reopened title/body/category and non-public-state verification.
+
+No new Engine should be implemented before the current real-use gate is evaluated and the Sprint 6 detailed design is approved.
 
 ---
 

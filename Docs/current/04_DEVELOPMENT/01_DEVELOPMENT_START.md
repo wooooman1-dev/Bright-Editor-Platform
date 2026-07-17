@@ -1,44 +1,90 @@
-# Development Start (Sprint 3)
+# Bright Studio Current Development Start
 
-## Documentation Alignment
+## Documentation Baseline
 
-The confirmed product model is Workspace → Project → Content with an optional Brand association on Project.
+Before implementation, read in this order:
 
-- Workspace is the user's independent working space, not a Brand.
+1. `AGENTS.md`
+2. `Docs/current/00_FOUNDATION/08_DECISION_LOG.md`
+3. `Docs/current/00_FOUNDATION`
+4. `Docs/current/01_PRODUCT`
+5. `Docs/current/02_ARCHITECTURE`
+6. Relevant `Docs/current/03_DESIGN` documents
+7. `Docs/current/04_DEVELOPMENT`
+
+The Decision Log is the highest Source of Truth. Architecture remains frozen unless a new approved Decision changes it.
+
+## Confirmed Product Model
+
+```text
+Workspace
+├── Brand (optional)
+└── Project
+    ├── optional Brand association
+    └── Content
+```
+
+- Workspace is the user's independent working space.
 - Project always belongs to one Workspace.
-- Project may optionally belong to one Brand in the same Workspace.
+- Project may optionally reference one Brand in the same Workspace.
 - Content always belongs to one Project.
-- Required first-run flow: Workspace creation → Project creation → Content creation.
-- Brand name is optional during Project creation; Brand creation is not a separate prerequisite.
+- Brand is never a required prerequisite for Project creation.
 
-The current Sprint 3 UI was implemented from earlier documentation that conflated Workspace and Brand and used default user-facing fixtures. A separate first-run stabilization implementation is required after this documentation alignment. This records the target model, not completed Brand management functionality.
+## Completed Development Baseline
 
-## Current Sprint
-Sprint 3
+- Sprint 1: Platform and Content Foundation — Completed
+- Sprint 2: Content Processing Engine — Completed
+- Sprint 3: Product UI Foundation — Completed
+- Sprint 4: Usable Content and Safe Draft Workflow — Implemented and automatically verified; real Tistory verification pending
+- Sprint 5: Editorial Quality Pipeline — Completed
+- Sprint 6: Presentation Architecture — Design Approved; detailed design and implementation pending
 
-## Workflow
+## Current Priority
 
-Documentation
-↓
+Do not add a new Engine before the current real-use gate is verified.
 
-Implementation
-↓
+```text
+Workspace
+→ Project
+→ Natural-language Request
+→ AI Planning
+→ Content Generation
+→ Editorial Quality Pipeline
+→ Editor
+→ Tistory Preview
+→ Category Selection
+→ Draft Save
+→ Reopen and Verify Draft
+```
 
-Test
-↓
+The next environment-dependent task is a harmless real Tistory Draft Save that returns `saved`, with matching title, meaningful body, selected category when applicable, and proof that no public post was created.
 
-Commit
-↓
+## Next Design Milestone
 
-Next Feature
+Sprint 6 detailed design:
 
-## First Feature
+- Canonical Bright Components
+- Renderer contracts
+- Theme Skin tokens
+- Component versioning
+- Tistory presentation
+- WordPress Bright Theme
+- GeneratePress child-theme integration
+- Accessible fallback behavior
+- Acceptance criteria
 
-Feature #1 - Home Layout Foundation
+Implementation requires Product Owner approval after the detailed design is complete.
 
-Before implementation, review:
+## Development Workflow
 
-- 03_DESIGN/02_NAVIGATION.md
-- 03_DESIGN/03_HOME.md
-- 03_DESIGN/04_WORKSPACE.md
-- 03_DESIGN/09_UI_COMPONENTS.md
+```text
+Understand
+→ Plan
+→ Approve
+→ Implement
+→ Test
+→ Review
+→ Commit
+```
+
+Never skip documentation review, automated verification, or the external-environment gate required by the workflow.

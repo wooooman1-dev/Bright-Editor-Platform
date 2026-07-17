@@ -1,5 +1,18 @@
 # 04_FEATURE_SPEC.md 수정안
 
+## Current Sprint Alignment
+
+This specification uses Feature groups independently from Sprint numbers. The approved current alignment is:
+
+- Sprint 1: Platform, Editor Adapter, and Content Model foundations — Completed
+- Sprint 2: Content Processing Engine and Playground — Completed
+- Sprint 3: Product UI Foundation — Completed
+- Sprint 4: Usable Content and Safe Draft Workflow — Environment Verification Pending
+- Sprint 5: Editorial Quality Pipeline — Completed
+- Sprint 6: Presentation Architecture and Bright Components — Design Approved
+
+`Implemented` does not mean that a real external-platform workflow is verified. Tistory completion requires a real-account `saved` result with reopened title/body/category evidence and no public post.
+
 ## Feature 관리 구조
 
 Roadmap

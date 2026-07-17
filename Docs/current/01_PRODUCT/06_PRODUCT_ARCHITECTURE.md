@@ -1,5 +1,13 @@
 # Product Architecture
 
+## Sprint 6 Design Status
+
+The Presentation Architecture in this document is the approved Sprint 6 architecture direction.
+
+Status: Design Approved
+
+Implementation has not started. Before implementation, Sprint 6 must additionally define the canonical Bright Component schema, renderer contracts, Theme Skin token contract, component versioning, accessible fallback behavior, and Tistory/WordPress acceptance criteria.
+
 ## Product Model
 
 Bright Studio → Workspace → Project → Content → Publishing → Insights

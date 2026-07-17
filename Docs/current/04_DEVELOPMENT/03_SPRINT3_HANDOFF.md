@@ -1,5 +1,11 @@
 # 💻 Bright Studio Platform - Sprint 3 Implementation (Session Handoff)
 
+> Historical document
+>
+> This file preserves the Sprint 3 handoff and must not be used as the current development-status document.
+> The current baseline is defined by `01_DEVELOPMENT_START.md`, `02_IMPLEMENTATION_FEATURE_PLAN.md`, and `Docs/current/01_PRODUCT/02_ROADMAP.md`.
+> Sprint 3, Sprint 4 implementation, and Sprint 5 are now complete at the levels recorded in the current Roadmap. Sprint 4 real Tistory verification remains pending.
+
 ## Project
 
 ### Internal Name
