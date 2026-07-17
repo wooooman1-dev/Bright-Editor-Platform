@@ -1,4 +1,4 @@
-﻿@import "tailwindcss";
+@import "tailwindcss";
 
 :root {
   color-scheme: light;
@@ -62,7 +62,8 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-.bright-operation-notice {
+.bright-operation-notice,
+[aria-live="polite"].bg-blue-50 {
   position: fixed;
   top: max(0.75rem, env(safe-area-inset-top));
   left: 50%;
@@ -76,7 +77,16 @@ body {
   backdrop-filter: blur(10px);
 }
 
-.bright-operation-notice::after {
+[aria-live="polite"].bg-blue-50 {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  border: 1px solid #bfdbfe;
+  background: rgb(239 246 255 / 0.96) !important;
+}
+
+.bright-operation-notice::after,
+[aria-live="polite"].bg-blue-50::after {
   position: absolute;
   right: 0;
   bottom: 0;
@@ -94,7 +104,8 @@ body {
   gap: 0.55rem;
 }
 
-.bright-operation-notice > p:first-child::before {
+.bright-operation-notice > p:first-child::before,
+[aria-live="polite"].bg-blue-50::before {
   width: 1rem;
   height: 1rem;
   flex: 0 0 auto;
@@ -117,11 +128,14 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .bright-operation-notice::after,
-  .bright-operation-notice > p:first-child::before {
+  .bright-operation-notice > p:first-child::before,
+  [aria-live="polite"].bg-blue-50::after,
+  [aria-live="polite"].bg-blue-50::before {
     animation: none;
   }
 
-  .bright-operation-notice::after {
+  .bright-operation-notice::after,
+  [aria-live="polite"].bg-blue-50::after {
     transform: none;
     background: #ff6b6b;
   }

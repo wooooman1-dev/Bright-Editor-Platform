@@ -1,4 +1,4 @@
-import type { ContentDocument } from "../../core/content";
+import { ensureSeoKeywordPlacement, type ContentDocument } from "../../core/content";
 import type { ContentGenerationStrategy, GenerationInput } from "../../core/ai";
 
 export class EditorialGenerationStrategy implements ContentGenerationStrategy {
@@ -23,7 +23,8 @@ Return JSON only: {"title":"...","metaDescription":"...","primarySearchIntent":"
     assertCompleteArticle(parsedBlocks, input);
     const blocks = ensureEditorialPlacement(parsedBlocks, input);
     const metadata = typeof value.metaDescription === "string" ? { buttonCount: blocks.filter((block) => block.type === "button").length, createdAt: new Date().toISOString(), generator: "editorial-generation", imageCount: blocks.filter((block) => block.type === "image").length, language: "ko", readingTime: Math.max(1, Math.ceil(blocks.filter((block) => block.type === "paragraph").reduce((sum, block) => sum + block.text.length, 0) / 1000)), source: "ai", updatedAt: new Date().toISOString(), version: 1, videoCount: blocks.filter((block) => block.type === "video").length, wordCount: blocks.filter((block) => block.type === "paragraph").reduce((sum, block) => sum + block.text.split(/\s+/).length, 0), metaDescription: value.metaDescription.trim(), ...(typeof value.primarySearchIntent === "string" ? { primarySearchIntent: value.primarySearchIntent.trim() } : {}), ...(typeof value.secondaryIntent === "string" ? { secondaryIntent: value.secondaryIntent.trim() } : {}), ...(Array.isArray(value.secondaryKeywords) ? { secondaryKeywords: value.secondaryKeywords.filter((item): item is string => typeof item === "string") } : {}), ...(Array.isArray(value.relatedTerms) ? { relatedTerms: value.relatedTerms.filter((item): item is string => typeof item === "string") } : {}) } : undefined;
-    return Object.freeze({ blocks: Object.freeze(blocks), id: input.contentId ?? `content-${input.projectId}-${Date.now()}`, ...(metadata ? { metadata: Object.freeze(metadata) } : {}), title: value.title.trim() });
+    const document = Object.freeze({ blocks: Object.freeze(blocks), id: input.contentId ?? `content-${input.projectId}-${Date.now()}`, ...(metadata ? { metadata: Object.freeze(metadata) } : {}), title: value.title.trim() });
+    return ensureSeoKeywordPlacement(document, input.keywords[0]);
   }
 }
 
