@@ -75,9 +75,10 @@ describe("quality improvement candidate route", () => {
       baselineQuality?: unknown;
       quality?: unknown;
       improvement?: { accepted: boolean; reasons: string[] };
+      error?: string;
     };
 
-    expect(response.status).toBe(200);
+    expect(response.status, JSON.stringify(result)).toBe(200);
     expect(result.document).toBeDefined();
     expect(result.baselineQuality).toBeDefined();
     expect(result.quality).toBeDefined();
