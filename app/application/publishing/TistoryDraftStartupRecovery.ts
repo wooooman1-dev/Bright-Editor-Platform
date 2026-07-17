@@ -1,10 +1,13 @@
 import type { TistoryDraftSaveResult } from "../../../apps/tistory/workflows/TistoryDraftSaveWorkflow";
 
 export function isRetryableDraftStartupFailure(result: TistoryDraftSaveResult): boolean {
+  const genericFailure = result.error === "Tistory 임시저장 작업을 완료하지 못했습니다."
+    || result.error === "Tistory draft save failed.";
   return result.status === "failed"
     && result.saveClicked === false
     && !result.failedStep
-    && (result.steps?.length ?? 0) === 0;
+    && (result.steps?.length ?? 0) === 0
+    && genericFailure;
 }
 
 export function normalizeDraftStartupFailure(
