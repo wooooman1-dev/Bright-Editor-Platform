@@ -23,10 +23,11 @@ export function GlobalHeader({
   selectedWorkspaceId?: string;
   workspaces: readonly WorkspaceSummary[];
 }) {
+  const homeHref = selectedWorkspaceId ? `/workspaces/${selectedWorkspaceId}` : "/";
   return (
     <header className="border-b border-black/6 bg-white">
       <PageContainer className="flex flex-wrap items-center gap-4 py-4">
-        <Link aria-label="Bright Studio 홈" className="flex shrink-0 items-center gap-3" href="/">
+        <Link aria-label={selectedWorkspaceId ? "현재 작업 공간 홈으로 이동" : "Bright Studio 홈으로 이동"} className="flex shrink-0 items-center gap-3" href={homeHref}>
           <span aria-hidden="true" className="flex size-10 items-center justify-center rounded-[13px] bg-[#ff6b6b] font-bold text-white shadow-[0_8px_24px_rgba(255,107,107,0.24)]">B</span>
           <span className="text-lg font-semibold tracking-[-0.03em]">Bright Studio</span>
         </Link>
@@ -35,7 +36,7 @@ export function GlobalHeader({
           <ul className="flex min-w-max items-center gap-1">
             {navigationItems.map((item) => (
               <li key={item.id}>
-                <Link aria-current={item.id === activeItem ? "page" : undefined} className={`block rounded-lg px-3 py-2 text-sm font-medium transition ${item.id === activeItem ? "bg-[#fff0f0] text-[#d94848]" : "text-[#65656d] hover:bg-[#f8f8fa] hover:text-[#19191b]"}`} href={item.id === "Home" ? "/" : item.id === "Settings" && selectedWorkspaceId ? `/workspaces/${selectedWorkspaceId}/settings` : `#${item.id.toLowerCase()}`}>{item.label}</Link>
+                <Link aria-current={item.id === activeItem ? "page" : undefined} className={`block rounded-lg px-3 py-2 text-sm font-medium transition ${item.id === activeItem ? "bg-[#fff0f0] text-[#d94848]" : "text-[#65656d] hover:bg-[#f8f8fa] hover:text-[#19191b]"}`} href={item.id === "Home" ? homeHref : item.id === "Settings" && selectedWorkspaceId ? `/workspaces/${selectedWorkspaceId}/settings` : `#${item.id.toLowerCase()}`}>{item.label}</Link>
               </li>
             ))}
           </ul>

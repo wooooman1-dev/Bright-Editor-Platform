@@ -9,11 +9,15 @@ Define measurable quality standards for all generated content.
 ``` text
 Generation
     ↓
-Quality Review
+Rule Validation
+    ↓
+Final Editorial Review
     ↓
 Rule Validation
     ↓
-Approved
+Automatic manuscript improvement + Rule Validation (maximum 3)
+    ↓
+Approved 95+ or highest-scoring bounded result
 ```
 
 ## Quality Categories
@@ -50,8 +54,10 @@ Approved
 
 If the quality target is not achieved:
 
-1.  Improve automatically where rules allow.
-2.  Request one additional AI review only when necessary.
+1.  Pass the complete Rule Quality dimensions, reasons, evidence, and tasks to the editorial AI.
+2.  Improve the manuscript itself without changing weights, thresholds, or approval rules.
+3.  Recalculate Rule Quality and stop on approval.
+4.  Repeat no more than three times and otherwise return the highest-scoring manuscript.
 
 ## Long-term Vision
 

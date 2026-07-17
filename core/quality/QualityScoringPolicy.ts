@@ -22,6 +22,6 @@ export function contentLengthProfile(contentType = "article", platform = "canoni
   if (/checklist|체크리스트/.test(normalized)) return { minimumCharacters: 700, targetCharacters: 1600, minimumSections: 3 };
   if (/comparison|비교/.test(normalized)) return { minimumCharacters: 1400, targetCharacters: 3000, minimumSections: 4 };
   if (/short|짧은/.test(normalized)) return { minimumCharacters: 600, targetCharacters: 1400, minimumSections: 2 };
-  if (/tistory|blog|article|long-form|아티클/.test(normalized)) return { minimumCharacters: 1800, targetCharacters: 3500, minimumSections: 4 };
+  if (/tistory|blog|article|long-form|아티클|장문/.test(normalized)) return { minimumCharacters: 4000, targetCharacters: 5000, minimumSections: 5 };
   return { minimumCharacters: 900, targetCharacters: 2200, minimumSections: 3 };
 }

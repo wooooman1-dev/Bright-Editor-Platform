@@ -61,13 +61,11 @@ describe("studio planning endpoint", () => {
     const document = {
       title: "Canonical guide",
       blocks: [
-        { type: "heading", level: 1, text: "Canonical guide" },
         { type: "paragraph", text: prose },
-        { type: "heading", level: 2, text: "First section" },
-        { type: "paragraph", text: prose },
-        { type: "heading", level: 2, text: "Second section" },
-        { type: "paragraph", text: prose },
-        { type: "paragraph", text: prose },
+        ...Array.from({ length: 5 }, (_, index) => [
+          { type: "heading", level: 2, text: `Section ${index + 1}` },
+          { type: "paragraph", text: prose },
+        ]).flat(),
         { type: "paragraph", text: prose },
       ],
     };
@@ -95,9 +93,10 @@ describe("studio planning endpoint", () => {
     expect(result.document).toMatchObject({ id: "content-1", title: "Canonical guide" });
     expect(result.aiReviewError).toContain("timed out");
     expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(studioStore.set)).toHaveBeenCalledWith("application", "user-data", expect.objectContaining({ contents: [expect.objectContaining({ status: "in_review", generationError: expect.stringContaining("Final Review") })] }));
   });
 
-  it("uses the second and final AI call to return and persist the corrected canonical document", async () => {
+  it("runs the final edit and at most three automatic quality improvements before persisting the best document", async () => {
     vi.stubEnv("OPENAI_API_KEY", "sk-test-ascii-key");
     const prose = "This complete article explains the reader problem, practical actions, examples, and a concrete conclusion in readable language. ".repeat(18);
     const draft = { title: "Canonical guide", metaDescription: "Initial guide", primarySearchIntent: "informational guide", blocks: [
@@ -108,15 +107,22 @@ describe("studio planning endpoint", () => {
     const corrected = { ...draft, title: "Canonical guide final", metaDescription: "Corrected final guide", blocks: draft.blocks.map((block, index) => index === 0 ? { type: "paragraph", text: `Final edit applied. ${prose}` } : block) };
     const fetchSpy = vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response(JSON.stringify({ output_text: JSON.stringify(draft) }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ output_text: JSON.stringify(corrected) }), { status: 200 }));
+      .mockImplementation(async () => new Response(JSON.stringify({ output_text: JSON.stringify(corrected) }), { status: 200 }));
     const response = await POST(new Request("http://localhost/api/studio", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "generate", input: { contentId: "content-1", contentType: "guide", keywords: ["canonical"], platform: "tistory", projectId: "project-1", workspaceId: "workspace-1" } }) }));
-    const result = await response.json() as { document?: { title: string; blocks: Array<{ text?: string }> }; finalRevisionId?: string };
+    const result = await response.json() as { automaticImprovementCount?: number; document?: { title: string; blocks: Array<{ text?: string }> }; finalRevisionId?: string; qualityHistory?: unknown[] };
     expect(response.status).toBe(200);
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
-    expect(result.document?.title).toBe("Canonical guide final");
-    expect(result.document?.blocks[0]?.text).toContain("Final edit applied");
+    expect(fetchSpy.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(fetchSpy.mock.calls.length).toBeLessThanOrEqual(5);
+    expect(result.automaticImprovementCount).toBe(fetchSpy.mock.calls.length - 2);
+    expect(result.qualityHistory).toHaveLength(fetchSpy.mock.calls.length);
+    expect(result.document?.title).toBe("Canonical guide");
+    expect(result.document?.blocks[0]?.text).not.toContain("Final edit applied");
     expect(result.finalRevisionId).toMatch(/^rev-/);
     expect(vi.mocked(studioStore.set)).toHaveBeenCalledWith("application", "user-data", expect.objectContaining({ history: [expect.objectContaining({ reason: "ai_revision" })] }));
+    const improvementBody = JSON.parse(new TextDecoder().decode(fetchSpy.mock.calls[2]?.[1]?.body as Uint8Array));
+    expect(improvementBody.input).toContain("Rule Quality result:");
+    expect(improvementBody.input).toContain("\"dimensions\"");
+    expect(improvementBody.input).toContain("\"tasks\"");
   });
 
   it("rejects a Project that is absent from the current Workspace instead of falling back to another Project", async () => {

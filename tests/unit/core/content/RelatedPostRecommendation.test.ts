@@ -20,6 +20,13 @@ describe("rankRelatedPosts", () => {
     ]);
     expect(ranked).toEqual([]);
   });
+  it("does not return unrelated posts that only share generic editorial words", () => {
+    const ranked = rankRelatedPosts(document, [
+      { externalPostId: "travel", title: "2026 최신 항공권 예약 방법 정리", publishedUrl: "https://blog.tistory.com/entry/travel" },
+      { externalPostId: "health", title: "건강검진 공복혈당 점검 체크리스트", publishedUrl: "https://blog.tistory.com/entry/health" },
+    ]);
+    expect(ranked.map((item) => item.externalPostId)).toEqual(["health"]);
+  });
   it("automatically places one contextual internal link and at most three final related posts", () => {
     const candidates = Array.from({ length: 5 }, (_, index) => ({ externalPostId: String(index), title: `공복혈당 관련 글 ${index}`, publishedUrl: `https://blog.tistory.com/entry/${index}` }));
     const placed = placeRecommendedPosts(document, candidates);

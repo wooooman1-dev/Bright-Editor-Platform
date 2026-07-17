@@ -11,6 +11,7 @@ const data: UserData = { workspace: { id: "w", name: "Workspace" }, brands: [{ i
 describe("safe deletion", () => {
   it("calculates server-side impacts and preserves shared Brand and other Projects", () => {
     expect(calculateProjectImpact(data, "p1").contentCount).toBe(1);
+    expect(calculateProjectImpact(data, "p1")).toMatchObject({ autosaveCount: 0, publishingPreparationCount: 0 });
     expect(calculateWorkspaceImpact(data, 2).publishingAccountCount).toBe(2);
     const next = deleteProjectData(data, "p1");
     expect(next.projects.map((project) => project.id)).toEqual(["p2"]);
@@ -23,9 +24,14 @@ describe("safe deletion", () => {
     const backup = await readFile(file, "utf8");
     expect(file).toContain("v1-project-p1"); expect(backup).not.toContain("secretReference");
   });
+  it("runs backup, persistence, and reference cleanup in that order", async () => {
+    const events: string[] = [];
+    await executeProjectDeletion(data, "p1", { write: async () => { events.push("backup"); return "backup.json"; } }, async () => { events.push("persist"); }, async () => { events.push("cleanup"); });
+    expect(events).toEqual(["backup", "persist", "cleanup"]);
+  });
   it("rolls application data back when reference cleanup fails", async () => {
     const persisted: UserData[] = [];
-    await expect(executeProjectDeletion(data, "p1", { write: vi.fn().mockResolvedValue("backup.json") }, async (value) => { persisted.push(value); }, vi.fn().mockRejectedValue(new Error("cleanup failed")))).rejects.toThrow("rolled back");
+    await expect(executeProjectDeletion(data, "p1", { write: vi.fn().mockResolvedValue("backup.json") }, async (value) => { persisted.push(value); }, vi.fn().mockRejectedValue(new Error("cleanup failed")))).rejects.toMatchObject({ projectRestored: true, status: "cleanup_required" });
     expect(persisted.at(-1)).toEqual(data);
   });
 });

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import { DangerZone } from "../user-flow/DangerZone";
+import { GlobalHeader } from "../shared/ui/GlobalHeader";
 import { supportedWorkspacePlatforms, type ThemePreference, type WorkspacePlatform } from "../user-flow/user-data";
 import { SettingsConnections } from "./SettingsConnections";
 import type { SettingsSection, SettingsSnapshot, StatusSummary } from "./settings-types";
@@ -43,7 +44,7 @@ export function WorkspaceSettings({ initialSection = "overview", workspaceId }: 
   if (error && !snapshot) return <main className="min-h-screen bg-[#f8f8fa] p-6"><Card><h1 className="text-xl font-semibold">설정을 불러오지 못했습니다.</h1><p className="mt-2 text-sm text-red-700">{error}</p><Link className="mt-5 inline-block font-semibold text-[#d94848]" href="/">워크스페이스로 돌아가기</Link></Card></main>;
   if (!snapshot) return <main aria-busy="true" className="min-h-screen bg-[#f8f8fa]" />;
   return <main className="min-h-screen bg-[#f8f8fa] text-[#19191b]">
-    <header className="border-b border-black/6 bg-white"><div className="mx-auto flex max-w-7xl flex-wrap items-center gap-4 px-5 py-4 sm:px-8"><Link className="font-semibold" href="/">Bright Studio</Link><span className="ml-auto text-sm text-[#77777f]">{snapshot.workspace.name}</span><Link className="rounded-xl border px-4 py-2 text-sm font-semibold" href="/">워크스페이스로 돌아가기</Link></div></header>
+    <GlobalHeader activeItem="Settings" selectedWorkspaceId={workspaceId} workspaces={[{ id: workspaceId, name: snapshot.workspace.name }]} />
     <div className="mx-auto grid max-w-7xl gap-6 px-5 py-8 sm:px-8 lg:grid-cols-[220px_1fr]">
       <aside><h1 className="text-2xl font-semibold">설정</h1><nav aria-label="설정 메뉴" className="mt-5 flex gap-2 overflow-x-auto lg:flex-col">{sections.map((item) => <button aria-current={section === item.id ? "page" : undefined} className={`shrink-0 rounded-xl px-4 py-3 text-left text-sm font-semibold ${section === item.id ? "bg-[#fff0f0] text-[#d94848]" : "bg-white text-[#65656d]"}`} key={item.id} onClick={() => { setSection(item.id); window.history.replaceState(null, "", `?section=${item.id}`); }} type="button">{item.label}</button>)}</nav></aside>
       <div><header className="mb-6"><p className="text-xs font-semibold tracking-[0.14em] text-[#ff6b6b] uppercase">Workspace Settings</p><h1 className="mt-2 text-3xl font-semibold">{sections.find((item) => item.id === section)?.label}</h1></header>{error ? <p className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}

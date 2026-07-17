@@ -19,7 +19,12 @@ export class OpenAIProvider implements AIProvider {
     if (!isHeaderSafeApiKey(this.apiKey)) {
       throw new AIConfigurationError("OPENAI_API_KEY must contain only printable ASCII characters without whitespace.");
     }
-    const requestBody = new TextEncoder().encode(JSON.stringify({ model: this.model, input: request.instruction }));
+    const editorialOutput = editorialOutputPolicy(request.metadata);
+    const requestBody = new TextEncoder().encode(JSON.stringify({
+      model: this.model,
+      input: request.instruction,
+      ...(editorialOutput ? { max_output_tokens: editorialOutput.maxOutputTokens, text: { format: editorialDocumentFormat, verbosity: editorialOutput.verbosity } } : {}),
+    }));
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     let response: Response;
@@ -52,3 +57,30 @@ function readTimeout(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
+
+function editorialOutputPolicy(metadata?: Readonly<Record<string, string>>) {
+  if (metadata?.task === "quality-final-edit" || metadata?.task === "quality-auto-improvement") return { maxOutputTokens: 12_000, verbosity: "high" as const };
+  if (/tistory|blog|article|long-form|guide|아티클|장문/i.test(`${metadata?.platform ?? ""} ${metadata?.contentType ?? ""}`)) return { maxOutputTokens: 12_000, verbosity: "medium" as const };
+  return undefined;
+}
+
+const editorialDocumentFormat = {
+  type: "json_schema",
+  name: "canonical_content_document",
+  strict: false,
+  schema: {
+    type: "object",
+    required: ["title", "blocks"],
+    properties: {
+      title: { type: "string" },
+      metaDescription: { type: "string" },
+      primarySearchIntent: { type: "string" },
+      secondaryIntent: { type: "string" },
+      secondaryKeywords: { type: "array", items: { type: "string" } },
+      relatedTerms: { type: "array", items: { type: "string" } },
+      blocks: { type: "array", items: { type: "object", required: ["type"], properties: {
+        type: { type: "string", enum: ["heading", "paragraph", "image", "button"] }, level: { type: "integer" }, text: { type: "string" }, source: { type: "string" }, alt: { type: "string" }, purpose: { type: "string" }, label: { type: "string" }, targetUrl: { type: "string" }, target: { type: "string", enum: ["_self", "_blank"] }, sourceExternalPostId: { type: "string" },
+      } } },
+    },
+  },
+} as const;

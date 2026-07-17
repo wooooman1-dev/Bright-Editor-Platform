@@ -196,7 +196,11 @@ Natural-language request
 -> durable Content metadata
 -> AIProvider editorial generation
 -> canonical ContentDocument
--> bounded AI review + rule Quality Review
+-> Rule Quality Review
+-> final editorial review
+-> Rule Quality Review
+-> up to three report-driven manuscript improvements and Rule Quality Reviews
+-> approved 95+ result or highest-scoring bounded result
 -> TistoryHtmlRenderer
 -> server Permission Gate
 -> registered Tistory draft workflow

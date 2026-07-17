@@ -1,7 +1,8 @@
 import { notFound } from "next/navigation";
 
-import { WorkspaceLayout } from "../WorkspaceLayout";
-import { getWorkspaceViewState } from "../workspace-fixtures";
+import { studioStore } from "../../application/studio-store";
+import { FirstRunExperience } from "../../user-flow/FirstRunExperience";
+import type { UserData } from "../../user-flow/user-data";
 
 type WorkspacePageProps = {
   params: Promise<{ workspaceId: string }>;
@@ -9,9 +10,7 @@ type WorkspacePageProps = {
 
 export default async function WorkspacePage({ params }: WorkspacePageProps) {
   const { workspaceId } = await params;
-  const state = getWorkspaceViewState(workspaceId);
-
-  if (!state) notFound();
-
-  return <WorkspaceLayout state={state} />;
+  const data = await studioStore.get<UserData>("application", "user-data");
+  if (data?.workspace?.id !== workspaceId) notFound();
+  return <FirstRunExperience />;
 }

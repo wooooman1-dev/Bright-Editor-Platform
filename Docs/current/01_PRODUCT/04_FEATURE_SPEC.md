@@ -61,9 +61,10 @@ Commit
 - Natural-language planning through one AIProvider request
 - Editable structured recommendation with explicit AI-estimate disclosure
 - Manual fallback and durable pre-generation Content creation
-- One editorial generation request and one bounded AI quality-review request
+- One editorial generation request, one final editorial review, and up to three automatic manuscript-improvement requests driven by the unchanged Rule Quality report
 - Canonical ContentDocument editing, autosave, revision history, and AI-assisted revision
 - Actionable repeatable Quality Review with Review First publishing policy
+- The Editor opens with the first approved 95+ result, or with the highest-scoring manuscript after the third automatic improvement; users do not manually rerun generation to reach the target
 
 ### Safe Draft Publishing
 

@@ -10,12 +10,19 @@ export type DeletionImpact = Readonly<{
   contentCount: number;
   draftCount: number;
   historyCount: number;
+  autosaveCount: number;
   mediaCount: number;
   qualityReportCount: number;
   publishingRecordCount: number;
   scheduleRecordCount: number;
   publishingAccountCount: number;
+  publishingPreparationCount: number;
 }>;
+
+export class ProjectDeletionError extends Error {
+  readonly status = "cleanup_required";
+  constructor(readonly backupPath: string, readonly projectRestored: boolean) { super("Project deletion requires cleanup after rollback."); this.name = "ProjectDeletionError"; }
+}
 
 export interface SafeBackupWriter { write(scope: "project" | "workspace", id: string, snapshot: unknown): Promise<string>; }
 
@@ -71,7 +78,11 @@ export async function executeProjectDeletion(
   const backupPath = await backupWriter.write("project", projectId, projectSnapshot(data, projectId));
   const next = deleteProjectData(data, projectId);
   try { await persist(next); await cleanupProjectReferences(projectId); }
-  catch (error) { await persist(data); throw new Error(`Project deletion rolled back: ${error instanceof Error ? error.message : "unknown failure"}`); }
+  catch {
+    let projectRestored = false;
+    try { await persist(data); projectRestored = true; } catch { /* the backup remains the recovery source */ }
+    throw new ProjectDeletionError(backupPath, projectRestored);
+  }
   return { backupPath, data: next };
 }
 
@@ -82,10 +93,12 @@ function impact(name: string, data: UserData, contents: readonly UserContent[], 
     name, brandCount, projectCount, contentCount: contents.length,
     draftCount: contents.filter((content) => content.status !== "draft_saved").length,
     historyCount: (data.history ?? []).filter((entry) => contentIds.has(entry.contentId)).length, mediaCount,
+    autosaveCount: (data.history ?? []).filter((entry) => contentIds.has(entry.contentId) && entry.reason === "autosave").length,
     qualityReportCount: (data.qualityReports ?? []).filter((entry) => contentIds.has(entry.contentId)).length,
     publishingRecordCount: (data.publishingRecords ?? []).filter((entry) => contentIds.has(entry.contentId)).length,
     scheduleRecordCount: (data.scheduledPublishing ?? []).filter((entry) => contentIds.has(entry.contentId)).length,
     publishingAccountCount: 0,
+    publishingPreparationCount: contents.filter((content) => Boolean(content.publishingPreparation)).length,
   };
 }
 function safe(value: string): string { return value.replace(/[^a-z0-9_-]/gi, "-").slice(0, 60); }

@@ -44,16 +44,44 @@ describe("integration infrastructure", () => {
     fetchSpy.mockRestore();
   });
 
+  it("requests sufficient output capacity only for long-form editorial calls", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(JSON.stringify({ output_text: "{}" }), { status: 200 }));
+    await new OpenAIProvider("sk-test", "gpt-5-mini").generate({ instruction: "write", metadata: { contentType: "long-form blog article", platform: "tistory" } });
+    const body = JSON.parse(new TextDecoder().decode(fetchSpy.mock.calls[0]?.[1]?.body as Uint8Array));
+    expect(body).toMatchObject({ max_output_tokens: 12_000, text: { format: { type: "json_schema", name: "canonical_content_document", schema: { required: ["title", "blocks"] } }, verbosity: "medium" } });
+    await new OpenAIProvider("sk-test", "gpt-5-mini").generate({ instruction: "edit", metadata: { task: "quality-final-edit" } });
+    const finalBody = JSON.parse(new TextDecoder().decode(fetchSpy.mock.calls[1]?.[1]?.body as Uint8Array));
+    expect(finalBody).toMatchObject({ max_output_tokens: 12_000, text: { format: { type: "json_schema", name: "canonical_content_document", schema: { required: ["title", "blocks"] } }, verbosity: "high" } });
+    await new OpenAIProvider("sk-test", "gpt-5-mini").generate({ instruction: "improve", metadata: { task: "quality-auto-improvement" } });
+    const improvementBody = JSON.parse(new TextDecoder().decode(fetchSpy.mock.calls[2]?.[1]?.body as Uint8Array));
+    expect(improvementBody).toMatchObject({ max_output_tokens: 12_000, text: { verbosity: "high" } });
+    fetchSpy.mockRestore();
+  });
+
   it("converts one AI JSON response into canonical blocks", () => {
     const strategy = new EditorialGenerationStrategy();
     const prose = "A complete and useful explanation for the reader with concrete context, actions, examples, and outcomes. ".repeat(20);
-    const document = strategy.parse(JSON.stringify({ title: "Guide", blocks: [{ type: "heading", level: 1, text: "Guide" }, { type: "paragraph", text: prose }, { type: "heading", level: 2, text: "Step one" }, { type: "paragraph", text: prose }, { type: "heading", level: 2, text: "Step two" }, { type: "paragraph", text: prose }, { type: "paragraph", text: prose }, { type: "paragraph", text: prose }, { type: "button", purpose: "cta", label: "Start", targetUrl: "https://example.com", target: "_blank" }] }), {
+    const document = strategy.parse(JSON.stringify({ title: "Guide", blocks: [{ type: "paragraph", text: prose }, ...Array.from({ length: 5 }, (_, index) => [{ type: "heading", level: 2, text: `Step ${index + 1}` }, { type: "paragraph", text: prose }]).flat(), { type: "button", purpose: "cta", label: "Start", targetUrl: "https://example.com", target: "_blank" }] }), {
       contentType: "article" as never, keywords: ["guide"], platform: "tistory" as never, projectId: "project-1",
     });
     expect(document.blocks.map((block) => block.type)).toContain("button");
     expect(document.blocks.map((block) => block.type)).toContain("image");
-    expect(document.blocks).toHaveLength(10);
+    expect(document.blocks).toHaveLength(13);
     expect(document.blocks.at(-1)).toMatchObject({ type: "button", purpose: "cta", target: "_blank" });
+  });
+
+  it("accepts a named canonical document wrapper from JSON-mode editorial output", () => {
+    const strategy = new EditorialGenerationStrategy();
+    const prose = "Complete connected explanation with concrete criteria, examples, cautions, and actions for the reader. ".repeat(20);
+    const wrapped = { finalDocument: { title: "Wrapped guide", blocks: [{ type: "paragraph", text: prose }, ...Array.from({ length: 5 }, (_, index) => [{ type: "heading", level: 2, text: `Section ${index + 1}` }, { type: "paragraph", text: prose }]).flat()] } };
+    expect(strategy.parse(JSON.stringify(wrapped), { contentType: "article" as never, keywords: ["guide"], platform: "tistory" as never, projectId: "project-1" }).title).toBe("Wrapped guide");
+  });
+
+  it("lets a complete but shallow first pass reach the bounded final editorial review", () => {
+    const strategy = new EditorialGenerationStrategy();
+    const prose = "This is connected article prose with a concrete criterion, an example, a caution, and an action for the reader. ".repeat(3);
+    const response = { title: "First pass", blocks: [{ type: "paragraph", text: prose }, ...Array.from({ length: 5 }, (_, index) => [{ type: "heading", level: 2, text: `Section ${index + 1}` }, { type: "paragraph", text: prose }]).flat()] };
+    expect(strategy.parse(JSON.stringify(response), { contentType: "long-form blog article" as never, keywords: ["guide"], platform: "tistory" as never, projectId: "project-1" }).title).toBe("First pass");
   });
 
   it("rejects a planning outline instead of persisting it as an article", () => {

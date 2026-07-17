@@ -5,6 +5,7 @@ import { AIWorkflow } from "../../../core/ai";
 import { contentRevisionId, QualityEngine } from "../../../core/quality";
 import { EditorialGenerationStrategy } from "../../application/EditorialGenerationStrategy";
 import { OpenAIProvider } from "../../application/OpenAIProvider";
+import { EditorialQualityPipeline } from "../../application/EditorialQualityPipeline";
 import { ContentPlanningStrategy, createManualPlanningResult } from "../../application/ContentPlanningStrategy";
 import { TistoryPublishingAdapter } from "../../../apps/tistory/publishing/TistoryPublishingAdapter";
 import { placeRecommendedPosts, rankRelatedPosts, type ContentDocument } from "../../../core/content";
@@ -70,7 +71,7 @@ export async function POST(request: Request) {
       const contentId = required(input.contentId);
       const existing = owned.contents.find((item) => item.id === contentId && item.workspaceId === owned.workspace!.id && item.projectId === projectId);
       if (!existing) throw new Error("Content does not belong to the requested Project.");
-      const provider = new OpenAIProvider();
+      const provider = new OpenAIProvider(undefined, generationModel());
       const workflow = new AIWorkflow(provider, new EditorialGenerationStrategy());
       const result = await workflow.generate({
         contentId,
@@ -84,18 +85,20 @@ export async function POST(request: Request) {
       const context = { contentType: String(input.contentType), platform: String(input.platform), primaryKeyword: existing.primaryKeyword ?? (Array.isArray(input.keywords) ? String(input.keywords[0] ?? "") : undefined), searchIntent: existing.searchIntent };
       const initialQuality = new QualityEngine().review(initialDocument, context);
       try {
-        const reviewProvider = new OpenAIProvider(undefined, undefined, reviewTimeoutMs());
-        const finalEdit = await reviewProvider.generate({ instruction: finalEditInstruction(initialDocument, initialQuality), metadata: { task: "quality-final-edit" } });
-        let document = new EditorialGenerationStrategy().parse(finalEdit.content, {
-          contentId, contentType: required(input.contentType) as never, keywords: Array.isArray(input.keywords) ? input.keywords.map(String) : [], platform: required(input.platform) as never, projectId,
+        const pipeline = await new EditorialQualityPipeline(new OpenAIProvider(undefined, reviewModel(), reviewTimeoutMs())).run({
+          document: initialDocument,
+          finalReviewInstruction: finalEditInstruction,
+          parseInput: { contentId, contentType: required(input.contentType) as never, keywords: Array.isArray(input.keywords) ? input.keywords.map(String) : [], platform: required(input.platform) as never, projectId },
+          placeDocument: (document) => placeAvailableTistoryPosts(owned, existing, document),
+          qualityContext: context,
+          requiredInformation: editorialRequirements(typeof input.editorialContext === "string" ? input.editorialContext : undefined),
         });
-        document = await placeAvailableTistoryPosts(owned, existing, document);
-        const quality = new QualityEngine().review(document, context);
+        const { document, quality } = pipeline;
         let persisted = applyCanonicalDocument(owned, existing.id, document, "ai_revision", quality.reviewedAt);
         persisted = updateContent(persisted, existing.id, { quality, status: quality.approved ? "ready" : "in_review" });
         const next = { ...persisted, qualityReports: [...(persisted.qualityReports ?? []).filter((item) => item.contentId !== existing.id), { contentId: existing.id, report: quality }] };
         await studioStore.set(collection, stateId, next);
-        return NextResponse.json({ document, initialQuality, quality, finalRevisionId: contentRevisionId(document), data: next });
+        return NextResponse.json({ document, initialQuality, quality, finalReviewQuality: pipeline.finalReviewQuality, qualityHistory: pipeline.qualityHistory, attemptHistory: pipeline.attemptHistory, automaticImprovementCount: pipeline.automaticImprovementCount, reachedTarget: pipeline.reachedTarget, finalRevisionId: contentRevisionId(document), data: next });
       } catch (error) {
         const quality = new QualityEngine().review(initialDocument, context);
         let persisted = applyCanonicalDocument(owned, existing.id, initialDocument, "generation", quality.reviewedAt);
@@ -233,8 +236,11 @@ function message(error: unknown): string { return error instanceof Error ? error
 function required(value: unknown): string { if (typeof value !== "string" || !value.trim()) throw new Error("Required generation input is missing."); return value.trim(); }
 function reviewTimeoutMs(): number {
   const parsed = Number(process.env.OPENAI_REVIEW_TIMEOUT_MS);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 120_000;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 240_000;
 }
+function generationModel(): string { return process.env.OPENAI_GENERATION_MODEL ?? "gpt-5.6-luna"; }
+function reviewModel(): string { return process.env.OPENAI_REVIEW_MODEL ?? "gpt-5.6-terra"; }
+function editorialRequirements(context?: string): string[] { const marker = context?.match(/필수 정보:\s*([^\n]+)/); return marker ? marker[1].split("|").map((item) => item.trim()).filter(Boolean) : []; }
 
 async function placeAvailableTistoryPosts(data: UserData, content: UserData["contents"][number], document: ContentDocument): Promise<ContentDocument> {
   if (!data.workspace || !isPlatformEnabled(data, "tistory")) return document;
@@ -255,5 +261,7 @@ async function placeAvailableTistoryPosts(data: UserData, content: UserData["con
 }
 
 function finalEditInstruction(document: ContentDocument, quality: ReturnType<QualityEngine["review"]>): string {
-  return `Perform the single final Quality Review and Final Edit for this canonical ContentDocument. Fix every actionable rule-quality issue in one pass. Preserve all verified internal_link and related_post labels, URLs, purposes, and sourceExternalPostId values exactly; never invent or replace URLs. Image blocks may remain source-empty recommendations when they have specific ALT text because upload readiness is separate from manuscript quality. Add a CTA only when this topic genuinely needs an external action and only when a real approved URL already exists. Keep the title as the only H1, use sequential H2/H3 sections, keep paragraphs readable, meet the requested depth, include a truthful meta description, and directly satisfy the confirmed search intent and primary keyword. Return the complete final article as JSON only in the same canonical shape accepted by the generator, with no commentary.\nServer rule report: ${JSON.stringify({ overallScore: quality.overallScore, dimensions: quality.dimensions, tasks: quality.tasks })}\nCanonical document: ${JSON.stringify(document)}`;
+  return `Act as the Senior Editor performing the second and final AI call for this Korean canonical ContentDocument. Do not merely score or summarize it. Rewrite the complete manuscript in one pass so it directly resolves the confirmed search intent, opens with the core answer, deepens shallow H2 sections, removes repetition and generic AI phrases, connects paragraphs naturally, improves the conclusion, and unifies polite Korean tone. For a Tistory long-form article, keep 4,500–6,000 Korean characters and five to eight developed H2 sections. After every H2 write two or three prose paragraphs, each with three to five connected sentences, so each H2 contains roughly 600–850 Korean characters of actual explanation; use H3 only when useful. Before returning JSON, count the prose characters and expand concrete criteria, examples, mistakes, cautions, or alternatives when the body is below 4,500 characters. Do not expose planning notes or editorial commentary.
+Fix every actionable server rule-quality issue without lowering standards or gaming scores. Remove every fabricated first-person experience, including phrases such as “제가”, “저는”, or “직접 해봤습니다”; do not replace them with another invented narrator. Remove unsupported statistics, overconfident claims, keyword stuffing, empty headings, repeated one-sentence paragraphs, and placeholder prose. For health topics, preserve practical value while avoiding diagnosis, treatment promises, fabricated evidence, and excessive disclaimers; distinguish warning signs and professional consultation when relevant. Put the exact primary keyword naturally in the title, introduction, and relevant heading without repeating it excessively. Ensure the 60–180-character meta description truthfully matches the final body and uses the primary keyword naturally.
+Preserve all verified internal_link and related_post labels, URLs, purposes, targets, and sourceExternalPostId values exactly; never invent, replace, duplicate, or move all links to the end. Keep one contextual internal link in the relevant middle section and at most three related posts at the end. Review CTA necessity: retain only a useful CTA with a real approved URL, otherwise do not fabricate one. Image blocks may remain source-empty recommendations when they have specific ALT text because upload readiness is separate from manuscript quality. Keep the title as the only H1 and use sequential semantic H2/H3 structure. Return the complete final article as JSON only in the same canonical shape accepted by the generator, with no commentary.\nServer rule report: ${JSON.stringify({ overallScore: quality.overallScore, dimensions: quality.dimensions, tasks: quality.tasks })}\nCanonical document: ${JSON.stringify(document)}`;
 }

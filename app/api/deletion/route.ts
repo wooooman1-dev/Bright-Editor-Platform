@@ -6,7 +6,7 @@ import type { PlatformConnection } from "../../../core/connections";
 import type { UserData } from "../../user-flow/user-data";
 import {
   LocalSafeBackupWriter, calculateProjectImpact, calculateWorkspaceImpact,
-  deleteWorkspaceData, executeProjectDeletion,
+  deleteWorkspaceData, executeProjectDeletion, ProjectDeletionError,
 } from "../../application/SafeDeletionService";
 import { connectionRepository, connectionRoot, secretStore, targetRepository } from "../../application/connections/connection-runtime";
 import { studioStore } from "../../application/studio-store";
@@ -24,14 +24,17 @@ export async function POST(request: Request) {
     if (body.action === "delete-project") return deleteProject(data, required(body.projectId, "Project is required."), body.confirmation);
     if (body.action === "delete-workspace") return deleteWorkspace(data, connections, body.confirmation, body.finalConfirmation === true);
     throw new Error("Unsupported deletion action.");
-  } catch (error) { return NextResponse.json({ error: message(error) }, { status: 400 }); }
+  } catch (error) {
+    if (error instanceof ProjectDeletionError) return NextResponse.json({ deleted: false, status: "cleanup_required", backupCreated: true, backupName: path.basename(error.backupPath), projectRestored: error.projectRestored, error: error.projectRestored ? "프로젝트 삭제를 완료하지 못했습니다. 기존 프로젝트는 유지되며 정리가 필요합니다." : "프로젝트 삭제를 완료하지 못했습니다. 백업은 보존되었으며 복구 확인이 필요합니다." }, { status: 409 });
+    return NextResponse.json({ error: safeDeletionMessage(error) }, { status: 400 });
+  }
 }
 
 async function deleteProject(data: UserData, projectId: string, confirmation?: string) {
   const impact = calculateProjectImpact(data, projectId);
   if (confirmation !== impact.name) throw new Error("Project name confirmation does not match exactly.");
   const { backupPath } = await executeProjectDeletion(data, projectId, new LocalSafeBackupWriter(), (next) => studioStore.set(collection, stateId, next), (id) => targetRepository.delete(id));
-  return NextResponse.json({ deleted: true, backupCreated: true, backupName: path.basename(backupPath), nextRoute: "/" });
+  return NextResponse.json({ deleted: true, backupCreated: true, backupName: path.basename(backupPath), nextRoute: `/workspaces/${data.workspace!.id}` });
 }
 
 async function deleteWorkspace(data: UserData, connections: readonly PlatformConnection[], confirmation?: string, finalConfirmation = false) {
@@ -59,3 +62,10 @@ async function currentData(): Promise<UserData> { const data = await studioStore
 function safeConnection(connection: PlatformConnection) { const { secretReference: _secret, ...safe } = connection; void _secret; return safe; }
 function required(value: unknown, error: string): string { if (typeof value !== "string" || !value.trim()) throw new Error(error); return value.trim(); }
 function message(error: unknown): string { return error instanceof Error ? error.message : "Deletion failed."; }
+function safeDeletionMessage(error: unknown): string {
+  const value = message(error);
+  if (value === "Project name confirmation does not match exactly.") return "프로젝트 이름이 정확히 일치하지 않습니다.";
+  if (value === "Workspace name confirmation does not match exactly.") return "워크스페이스 이름이 정확히 일치하지 않습니다.";
+  if (/not found|required/i.test(value)) return "삭제 대상을 확인하지 못했습니다.";
+  return "삭제를 완료하지 못했습니다. 데이터는 유지됩니다. 다시 시도해 주세요.";
+}

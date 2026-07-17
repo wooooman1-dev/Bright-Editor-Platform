@@ -11,6 +11,7 @@ import { applyTheme } from "../settings/theme";
 import { ContentCreationFlow } from "./ContentCreationFlow";
 import { DangerZone } from "./DangerZone";
 import { EditorWorkspace } from "./EditorWorkspace";
+import { ProjectCardActions } from "./ProjectCardActions";
 import { contentRevisionId } from "../../core/quality";
 import { normalizeQualityReview } from "./quality-review-ui";
 import {
@@ -54,6 +55,12 @@ export function FirstRunExperience() {
     const response = await fetch("/api/studio", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(next) });
     if (!response.ok) { const result = await response.json() as { error?: string }; throw new Error(result.error ?? "Local persistence failed."); }
   };
+  const refreshData = async () => {
+    const response = await fetch("/api/studio", { cache: "no-store" });
+    const result = await response.json() as { data?: UserData | null; error?: string };
+    if (!response.ok || !result.data) throw new Error(result.error ?? "작업 공간을 새로 불러오지 못했습니다.");
+    setData(parseStoredUserData(JSON.stringify(result.data)));
+  };
 
   const workspaces: readonly WorkspaceSummary[] = data.workspace ? [{ id: data.workspace.id, name: data.workspace.name }] : [];
 
@@ -75,7 +82,7 @@ export function FirstRunExperience() {
     <main className="min-h-screen bg-[#f8f8fa] text-[#19191b]">
       <GlobalHeader activeItem="Home" selectedWorkspaceId={data.workspace.id} workspaces={workspaces} />
       {screen.name === "home" ? (
-        <WorkspaceHome data={data} onOpenProject={(projectId) => setScreen({ name: "project", projectId })} onPersist={persist} />
+        <WorkspaceHome data={data} onCreateToday={(projectId) => setScreen({ name: "create", projectId, automatic: true })} onOpenProject={(projectId) => setScreen({ name: "project", projectId })} onPersist={persist} onRefresh={refreshData} />
       ) : null}
       {screen.name === "connections" ? <PlatformConnections onBack={() => setScreen({ name: "home" })} workspaceId={data.workspace.id} /> : null}
       {screen.name === "project" && activeProject ? (
@@ -129,8 +136,9 @@ function WorkspaceCreation({ onCreate }: { onCreate: (name: string) => void }) {
   );
 }
 
-function WorkspaceHome({ data, onOpenProject, onPersist }: { data: UserData; onOpenProject: (projectId: string) => void; onPersist: (data: UserData) => Promise<void> }) {
+function WorkspaceHome({ data, onCreateToday, onOpenProject, onPersist, onRefresh }: { data: UserData; onCreateToday: (projectId: string) => void; onOpenProject: (projectId: string) => void; onPersist: (data: UserData) => Promise<void>; onRefresh: () => Promise<void> }) {
   const [showForm, setShowForm] = useState(data.projects.length === 0);
+  const [notice, setNotice] = useState("");
   const brandsById = useMemo(() => new Map(data.brands.map((brand) => [brand.id, brand])), [data.brands]);
   return (
     <PageContainer className="py-8 sm:py-10 lg:py-12">
@@ -156,13 +164,14 @@ function WorkspaceHome({ data, onOpenProject, onPersist }: { data: UserData; onO
           <div className="mt-4 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {data.projects.map((project) => (
               <article className="rounded-[20px] border border-black/6 bg-white p-5 shadow-[0_8px_30px_rgba(24,24,27,0.04)]" key={project.id}>
-                <p className="text-xs font-semibold text-[#d94848]">{project.brandId ? brandsById.get(project.brandId)?.name : "브랜드 없음"}</p>
+                <div className="flex items-start justify-between gap-3"><p className="text-xs font-semibold text-[#d94848]">{project.brandId ? brandsById.get(project.brandId)?.name : "브랜드 없음"}</p><ProjectCardActions brandName={project.brandId ? brandsById.get(project.brandId)?.name : undefined} onCreateToday={() => onCreateToday(project.id)} onDeleted={async () => { await onRefresh(); setNotice(`${project.name} 프로젝트를 백업 후 삭제했습니다.`); }} onRename={async (name) => { await onPersist(renameProject(data, project.id, name, nowLabel())); setNotice("프로젝트 이름을 저장했습니다."); }} project={project} workspaceId={data.workspace!.id} /></div>
                 <h3 className="mt-3 text-lg font-semibold">{project.name}</h3>
                 <p className="mt-2 min-h-12 text-sm leading-6 text-[#77777f]">{project.description || "설명이 없습니다."}</p>
                 <button className="mt-5 text-sm font-semibold text-[#d94848]" onClick={() => onOpenProject(project.id)} type="button">프로젝트 열기 →</button>
               </article>
             ))}
           </div>
+          {notice ? <p aria-live="polite" className="mt-4 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">{notice}</p> : null}
         </section>
       )}
       <DangerZone onDeleted={() => { window.location.assign("/"); }} scope="workspace" workspaceId={data.workspace!.id} />
