@@ -6,6 +6,8 @@ vi.mock("../../../../app/application/studio-store", () => ({
 
 import { studioStore } from "../../../../app/application/studio-store";
 import { POST } from "../../../../app/api/studio/route";
+import type { ContentDocument } from "../../../../core/content";
+import type { QualityReport } from "../../../../core/quality";
 
 const workspace = {
   id: "workspace-1",
@@ -23,6 +25,7 @@ const workspace = {
   },
 };
 
+const primaryKeyword = "장내 마이크로바이옴 정신 건강";
 const prose = "이 글은 장 건강을 관리하는 데 필요한 생활 습관과 식사 원칙을 구체적인 예시와 함께 설명합니다. 독자가 바로 실천할 수 있도록 단계별 방법과 주의사항을 안내합니다. ".repeat(18);
 const document = {
   id: "content-1",
@@ -44,7 +47,7 @@ describe("quality improvement candidate route", () => {
     vi.unstubAllEnvs();
   });
 
-  it("returns a scored rejected candidate instead of dropping the generated result", async () => {
+  it("places the confirmed keyword and raises SEO even when AI returns the unchanged title", async () => {
     vi.stubEnv("OPENAI_API_KEY", "sk-test-ascii-key");
     vi.mocked(studioStore.get).mockResolvedValueOnce({
       workspace,
@@ -59,7 +62,7 @@ describe("quality improvement candidate route", () => {
         status: "in_review",
         contentType: "article",
         platform: "tistory",
-        primaryKeyword: "장내 마이크로바이옴",
+        primaryKeyword,
         searchIntent: "장 건강 정보",
         document,
         createdAt: "now",
@@ -77,18 +80,24 @@ describe("quality improvement candidate route", () => {
       body: JSON.stringify({ action: "improve-quality", input: { workspaceId: "workspace-1", contentId: "content-1" } }),
     }));
     const result = await response.json() as {
-      document?: unknown;
-      baselineQuality?: unknown;
-      quality?: unknown;
+      document?: ContentDocument;
+      baselineQuality?: QualityReport;
+      quality?: QualityReport;
       improvement?: { accepted: boolean; reasons: string[] };
       error?: string;
     };
 
     expect(response.status, JSON.stringify(result)).toBe(200);
-    expect(result.document).toBeDefined();
-    expect(result.baselineQuality).toBeDefined();
-    expect(result.quality).toBeDefined();
-    expect(result.improvement?.accepted).toBe(false);
-    expect(result.improvement?.reasons.length).toBeGreaterThan(0);
+    expect(result.document?.title).toContain(primaryKeyword);
+    const introduction = result.document?.blocks.find((block) => block.type === "paragraph");
+    expect(introduction?.type === "paragraph" ? introduction.text : "").toContain(primaryKeyword);
+    expect(result.document?.metadata?.metaDescription).toContain(primaryKeyword);
+
+    const baselineSeo = result.baselineQuality?.dimensions.find((item) => item.category === "seo")?.score ?? 0;
+    const candidateSeo = result.quality?.dimensions.find((item) => item.category === "seo")?.score ?? 0;
+    expect(candidateSeo).toBeGreaterThan(baselineSeo);
+    expect(candidateSeo).toBeGreaterThanOrEqual(95);
+    expect(result.improvement?.accepted).toBe(true);
+    expect(result.document?.blocks.map((block) => block.id)).toEqual(document.blocks.map((block) => block.id));
   });
 });
