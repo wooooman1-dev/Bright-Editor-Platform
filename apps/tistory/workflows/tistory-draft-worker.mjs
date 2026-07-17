@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { chromium } from "playwright";
 import { automationClicksAllowed, editorStateSynchronized, looksAuxiliary, readOnlyClicksAllowed, reopenedDraftVerified, selectCodeMirrorCandidate, selectDraftCandidate, semanticHtmlVerified, verifyCategoryEvidence } from "./tistory-body-editor.mjs";
+import { fillTistoryTags, verifyTistoryTags } from "./tistory-tags.mjs";
 
 const [commandPath] = process.argv.slice(2);
 const empty = { saveClicked: false, saveNotificationDetected: false, draftIdDetected: false, draftListVerified: false, reopenedDraftVerified: false, titleMatched: false, bodyMatched: false, publicPostCreated: false };
@@ -85,6 +86,10 @@ try {
     if (!category.passed) fail("category_reverified", "reopened_category_mismatch", "다시 연 임시글의 카테고리가 건강정보와 일치하지 않습니다.");
     step("category_reverified", `다시 연 임시글의 카테고리가 ${command.categoryName ?? "없음"}과 일치합니다.`, category.evidence);
 
+    const reopenedTags = await verifyTistoryTags(page, command.tags);
+    if (!reopenedTags.passed) fail("tags_reverified", reopenedTags.code, reopenedTags.message);
+    step("tags_reverified", `다시 연 임시글에서 태그 ${reopenedTags.tags.length}개를 확인했습니다.`, reopenedTags.evidence);
+
     const structure = await verifyRenderedHtml(page, command.html);
     verificationEvidence = structure.diagnostic;
     if (!structure.passed) fail("structure_verified", structureDiagnosticCode(structure.diagnostic), "다시 연 임시글의 목차, H2, 내부링크 또는 관련 글 구조가 일치하지 않습니다.");
@@ -121,6 +126,11 @@ try {
 
   const body = await fillHtmlBody(page, command.html);
   if (!body.passed) fail(body.failedStep ?? "body_filled", body.code, body.message);
+
+  const tags = await fillTistoryTags(page, command.tags);
+  if (!tags.passed) fail("tags_filled", tags.code, tags.message);
+  step("tags_filled", `Tistory 태그 ${tags.tags.length}개를 입력했습니다.`, tags.evidence);
+  step("tags_verified", `입력된 태그 ${tags.tags.length}개를 저장 전에 확인했습니다.`, tags.evidence);
 
   const finalTitle = await visibleTitle(page);
   if (!finalTitle || await readTitle(finalTitle) !== command.title.trim()) fail("title_verified", "title_verification_failed", "임시저장 직전 제목이 현재 Content와 일치하지 않습니다.");
@@ -160,6 +170,10 @@ try {
   const reopenedBody = await readMeaningfulBody(page, command.html);
   if (!reopenedBody) fail("body_reverified", "reopened_body_empty", "다시 연 임시글의 본문이 비어 있거나 기대 길이에 미달합니다.");
   step("body_reverified", "다시 연 임시글의 본문이 비어 있지 않고 현재 Renderer 본문과 일치합니다.");
+
+  const reopenedTags = await verifyTistoryTags(page, command.tags);
+  if (!reopenedTags.passed) fail("tags_reverified", reopenedTags.code, reopenedTags.message);
+  step("tags_reverified", `다시 연 임시글에서 태그 ${reopenedTags.tags.length}개를 확인했습니다.`, reopenedTags.evidence);
 
   const reopenedCategory = await verifyCategorySelection(page, command.categoryId, command.categoryName);
   if (!reopenedCategory.passed) fail("category_reverified", reopenedCategory.code === "category_id_mismatch" ? "reopened_category_mismatch" : reopenedCategory.code, reopenedCategory.message);
