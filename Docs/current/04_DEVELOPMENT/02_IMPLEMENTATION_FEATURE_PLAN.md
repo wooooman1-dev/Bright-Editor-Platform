@@ -503,11 +503,19 @@ Sprint 4 — Usable Content and Safe Draft Workflow: Implemented and automatical
 
 Sprint 5 — Editorial Quality Pipeline: Completed
 
-Sprint 6 — Presentation Architecture and Bright Components: Design Approved; detailed design and implementation pending
+Sprint 6 — Presentation Architecture and Bright Components: Design Approved; Not Implemented
+
+Sprint 7 — Project DNA, Content Library, and Internal Link Intelligence: Design Approved; Not Implemented
+
+Sprint 8 — WordPress and Multi-platform Foundation: Design Approved; Not Implemented
+
+Current implementation baseline: Sprint 5 completed.
 
 Current external-environment gate: Editor → Preview → Tistory Category → Draft Save → reopened title/body/category and non-public-state verification.
 
-No new Engine should be implemented before the current real-use gate is evaluated and the Sprint 6 detailed design is approved.
+Sprint 6, Sprint 7, and Sprint 8 must not be treated as implemented or verified until repository code, tests, and external verification prove completion.
+
+Implementation order must be selected explicitly from the approved architecture and the current repository state. Sprint numbering alone does not determine implementation order.
 
 ---
 

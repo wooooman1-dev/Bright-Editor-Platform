@@ -234,8 +234,8 @@ Sprint는 개발 실행 단위이며, Stage는 제품 가치와 장기 완료 �
 | Sprint 4 | Usable Content and Safe Draft Workflow | Stage 2, Stage 4 | Implemented |
 | Sprint 5 | Editorial Quality Pipeline | Stage 3 | Implemented |
 | Sprint 6 | Presentation Architecture and Bright Components | Stage 4 presentation foundation | Design Approved, Not Implemented |
-| Sprint 7 | Project DNA, Content Library, Internal Link Intelligence | Stage 5 | Designed |
-| Sprint 8 | WordPress and Multi-platform Foundation | Stage 6, Stage 7 | Planned |
+| Sprint 7 | Project DNA, Content Library, Internal Link Intelligence | Stage 5 | Design Approved, Not Implemented |
+| Sprint 8 | WordPress and Multi-platform Foundation | Stage 6, Stage 7 | Design Approved, Not Implemented |
 
 현재 Repository의 검증 기준은 Sprint 5 완료 상태이다.
 

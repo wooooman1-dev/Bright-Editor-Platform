@@ -2,7 +2,9 @@
 
 ## Baseline
 
-Updated after Sprint 5 completion.
+Implementation baseline: Sprint 5 completed.
+
+Architecture design baseline: Sprint 6, Sprint 7, and Sprint 8 approved and not implemented.
 
 Internal name: Bright Editor Platform
 
@@ -19,9 +21,9 @@ Architecture status: Frozen
 | 3 | Product UI Foundation | Approved | Complete | Complete | Completed |
 | 4 | Usable Content and Safe Draft Workflow | Approved | Complete | Automated complete; real Tistory pending | Environment Verification Pending |
 | 5 | Editorial Quality Pipeline | Approved | Complete | Complete | Completed |
-| 6 | Presentation Architecture and Bright Components | Direction approved | Not started | Not started | Design Approved |
-| 7 | Content Library and Internal Link Intelligence | Not approved | Not started | Not started | Planned |
-| 8 | WordPress and Multi-platform Foundation | Not approved | Not started | Not started | Planned |
+| 6 | Presentation Architecture and Bright Components | Approved | Not started | Not started | Design Approved, Not Implemented |
+| 7 | Project DNA, Content Library, and Internal Link Intelligence | Approved | Not started | Not started | Design Approved, Not Implemented |
+| 8 | WordPress and Multi-platform Foundation | Approved | Not started | Not started | Design Approved, Not Implemented |
 
 ## Sprint 4 Real-use Gate
 
@@ -53,24 +55,45 @@ AI Generation
 
 The Editor receives the first approved 95+ result or the highest-scoring bounded result.
 
-## Sprint 6 Approved Direction
+## Sprint 6-8 Approved Architecture Baseline
+
+The architecture designs for Sprint 6, Sprint 7, and Sprint 8 are approved.
 
 ```text
-GeneratePress
-→ Child Theme
-→ Bright Theme
-→ Theme Skins
-→ Bright Components
-→ Generated Content
-```
+Sprint 6
+Presentation Architecture and Bright Components
+Design: Approved
+Implementation: Not started
+Verification: Not started
 
-Presentation belongs to Bright Studio. The base theme is infrastructure. Generated semantic content must not depend on theme-specific HTML.
+Sprint 7
+Project DNA, Content Library, and Internal Link Intelligence
+Design: Approved
+Implementation: Not started
+Verification: Not started
 
-Detailed design remains for component schemas, renderer contracts, Theme Skin tokens, versioning, fallback behavior, platform output, and acceptance criteria.
+Sprint 8
+WordPress and Multi-platform Foundation
+Design: Approved
+Implementation: Not started
+Verification: Not started
+
+The approved architecture documents are:
+
+02_ARCHITECTURE/13_PRESENTATION_ARCHITECTURE.md
+01_PRODUCT/09_PROJECT_DNA.md
+01_PRODUCT/13_CONTENT_INTELLIGENCE.md
+02_ARCHITECTURE/08_PLATFORM_ADAPTER.md
+
+Approval of these documents does not mean that the corresponding features are implemented or verified.
+
+Implementation status must be determined from the repository code, test results, external verification results, and this development status document.
 
 ## Next Actions
 
-1. Review and approve the Sprint 1–5 documentation alignment.
-2. Preserve Sprint 4 real-account verification as the current external gate.
-3. Complete Sprint 6 detailed design.
-4. Approve Sprint 7 and Sprint 8 scopes separately before implementation.
+1. Preserve Sprint 1–5 as the current implementation baseline.
+2. Preserve Sprint 4 real-account draft verification as the current external execution gate.
+3. Treat Sprint 6, Sprint 7, and Sprint 8 as design approved but not implemented.
+4. Re-check the repository code, tests, and approved architecture before selecting the next implementation scope.
+5. Do not infer implementation order from Sprint numbering alone.
+6. Protect all completed Sprint 1–5 behavior during future implementation.
