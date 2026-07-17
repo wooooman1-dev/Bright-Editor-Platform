@@ -1,0 +1,21 @@
+name: PR16 Content Tags Report
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --silent
+      - run: npx vitest run tests/unit/core/content/ContentTags.test.ts --reporter=json --outputFile=content-tags-report.json || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pr16-content-tags-report
+          path: content-tags-report.json
