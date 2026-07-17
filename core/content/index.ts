@@ -8,7 +8,7 @@ export { calculateContentMetrics, canonicalDocumentText } from "./ContentMetrics
 export { deriveContentTags } from "./ContentTags";
 export { placeRecommendedPosts, rankRelatedPosts, type PublicPostCandidate } from "./RelatedPostRecommendation";
 export { isVerifiedEditorialLink, restoreVerifiedEditorialLinks } from "./ProtectedEditorialLinks";
-export { ensureSeoKeywordPlacement } from "./SeoKeywordPlacement";
+export { buildReadableSeoTitle, ensureSeoKeywordPlacement } from "./SeoKeywordPlacement";
 export type { ContentMetrics } from "./ContentMetrics";
 export type { ContentMetadata } from "./ContentMetadata";
 export {
