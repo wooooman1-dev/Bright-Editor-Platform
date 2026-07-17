@@ -1,11 +1,17 @@
+import { calculateContentMetrics } from "./ContentMetrics";
 import type { ContentDocument } from "./ContentDocument";
+import type { ContentMetadata } from "./ContentMetadata";
+
+const placeholderKeywords = new Set(["article", "content", "본문"]);
 
 export function ensureSeoKeywordPlacement(
   document: ContentDocument,
   primaryKeyword: string | undefined,
 ): ContentDocument {
   const keyword = normalizeWhitespace(primaryKeyword ?? "");
-  if (!keyword) return document;
+  if (!keyword || placeholderKeywords.has(keyword.toLocaleLowerCase("ko-KR"))) {
+    return document;
+  }
 
   const title = containsExactKeyword(document.title, keyword)
     ? document.title
@@ -32,12 +38,14 @@ export function ensureSeoKeywordPlacement(
 
   const currentDescription = document.metadata?.metaDescription?.trim() ?? "";
   const firstParagraph = blocks.find((block) => block.type === "paragraph")?.text ?? "";
-  const metaDescription = document.metadata
-    ? buildMetaDescription(currentDescription, firstParagraph, keyword)
-    : currentDescription;
+  const metaDescription = buildMetaDescription(
+    currentDescription,
+    firstParagraph,
+    keyword,
+  );
 
-  const metadataChanged = Boolean(document.metadata)
-    && metaDescription !== currentDescription;
+  const metadataChanged = !document.metadata
+    || metaDescription !== currentDescription;
   const titleChanged = title !== document.title;
 
   if (!titleChanged && !bodyChanged && !metadataChanged) return document;
@@ -45,10 +53,45 @@ export function ensureSeoKeywordPlacement(
   return Object.freeze({
     ...document,
     blocks: bodyChanged ? Object.freeze(blocks) : document.blocks,
-    ...(document.metadata
-      ? { metadata: Object.freeze({ ...document.metadata, metaDescription }) }
-      : {}),
+    metadata: metadataChanged
+      ? createMetadata(document, blocks, metaDescription)
+      : document.metadata,
     title,
+  });
+}
+
+function createMetadata(
+  document: ContentDocument,
+  blocks: ContentDocument["blocks"],
+  metaDescription: string,
+): ContentMetadata {
+  const current = document.metadata;
+  const timestamp = current?.updatedAt ?? new Date().toISOString();
+  const metrics = calculateContentMetrics({ ...document, blocks });
+
+  return Object.freeze({
+    buttonCount: blocks.filter((block) => block.type === "button").length,
+    createdAt: current?.createdAt ?? timestamp,
+    generator: current?.generator ?? "seo-keyword-placement",
+    imageCount: blocks.filter((block) => block.type === "image").length,
+    language: current?.language ?? "ko",
+    readingTime: metrics.estimatedReadingMinutes,
+    source: current?.source ?? "ai",
+    updatedAt: timestamp,
+    version: current?.version ?? 1,
+    videoCount: blocks.filter((block) => block.type === "video").length,
+    wordCount: metrics.wordUnits,
+    ...(current?.primarySearchIntent
+      ? { primarySearchIntent: current.primarySearchIntent }
+      : {}),
+    ...(current?.secondaryIntent
+      ? { secondaryIntent: current.secondaryIntent }
+      : {}),
+    ...(current?.secondaryKeywords
+      ? { secondaryKeywords: current.secondaryKeywords }
+      : {}),
+    ...(current?.relatedTerms ? { relatedTerms: current.relatedTerms } : {}),
+    metaDescription,
   });
 }
 
