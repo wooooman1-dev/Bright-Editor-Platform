@@ -62,7 +62,18 @@ export async function POST(request: Request) {
       result = await service.execute(execution);
     }
     if (isRetryableDraftStartupFailure(result)) result = normalizeDraftStartupFailure(result, attempts);
-    return NextResponse.json({ result }, { status: result.status === "failed" || result.status === "partial_failure" ? 400 : 200 });
+
+    const failed = result.status === "failed" || result.status === "partial_failure";
+    const failedRecord = result.steps?.find((step) => !step.passed);
+    return NextResponse.json({
+      result,
+      ...(failed ? {
+        error: result.error ?? "Tistory 임시저장 작업을 완료하지 못했습니다.",
+        failedStep: result.failedStep,
+        diagnosticCode: failedRecord?.diagnosticCode,
+        runtimeFailure: result.diagnostic?.runtimeFailure,
+      } : {}),
+    }, { status: failed ? 400 : 200 });
   } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Tistory draft save failed." }, { status: 400 }); }
 }
 function required(value: unknown): string { if (typeof value !== "string" || !value.trim()) throw new Error("Required publishing context is missing."); return value.trim(); }

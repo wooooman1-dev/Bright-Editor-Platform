@@ -11,6 +11,15 @@ export type TistoryDraftVerification = Readonly<{
   bodyMatched: boolean;
   publicPostCreated: false;
 }>;
+export type TistoryDraftRuntimeFailure = Readonly<{
+  name?: string;
+  message?: string;
+}>;
+export type TistoryDraftDiagnostic = Readonly<{
+  runtimeFailure?: TistoryDraftRuntimeFailure;
+  currentUrl?: string;
+  [key: string]: unknown;
+}>;
 export type TistoryDraftSaveResult = TistoryDraftVerification & Readonly<{
   status: "saved" | "verified" | "partial_failure" | "partially_verified" | "diagnosed" | "failed";
   steps?: readonly TistoryDraftWorkflowStep[];
@@ -23,6 +32,7 @@ export type TistoryDraftSaveResult = TistoryDraftVerification & Readonly<{
   draftSaveClickCount?: number;
   savedAt?: string;
   verification?: Readonly<Record<string, unknown>>;
+  diagnostic?: TistoryDraftDiagnostic;
   draftList?: Readonly<Record<string, unknown>>;
   editorUrl?: string;
   probe?: TistoryBodyEditorProbeResult;
@@ -47,7 +57,7 @@ export type TistoryBodyEditorProbeResult = Readonly<{
   restrictedControlClicks: number;
 }>;
 export type TistoryDraftWorkflowStep = Readonly<{
-  key: "session_loaded" | "editor_opened" | "editor_ready" | "body_editor_identified" | "probe_applied" | "probe_verified" | "probe_restored" | "category_applied" | "category_verified" | "title_filled" | "title_verified" | "html_mode_opened" | "body_filled" | "body_verified" | "draft_save_clicked" | "draft_save_confirmed" | "draft_list_opened" | "draft_item_identified" | "draft_reopened" | "title_reverified" | "body_reverified" | "category_reverified" | "structure_verified" | "publication_state_verified" | "draft_verified";
+  key: "session_loaded" | "editor_opened" | "editor_ready" | "draft_preflight" | "body_editor_identified" | "probe_applied" | "probe_verified" | "probe_restored" | "category_applied" | "category_verified" | "title_filled" | "title_verified" | "html_mode_opened" | "body_filled" | "body_verified" | "draft_save_clicked" | "draft_save_confirmed" | "draft_list_opened" | "draft_item_identified" | "draft_reopened" | "title_reverified" | "body_reverified" | "category_reverified" | "structure_verified" | "publication_state_verified" | "draft_verified";
   passed: boolean;
   diagnosticCode?: string;
   message: string;
