@@ -83,13 +83,17 @@ function measure(document: ContentDocument, context: QualityReviewContext) {
   const profile = contentLengthProfile(context.contentType, context.platform);
   const paragraphSentenceCounts = paragraphs.map((item) => sentenceCount(item.text));
   const shortParagraphs = paragraphs.filter((item, index) => item.text.trim().length < 70 || paragraphSentenceCounts[index] < 2).length;
-  const repeatedOpenings = paragraphs.map((item) => item.text.trim().slice(0, 18)).filter((value) => value.length >= 8).length - new Set(paragraphs.map((item) => item.text.trim().slice(0, 18)).filter((value) => value.length >= 8)).size;
+  const openings = paragraphs.map((item) => item.text.trim().slice(0, 18)).filter((value) => value.length >= 8);
+  const repeatedOpenings = openings.length - new Set(openings).size;
   const clicheCount = matches(text, /(?:알아보겠습니다|살펴보겠습니다|중요합니다|도움이 됩니다|필수적입니다)/g);
   const experienceClaim = /(?:제가|나는|저는|직접)\s*.{0,24}(?:경험했|겪었|사용했|먹어봤|해봤)/i.test(text);
   const sections = sectionDepth(document);
   const shallowSections = sections.filter((section) => section.characters < 350).length;
   const metaDescription = document.metadata?.metaDescription?.trim() ?? "";
-  return { document, context, text, metrics, paragraphs, headings, buttons, images, planning: planningPattern.test(text), placeholders: placeholderPattern.test(text), duplicateHeadingCount, emptyHeadings: headings.filter((item) => !item.text.trim()).length, keyword, keywordOccurrences, profile, shortParagraphs, repeatedOpenings, clicheCount, experienceClaim, sections, shallowSections, metaDescription };
+  const titleLength = document.title.trim().length;
+  const titleColonCount = matches(document.title, /:/g);
+  const titleListSeparatorCount = matches(document.title, /[·,/]/g);
+  return { document, context, text, metrics, paragraphs, headings, buttons, images, planning: planningPattern.test(text), placeholders: placeholderPattern.test(text), duplicateHeadingCount, emptyHeadings: headings.filter((item) => !item.text.trim()).length, keyword, keywordOccurrences, profile, shortParagraphs, repeatedOpenings, clicheCount, experienceClaim, sections, shallowSections, metaDescription, titleLength, titleColonCount, titleListSeparatorCount };
 }
 
 function evaluate(s: Signals): QualityDimensionResult[] {
@@ -113,12 +117,32 @@ function evaluate(s: Signals): QualityDimensionResult[] {
     ...(contextualInternalLinks.length ? [] : ["본문 중간에 실제 URL이 있는 내부 링크가 없습니다."]),
     ...(relatedPosts.length >= 3 ? [] : ["실제 관련 글 링크가 3개보다 적습니다."]),
   ];
+  const titleTooLong = s.titleLength > 68;
+  const titleHasRepeatedColon = s.titleColonCount > 1;
+  const titleLooksLikeKeywordList = s.titleListSeparatorCount > 2;
+  const titlePenalty = (titleTooLong ? 20 : 0) + (titleHasRepeatedColon ? 10 : 0) + (titleLooksLikeKeywordList ? 10 : 0);
+  const keywordRepeated = keywordDensity > 0.08 || s.keywordOccurrences > 15;
+  const titleContainsKeyword = Boolean(s.keyword && s.document.title.toLowerCase().includes(s.keyword));
+  const metaDescriptionValid = s.metaDescription.length >= 60 && s.metaDescription.length <= 180;
+  const seoBase = s.keyword
+    ? 55 + (titleContainsKeyword ? 20 : 0) + (s.keywordOccurrences > 0 ? 15 : 0) + (metaDescriptionValid ? 10 : 0) - (keywordRepeated ? 35 : 0)
+    : 35 + (s.metaDescription ? 10 : 0);
 
   return [
     dimension("searchIntent", searchIntentScore,
       !s.context.searchIntent ? ["확정된 검색 의도 정보가 없어 평가할 수 없습니다."] : searchIntentScore >= 85 ? [] : ["도입부와 주요 섹션이 확정된 검색 의도를 충분히 해결하지 못합니다."], s.context.searchIntent ? ["도입부와 주요 섹션에서 독자의 검색 목적을 직접 해결하세요."] : ["콘텐츠 기획의 검색 의도를 저장한 뒤 다시 검토하세요."], [{ signal: "confirmedSearchIntent", value: s.context.searchIntent ?? false }, { signal: "reflectedIntentTerms", value: reflectedIntentTerms }, { signal: "intentMetadata", value: intentMetadata }], s.context.searchIntent ? "evaluated" : "blocked"),
-    dimension("seo", s.keyword ? clamp(55 + (s.document.title.toLowerCase().includes(s.keyword) ? 20 : 0) + (s.keywordOccurrences > 0 ? 15 : 0) + (s.metaDescription.length >= 60 && s.metaDescription.length <= 180 ? 10 : 0) - (keywordDensity > 0.08 || s.keywordOccurrences > 15 ? 35 : 0)) : 35 + (s.metaDescription ? 10 : 0),
-      [...(keywordDensity > 0.08 || s.keywordOccurrences > 15 ? ["핵심 키워드가 지나치게 반복됩니다."] : []), ...(s.keyword && !s.document.title.toLowerCase().includes(s.keyword) ? ["제목이 핵심 키워드를 명확히 반영하지 않습니다."] : []), ...(!s.metaDescription ? ["실제 본문을 요약한 메타디스크립션이 없습니다."] : []), ...(s.metaDescription && (s.metaDescription.length < 60 || s.metaDescription.length > 180) ? ["메타디스크립션이 핵심 내용을 충분히 설명하지 못하거나 지나치게 깁니다."] : [])], ["제목·메타디스크립션·본문에 핵심 키워드를 자연스럽게 배치하고 반복을 줄이세요."], [{ signal: "keywordOccurrences", value: s.keywordOccurrences }, { signal: "keywordDensity", value: Number(keywordDensity.toFixed(3)) }, { signal: "metaDescriptionLength", value: s.metaDescription.length }]),
+    dimension("seo", clamp(seoBase - titlePenalty),
+      [
+        ...(keywordRepeated ? ["핵심 키워드가 지나치게 반복됩니다."] : []),
+        ...(s.keyword && !titleContainsKeyword ? ["제목이 핵심 키워드를 명확히 반영하지 않습니다."] : []),
+        ...(titleTooLong ? ["제목이 68자를 초과해 핵심 내용을 빠르게 파악하기 어렵습니다."] : []),
+        ...(titleHasRepeatedColon ? ["제목에 콜론이 두 번 이상 사용되어 문장 구조가 복잡합니다."] : []),
+        ...(titleLooksLikeKeywordList ? ["제목에 키워드가 나열되어 자연스러운 문장 가독성이 떨어집니다."] : []),
+        ...(!s.metaDescription ? ["실제 본문을 요약한 메타디스크립션이 없습니다."] : []),
+        ...(s.metaDescription && !metaDescriptionValid ? ["메타디스크립션이 핵심 내용을 충분히 설명하지 못하거나 지나치게 깁니다."] : []),
+      ],
+      ["제목을 68자 이내, 콜론 1개 이하의 자연스러운 문장으로 줄이고 제목·메타디스크립션·본문에 핵심 키워드를 자연스럽게 배치하세요."],
+      [{ signal: "keywordOccurrences", value: s.keywordOccurrences }, { signal: "keywordDensity", value: Number(keywordDensity.toFixed(3)) }, { signal: "metaDescriptionLength", value: s.metaDescription.length }, { signal: "titleLength", value: s.titleLength }, { signal: "titleColonCount", value: s.titleColonCount }, { signal: "titleListSeparatorCount", value: s.titleListSeparatorCount }]),
     dimension("readability", clamp(100 - (s.paragraphs.some((item) => item.text.length > 500) ? 15 : 0) - Math.min(30, s.shortParagraphs * 3) - Math.min(15, s.repeatedOpenings * 5) - Math.min(20, s.clicheCount * 4)),
       [...(s.paragraphs.some((item) => item.text.length > 500) ? ["지나치게 긴 문단이 있어 읽기 어렵습니다."] : []), ...(s.shortParagraphs > Math.max(2, Math.floor(s.paragraphs.length * 0.25)) ? ["짧은 한 문장 문단이 반복되어 흐름이 끊깁니다."] : []), ...(s.clicheCount ? ["상투적인 AI 표현이 반복됩니다."] : [])], ["문단을 2~5개의 연결된 문장으로 구성하고 반복되는 도입 표현을 제거하세요."], [{ signal: "paragraphCount", value: s.metrics.paragraphCount }, { signal: "shortParagraphs", value: s.shortParagraphs }, { signal: "repeatedOpenings", value: s.repeatedOpenings }, { signal: "clicheCount", value: s.clicheCount }]),
     dimension("structure", clamp(100 - (intro.length < 100 ? 20 : 0) - (s.headings.length < s.profile.minimumSections ? 25 : 0) - s.duplicateHeadingCount * 15 - s.emptyHeadings * 20 - (invalidHeadingOrder ? 20 : 0) - Math.min(30, s.shallowSections * 10)),

@@ -53,7 +53,7 @@ export async function POST(request: Request) {
     const preparation = content.publishingPreparation?.tistory;
     if (!preparation || preparation.publishingAccountId !== connectionId) throw new Error("Tistory 카테고리를 선택하거나 '카테고리 없음'을 명시해 주세요.");
     const diagnosticMode = body.action === "body_editor_probe" || body.action === "category_verification_probe" || body.action === "draft_reopen_verify" ? body.action : undefined;
-    const execution = { workspaceId, projectId, contentId, connection, document: content.document, finalConfirmation: body.finalConfirmation === true, selectedTarget, categoryId: preparation.platformCategoryId, categoryName: preparation.platformCategoryName, ...(diagnosticMode ? { diagnosticMode } : {}) };
+    const execution = { workspaceId, projectId, contentId, connection, document: content.document, primaryKeyword: content.primaryKeyword, finalConfirmation: body.finalConfirmation === true, selectedTarget, categoryId: preparation.platformCategoryId, categoryName: preparation.platformCategoryName, ...(diagnosticMode ? { diagnosticMode } : {}) };
     const service = new TistoryDraftApplicationService(audits);
     let result = await service.execute(execution);
     let attempts = 1;
