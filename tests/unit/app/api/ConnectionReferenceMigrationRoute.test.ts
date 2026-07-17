@@ -120,7 +120,7 @@ describe("connection reference migration route", () => {
     runtime.deleteConnection.mockResolvedValue(undefined);
   });
 
-  it("moves active references and creates the replacement target before deleting old metadata", async () => {
+  it("moves active references without typed name confirmation and reports the verified counts", async () => {
     const response = await POST(new Request("http://localhost/api/connections", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -129,7 +129,6 @@ describe("connection reference migration route", () => {
         workspaceId: "workspace-1",
         connectionId: oldConnection.id,
         replacementConnectionId: newConnection.id,
-        confirmation: oldConnection.displayName,
       }),
     }));
     const result = await response.json() as {
@@ -137,6 +136,7 @@ describe("connection reference migration route", () => {
       projectCount?: number;
       contentCount?: number;
       replacementConnectionId?: string;
+      message?: string;
       error?: string;
     };
 
@@ -146,6 +146,7 @@ describe("connection reference migration route", () => {
       projectCount: 1,
       contentCount: 1,
       replacementConnectionId: newConnection.id,
+      message: "참조 Project 1개와 Content 1개를 정상 연결로 이전하고 이전 연결을 삭제했습니다.",
     });
 
     const savedData = runtime.setState.mock.calls[0]?.[2] as UserData;
@@ -187,7 +188,6 @@ describe("connection reference migration route", () => {
         workspaceId: "workspace-1",
         connectionId: oldConnection.id,
         replacementConnectionId: newConnection.id,
-        confirmation: oldConnection.displayName,
       }),
     }));
     const result = await response.json() as { error?: string };
