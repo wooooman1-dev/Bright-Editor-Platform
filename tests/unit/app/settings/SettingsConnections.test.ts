@@ -1,0 +1,55 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+
+import { compatibleReplacementConnections } from "../../../../app/settings/SettingsConnections";
+import type { PublicConnection } from "../../../../app/settings/settings-types";
+
+function tistory(
+  id: string,
+  status: PublicConnection["status"],
+  blogId: string,
+): PublicConnection {
+  return {
+    id,
+    platform: "tistory",
+    displayName: blogId,
+    status,
+    updatedAt: "2026-07-18T00:00:00.000Z",
+    permissions: ["draft.create"],
+    publishingPolicy: "review_first",
+    publicMetadata: { blogId, blogUrl: `https://${blogId}.tistory.com`, sessionStateAvailable: status === "connected" },
+  };
+}
+
+describe("SettingsConnections migration UI", () => {
+  it("offers only a connected account for the same platform and publishing site", () => {
+    const source = tistory("old", "disconnected", "bright-healthy");
+    const replacement = tistory("new", "connected", "bright-healthy");
+    const candidates = compatibleReplacementConnections([
+      source,
+      replacement,
+      tistory("same-disconnected", "disconnected", "bright-healthy"),
+      tistory("other-blog", "connected", "another-blog"),
+      {
+        id: "wordpress",
+        platform: "wordpress",
+        displayName: "Bright WordPress",
+        status: "connected",
+        updatedAt: "2026-07-18T00:00:00.000Z",
+        permissions: ["draft.create"],
+        publishingPolicy: "review_first",
+        publicMetadata: { siteUrl: "https://bright-healthy.tistory.com" },
+      },
+    ], source);
+
+    expect(candidates.map((item) => item.id)).toEqual([replacement.id]);
+  });
+
+  it("shows an explicit disconnected state and reference-migration action", () => {
+    const source = readFileSync(join(process.cwd(), "app/settings/SettingsConnections.tsx"), "utf8");
+    expect(source).toContain("연결 해제됨");
+    expect(source).toContain("참조 이전 후 삭제");
+    expect(source).toContain('action: "migrate-delete-connection"');
+  });
+});
