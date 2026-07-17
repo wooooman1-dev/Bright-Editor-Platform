@@ -43,4 +43,11 @@ describe("Tistory tags", () => {
     expect(workerSource.match(/const reopenedTags = await verifyTistoryTags\(page, command\.tags\);/gu)).toHaveLength(2);
     expect(workerSource).toContain('step("tags_reverified"');
   });
+
+  it("skips hidden or blocked category controls and bounds the real click timeout", () => {
+    expect(workerSource).toContain("control.isEnabled().catch(() => false)");
+    expect(workerSource).toContain("control.click({ trial: true, timeout: 1000 })");
+    expect(workerSource).toContain("control.click({ timeout: 5000 })");
+    expect(workerSource).toContain('code: "category_control_not_clickable"');
+  });
 });
