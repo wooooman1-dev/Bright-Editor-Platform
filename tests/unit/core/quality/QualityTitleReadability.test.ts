@@ -32,9 +32,10 @@ function article(title: string): ContentDocument {
 
 describe("QualityEngine SEO title readability", () => {
   it("penalizes long repeated-colon keyword-list titles", () => {
-    const longTitle = "만성 염증 완화 식단: 장내 마이크로바이옴 정신 건강: 식이섬유·프로바이오틱스·프리바이오틱스·장건강 실천 가이드";
+    const longTitle = "만성 염증 완화 식단 상세 실천 가이드: 장내 마이크로바이옴 정신 건강: 식이섬유·프로바이오틱스·프리바이오틱스·장건강 실천 가이드";
     const seo = new QualityEngine().review(article(longTitle), { primaryKeyword: keyword }).dimensions.find((item) => item.category === "seo");
 
+    expect(longTitle.length).toBeGreaterThan(68);
     expect(seo?.score).toBeLessThan(85);
     expect(seo?.reasons).toContain("제목이 68자를 초과해 핵심 내용을 빠르게 파악하기 어렵습니다.");
     expect(seo?.reasons).toContain("제목에 콜론이 두 번 이상 사용되어 문장 구조가 복잡합니다.");
