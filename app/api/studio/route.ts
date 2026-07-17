@@ -2,13 +2,13 @@ import { NextResponse } from "next/server";
 
 import { studioStore } from "../../application/studio-store";
 import { AIWorkflow } from "../../../core/ai";
-import { contentRevisionId, QualityEngine } from "../../../core/quality";
+import { contentRevisionId, evaluateQualityImprovement, qualityImprovementRejectionMessage, QualityEngine } from "../../../core/quality";
 import { EditorialGenerationStrategy } from "../../application/EditorialGenerationStrategy";
 import { OpenAIProvider } from "../../application/OpenAIProvider";
 import { EditorialQualityPipeline } from "../../application/EditorialQualityPipeline";
 import { ContentPlanningStrategy, createManualPlanningResult } from "../../application/ContentPlanningStrategy";
 import { TistoryPublishingAdapter } from "../../../apps/tistory/publishing/TistoryPublishingAdapter";
-import { placeRecommendedPosts, rankRelatedPosts, type ContentDocument } from "../../../core/content";
+import { placeRecommendedPosts, rankRelatedPosts, restoreVerifiedEditorialLinks, type ContentDocument } from "../../../core/content";
 import { applyCanonicalDocument, updateContent, type UserData } from "../../user-flow/user-data";
 import { isPlatformEnabled, resolveWorkspaceSettings } from "../../application/settings/WorkspaceSettingsService";
 import { connectionRepository, targetRepository } from "../../application/connections/connection-runtime";
@@ -152,15 +152,21 @@ export async function POST(request: Request) {
       const content = data.contents.find((item) => item.id === contentId && item.workspaceId === data.workspace!.id);
       if (!content?.document) throw new Error("Canonical content was not found.");
       const currentQuality = new QualityEngine().review(content.document, qualityContext(content));
+      if (!currentQuality.tasks.length) throw new Error("현재 원고에는 AI로 개선할 품질 항목이 없습니다.");
       const response = await new OpenAIProvider().generate({
-        instruction: `Improve this complete canonical ContentDocument using only the Quality Review tasks below. Preserve every unaffected block ID and the user's existing block order. Insert a needed internal link immediately after the most relevant heading section, never all at the document end. Keep the conclusion followed only by related_post links. Do not invent URLs: without an approved real URL, preserve a recommendation with empty targetUrl. Do not add monetization links. Return the complete revised document as JSON only in {"title":"...","blocks":[...]} form. Do not return commentary.\nQuality tasks: ${JSON.stringify(currentQuality.tasks)}\nCurrent document: ${JSON.stringify(content.document)}`,
+        instruction: `Improve this complete canonical ContentDocument using only the Quality Review tasks below. Preserve every unaffected block ID and the user's existing block order. Do not create, remove, replace, or edit internal_link or related_post blocks; verified links are protected and restored by the server. Never return an empty internal-link placeholder. Do not add monetization links. Preserve existing metadata exactly unless the SEO or search-intent task requires a change. Return the complete revised document as JSON only in {"title":"...","metaDescription":"...","primarySearchIntent":"...","secondaryIntent":"...","secondaryKeywords":["..."],"relatedTerms":["..."],"blocks":[...]} form. Do not return commentary.\nQuality tasks: ${JSON.stringify(currentQuality.tasks)}\nCurrent document: ${JSON.stringify(content.document)}`,
         metadata: { task: "quality-improvement" },
       });
-      const document = new EditorialGenerationStrategy().parse(response.content, {
+      const parsed = new EditorialGenerationStrategy().parse(response.content, {
         contentId, contentType: (content.contentType ?? "article") as never,
         keywords: [content.primaryKeyword ?? "content"], platform: (content.platform ?? "canonical") as never, projectId: content.projectId,
       });
-      return NextResponse.json({ document, basedOnRevisionId: contentRevisionId(content.document), quality: currentQuality });
+      let document = restoreVerifiedEditorialLinks(content.document, parsed);
+      document = await placeAvailableTistoryPosts(data, content, document);
+      const quality = new QualityEngine().review(document, { ...qualityContext(content), revisionId: contentRevisionId(document) });
+      const improvement = evaluateQualityImprovement(currentQuality, quality);
+      if (!improvement.accepted) throw new Error(qualityImprovementRejectionMessage(improvement));
+      return NextResponse.json({ document, basedOnRevisionId: contentRevisionId(content.document), baselineQuality: currentQuality, quality, improvement });
     }
     if (body.action === "accept-improvement") {
       const data = await ownedWorkspace(required(body.input?.workspaceId));
@@ -169,15 +175,20 @@ export async function POST(request: Request) {
       if (!content?.document || contentRevisionId(content.document) !== basedOnRevisionId) throw new Error("현재 문서가 변경되어 개선안을 적용할 수 없습니다. 새 개선안을 만들어 주세요.");
       const raw = body.input?.document;
       if (!raw || typeof raw !== "object") throw new Error("개선 문서가 없습니다.");
-      const document = raw as import("../../../core/content").ContentDocument;
-      if (document.id !== content.document.id) throw new Error("개선 문서 ID가 현재 문서와 일치하지 않습니다.");
+      const candidate = raw as import("../../../core/content").ContentDocument;
+      if (candidate.id !== content.document.id) throw new Error("개선 문서 ID가 현재 문서와 일치하지 않습니다.");
+      let document = restoreVerifiedEditorialLinks(content.document, candidate);
+      document = await placeAvailableTistoryPosts(data, content, document);
+      const baselineQuality = new QualityEngine().review(content.document, qualityContext(content));
       const appliedAt = new Date().toISOString();
-      let next = applyCanonicalDocument(data, contentId, document, "ai_revision", appliedAt);
       const quality = new QualityEngine().review(document, { ...qualityContext(content), revisionId: contentRevisionId(document), reviewedAt: appliedAt });
+      const improvement = evaluateQualityImprovement(baselineQuality, quality);
+      if (!improvement.accepted) throw new Error(qualityImprovementRejectionMessage(improvement));
+      let next = applyCanonicalDocument(data, contentId, document, "ai_revision", appliedAt);
       next = updateContent(next, contentId, { quality, status: quality.approved ? "ready" : "in_review", updatedAt: appliedAt });
       next = { ...next, qualityReports: [...(next.qualityReports ?? []).filter((item) => item.contentId !== contentId), { contentId, report: quality }] };
       await studioStore.set(collection, stateId, next);
-      return NextResponse.json({ document, quality, revisionId: contentRevisionId(document), data: next });
+      return NextResponse.json({ document, quality, improvement, revisionId: contentRevisionId(document), data: next });
     }
     if (body.action === "render-tistory") {
       const data = await ownedWorkspace(required(body.input?.workspaceId));
