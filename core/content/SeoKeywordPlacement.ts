@@ -2,7 +2,7 @@ import { calculateContentMetrics } from "./ContentMetrics";
 import type { ContentDocument } from "./ContentDocument";
 import type { ContentMetadata } from "./ContentMetadata";
 
-const placeholderKeywords = new Set(["article", "content", "본문"]);
+const placeholderKeywords = new Set(["article", "content", "guide", "본문"]);
 
 export function ensureSeoKeywordPlacement(
   document: ContentDocument,
