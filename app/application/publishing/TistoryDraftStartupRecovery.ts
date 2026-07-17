@@ -1,13 +1,18 @@
 import type { TistoryDraftSaveResult } from "../../../apps/tistory/workflows/TistoryDraftSaveWorkflow";
 
 export function isRetryableDraftStartupFailure(result: TistoryDraftSaveResult): boolean {
-  const genericFailure = result.error === "Tistory 임시저장 작업을 완료하지 못했습니다."
-    || result.error === "Tistory draft save failed.";
+  const steps = result.steps ?? [];
+  const hasRecordedFailure = steps.some((step) => !step.passed);
+  const hasExternalSaveClick = result.saveClicked === true
+    || (result.draftSaveClickCount ?? 0) > 0
+    || steps.some((step) => step.key === "draft_save_clicked" && step.passed);
+  const workerStarted = steps.some((step) => step.key === "session_loaded" && step.passed);
+
   return result.status === "failed"
-    && result.saveClicked === false
     && !result.failedStep
-    && (result.steps?.length ?? 0) === 0
-    && genericFailure;
+    && workerStarted
+    && !hasRecordedFailure
+    && !hasExternalSaveClick;
 }
 
 export function normalizeDraftStartupFailure(
@@ -16,6 +21,9 @@ export function normalizeDraftStartupFailure(
 ): TistoryDraftSaveResult {
   if (!isRetryableDraftStartupFailure(result)) return result;
 
+  const completedSteps = (result.steps ?? [])
+    .filter((step) => step.passed)
+    .map((step) => step.key);
   const error = "Tistory 글쓰기 화면 초기화에 실패했습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.";
   return {
     ...result,
@@ -29,12 +37,13 @@ export function normalizeDraftStartupFailure(
         passed: false,
         diagnosticCode: "editor_startup_failed",
         message: error,
-        evidence: { attempts },
+        evidence: { attempts, completedSteps },
       },
     ],
     verification: {
       ...(result.verification ?? {}),
       startupAttempts: attempts,
+      completedSteps,
     },
   };
 }
