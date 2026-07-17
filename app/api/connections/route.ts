@@ -36,7 +36,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { action?: string; workspaceId?: string; connectionId?: string; replacementConnectionId?: string; projectId?: string; blogAddress?: string; siteUrl?: string; username?: string; applicationPassword?: string; confirmation?: string; displayName?: string };
+    const body = await request.json() as { action?: string; workspaceId?: string; connectionId?: string; replacementConnectionId?: string; projectId?: string; blogAddress?: string; siteUrl?: string; username?: string; applicationPassword?: string; displayName?: string };
     const workspaceId = required(body.workspaceId, "Workspace is required."); const data = await workspaceData(workspaceId);
     if (body.action === "cancel") {
       const jobId = required(body.connectionId, "Connection job is required."), job = connectionJobRunner.status(jobId);
@@ -51,12 +51,11 @@ export async function POST(request: Request) {
     if (body.action === "disconnect") return await disconnect(workspaceId, required(body.connectionId, "Connection is required."));
     if (body.action === "rename") return await renameConnection(workspaceId, required(body.connectionId, "Connection is required."), required(body.displayName, "Account name is required."));
     if (body.action === "connection-impact") return await connectionImpact(workspaceId, required(body.connectionId, "Connection is required."));
-    if (body.action === "delete-connection") return await deleteConnection(workspaceId, required(body.connectionId, "Connection is required."), body.confirmation);
+    if (body.action === "delete-connection") return await deleteConnection(workspaceId, required(body.connectionId, "Connection is required."));
     if (body.action === "migrate-delete-connection") return await migrateAndDeleteConnection(
       workspaceId,
       required(body.connectionId, "Connection is required."),
       required(body.replacementConnectionId, "Replacement account is required."),
-      body.confirmation,
     );
     if (body.action === "select-target") { const connection = await ownedConnection(workspaceId, required(body.connectionId, "Connection is required.")); assertPlatformEnabled(data, connection.platform); return await selectTarget(workspaceId, required(body.projectId, "Project is required."), connection.id); }
     throw new Error("Unsupported connection action.");
@@ -124,26 +123,23 @@ async function connectionImpact(workspaceId: string, id: string) {
   return NextResponse.json({ impact: { name: connection.displayName, projectCount, contentCount, canDelete: connection.status === "disconnected" && projectCount === 0 && contentCount === 0 } });
 }
 
-async function deleteConnection(workspaceId: string, id: string, confirmation?: string) {
+async function deleteConnection(workspaceId: string, id: string) {
   const connection = await ownedConnection(workspaceId, id);
-  if (confirmation !== connection.displayName) throw new Error("Account name confirmation does not match exactly.");
   if (connection.status !== "disconnected") throw new Error("Disconnect the account before deleting its metadata.");
   const impactResponse = await connectionImpact(workspaceId, id), impact = (await impactResponse.json()).impact as { projectCount: number; contentCount: number };
   if (impact.projectCount || impact.contentCount) throw new Error("Remove this account from Projects and Contents before deleting its metadata.");
   await targetRepository.deleteByConnection(id);
   await connectionRepository.delete(id);
-  return NextResponse.json({ deleted: true });
+  return NextResponse.json({ deleted: true, message: "연결 메타데이터를 삭제했습니다." });
 }
 
 async function migrateAndDeleteConnection(
   workspaceId: string,
   sourceId: string,
   replacementId: string,
-  confirmation?: string,
 ) {
   const source = await ownedConnection(workspaceId, sourceId);
   const replacement = await ownedConnection(workspaceId, replacementId);
-  if (confirmation !== source.displayName) throw new Error("Account name confirmation does not match exactly.");
   assertCompatibleConnectionReplacement(source, replacement);
 
   const data = await workspaceData(workspaceId);
@@ -171,12 +167,15 @@ async function migrateAndDeleteConnection(
   await targetRepository.deleteByConnection(source.id);
   await connectionRepository.delete(source.id);
 
+  const projectCount = migration.affectedProjectIds.length;
+  const contentCount = migration.affectedContentIds.length;
   return NextResponse.json({
     deleted: true,
     migrated: true,
-    projectCount: migration.affectedProjectIds.length,
-    contentCount: migration.affectedContentIds.length,
+    projectCount,
+    contentCount,
     replacementConnectionId: replacement.id,
+    message: `참조 Project ${projectCount}개와 Content ${contentCount}개를 정상 연결로 이전하고 이전 연결을 삭제했습니다.`,
   });
 }
 

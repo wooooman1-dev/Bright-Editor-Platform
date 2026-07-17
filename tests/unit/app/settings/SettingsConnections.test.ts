@@ -46,10 +46,21 @@ describe("SettingsConnections migration UI", () => {
     expect(candidates.map((item) => item.id)).toEqual([replacement.id]);
   });
 
-  it("shows an explicit disconnected state and reference-migration action", () => {
+  it("removes typed name confirmation and keeps the explicit migration action", () => {
     const source = readFileSync(join(process.cwd(), "app/settings/SettingsConnections.tsx"), "utf8");
     expect(source).toContain("연결 해제됨");
     expect(source).toContain("참조 이전 후 삭제");
     expect(source).toContain('action: "migrate-delete-connection"');
+    expect(source).not.toContain("deletion.confirmation");
+    expect(source).not.toContain("placeholder={deletion.name}");
+  });
+
+  it("keeps a visible success banner with the server-reported Project and Content counts", () => {
+    const source = readFileSync(join(process.cwd(), "app/settings/SettingsConnections.tsx"), "utf8");
+    expect(source).toContain("result.message");
+    expect(source).toContain("참조 Project ${result.projectCount ?? 0}개와 Content ${result.contentCount ?? 0}개");
+    expect(source).toContain("sticky top-4");
+    expect(source).toContain("bg-emerald-50");
+    expect(source).toContain('aria-live="polite"');
   });
 });

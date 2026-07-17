@@ -6,11 +6,14 @@ import type { PublicConnection } from "./settings-types";
 
 type DeletionState = Readonly<{
   id: string;
-  name: string;
   projectCount: number;
   contentCount: number;
-  confirmation: string;
   replacementConnectionId: string;
+}>;
+
+type NoticeState = Readonly<{
+  tone: "info" | "success" | "error";
+  message: string;
 }>;
 
 export function SettingsConnections({ connections, enabledPlatforms, onRefresh, workspaceId }: { connections: readonly PublicConnection[]; enabledPlatforms: readonly WorkspacePlatform[]; onRefresh: () => Promise<void>; workspaceId: string }) {
@@ -18,14 +21,18 @@ export function SettingsConnections({ connections, enabledPlatforms, onRefresh, 
   const [siteUrl, setSiteUrl] = useState("");
   const [username, setUsername] = useState("");
   const [applicationPassword, setApplicationPassword] = useState("");
-  const [notice, setNotice] = useState("");
+  const [notice, setNotice] = useState<NoticeState>();
   const [jobId, setJobId] = useState<string>();
 
   useEffect(() => {
     if (!jobId) return;
     const timer = window.setInterval(() => void fetch(`/api/connections?jobId=${encodeURIComponent(jobId)}&workspaceId=${encodeURIComponent(workspaceId)}`, { cache: "no-store" }).then((response) => response.json()).then((result: { job?: { state: string; message: string; failureCode?: string; safeMessage?: string; remediation?: string } }) => {
       if (!result.job) return;
-      setNotice(jobNotice(result.job));
+      const terminalFailure = ["failed", "cancelled", "timed_out"].includes(result.job.state);
+      setNotice({
+        tone: terminalFailure ? "error" : result.job.state === "completed" ? "success" : "info",
+        message: jobNotice(result.job),
+      });
       if (["completed", "failed", "cancelled", "timed_out"].includes(result.job.state)) {
         window.clearInterval(timer);
         setJobId(undefined);
@@ -36,7 +43,7 @@ export function SettingsConnections({ connections, enabledPlatforms, onRefresh, 
   }, [jobId, onRefresh, workspaceId]);
 
   const action = async (body: Record<string, unknown>) => {
-    setNotice("처리 중입니다.");
+    setNotice({ tone: "info", message: "처리 중입니다." });
     const response = await fetch("/api/connections", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -44,6 +51,7 @@ export function SettingsConnections({ connections, enabledPlatforms, onRefresh, 
     });
     const result = await response.json() as {
       error?: string;
+      message?: string;
       job?: { id: string; message: string };
       verification?: { siteTitle: string };
       migrated?: boolean;
@@ -51,13 +59,15 @@ export function SettingsConnections({ connections, enabledPlatforms, onRefresh, 
       contentCount?: number;
     };
     if (!response.ok) {
-      setNotice(result.error ?? "연결 작업을 완료하지 못했습니다.");
+      const errorMessage = result.error ?? "연결 작업을 완료하지 못했습니다.";
+      setNotice({ tone: "error", message: errorMessage });
       throw new Error(result.error);
     }
     if (result.job) setJobId(result.job.id);
-    setNotice(result.migrated
+    const resultMessage = result.message ?? (result.migrated
       ? `참조 Project ${result.projectCount ?? 0}개와 Content ${result.contentCount ?? 0}개를 정상 연결로 이전하고 이전 연결을 삭제했습니다.`
       : result.job?.message ?? "완료했습니다.");
+    setNotice({ tone: result.job ? "info" : "success", message: resultMessage });
     setApplicationPassword("");
     await onRefresh();
     return result;
@@ -67,12 +77,12 @@ export function SettingsConnections({ connections, enabledPlatforms, onRefresh, 
   const wordpress = connections.filter((connection) => connection.platform === "wordpress");
 
   return <div className="space-y-6">
+    {notice ? <p aria-live="polite" className={`sticky top-4 z-30 rounded-xl border px-4 py-3 text-sm font-semibold shadow-sm ${notice.tone === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-900" : notice.tone === "error" ? "border-red-200 bg-red-50 text-red-800" : "border-blue-200 bg-blue-50 text-blue-800"}`}>{notice.tone === "success" ? "✓ " : notice.tone === "error" ? "주의: " : "↻ "}{notice.message}</p> : null}
     {enabledPlatforms.includes("tistory") ? <Platform title="Tistory" description="브라우저 로그인 후 안전한 임시저장 workflow를 사용합니다."><div className="grid gap-3 sm:grid-cols-[1fr_auto]"><Field label="블로그 주소" onChange={setBlogAddress} placeholder="https://example.tistory.com" value={blogAddress} /><button className="self-end rounded-xl bg-[#ff6b6b] px-5 py-3 text-sm font-semibold text-white" disabled={!blogAddress.trim() || Boolean(jobId)} onClick={() => void action({ action: "tistory-connect", blogAddress })} type="button">계정 연결</button></div>{jobId ? <button className="mt-3 rounded-xl border px-4 py-2" onClick={() => void action({ action: "cancel", connectionId: jobId })} type="button">연결 취소</button> : null}<AccountList connections={tistory} onAction={action} /></Platform> : null}
     {enabledPlatforms.includes("wordpress") ? <Platform title="WordPress" description="Application Password는 브라우저로 다시 반환하지 않습니다."><div className="grid gap-3 sm:grid-cols-2"><Field label="사이트 주소" onChange={setSiteUrl} placeholder="https://example.com" value={siteUrl} /><Field label="사용자 이름" onChange={setUsername} value={username} /></div><label className="mt-3 block text-sm font-semibold">Application Password<input autoComplete="new-password" className="mt-2 w-full rounded-xl border px-4 py-3 font-normal" onChange={(event) => setApplicationPassword(event.target.value)} type="password" value={applicationPassword} /></label><div className="mt-3 flex gap-2"><button className="rounded-xl border px-4 py-2.5 text-sm font-semibold" onClick={() => void action({ action: "wordpress-test", siteUrl, username, applicationPassword })} type="button">연결 테스트</button><button className="rounded-xl bg-[#ff6b6b] px-4 py-2.5 text-sm font-semibold text-white" onClick={() => void action({ action: "wordpress-save", siteUrl, username, applicationPassword })} type="button">안전하게 저장</button></div><AccountList connections={wordpress} onAction={action} /></Platform> : null}
     {enabledPlatforms.includes("youtube") ? <Unsupported title="YouTube" /> : null}
     {enabledPlatforms.includes("naver_cafe") ? <Unsupported title="Naver Cafe" /> : null}
     <button className="rounded-xl border px-5 py-3 text-sm font-semibold" onClick={() => window.location.assign("/")} type="button">Skip for now</button>
-    <p aria-live="polite" className="text-sm text-[#77777f]">{notice}</p>
   </div>;
 }
 
@@ -83,8 +93,7 @@ function AccountList({ connections, onAction }: { connections: readonly PublicCo
   return <div className="mt-4 space-y-3">{connections.map((connection) => {
     const replacements = compatibleReplacementConnections(connections, connection);
     const needsMigration = deletion?.id === connection.id && (deletion.projectCount > 0 || deletion.contentCount > 0);
-    const canConfirm = deletion?.id === connection.id && deletion.confirmation === deletion.name;
-    const canDelete = Boolean(canConfirm && (!needsMigration || deletion?.replacementConnectionId));
+    const canDelete = Boolean(deletion?.id === connection.id && (!needsMigration || deletion.replacementConnectionId));
 
     return <article className="rounded-xl border p-4" key={connection.id}>
       <div className="flex flex-wrap justify-between gap-3">
@@ -96,7 +105,7 @@ function AccountList({ connections, onAction }: { connections: readonly PublicCo
         <div className="flex flex-wrap gap-2">
           <button className="rounded-lg border px-3 py-2 text-sm font-semibold" onClick={() => void onAction({ action: "verify", connectionId: connection.id })} type="button">재검증</button>
           {connection.status !== "disconnected" ? <button className="rounded-lg border border-red-200 px-3 py-2 text-sm font-semibold text-red-700" onClick={() => void onAction({ action: "disconnect", connectionId: connection.id })} type="button">연결 해제</button> : <span className="rounded-lg bg-[#f8f8fa] px-3 py-2 text-sm font-semibold text-[#77777f]">연결 해제됨</span>}
-          {connection.status === "disconnected" ? <button className="rounded-lg border border-red-200 px-3 py-2 text-sm font-semibold text-red-700" onClick={() => void onAction({ action: "connection-impact", connectionId: connection.id }).then((result) => { const impact = (result as { impact: { name: string; projectCount: number; contentCount: number } }).impact; setDeletion({ id: connection.id, ...impact, confirmation: "", replacementConnectionId: "" }); })} type="button">계정 메타데이터 삭제</button> : null}
+          {connection.status === "disconnected" ? <button className="rounded-lg border border-red-200 px-3 py-2 text-sm font-semibold text-red-700" onClick={() => void onAction({ action: "connection-impact", connectionId: connection.id }).then((result) => { const impact = (result as { impact: { projectCount: number; contentCount: number } }).impact; setDeletion({ id: connection.id, ...impact, replacementConnectionId: "" }); })} type="button">계정 메타데이터 삭제</button> : null}
         </div>
       </div>
 
@@ -111,9 +120,8 @@ function AccountList({ connections, onAction }: { connections: readonly PublicCo
           </label>
           {replacements.length ? <p className="mt-2 text-xs text-[#77777f]">Project·Content·카테고리 준비 정보를 선택한 연결로 이전한 뒤 현재 연결 메타데이터를 삭제합니다.</p> : <p className="mt-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">같은 사이트의 정상 연결이 없습니다. 먼저 같은 계정을 다시 연결해 주세요.</p>}
         </div> : <p className="mt-3 text-sm text-[#77777f]">현재 연결을 참조하는 Project와 Content가 없어 바로 삭제할 수 있습니다.</p>}
-        <input className="mt-3 w-full rounded-lg border px-3 py-2" onChange={(event) => setDeletion({ ...deletion, confirmation: event.target.value })} placeholder={deletion.name} value={deletion.confirmation} />
         <div className="mt-3 flex flex-wrap gap-2">
-          <button className="rounded-lg bg-red-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40" disabled={!canDelete} onClick={() => void onAction(needsMigration ? { action: "migrate-delete-connection", connectionId: connection.id, replacementConnectionId: deletion.replacementConnectionId, confirmation: deletion.confirmation } : { action: "delete-connection", connectionId: connection.id, confirmation: deletion.confirmation }).then(() => setDeletion(undefined))} type="button">{needsMigration ? "참조 이전 후 삭제" : "메타데이터 삭제"}</button>
+          <button className="rounded-lg bg-red-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40" disabled={!canDelete} onClick={() => void onAction(needsMigration ? { action: "migrate-delete-connection", connectionId: connection.id, replacementConnectionId: deletion.replacementConnectionId } : { action: "delete-connection", connectionId: connection.id }).then(() => setDeletion(undefined))} type="button">{needsMigration ? "참조 이전 후 삭제" : "메타데이터 삭제"}</button>
           <button className="rounded-lg border px-3 py-2 text-sm" onClick={() => setDeletion(undefined)} type="button">취소</button>
         </div>
       </div> : null}
