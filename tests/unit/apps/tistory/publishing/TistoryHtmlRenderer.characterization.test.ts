@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { TistoryHtmlRenderer } from "../../../../../apps/tistory";
+import { TistoryHtmlRenderer } from "../../../../../apps/tistory/publishing/TistoryHtmlRenderer";
 import type { ContentDocument } from "../../../../../core/content";
 
 const document: ContentDocument = {
