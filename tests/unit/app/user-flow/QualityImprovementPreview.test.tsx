@@ -35,7 +35,7 @@ function report(overallScore: number, approved: boolean, scores: Partial<Record<
 
 describe("QualityImprovementPreview", () => {
   it("shows current and candidate scores and blocks an under-target candidate", () => {
-    const html = renderToStaticMarkup(<QualityImprovementPreview baseline={report(92, false, { seo: 55, readability: 77 })} candidate={report(95, false, { seo: 65, readability: 96 })} document={document} onApply={vi.fn()} onCancel={vi.fn()} />);
+    const html = renderToStaticMarkup(<QualityImprovementPreview baseline={report(92, false, { seo: 55, readability: 77 })} candidate={report(95, false, { seo: 65, readability: 96 })} document={document} improvementAccepted onApply={vi.fn()} onCancel={vi.fn()} />);
     expect(html).toContain("현재 점수");
     expect(html).toContain("개선안 점수");
     expect(html).toContain("SEO");
@@ -46,9 +46,16 @@ describe("QualityImprovementPreview", () => {
   });
 
   it("enables applying an approved candidate", () => {
-    const html = renderToStaticMarkup(<QualityImprovementPreview baseline={report(92, false, { seo: 55 })} candidate={report(98, true, { seo: 95 })} document={document} onApply={vi.fn()} onCancel={vi.fn()} />);
+    const html = renderToStaticMarkup(<QualityImprovementPreview baseline={report(92, false, { seo: 55 })} candidate={report(98, true, { seo: 95 })} document={document} improvementAccepted onApply={vi.fn()} onCancel={vi.fn()} />);
     expect(html).toContain("품질 승인 기준 충족");
     expect(html).toContain(">개선안 적용</button>");
     expect(html).not.toContain('disabled="">개선안 적용');
+  });
+
+  it("shows and blocks a generated candidate that did not improve the current document", () => {
+    const html = renderToStaticMarkup(<QualityImprovementPreview baseline={report(95, false, { seo: 65 })} candidate={report(95, false, { seo: 65 })} document={document} improvementAccepted={false} rejectionReasons={["전체 점수가 상승하지 않았습니다. 95 → 95"]} onApply={vi.fn()} onCancel={vi.fn()} />);
+    expect(html).toContain("현재 원고보다 개선되지 않음");
+    expect(html).toContain("전체 점수가 상승하지 않았습니다");
+    expect(html).toContain('disabled=""');
   });
 });

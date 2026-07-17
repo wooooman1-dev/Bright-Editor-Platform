@@ -165,7 +165,6 @@ export async function POST(request: Request) {
       document = await placeAvailableTistoryPosts(data, content, document);
       const quality = new QualityEngine().review(document, { ...qualityContext(content), revisionId: contentRevisionId(document) });
       const improvement = evaluateQualityImprovement(currentQuality, quality);
-      if (!improvement.accepted) throw new Error(qualityImprovementRejectionMessage(improvement));
       return NextResponse.json({ document, basedOnRevisionId: contentRevisionId(content.document), baselineQuality: currentQuality, quality, improvement });
     }
     if (body.action === "accept-improvement") {
