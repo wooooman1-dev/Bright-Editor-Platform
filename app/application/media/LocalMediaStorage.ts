@@ -40,11 +40,24 @@ export function imageTypeFromMimeType(mimeType: string): Readonly<{ extension: S
   throw new Error("PNG, JPEG, WEBP 이미지만 불러올 수 있습니다.");
 }
 
+export function assertImageSignature(bytes: Uint8Array, mimeType: SupportedImageMimeType): void {
+  const valid = mimeType === "image/png"
+    ? bytes.length >= 8 && [137, 80, 78, 71, 13, 10, 26, 10].every((value, index) => bytes[index] === value)
+    : mimeType === "image/jpeg"
+      ? bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
+      : bytes.length >= 12 && ascii(bytes, 0, 4) === "RIFF" && ascii(bytes, 8, 12) === "WEBP";
+  if (!valid) throw new Error("선택한 파일의 실제 이미지 형식이 확장자 또는 MIME 형식과 일치하지 않습니다.");
+}
+
 export function imageMimeTypeFromStorageKey(storageKey: string): SupportedImageMimeType {
   validateStorageKey(storageKey);
   if (/\.png$/i.test(storageKey)) return "image/png";
   if (/\.webp$/i.test(storageKey)) return "image/webp";
   return "image/jpeg";
+}
+
+function ascii(bytes: Uint8Array, start: number, end: number): string {
+  return String.fromCharCode(...bytes.slice(start, end));
 }
 
 function validateStorageKey(storageKey: string): void {
