@@ -1,13 +1,5 @@
 import type { UserData } from "../../user-flow/user-data";
 
-const serverOwnedCollections = [
-  "history",
-  "mediaMetadata",
-  "publishingRecords",
-  "qualityReports",
-  "scheduledPublishing",
-] as const;
-
 export function mergeUserDataSnapshot(current: UserData | undefined, input: unknown): UserData {
   const incoming = assertUserDataSnapshot(input);
   if (!current) return incoming;
@@ -20,13 +12,15 @@ export function mergeUserDataSnapshot(current: UserData | undefined, input: unkn
     return Object.freeze(withoutClientQuality);
   });
 
-  const merged: UserData = { ...incoming, contents: Object.freeze(contents) };
-  for (const key of serverOwnedCollections) {
-    const serverValue = current[key];
-    const incomingValue = incoming[key];
-    Object.assign(merged, { [key]: Object.freeze([...(serverValue ?? incomingValue ?? [])]) });
-  }
-  return Object.freeze(merged);
+  return Object.freeze({
+    ...incoming,
+    contents: Object.freeze(contents),
+    history: frozenCopy(current.history ?? incoming.history),
+    mediaMetadata: frozenCopy(current.mediaMetadata ?? incoming.mediaMetadata),
+    publishingRecords: frozenCopy(current.publishingRecords ?? incoming.publishingRecords),
+    qualityReports: frozenCopy(current.qualityReports ?? incoming.qualityReports),
+    scheduledPublishing: frozenCopy(current.scheduledPublishing ?? incoming.scheduledPublishing),
+  });
 }
 
 function assertUserDataSnapshot(input: unknown): UserData {
@@ -36,4 +30,8 @@ function assertUserDataSnapshot(input: unknown): UserData {
     throw new Error("Application state is invalid.");
   }
   return input as UserData;
+}
+
+function frozenCopy<T>(values: readonly T[] | undefined): readonly T[] {
+  return Object.freeze([...(values ?? [])]);
 }
