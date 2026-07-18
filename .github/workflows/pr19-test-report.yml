@@ -1,0 +1,21 @@
+name: PR19 Test Report
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --silent
+      - run: npx vitest run --reporter=json --outputFile=pr19-test-report.json || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pr19-test-report
+          path: pr19-test-report.json
