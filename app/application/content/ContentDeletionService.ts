@@ -28,8 +28,14 @@ export class ContentDeletionService {
   ) {}
 
   impact(data: UserData, workspaceId: string, contentId: string): ContentDeletionImpact {
-    const content = data.contents.find((item) => item.id === contentId && item.workspaceId === workspaceId);
-    if (!data.workspace || data.workspace.id !== workspaceId || !content) {
+    if (!data.workspace || data.workspace.id !== workspaceId) {
+      throw new Error("삭제할 콘텐츠를 찾을 수 없습니다.");
+    }
+    const content = data.contents.find((item) => item.id === contentId);
+    const project = content
+      ? data.projects.find((item) => item.id === content.projectId && item.workspaceId === workspaceId)
+      : undefined;
+    if (!content || !project) {
       throw new Error("삭제할 콘텐츠를 찾을 수 없습니다.");
     }
 
