@@ -6,7 +6,9 @@ export async function GET(_request: Request, context: Readonly<{ params: Promise
   try {
     const { id } = await context.params;
     const bytes = await new LocalMediaStorage().read(id);
-    return new Response(bytes, {
+    const body = new Uint8Array(bytes.byteLength);
+    body.set(bytes);
+    return new Response(body.buffer, {
       headers: {
         "Cache-Control": "private, max-age=31536000, immutable",
         "Content-Length": String(bytes.byteLength),
