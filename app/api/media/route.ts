@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 
 import type { MediaAsset, ImageGenerationQuality, ImageGenerationSize } from "../../../core/media";
 import { studioStore } from "../../application/studio-store";
-import { LocalMediaStorage, imageTypeFromMimeType } from "../../application/media/LocalMediaStorage";
+import { LocalMediaStorage, assertImageSignature, imageTypeFromMimeType } from "../../application/media/LocalMediaStorage";
 import { OpenAIImageProvider } from "../../application/media/OpenAIImageProvider";
 import type { UserData } from "../../user-flow/user-data";
 
@@ -26,7 +26,7 @@ async function uploadImage(request: Request) {
   const form = await request.formData();
   const contentId = requiredText(form.get("contentId"), "Content is required.");
   const blockId = requiredText(form.get("blockId"), "Image block is required.");
-  await assertOwnedImageBlock(contentId, blockId);
+  const owner = await assertOwnedImageBlock(contentId, blockId);
 
   const file = form.get("file");
   if (!(file instanceof File)) throw new Error("불러올 이미지 파일을 선택해 주세요.");
@@ -36,6 +36,7 @@ async function uploadImage(request: Request) {
 
   const imageType = imageTypeFromMimeType(file.type);
   const bytes = new Uint8Array(await file.arrayBuffer());
+  assertImageSignature(bytes, imageType.mimeType);
   const stored = await new LocalMediaStorage().save(bytes, imageType.extension);
   const asset = createAsset({
     alt: text(form.get("alt")),
@@ -43,10 +44,12 @@ async function uploadImage(request: Request) {
     contentId,
     fileName: safeFileName(file.name),
     mimeType: imageType.mimeType,
+    projectId: owner.projectId,
     prompt: text(form.get("prompt")),
     sizeBytes: bytes.byteLength,
     source: stored.source,
     sourceType: "upload",
+    workspaceId: owner.workspaceId,
   });
   return NextResponse.json({ asset });
 }
@@ -56,13 +59,14 @@ async function generateImage(request: Request) {
   const contentId = requiredText(body.contentId, "Content is required.");
   const blockId = requiredText(body.blockId, "Image block is required.");
   const prompt = requiredText(body.prompt, "이미지 프롬프트를 입력해 주세요.");
-  await assertOwnedImageBlock(contentId, blockId);
+  const owner = await assertOwnedImageBlock(contentId, blockId);
 
   const generated = await new OpenAIImageProvider().generate({
     prompt,
     quality: normalizeQuality(body.quality),
     size: normalizeSize(body.size),
   });
+  assertImageSignature(generated.bytes, generated.mimeType);
   const stored = await new LocalMediaStorage().save(generated.bytes, generated.fileExtension);
   const asset = createAsset({
     alt: text(body.alt),
@@ -71,19 +75,24 @@ async function generateImage(request: Request) {
     fileName: `ai-${Date.now()}.${generated.fileExtension}`,
     mimeType: generated.mimeType,
     model: generated.model,
+    projectId: owner.projectId,
     prompt,
     sizeBytes: generated.bytes.byteLength,
     source: stored.source,
     sourceType: "ai_generated",
+    workspaceId: owner.workspaceId,
   });
   return NextResponse.json({ asset, generation: { model: generated.model, quality: generated.quality, size: generated.size } });
 }
 
-async function assertOwnedImageBlock(contentId: string, blockId: string): Promise<void> {
+async function assertOwnedImageBlock(contentId: string, blockId: string): Promise<Readonly<{ projectId: string; workspaceId: string }>> {
   const data = await studioStore.get<UserData>(collection, stateId);
   const content = data?.contents.find((item) => item.id === contentId);
   if (!content?.document) throw new Error("이미지를 연결할 콘텐츠를 찾지 못했습니다.");
   if (!content.document.blocks.some((block) => block.id === blockId && block.type === "image")) throw new Error("이미지 블록을 찾지 못했습니다.");
+  const workspaceId = content.workspaceId ?? data?.workspace?.id;
+  if (!workspaceId) throw new Error("이미지 소유 작업 공간을 확인하지 못했습니다.");
+  return Object.freeze({ projectId: content.projectId, workspaceId });
 }
 
 function createAsset(input: Readonly<{
@@ -93,10 +102,12 @@ function createAsset(input: Readonly<{
   fileName: string;
   mimeType: "image/png" | "image/jpeg" | "image/webp";
   model?: string;
+  projectId: string;
   prompt: string;
   sizeBytes: number;
   source: string;
   sourceType: "upload" | "ai_generated";
+  workspaceId: string;
 }>): MediaAsset {
   return Object.freeze({
     id: randomUUID(),
@@ -109,9 +120,11 @@ function createAsset(input: Readonly<{
       fileName: input.fileName,
       mimeType: input.mimeType,
       ...(input.model ? { model: input.model } : {}),
+      projectId: input.projectId,
       prompt: input.prompt,
       sizeBytes: input.sizeBytes,
       sourceType: input.sourceType,
+      workspaceId: input.workspaceId,
     }),
     source: input.source,
   });
