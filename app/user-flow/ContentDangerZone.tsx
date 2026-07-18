@@ -21,14 +21,12 @@ export function ContentDangerZone({
   disabled,
   onDeleted,
   onDeletingChange,
-  title,
   workspaceId,
 }: {
   contentId: string;
   disabled: boolean;
   onDeleted: (data: UserData) => Promise<void>;
   onDeletingChange: (active: boolean) => void;
-  title: string;
   workspaceId: string;
 }) {
   const [impact, setImpact] = useState<ContentDeletionImpact>();
@@ -106,7 +104,7 @@ export function ContentDangerZone({
               className="mt-2 w-full rounded-lg border border-red-200 bg-white px-3 py-2 font-normal"
               disabled={working}
               onChange={(event) => setConfirmationTitle(event.target.value)}
-              placeholder={title}
+              placeholder={impact.title}
               value={confirmationTitle}
             />
           </label>
