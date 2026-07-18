@@ -1,7 +1,7 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useRef, useState, type ChangeEvent } from "react";
 
 import type { ImageBlock } from "../../core/content";
 import type { ImageGenerationQuality, ImageGenerationSize, MediaAsset, ProjectMediaAsset } from "../../core/media";
@@ -40,12 +40,6 @@ export function ImageBlockEditor({
   const [notice, setNotice] = useState("");
   const [libraryAssets, setLibraryAssets] = useState<readonly ProjectMediaAsset[]>([]);
   const [libraryState, setLibraryState] = useState<"idle" | "loading" | "ready" | "error">("idle");
-
-  useEffect(() => {
-    setAlt(block.alt);
-    setPrompt(block.prompt ?? defaultPrompt(block));
-    setPurpose(block.purpose ?? "inline");
-  }, [block.alt, block.id, block.prompt, block.purpose]);
 
   const savePlanningFields = async () => {
     if (alt === block.alt && prompt === (block.prompt ?? "") && purpose === (block.purpose ?? "inline")) return;

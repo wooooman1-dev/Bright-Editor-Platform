@@ -1,11 +1,11 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../../../../app/application/studio-store", () => ({
-  studioStore: { get: vi.fn(async () => ({ workspace: { id: "workspace-1", name: "Studio", settings: { enabledPlatforms: ["tistory"], publishing: { reviewFirst: true, draftOnly: true, publicPublish: false, sequentialDraftSave: true, qualityApprovalRequired: true }, appearance: { theme: "system" } } }, brands: [], projects: [{ id: "project-1", workspaceId: "workspace-1", name: "Project", description: "", createdAt: "now", updatedAt: "now" }], contents: [{ id: "content-1", workspaceId: "workspace-1", projectId: "project-1", title: "Draft", body: "", status: "planning", createdAt: "now", updatedAt: "now" }], qualityReports: [] })), set: vi.fn() },
-}));
+const storeMocks = vi.hoisted(() => ({ get: vi.fn(), set: vi.fn(), update: vi.fn() }));
+vi.mock("../../../../app/application/studio-store", () => ({ studioStore: storeMocks }));
 
 import { studioStore } from "../../../../app/application/studio-store";
 import { POST, PUT } from "../../../../app/api/studio/route";
+import type { UserData } from "../../../../app/user-flow/user-data";
 
 const koreanRequest = "50대를 위한 아침 운동 루틴 관련글을 만들고 싶어";
 const planningResult = {
@@ -27,7 +27,14 @@ const planningResult = {
 };
 
 describe("studio planning endpoint", () => {
+  beforeEach(() => {
+    const current: UserData = { workspace: { id: "workspace-1", name: "Studio", settings: { enabledPlatforms: ["tistory"], publishing: { reviewFirst: true, draftOnly: true, publicPublish: false, sequentialDraftSave: true, qualityApprovalRequired: true }, appearance: { theme: "system" } } }, brands: [], projects: [{ id: "project-1", workspaceId: "workspace-1", name: "Project", description: "", createdAt: "now", updatedAt: "now" }], contents: [{ id: "content-1", workspaceId: "workspace-1", projectId: "project-1", title: "Draft", body: "", status: "planning", createdAt: "now", updatedAt: "now" }], qualityReports: [] };
+    storeMocks.get.mockResolvedValue(current);
+    storeMocks.update.mockImplementation(async (_collection: string, _stateId: string, updater: (value: UserData | undefined) => UserData) => updater(current));
+  });
+
   afterEach(() => {
+    vi.clearAllMocks();
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
   });
@@ -87,13 +94,14 @@ describe("studio planning endpoint", () => {
         workspaceId: "workspace-1",
       } }),
     }));
-    const result = await response.json() as { aiReviewError?: string; document?: { id: string; title: string } };
+    const result = await response.json() as { aiReviewError?: string; document?: { id: string; title: string }; data?: UserData };
 
     expect(response.status).toBe(200);
     expect(result.document).toMatchObject({ id: "content-1", title: "Canonical guide" });
     expect(result.aiReviewError).toContain("timed out");
     expect(fetchSpy).toHaveBeenCalledTimes(2);
-    expect(vi.mocked(studioStore.set)).toHaveBeenCalledWith("application", "user-data", expect.objectContaining({ contents: [expect.objectContaining({ status: "in_review", generationError: expect.stringContaining("Final Review") })] }));
+    expect(result.data).toEqual(expect.objectContaining({ contents: [expect.objectContaining({ status: "in_review", generationError: expect.stringContaining("Final Review") })] }));
+    expect(vi.mocked(studioStore.update)).toHaveBeenCalledWith("application", "user-data", expect.any(Function));
   });
 
   it("runs the final edit and at most three automatic quality improvements before persisting the best document", async () => {
@@ -109,7 +117,7 @@ describe("studio planning endpoint", () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ output_text: JSON.stringify(draft) }), { status: 200 }))
       .mockImplementation(async () => new Response(JSON.stringify({ output_text: JSON.stringify(corrected) }), { status: 200 }));
     const response = await POST(new Request("http://localhost/api/studio", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "generate", input: { contentId: "content-1", contentType: "guide", keywords: ["canonical"], platform: "tistory", projectId: "project-1", workspaceId: "workspace-1" } }) }));
-    const result = await response.json() as { automaticImprovementCount?: number; document?: { title: string; blocks: Array<{ text?: string }> }; finalRevisionId?: string; qualityHistory?: unknown[] };
+    const result = await response.json() as { automaticImprovementCount?: number; document?: { title: string; blocks: Array<{ text?: string }> }; finalRevisionId?: string; qualityHistory?: unknown[]; data?: UserData };
     expect(response.status).toBe(200);
     expect(fetchSpy.mock.calls.length).toBeGreaterThanOrEqual(2);
     expect(fetchSpy.mock.calls.length).toBeLessThanOrEqual(5);
@@ -118,7 +126,8 @@ describe("studio planning endpoint", () => {
     expect(result.document?.title).toBe("Canonical guide");
     expect(result.document?.blocks[0]?.text).not.toContain("Final edit applied");
     expect(result.finalRevisionId).toMatch(/^rev-/);
-    expect(vi.mocked(studioStore.set)).toHaveBeenCalledWith("application", "user-data", expect.objectContaining({ history: [expect.objectContaining({ reason: "ai_revision" })] }));
+    expect(result.data).toEqual(expect.objectContaining({ history: [expect.objectContaining({ reason: "ai_revision" })] }));
+    expect(vi.mocked(studioStore.update)).toHaveBeenCalledWith("application", "user-data", expect.any(Function));
     const improvementBody = JSON.parse(new TextDecoder().decode(fetchSpy.mock.calls[2]?.[1]?.body as Uint8Array));
     expect(improvementBody.input).toContain("Rule Quality result:");
     expect(improvementBody.input).toContain("\"dimensions\"");
@@ -134,6 +143,8 @@ describe("studio planning endpoint", () => {
   it("does not accept a client-supplied Quality score through application persistence", async () => {
     const response = await PUT(new Request("http://localhost/api/studio", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ workspace: { id: "workspace-1" }, brands: [], projects: [], contents: [{ id: "client-content", projectId: "project", title: "Draft", body: "", status: "draft", updatedAt: "now", quality: { overallScore: 100, approved: true, dimensions: [] } }], qualityReports: [{ contentId: "client-content", report: { overallScore: 100, approved: true } }] }) }));
     expect(response.status).toBe(200);
-    expect(vi.mocked(studioStore.set)).toHaveBeenCalledWith("application", "user-data", expect.objectContaining({ contents: [expect.not.objectContaining({ quality: expect.anything() })], qualityReports: [] }));
+    expect(vi.mocked(studioStore.update)).toHaveBeenCalledWith("application", "user-data", expect.any(Function));
+    const saved = await vi.mocked(studioStore.update).mock.results.at(-1)?.value as UserData;
+    expect(saved).toEqual(expect.objectContaining({ contents: [expect.not.objectContaining({ quality: expect.anything() })], qualityReports: [] }));
   });
 });

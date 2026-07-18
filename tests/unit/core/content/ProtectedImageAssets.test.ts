@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { restoreProtectedImageAssets, type ContentDocument } from "../../../../core/content";
 
-const original: ContentDocument = Object.freeze({
+const original = Object.freeze({
   id: "content-1",
   title: "원본",
   blocks: Object.freeze([
@@ -21,7 +21,7 @@ const original: ContentDocument = Object.freeze({
     },
     { id: "paragraph-1", type: "paragraph", text: "본문" },
   ]),
-});
+} satisfies ContentDocument);
 
 describe("restoreProtectedImageAssets", () => {
   it("restores protected media fields when AI rewrites the same image block", () => {

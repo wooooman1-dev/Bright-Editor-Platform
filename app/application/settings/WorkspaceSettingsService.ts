@@ -47,7 +47,20 @@ export function updateWorkspaceName(data: UserData, name: string, now = new Date
 export function updatePublishingPolicy(data: UserData, sequentialDraftSave: boolean, now = new Date()): UserData {
   if (!data.workspace) throw new Error("워크스페이스를 찾을 수 없습니다.");
   const current = resolveWorkspaceSettings(data);
-  return { ...data, workspace: { ...data.workspace, updatedAt: now.toISOString(), settings: { ...current, publishing: { ...defaultPublishingPolicy, sequentialDraftSave } } };
+  return {
+    ...data,
+    workspace: {
+      ...data.workspace,
+      updatedAt: now.toISOString(),
+      settings: {
+        ...current,
+        publishing: {
+          ...defaultPublishingPolicy,
+          sequentialDraftSave,
+        },
+      },
+    },
+  };
 }
 
 export function updateAppearance(data: UserData, theme: unknown, now = new Date()): UserData {

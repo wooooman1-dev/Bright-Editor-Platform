@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../../app/application/studio-store", () => ({
+  studioDataPath: "studio-data.json",
   studioStore: { get: vi.fn(async () => ({ workspace: { id: "workspace-1", name: "Studio", settings: { enabledPlatforms: ["wordpress"], publishing: { reviewFirst: true, draftOnly: true, publicPublish: false, sequentialDraftSave: true, qualityApprovalRequired: true }, appearance: { theme: "system" } } }, brands: [], projects: [], contents: [] })) },
 }));
 

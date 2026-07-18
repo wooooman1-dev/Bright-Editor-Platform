@@ -17,7 +17,7 @@ export async function GET(request: Request) {
     const contentId = requiredText(new URL(request.url).searchParams.get("contentId"), "Content is required.");
     const data = await studioStore.get<UserData>(collection, stateId);
     const content = data?.contents.find((item) => item.id === contentId);
-    if (!content) throw new Error("프로젝트 이미지 목록을 불러올 콘텐츠를 찾지 못했습니다.");
+    if (!data || !content) throw new Error("프로젝트 이미지 목록을 불러올 콘텐츠를 찾지 못했습니다.");
     const assets = buildProjectMediaLibrary({
       assets: data.mediaMetadata,
       contents: data.contents,
