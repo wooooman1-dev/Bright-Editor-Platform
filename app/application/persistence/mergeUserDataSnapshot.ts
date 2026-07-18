@@ -24,15 +24,15 @@ export function mergeUserDataSnapshot(current: UserData | undefined, input: unkn
   });
 }
 
-export function mergeServerMutationSnapshot(current: UserData | undefined, next: UserData): UserData {
+export function mergeServerMutationSnapshot(current: UserData | undefined, base: UserData, next: UserData): UserData {
   if (!current) return next;
   return Object.freeze({
     ...next,
-    history: mergeByKey(current.history, next.history, (item) => item.id),
-    mediaMetadata: mergeMediaAssets(current.mediaMetadata, next.mediaMetadata),
-    publishingRecords: mergeByKey(current.publishingRecords, next.publishingRecords, (item) => item.id),
-    qualityReports: mergeByKey(current.qualityReports, next.qualityReports, (item) => item.contentId),
-    scheduledPublishing: mergeByKey(current.scheduledPublishing, next.scheduledPublishing, (item) => `${item.contentId}:${item.platform}`),
+    history: mergeChangedByKey(current.history, base.history, next.history, (item) => item.id),
+    mediaMetadata: mergeChangedMediaAssets(current.mediaMetadata, base.mediaMetadata, next.mediaMetadata),
+    publishingRecords: mergeChangedByKey(current.publishingRecords, base.publishingRecords, next.publishingRecords, (item) => item.id),
+    qualityReports: mergeChangedByKey(current.qualityReports, base.qualityReports, next.qualityReports, (item) => item.contentId),
+    scheduledPublishing: mergeChangedByKey(current.scheduledPublishing, base.scheduledPublishing, next.scheduledPublishing, (item) => `${item.contentId}:${item.platform}`),
   });
 }
 
@@ -49,18 +49,36 @@ function frozenCopy<T>(values: readonly T[] | undefined): readonly T[] {
   return Object.freeze([...(values ?? [])]);
 }
 
-function mergeByKey<T>(current: readonly T[] | undefined, next: readonly T[] | undefined, keyOf: (item: T) => string): readonly T[] {
-  const merged = new Map<string, T>();
-  for (const item of current ?? []) merged.set(keyOf(item), item);
-  for (const item of next ?? []) merged.set(keyOf(item), item);
-  return Object.freeze([...merged.values()]);
+function mergeChangedByKey<T>(
+  current: readonly T[] | undefined,
+  base: readonly T[] | undefined,
+  next: readonly T[] | undefined,
+  keyOf: (item: T) => string,
+): readonly T[] {
+  const currentMap = new Map((current ?? []).map((item) => [keyOf(item), item]));
+  const baseMap = new Map((base ?? []).map((item) => [keyOf(item), item]));
+  const nextMap = new Map((next ?? []).map((item) => [keyOf(item), item]));
+
+  for (const key of baseMap.keys()) {
+    if (!nextMap.has(key)) currentMap.delete(key);
+  }
+  for (const [key, item] of nextMap) {
+    if (!sameValue(baseMap.get(key), item)) currentMap.set(key, item);
+  }
+  return Object.freeze([...currentMap.values()]);
 }
 
-function mergeMediaAssets(current: readonly MediaAsset[] | undefined, next: readonly MediaAsset[] | undefined): readonly MediaAsset[] {
-  const merged = [...(current ?? [])];
-  for (const asset of next ?? []) {
-    const withoutDuplicate = merged.filter((item) => item.id !== asset.id && item.source !== asset.source);
-    merged.splice(0, merged.length, ...withoutDuplicate, asset);
-  }
-  return Object.freeze(merged);
+function mergeChangedMediaAssets(
+  current: readonly MediaAsset[] | undefined,
+  base: readonly MediaAsset[] | undefined,
+  next: readonly MediaAsset[] | undefined,
+): readonly MediaAsset[] {
+  const merged = [...mergeChangedByKey(current, base, next, (item) => item.id)];
+  const bySource = new Map<string, MediaAsset>();
+  for (const asset of merged) bySource.set(asset.source, asset);
+  return Object.freeze([...bySource.values()]);
+}
+
+function sameValue(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
