@@ -104,6 +104,23 @@ describe("buildProjectMediaLibrary", () => {
     });
   });
 
+  it("keeps an untyped legacy HTTPS image classified as external", () => {
+    const externalContents: readonly ProjectMediaContent[] = [{
+      id: "external-content",
+      projectId: "project-1",
+      title: "외부 이미지 원고",
+      updatedAt: "2026-07-18T07:00:00.000Z",
+      document: {
+        id: "external-content",
+        title: "외부 이미지 원고",
+        blocks: [{ id: "external-image", type: "image", source: "https://images.example.com/photo.jpg", alt: "외부 이미지" }],
+      },
+    }];
+
+    const library = buildProjectMediaLibrary({ contents: externalContents, projectId: "project-1" });
+    expect(library[0].metadata.sourceType).toBe("external");
+  });
+
   it("excludes assets and contents owned by another project", () => {
     const otherAsset: MediaAsset = { ...asset, id: "asset-other", source: "/api/media/other.png", metadata: { ...asset.metadata, projectId: "project-2" } };
     const library = buildProjectMediaLibrary({ assets: [asset, otherAsset], contents, projectId: "project-1" });
