@@ -180,8 +180,7 @@ export async function POST(request: Request) {
       if (candidate.id !== content.document.id) throw new Error("개선 문서 ID가 현재 문서와 일치하지 않습니다.");
       let document = restoreVerifiedEditorialLinks(content.document, candidate);
       document = ensureContentSeoPolicy(await placeAvailableTistoryPosts(data, content, document), content);
-      const baselineDocument = ensureContentSeoPolicy(content.document, content);
-      const baselineQuality = new QualityEngine().review(baselineDocument, qualityContext(content));
+      const baselineQuality = new QualityEngine().review(content.document, qualityContext(content));
       const appliedAt = new Date().toISOString();
       const quality = new QualityEngine().review(document, { ...qualityContext(content), revisionId: contentRevisionId(document), reviewedAt: appliedAt });
       const improvement = evaluateQualityImprovement(baselineQuality, quality);
