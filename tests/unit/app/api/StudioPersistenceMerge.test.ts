@@ -27,4 +27,10 @@ describe("Studio full-state persistence", () => {
     expect(mergeSource).toContain("scheduledPublishing: frozenCopy(current.scheduledPublishing ?? incoming.scheduledPublishing)");
     expect(mergeSource).toContain("mergeChangedByKey(current.qualityReports, base.qualityReports, next.qualityReports");
   });
+
+  it("leaves only backup-first content deletion on direct set semantics", () => {
+    expect(routeSource.match(/studioStore\.set\(/g)).toHaveLength(1);
+    expect(routeSource).toContain('if (body.action === "delete-content")');
+    expect(routeSource).toContain("await studioStore.set(collection, stateId, result.data)");
+  });
 });
