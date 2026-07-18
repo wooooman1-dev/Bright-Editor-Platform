@@ -48,8 +48,8 @@ describe("mergeUserDataSnapshot", () => {
   });
 
   it("keeps server-owned workflow collections and server quality", () => {
-    const serverQuality = { overallScore: 99, approved: true } as unknown as NonNullable<UserData["contents"][number]["quality"]>;
-    const clientQuality = { overallScore: 1, approved: false } as unknown as NonNullable<UserData["contents"][number]["quality"]>;
+    const serverQuality = quality(99);
+    const clientQuality = quality(1);
     const current = snapshot({
       contents: [{ ...snapshot().contents[0], quality: serverQuality }],
       history: [{ id: "history-server", contentId: "content-1", document: { id: "content-1", title: "Server", blocks: [] }, reason: "autosave", recordedAt: "2026-07-18T01:00:00.000Z", version: 1 }],
@@ -80,29 +80,39 @@ describe("mergeUserDataSnapshot", () => {
 
 describe("mergeServerMutationSnapshot", () => {
   it("keeps concurrent media uploads while applying a completed server workflow", () => {
+    const base = snapshot();
     const current = snapshot({ mediaMetadata: [mediaAsset] });
     const workflowHistory = { id: "history-workflow", contentId: "content-1", document: { id: "content-1", title: "Workflow", blocks: [] }, reason: "ai_revision" as const, recordedAt: "2026-07-18T02:00:00.000Z", version: 2 };
     const next = snapshot({
-      contents: [{ ...current.contents[0], title: "AI reviewed title" }],
+      contents: [{ ...base.contents[0], title: "AI reviewed title" }],
       history: [workflowHistory],
-      mediaMetadata: [],
     });
 
-    const merged = mergeServerMutationSnapshot(current, next);
+    const merged = mergeServerMutationSnapshot(current, base, next);
 
     expect(merged.contents[0].title).toBe("AI reviewed title");
     expect(merged.mediaMetadata).toEqual([mediaAsset]);
     expect(merged.history).toEqual([workflowHistory]);
   });
 
-  it("lets the completed workflow replace records with the same logical key", () => {
-    const oldQuality = { overallScore: 70 } as unknown as NonNullable<UserData["contents"][number]["quality"]>;
-    const newQuality = { overallScore: 98 } as unknown as NonNullable<UserData["contents"][number]["quality"]>;
-    const current = snapshot({ qualityReports: [{ contentId: "content-1", report: oldQuality }] });
-    const next = snapshot({ qualityReports: [{ contentId: "content-1", report: newQuality }] });
+  it("applies changed workflow records without overwriting newer unrelated records", () => {
+    const baseQualityA = quality(70);
+    const baseQualityB = quality(75);
+    const currentQualityB = quality(96);
+    const nextQualityA = quality(98);
+    const base = snapshot({ qualityReports: [{ contentId: "content-1", report: baseQualityA }, { contentId: "content-2", report: baseQualityB }] });
+    const current = snapshot({ qualityReports: [{ contentId: "content-1", report: baseQualityA }, { contentId: "content-2", report: currentQualityB }] });
+    const next = snapshot({ qualityReports: [{ contentId: "content-1", report: nextQualityA }, { contentId: "content-2", report: baseQualityB }] });
 
-    const merged = mergeServerMutationSnapshot(current, next);
+    const merged = mergeServerMutationSnapshot(current, base, next);
 
-    expect(merged.qualityReports).toEqual([{ contentId: "content-1", report: newQuality }]);
+    expect(merged.qualityReports).toEqual([
+      { contentId: "content-1", report: nextQualityA },
+      { contentId: "content-2", report: currentQualityB },
+    ]);
   });
 });
+
+function quality(score: number): NonNullable<UserData["contents"][number]["quality"]> {
+  return { overallScore: score, approved: score >= 95 } as unknown as NonNullable<UserData["contents"][number]["quality"]>;
+}
