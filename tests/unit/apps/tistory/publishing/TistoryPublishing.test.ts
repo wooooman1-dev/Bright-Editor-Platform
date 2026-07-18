@@ -30,7 +30,7 @@ describe("Tistory publishing integration", () => {
 
   it("renders verified related posts as one final section with safe targets", () => {
     const html = new TistoryHtmlRenderer().render({ ...document, blocks: [...document.blocks, { id: "related", type: "button", purpose: "related_post", label: "건강검진 전날 주의사항", targetUrl: "https://bright-health.tistory.com/entry/checkup", target: "_blank" }] });
-    expect(html).toContain("관련 글 보기");
+    expect(html).toContain("함께 보면 좋은 글");
     expect(html).toContain('class="bright-related-posts"');
     expect(html).toContain('target="_blank" rel="noopener noreferrer"');
     expect(html.indexOf("bright-related-posts")).toBeGreaterThan(html.indexOf("bright-cta"));
