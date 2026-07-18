@@ -11,8 +11,8 @@ Do not return an outline, plan, writing instructions, analysis, or placeholders 
 Write polite, natural Korean as a knowledgeable person explaining the topic. Paragraphs normally contain 2–5 connected sentences. Avoid repeated one-sentence paragraphs, list-only writing, repeated “알아보겠습니다” or “중요합니다”, generic AI transitions, duplicated meanings, and every fabricated first-person experience (including “제가”, “저는”, and “직접 해봤습니다”). Do not force an FAQ.
 Follow helpful, reliable, people-first Google Search principles and support E-E-A-T without pretending to have experience. Use the exact primary keyword naturally in the title, introduction, a relevant descriptive heading, body, meta description, image ALT, and link anchors; use secondary, long-tail, and related terms where useful, never by mechanical density or stuffing. Create a truthful 60–180-character meta description that explains what the reader will learn from the actual article without hype.
 For health content, do not diagnose, promise effects, invent treatment advice, probabilities, research, or exact statistics. Distinguish urgent warning signs when relevant, recommend professional assessment when appropriate, and do not bury the useful answer under repeated disclaimers.
-Place source-empty image recommendation blocks only where an image materially improves understanding, with a specific Korean ALT describing the subject and purpose. Decide whether CTA is useful; when useful place at most two CTA button blocks in context. Never invent a URL. If no approved CTA URL is known, use an empty targetUrl. Do not create internal, monetization, or related-post links unless their real approved URLs are supplied in the editorial context; Bright Studio will place verified catalog links separately.
-Return JSON only: {"title":"...","metaDescription":"...","primarySearchIntent":"...","secondaryIntent":"...","secondaryKeywords":["..."],"relatedTerms":["..."],"blocks":[{"type":"heading","level":2,"text":"..."},{"type":"paragraph","text":"complete prose..."},{"type":"paragraph","text":"• list item 1\n• list item 2"},{"type":"image","source":"","alt":"specific image purpose"},{"type":"button","purpose":"cta","label":"구체적인 대상 페이지 설명","targetUrl":"","target":"_self"}]}.`,
+Place source-empty image recommendation blocks only where an image materially improves understanding. Every image block must include: a purpose selected from hero, inline, comparison, checklist, infographic, summary, or warning; a specific Korean ALT describing the subject and purpose; and a standalone production prompt detailed enough to create the image separately. The image prompt must describe subject, composition, environment, visual style, and important exclusions such as no text or logo when appropriate. Decide whether CTA is useful; when useful place at most two CTA button blocks in context. Never invent a URL. If no approved CTA URL is known, use an empty targetUrl. Do not create internal, monetization, or related-post links unless their real approved URLs are supplied in the editorial context; Bright Studio will place verified catalog links separately.
+Return JSON only: {"title":"...","metaDescription":"...","primarySearchIntent":"...","secondaryIntent":"...","secondaryKeywords":["..."],"relatedTerms":["..."],"blocks":[{"type":"heading","level":2,"text":"..."},{"type":"paragraph","text":"complete prose..."},{"type":"paragraph","text":"• list item 1\n• list item 2"},{"type":"image","source":"","purpose":"inline","alt":"specific image purpose","prompt":"standalone image production prompt"},{"type":"button","purpose":"cta","label":"구체적인 대상 페이지 설명","targetUrl":"","target":"_self"}]}.`,
     };
   }
 
@@ -45,7 +45,18 @@ function parseBlock(value: unknown, index: number): ContentDocument["blocks"][nu
   const id = typeof block.id === "string" && block.id.trim() ? block.id.trim() : `block-${index + 1}`;
   if (block.type === "heading" && typeof block.text === "string") return { id, level: normalizeLevel(block.level), text: block.text, type: "heading" };
   if (block.type === "paragraph" && typeof block.text === "string") return { id, text: block.text, type: "paragraph" };
-  if (block.type === "image" && typeof block.alt === "string") return { alt: block.alt, id, source: typeof block.source === "string" ? block.source : "", type: "image" };
+  if (block.type === "image" && typeof block.alt === "string") return {
+    alt: block.alt,
+    id,
+    source: typeof block.source === "string" ? block.source : "",
+    type: "image",
+    ...(typeof block.prompt === "string" ? { prompt: block.prompt.trim() } : {}),
+    ...(normalizeImagePurpose(block.purpose) ? { purpose: normalizeImagePurpose(block.purpose) } : {}),
+    ...(typeof block.assetId === "string" && block.assetId.trim() ? { assetId: block.assetId.trim() } : {}),
+    ...(typeof block.fileName === "string" && block.fileName.trim() ? { fileName: block.fileName.trim() } : {}),
+    ...(typeof block.mimeType === "string" && block.mimeType.trim() ? { mimeType: block.mimeType.trim() } : {}),
+    ...(normalizeImageSourceType(block.sourceType) ? { sourceType: normalizeImageSourceType(block.sourceType) } : {}),
+  };
   if (block.type === "button" && typeof block.label === "string" && typeof block.targetUrl === "string") return { id, label: block.label, purpose: normalizePurpose(block.purpose), target: block.target === "_blank" ? "_blank" : "_self", targetUrl: block.targetUrl, ...(typeof block.sourceExternalPostId === "string" && block.sourceExternalPostId.trim() ? { sourceExternalPostId: block.sourceExternalPostId.trim() } : {}), type: "button" };
   throw new Error(`AI returned unsupported block ${index + 1}.`);
 }
@@ -80,7 +91,8 @@ function ensureEditorialPlacement(blocks: ContentDocument["blocks"], input: Gene
   const headings = next.reduce<number[]>((indices, block, index) => block.type === "heading" ? [...indices, index] : indices, []);
   if (!next.some((block) => block.type === "image")) {
     const imageIndex = headings[Math.min(1, headings.length - 1)] ?? Math.min(2, next.length);
-    next.splice(imageIndex, 0, { alt: `${input.keywords[0] ?? "본문"} 핵심 내용을 설명하는 추천 이미지`, id: uniqueId(next, "generated-image-recommendation"), source: "", type: "image" });
+    const subject = `${input.keywords[0] ?? "본문"} 핵심 내용을 설명하는 추천 이미지`;
+    next.splice(imageIndex, 0, { alt: subject, id: uniqueId(next, "generated-image-recommendation"), prompt: `${subject}. 한국 블로그 본문에 적합한 고품질 이미지, 핵심 대상이 분명한 구도, 자연스럽고 신뢰감 있는 스타일, 텍스트와 로고 없음.`, purpose: "inline", source: "", sourceType: "planned", type: "image" });
   }
   return next;
 }
@@ -92,4 +104,6 @@ function uniqueId(blocks: ContentDocument["blocks"], base: string): string {
 }
 function normalizeLevel(value: unknown): 1 | 2 | 3 | 4 | 5 | 6 { return typeof value === "number" && value >= 1 && value <= 6 ? value as 1 | 2 | 3 | 4 | 5 | 6 : 2; }
 function normalizePurpose(value: unknown): "cta" | "internal_link" | "monetization" | "related_post" { return value === "internal_link" || value === "monetization" || value === "related_post" ? value : "cta"; }
+function normalizeImagePurpose(value: unknown): "hero" | "comparison" | "checklist" | "infographic" | "summary" | "warning" | "inline" | undefined { return value === "hero" || value === "comparison" || value === "checklist" || value === "infographic" || value === "summary" || value === "warning" || value === "inline" ? value : undefined; }
+function normalizeImageSourceType(value: unknown): "planned" | "upload" | "ai_generated" | "external" | undefined { return value === "planned" || value === "upload" || value === "ai_generated" || value === "external" ? value : undefined; }
 function stripFence(value: string): string { return value.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, ""); }
