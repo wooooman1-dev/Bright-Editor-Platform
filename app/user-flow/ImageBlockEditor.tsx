@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-img-element */
 "use client";
 
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
@@ -41,8 +42,12 @@ export function ImageBlockEditor({
 
   const savePlanningFields = async () => {
     if (alt === block.alt && prompt === (block.prompt ?? "") && purpose === (block.purpose ?? "inline")) return;
-    await onChange({ ...block, alt, prompt, purpose, sourceType: block.sourceType ?? "planned" });
-    setNotice("이미지 프롬프트와 ALT를 저장했습니다.");
+    try {
+      await onChange({ ...block, alt, prompt, purpose, sourceType: block.sourceType ?? "planned" });
+      setNotice("이미지 프롬프트와 ALT를 저장했습니다.");
+    } catch (error) {
+      setNotice(message(error));
+    }
   };
 
   const upload = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -60,7 +65,7 @@ export function ImageBlockEditor({
       form.set("purpose", purpose);
       form.set("file", file);
       const response = await fetch("/api/media", { method: "POST", body: form });
-      const result = await response.json() as ImageApiResponse;
+      const result = await readImageResponse(response);
       if (!response.ok || !result.asset) throw new Error(result.error ?? "이미지 파일을 불러오지 못했습니다.");
       await applyAsset(result.asset);
       setNotice("이미지 파일을 불러와 현재 이미지 블록에 연결했습니다.");
@@ -81,7 +86,7 @@ export function ImageBlockEditor({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "generate", contentId, blockId: block.id, alt, prompt, purpose, quality, size }),
       });
-      const result = await response.json() as ImageApiResponse;
+      const result = await readImageResponse(response);
       if (!response.ok || !result.asset) throw new Error(result.error ?? "AI 이미지를 생성하지 못했습니다.");
       await applyAsset(result.asset);
       setNotice(`AI 이미지 생성 완료${result.generation ? ` · ${result.generation.model} · ${result.generation.size}` : ""}`);
@@ -89,6 +94,15 @@ export function ImageBlockEditor({
       setNotice(message(error));
     } finally {
       setWorking("idle");
+    }
+  };
+
+  const copyPrompt = async () => {
+    try {
+      await navigator.clipboard.writeText(prompt);
+      setNotice("이미지 프롬프트를 복사했습니다.");
+    } catch {
+      setNotice("브라우저에서 클립보드 복사를 허용하지 않았습니다. 프롬프트를 직접 선택해 복사해 주세요.");
     }
   };
 
@@ -130,7 +144,7 @@ export function ImageBlockEditor({
           </select>
         </label>
         <label className="block text-sm font-semibold">ALT
-          <input className="mt-2 w-full rounded-xl border bg-white px-3 py-3 font-normal" disabled={busy} onBlur={() => void savePlanningFields()} onChange={(event) => setAlt(event.target.value)} value={alt} />
+          <input className="mt-2 w-full rounded-xl border bg-white px-3 py-3 font-normal" disabled={busy} onBlur={() => void savePlanningFields()} onChange={(event) => setAlt(event.target.value)} placeholder="이미지의 실제 내용을 설명하세요." value={alt} />
         </label>
       </div>
     </div>
@@ -145,17 +159,26 @@ export function ImageBlockEditor({
           <select className="mt-2 w-full rounded-lg border bg-white px-3 py-2 font-normal" disabled={busy} onChange={(event) => setQuality(event.target.value as ImageGenerationQuality)} value={quality}><option value="low">낮음 · 비용 절약</option><option value="medium">보통 · 기본</option><option value="high">높음</option></select>
         </label>
       </div>
+      <p className="mt-3 text-xs leading-5 text-[#77777f]">AI 생성은 연결된 OpenAI API 사용량과 비용이 발생할 수 있습니다. 프롬프트 복사만 사용하면 외부 이미지 도구에서 별도로 제작할 수 있습니다.</p>
     </details>
 
     <div className="mt-4 flex flex-wrap gap-2">
       <input accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(event) => void upload(event)} ref={fileInput} type="file" />
       <button className="rounded-xl border bg-white px-4 py-2.5 text-sm font-semibold disabled:opacity-50" disabled={busy} onClick={() => fileInput.current?.click()} type="button">{working === "upload" ? "불러오는 중…" : "파일 불러오기"}</button>
       <button className="rounded-xl bg-[#ff6b6b] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50" disabled={busy || !prompt.trim()} onClick={() => void generate()} type="button">{working === "generate" ? "AI 생성 중…" : "AI 생성하기"}</button>
-      <button className="rounded-xl border bg-white px-4 py-2.5 text-sm font-semibold disabled:opacity-50" disabled={!prompt.trim()} onClick={() => void navigator.clipboard.writeText(prompt).then(() => setNotice("이미지 프롬프트를 복사했습니다."))} type="button">프롬프트 복사</button>
+      <button className="rounded-xl border bg-white px-4 py-2.5 text-sm font-semibold disabled:opacity-50" disabled={!prompt.trim()} onClick={() => void copyPrompt()} type="button">프롬프트 복사</button>
       {block.source ? <a className="rounded-xl border bg-white px-4 py-2.5 text-sm font-semibold" href={block.source} rel="noopener noreferrer" target="_blank">원본 보기</a> : null}
     </div>
     {notice ? <p aria-live="polite" className="mt-3 text-sm text-[#55555f]">{notice}</p> : null}
   </div>;
+}
+
+async function readImageResponse(response: Response): Promise<ImageApiResponse> {
+  try {
+    return await response.json() as ImageApiResponse;
+  } catch {
+    return Object.freeze({ error: `이미지 API 응답을 읽지 못했습니다. (${response.status})` });
+  }
 }
 
 function defaultPrompt(block: ImageBlock): string {
