@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 const editorSource = readFileSync(join(process.cwd(), "app/user-flow/EditorWorkspace.tsx"), "utf8");
 const titleSource = readFileSync(join(process.cwd(), "app/user-flow/ContentSeoTitleStatus.tsx"), "utf8");
 const dangerSource = readFileSync(join(process.cwd(), "app/user-flow/ContentDangerZone.tsx"), "utf8");
+const projectActionsSource = readFileSync(join(process.cwd(), "app/user-flow/ProjectCardActions.tsx"), "utf8");
+const workspaceDangerSource = readFileSync(join(process.cwd(), "app/user-flow/DangerZone.tsx"), "utf8");
 
 describe("Editor content title and deletion UX", () => {
   it("shows exact primary-keyword title status and one-click correction", () => {
@@ -22,13 +24,24 @@ describe("Editor content title and deletion UX", () => {
     expect(editorSource).toContain("대표 키워드를 포함하도록 제목을 보정하고 품질 검토를 완료했습니다.");
   });
 
-  it("shows a backup-first danger zone with exact server title confirmation", () => {
+  it("shows a backup-first content danger zone without exact-title confirmation", () => {
     expect(editorSource).toContain("<ContentDangerZone");
     expect(dangerSource).toContain("삭제 영향도");
     expect(dangerSource).toContain("외부 Tistory 글 삭제: 없음");
-    expect(dangerSource).toContain("삭제 전 로컬 백업이 자동 생성됩니다.");
-    expect(dangerSource).toContain("confirmationTitle.trim() !== impact.title");
+    expect(dangerSource).toContain("아래 버튼을 누르면 즉시 백업 후 삭제합니다.");
+    expect(dangerSource).not.toContain("confirmationTitle");
+    expect(dangerSource).not.toContain("제목을 정확히 입력");
     expect(dangerSource).toContain("백업 후 콘텐츠 삭제");
+  });
+
+  it("removes name re-entry from project and workspace deletion while keeping impact review", () => {
+    expect(projectActionsSource).toContain("삭제 영향을 확인하고 있습니다.");
+    expect(projectActionsSource).toContain("백업 후 프로젝트 삭제");
+    expect(projectActionsSource).not.toContain("삭제 확인 프로젝트 이름");
+    expect(projectActionsSource).not.toContain("confirmation !== impact.name");
+    expect(workspaceDangerSource).toContain("Deletion impact for {impact.name}");
+    expect(workspaceDangerSource).not.toContain("Type <strong>");
+    expect(workspaceDangerSource).not.toContain("confirmation");
   });
 
   it("returns to the Project Dashboard only after persisting the deleted server state", () => {
