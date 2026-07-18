@@ -58,6 +58,18 @@ describe("ensureSeoKeywordPlacement", () => {
     expect(result.title.match(/[·,/]/gu) ?? []).toHaveLength(0);
   });
 
+  it("corrects the current fatigue article title with the confirmed shift-worker keyword", () => {
+    const source = {
+      ...createDocument(),
+      title: "만성 피로 증후군 이해하기: 지속 피로 원인, 검사, 수면과 생활관리",
+    };
+    const result = ensureSeoKeywordPlacement(source, "교대근무자 수면 관리법");
+
+    expect(result.title).toBe("교대근무자 수면 관리법: 만성 피로 증후군 이해하기");
+    expect(result.title).toContain("교대근무자 수면 관리법");
+    expect(result.title.length).toBeLessThanOrEqual(68);
+  });
+
   it("does not duplicate an exact keyword that is already placed", () => {
     const source = createDocument();
     const placed = ensureSeoKeywordPlacement(source, keyword);
