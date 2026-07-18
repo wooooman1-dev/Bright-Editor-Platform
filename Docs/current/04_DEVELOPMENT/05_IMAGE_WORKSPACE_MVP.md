@@ -2,9 +2,9 @@
 
 ## 1. 문서 목적
 
-이 문서는 Bright Studio 콘텐츠 편집기의 이미지 작업 기능과 Tistory 임시저장 연결 범위를 정의한다.
+이 문서는 Bright Studio 콘텐츠 편집기의 이미지 작업 기능, Project 이미지 재사용, Tistory 임시저장 연결 범위를 정의한다.
 
-이미지는 장식 요소가 아니라 콘텐츠 전략의 일부다. 원고 생성 시 이미지의 목적, 배치 의도, ALT, 별도 제작용 프롬프트를 함께 만들고, 편집기에서 사용자가 직접 파일을 연결하거나 AI로 생성할 수 있어야 한다.
+이미지는 장식 요소가 아니라 콘텐츠 전략의 일부다. 원고 생성 시 이미지의 목적, 배치 의도, ALT, 별도 제작용 프롬프트를 함께 만들고, 편집기에서 사용자가 직접 파일을 연결하거나 AI로 생성하거나 같은 Project의 기존 이미지를 재사용할 수 있어야 한다.
 
 ## 2. 현재 구현 상태
 
@@ -51,6 +51,15 @@ Draft PR:
 - 프롬프트 복사
 - 연결된 이미지 미리보기 및 원본 보기
 - `요소 추가 → 이미지 추가`를 통한 독립 이미지 제작 영역 생성
+- 같은 Project에서 실제 연결되었거나 저장된 이미지 목록 확인
+- 기존 Project 이미지를 파일 복제 없이 현재 ImageBlock에 재사용
+- 각 이미지의 Project 내 사용 위치 수 확인
+
+Project 이미지 재사용 상세 설계는 다음 문서를 따른다.
+
+```text
+Docs/current/04_DEVELOPMENT/07_PROJECT_MEDIA_LIBRARY.md
+```
 
 ## 4. AI 생성 및 비용 정책
 
@@ -84,7 +93,7 @@ OPENAI_IMAGE_MODEL=gpt-image-2
 OPENAI_IMAGE_TIMEOUT_MS=180000
 ```
 
-AI 이미지 생성은 API 사용량과 비용이 발생할 수 있다. 프롬프트 복사 또는 로컬 파일 불러오기는 이미지 생성 API를 호출하지 않는다.
+AI 이미지 생성은 API 사용량과 비용이 발생할 수 있다. 프롬프트 복사, 로컬 파일 불러오기, Project 이미지 조회·재사용은 이미지 생성 API를 호출하지 않는다.
 
 ## 5. Core 모델
 
@@ -120,6 +129,18 @@ app/application/media/OpenAIImageProvider.ts
 
 다른 이미지 공급자를 추가할 때 Core Content Model이나 편집기 흐름을 변경하지 않는다.
 
+### Project Media Library
+
+Core의 Project 미디어 수집 계약은 다음 위치에 있다.
+
+```text
+core/media/ProjectMediaLibrary.ts
+```
+
+저장된 `mediaMetadata`와 Project의 Canonical ImageBlock을 결합해 실제 이미지 목록, 중복 제거, 참조 위치, `referenceCount`를 계산한다.
+
+Canonical ContentDocument가 사용 위치의 기준이며 `mediaMetadata`는 검색과 재사용을 돕는 보조 인덱스다.
+
 ## 6. 로컬 파일 저장 정책
 
 기본 저장 위치:
@@ -149,6 +170,10 @@ image/webp
 
 업로드 시 브라우저가 전달한 확장자와 MIME만 신뢰하지 않고 PNG, JPEG, WEBP 파일 시그니처를 서버에서 다시 검사한다.
 
+파일 저장 후 자산 메타데이터는 `studioStore.update()`로 저장한다. 메타데이터 저장에 실패하면 방금 생성한 로컬 파일을 삭제하고 오류를 반환한다.
+
+같은 Project 이미지를 재사용할 때는 파일을 복사하지 않고 동일 `assetId`와 `source`를 연결한다.
+
 ## 7. 데이터 보호
 
 업로드 또는 AI 생성으로 연결된 이미지는 다음 AI 편집 과정에서 보호한다.
@@ -173,6 +198,8 @@ purpose
 ALT는 AI 결과에 유효한 값이 있으면 개선된 값을 허용하고, 비어 있으면 원본을 복원한다.
 
 소스가 비어 있는 계획 단계의 추천 이미지는 사용자가 삭제한 경우 강제로 되살리지 않는다.
+
+Project Media Library는 메타데이터가 없는 이전 원고도 Canonical ImageBlock의 `source`를 기준으로 복원한다.
 
 ## 8. Tistory 이미지 업로드 경계
 
@@ -245,17 +272,25 @@ Workspace Settings
 
 본문 편집기, 카테고리, 기존 Draft 재확인 진단 모드에서는 이미지 업로드를 실행하지 않는다.
 
+로컬 이미지가 있는 원고는 Draft Worker 시작 실패 시 자동 재시도하지 않는다. 이미지 중복 업로드 가능성을 막고 사용자가 결과를 확인한 뒤 다시 실행하게 한다.
+
 ## 11. 이번 범위에 포함하지 않는 기능
 
-- Project Media Library 목록 화면
-- 이미지 재사용 검색
+- Project Media Library 전용 전체 화면
+- 검색어·태그·폴더·즐겨찾기
+- Project 간 또는 Workspace 전체 이미지 공유
+- 이미지 파일 삭제
+- 여러 Content가 참조하는 자산의 영향도 계산과 안전 삭제
 - 고아 파일 자동 정리
 - 이미지 편집, 마스크, 인페인팅
 - 이미지 일괄 생성
 - 썸네일 전용 편집기
 - 이미지 크롭 및 리사이즈
+- Tistory 원격 업로드 결과 영구 캐시
 - WordPress Media Library 업로드
 - 공개 발행
+
+삭제 기능은 참조 영향도 계산, backup-first, 실제 파일 정리 실패 복구 정책을 먼저 설계한 뒤 구현한다.
 
 ## 12. 자동 검증 범위
 
@@ -268,7 +303,15 @@ Workspace Settings
 - 편집기 미리보기
 - 새로고침 후 이미지 연결 유지
 - AI 품질 수정 후 이미지 보호
-- 로컬 이미지 업로드 계획 생성
+- 미디어 메타데이터 원자적 저장과 저장 실패 파일 롤백
+- 같은 Project의 저장 자산과 Canonical 이미지 결합
+- 동일 자산의 여러 Content 참조와 `referenceCount` 계산
+- 메타데이터 없는 이전 이미지 복원
+- 외부 이미지 분류 유지
+- 다른 Project 자산 제외
+- 브라우저에서 이미지 업로드 후 다른 블록에 동일 `assetId/source` 재사용
+- 재사용 후 새로고침 유지
+- 로컬 이미지 Tistory 업로드 계획 생성
 - 기존 외부 이미지 보존
 - placeholder 완전 치환
 - HTTPS 및 신뢰 호스트 제한
@@ -287,7 +330,9 @@ npm test
 npm run build
 ```
 
-실제 Tistory 계정에서 마지막으로 다음을 확인해야 한다.
+Project 이미지 재사용은 실제 Tistory 계정 없이 브라우저 Smoke Test로 검증할 수 있다.
+
+실제 Tistory 계정에서는 마지막으로 다음을 확인해야 한다.
 
 1. 연결된 Tistory 계정의 `media.upload`를 허용한다.
 2. 로컬 PNG, JPEG 또는 WEBP 이미지가 연결된 원고를 연다.
@@ -303,13 +348,14 @@ npm run build
 
 ## 14. 완료 기준
 
-다음 조건을 모두 만족할 때 Image Workspace와 Tistory Media Upload를 완료로 변경한다.
+다음 조건을 모두 만족할 때 Image Workspace, Project Media Library Foundation, Tistory Media Upload를 완료로 변경한다.
 
 - lint 통과
 - typecheck 통과
 - 전체 테스트 통과
 - production build 통과
 - 이미지 작업 공간 브라우저 검증 통과
+- Project 이미지 재사용과 새로고침 유지 검증 통과
 - 실제 Tistory 이미지 업로드 및 Draft 재확인 통과
 - Draft Only, Review First, Permission Gate 회귀 없음
 - 공개 발행이 발생하지 않음
