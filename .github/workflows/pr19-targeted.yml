@@ -1,0 +1,37 @@
+name: PR19 Targeted
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  deletion-service:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --silent
+      - run: npx vitest run tests/unit/app/application/ContentDeletionService.test.ts --reporter=verbose
+  deletion-ui-api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --silent
+      - run: npx vitest run tests/unit/app/user-flow/ContentDeletionAndTitleUi.test.ts tests/unit/app/api/DeletionConfirmationRemoval.test.ts tests/unit/app/api/ContentDeletionAndSeoPolicy.test.ts --reporter=verbose
+  related-links:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --silent
+      - run: npx vitest run tests/unit/apps/tistory/TistoryRelatedLinkPresentation.test.ts --reporter=verbose
