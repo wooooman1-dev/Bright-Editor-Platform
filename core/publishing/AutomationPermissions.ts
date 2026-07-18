@@ -1,6 +1,6 @@
 import { safeDraftPermissions, type AutomationPermission, type PlatformConnection } from "../connections";
 
-export type RegisteredPublishingWorkflow = "connection.verify" | "category.read" | "category.select" | "post.read" | "draft.create" | "draft.verify";
+export type RegisteredPublishingWorkflow = "connection.verify" | "category.read" | "category.select" | "post.read" | "media.upload" | "draft.create" | "draft.verify";
 
 export type PublishingAuthorizationRequest = Readonly<{
   workspaceId: string;
@@ -29,7 +29,7 @@ export class PublishingPermissionError extends Error {
 }
 
 function workflowPermission(workflow: string): AutomationPermission {
-  const allowed: readonly RegisteredPublishingWorkflow[] = ["connection.verify", "category.read", "category.select", "post.read", "draft.create", "draft.verify"];
+  const allowed: readonly RegisteredPublishingWorkflow[] = ["connection.verify", "category.read", "category.select", "post.read", "media.upload", "draft.create", "draft.verify"];
   if (!allowed.includes(workflow as RegisteredPublishingWorkflow)) throw new PublishingPermissionError("WORKFLOW_NOT_REGISTERED", "The requested publishing workflow is not registered.");
   if (workflow === "post.read") return "category.read";
   return workflow as AutomationPermission;
