@@ -48,7 +48,8 @@ describe("mergeUserDataSnapshot", () => {
   });
 
   it("keeps server-owned workflow collections and server quality", () => {
-    const serverQuality = { overallScore: 99, approved: true } as NonNullable<UserData["contents"][number]["quality"]>;
+    const serverQuality = { overallScore: 99, approved: true } as unknown as NonNullable<UserData["contents"][number]["quality"]>;
+    const clientQuality = { overallScore: 1, approved: false } as unknown as NonNullable<UserData["contents"][number]["quality"]>;
     const current = snapshot({
       contents: [{ ...snapshot().contents[0], quality: serverQuality }],
       history: [{ id: "history-server", contentId: "content-1", document: { id: "content-1", title: "Server", blocks: [] }, reason: "autosave", recordedAt: "2026-07-18T01:00:00.000Z", version: 1 }],
@@ -56,9 +57,7 @@ describe("mergeUserDataSnapshot", () => {
       qualityReports: [{ contentId: "content-1", report: serverQuality }],
       scheduledPublishing: [{ contentId: "content-1", platform: "tistory", scheduledFor: "2026-07-19T01:00:00.000Z" }],
     });
-    const incoming = snapshot({
-      contents: [{ ...current.contents[0], quality: { overallScore: 1 } as NonNullable<UserData["contents"][number]["quality"]> }],
-    });
+    const incoming = snapshot({ contents: [{ ...current.contents[0], quality: clientQuality }] });
 
     const merged = mergeUserDataSnapshot(current, incoming);
 
