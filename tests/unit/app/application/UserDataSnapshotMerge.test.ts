@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { mergeUserDataSnapshot } from "../../../../app/application/persistence/mergeUserDataSnapshot";
+import { mergeServerMutationSnapshot, mergeUserDataSnapshot } from "../../../../app/application/persistence/mergeUserDataSnapshot";
 import type { MediaAsset } from "../../../../core/media";
 import type { UserData } from "../../../../app/user-flow/user-data";
 
@@ -75,5 +75,34 @@ describe("mergeUserDataSnapshot", () => {
 
   it("rejects malformed full-state payloads", () => {
     expect(() => mergeUserDataSnapshot(undefined, { contents: [] })).toThrow("Application state is invalid.");
+  });
+});
+
+describe("mergeServerMutationSnapshot", () => {
+  it("keeps concurrent media uploads while applying a completed server workflow", () => {
+    const current = snapshot({ mediaMetadata: [mediaAsset] });
+    const workflowHistory = { id: "history-workflow", contentId: "content-1", document: { id: "content-1", title: "Workflow", blocks: [] }, reason: "ai_revision" as const, recordedAt: "2026-07-18T02:00:00.000Z", version: 2 };
+    const next = snapshot({
+      contents: [{ ...current.contents[0], title: "AI reviewed title" }],
+      history: [workflowHistory],
+      mediaMetadata: [],
+    });
+
+    const merged = mergeServerMutationSnapshot(current, next);
+
+    expect(merged.contents[0].title).toBe("AI reviewed title");
+    expect(merged.mediaMetadata).toEqual([mediaAsset]);
+    expect(merged.history).toEqual([workflowHistory]);
+  });
+
+  it("lets the completed workflow replace records with the same logical key", () => {
+    const oldQuality = { overallScore: 70 } as unknown as NonNullable<UserData["contents"][number]["quality"]>;
+    const newQuality = { overallScore: 98 } as unknown as NonNullable<UserData["contents"][number]["quality"]>;
+    const current = snapshot({ qualityReports: [{ contentId: "content-1", report: oldQuality }] });
+    const next = snapshot({ qualityReports: [{ contentId: "content-1", report: newQuality }] });
+
+    const merged = mergeServerMutationSnapshot(current, next);
+
+    expect(merged.qualityReports).toEqual([{ contentId: "content-1", report: newQuality }]);
   });
 });
