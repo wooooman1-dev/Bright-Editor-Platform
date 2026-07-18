@@ -24,7 +24,7 @@ describe("Editor content title and deletion UX", () => {
     expect(editorSource).toContain("대표 키워드를 포함하도록 제목을 보정하고 품질 검토를 완료했습니다.");
   });
 
-  it("shows a backup-first content danger zone without exact-title confirmation", () => {
+  it("shows backup-first content deletion without exact-title confirmation", () => {
     expect(editorSource).toContain("<ContentDangerZone");
     expect(dangerSource).toContain("삭제 영향도");
     expect(dangerSource).toContain("외부 Tistory 글 삭제: 없음");
@@ -34,14 +34,15 @@ describe("Editor content title and deletion UX", () => {
     expect(dangerSource).toContain("백업 후 콘텐츠 삭제");
   });
 
-  it("removes name re-entry from project and workspace deletion while keeping impact review", () => {
+  it("removes name re-entry from project and workspace deletion", () => {
     expect(projectActionsSource).toContain("삭제 영향을 확인하고 있습니다.");
     expect(projectActionsSource).toContain("백업 후 프로젝트 삭제");
     expect(projectActionsSource).not.toContain("삭제 확인 프로젝트 이름");
     expect(projectActionsSource).not.toContain("confirmation !== impact.name");
     expect(workspaceDangerSource).toContain("Deletion impact for {impact.name}");
     expect(workspaceDangerSource).not.toContain("Type <strong>");
-    expect(workspaceDangerSource).not.toContain("confirmation");
+    expect(workspaceDangerSource).not.toContain("setConfirmation");
+    expect(workspaceDangerSource).toContain("finalConfirmation");
   });
 
   it("returns to the Project Dashboard only after persisting the deleted server state", () => {
