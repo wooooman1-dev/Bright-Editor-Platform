@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { studioStore } from "../../application/studio-store";
+import { mergeUserDataSnapshot } from "../../application/persistence/mergeUserDataSnapshot";
 import { AIWorkflow } from "../../../core/ai";
 import { contentRevisionId, evaluateQualityImprovement, qualityImprovementRejectionMessage, QualityEngine } from "../../../core/quality";
 import { EditorialGenerationStrategy } from "../../application/EditorialGenerationStrategy";
@@ -29,25 +30,11 @@ export async function GET() {
 export async function PUT(request: Request) {
   try {
     const body = await request.json();
-    if (!body || typeof body !== "object") throw new Error("Application state is required.");
-    const current = await studioStore.get<UserData>(collection, stateId);
-    await studioStore.set(collection, stateId, preserveServerQuality(current, body));
+    await studioStore.update<UserData>(collection, stateId, (current) => mergeUserDataSnapshot(current, body));
     return NextResponse.json({ saved: true });
   } catch (error) {
     return NextResponse.json({ error: message(error) }, { status: 400 });
   }
-}
-
-function preserveServerQuality(current: UserData | undefined, input: unknown): unknown {
-  if (!current || !input || typeof input !== "object" || !Array.isArray((input as Partial<UserData>).contents)) return input;
-  const incoming = input as UserData;
-  const contents = incoming.contents.map((content) => {
-    const serverContent = current.contents.find((item) => item.id === content.id);
-    if (serverContent?.quality) return { ...content, quality: serverContent.quality };
-    const { quality: _clientQuality, ...withoutClientQuality } = content; void _clientQuality;
-    return withoutClientQuality;
-  });
-  return { ...incoming, contents, qualityReports: current.qualityReports ?? [] };
 }
 
 export async function POST(request: Request) {
