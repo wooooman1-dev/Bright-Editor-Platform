@@ -8,7 +8,8 @@ import { OpenAIProvider } from "../../application/OpenAIProvider";
 import { EditorialQualityPipeline } from "../../application/EditorialQualityPipeline";
 import { ContentPlanningStrategy, createManualPlanningResult } from "../../application/ContentPlanningStrategy";
 import { TistoryPublishingAdapter } from "../../../apps/tistory/publishing/TistoryPublishingAdapter";
-import { placeRecommendedPosts, rankRelatedPosts, restoreVerifiedEditorialLinks, type ContentDocument } from "../../../core/content";
+import { ensureSeoKeywordPlacement, placeRecommendedPosts, rankRelatedPosts, restoreVerifiedEditorialLinks, type ContentDocument } from "../../../core/content";
+import { ContentDeletionService } from "../../application/content/ContentDeletionService";
 import { applyCanonicalDocument, updateContent, type UserData } from "../../user-flow/user-data";
 import { isPlatformEnabled, resolveWorkspaceSettings } from "../../application/settings/WorkspaceSettingsService";
 import { connectionRepository, targetRepository } from "../../application/connections/connection-runtime";
@@ -81,7 +82,7 @@ export async function POST(request: Request) {
         platform: required(input.platform) as never,
         projectId,
       });
-      const initialDocument = await placeAvailableTistoryPosts(owned, existing, result.document);
+      const initialDocument = ensureContentSeoPolicy(await placeAvailableTistoryPosts(owned, existing, result.document), existing);
       const context = { contentType: String(input.contentType), platform: String(input.platform), primaryKeyword: existing.primaryKeyword ?? (Array.isArray(input.keywords) ? String(input.keywords[0] ?? "") : undefined), searchIntent: existing.searchIntent };
       const initialQuality = new QualityEngine().review(initialDocument, context);
       try {
@@ -89,7 +90,7 @@ export async function POST(request: Request) {
           document: initialDocument,
           finalReviewInstruction: finalEditInstruction,
           parseInput: { contentId, contentType: required(input.contentType) as never, keywords: Array.isArray(input.keywords) ? input.keywords.map(String) : [], platform: required(input.platform) as never, projectId },
-          placeDocument: (document) => placeAvailableTistoryPosts(owned, existing, document),
+          placeDocument: async (document) => ensureContentSeoPolicy(await placeAvailableTistoryPosts(owned, existing, document), existing),
           qualityContext: context,
           requiredInformation: editorialRequirements(typeof input.editorialContext === "string" ? input.editorialContext : undefined),
         });
@@ -118,7 +119,7 @@ export async function POST(request: Request) {
       const initialQuality = new QualityEngine().review(initialDocument, qualityContext(content));
       const finalEdit = await new OpenAIProvider(undefined, undefined, reviewTimeoutMs()).generate({ instruction: finalEditInstruction(initialDocument, initialQuality), metadata: { task: "quality-final-edit" } });
       let document = new EditorialGenerationStrategy().parse(finalEdit.content, { contentId, contentType: (content.contentType ?? "article") as never, keywords: [content.primaryKeyword ?? "content", ...(content.relatedKeywords ?? [])], platform: (content.platform ?? "tistory") as never, projectId: content.projectId });
-      document = await placeAvailableTistoryPosts(data, content, document);
+      document = ensureContentSeoPolicy(await placeAvailableTistoryPosts(data, content, document), content);
       const reviewedAt = new Date().toISOString();
       const quality = new QualityEngine().review(document, { ...qualityContext(content), revisionId: contentRevisionId(document), reviewedAt });
       let next = applyCanonicalDocument(data, contentId, document, "ai_revision", reviewedAt);
@@ -139,11 +140,12 @@ export async function POST(request: Request) {
         instruction: `Revise the canonical ContentDocument according to the user's instruction. Preserve unaffected blocks. Never publish or invoke browser automation. Return the complete revised document as JSON only in {"title":"...","blocks":[...]} form.\nUser instruction: ${required(input.instruction)}\nCurrent document: ${JSON.stringify(input.document)}`,
         metadata: { task: "content-revision" },
       });
-      const document = new EditorialGenerationStrategy().parse(response.content, {
+      const parsed = new EditorialGenerationStrategy().parse(response.content, {
         contentId: required(input.contentId), contentType: (typeof input.contentType === "string" ? input.contentType : "article") as never,
-        keywords: [typeof input.primaryKeyword === "string" ? input.primaryKeyword : "content"],
+        keywords: [current.primaryKeyword ?? (typeof input.primaryKeyword === "string" ? input.primaryKeyword : "content")],
         platform: "editor" as never, projectId,
       });
+      const document = ensureContentSeoPolicy(parsed, current);
       return NextResponse.json({ document });
     }
     if (body.action === "improve-quality") {
@@ -162,7 +164,7 @@ export async function POST(request: Request) {
         keywords: [content.primaryKeyword ?? "content"], platform: (content.platform ?? "canonical") as never, projectId: content.projectId,
       });
       let document = restoreVerifiedEditorialLinks(content.document, parsed);
-      document = await placeAvailableTistoryPosts(data, content, document);
+      document = ensureContentSeoPolicy(await placeAvailableTistoryPosts(data, content, document), content);
       const quality = new QualityEngine().review(document, { ...qualityContext(content), revisionId: contentRevisionId(document) });
       const improvement = evaluateQualityImprovement(currentQuality, quality);
       return NextResponse.json({ document, basedOnRevisionId: contentRevisionId(content.document), baselineQuality: currentQuality, quality, improvement });
@@ -177,8 +179,9 @@ export async function POST(request: Request) {
       const candidate = raw as import("../../../core/content").ContentDocument;
       if (candidate.id !== content.document.id) throw new Error("개선 문서 ID가 현재 문서와 일치하지 않습니다.");
       let document = restoreVerifiedEditorialLinks(content.document, candidate);
-      document = await placeAvailableTistoryPosts(data, content, document);
-      const baselineQuality = new QualityEngine().review(content.document, qualityContext(content));
+      document = ensureContentSeoPolicy(await placeAvailableTistoryPosts(data, content, document), content);
+      const baselineDocument = ensureContentSeoPolicy(content.document, content);
+      const baselineQuality = new QualityEngine().review(baselineDocument, qualityContext(content));
       const appliedAt = new Date().toISOString();
       const quality = new QualityEngine().review(document, { ...qualityContext(content), revisionId: contentRevisionId(document), reviewedAt: appliedAt });
       const improvement = evaluateQualityImprovement(baselineQuality, quality);
@@ -189,6 +192,21 @@ export async function POST(request: Request) {
       next = { ...next, qualityReports: [...(next.qualityReports ?? []).filter((item) => item.contentId !== contentId), { contentId, report: quality }] };
       await studioStore.set(collection, stateId, next);
       return NextResponse.json({ document, quality, improvement, revisionId: contentRevisionId(document), data: next });
+    }
+    if (body.action === "content-deletion-impact") {
+      const data = await ownedWorkspace(required(body.input?.workspaceId));
+      const impact = new ContentDeletionService().impact(data, data.workspace!.id, required(body.input?.contentId));
+      return NextResponse.json({ impact });
+    }
+    if (body.action === "delete-content") {
+      const data = await ownedWorkspace(required(body.input?.workspaceId));
+      const result = await new ContentDeletionService().delete(data, {
+        workspaceId: data.workspace!.id,
+        contentId: required(body.input?.contentId),
+        confirmationTitle: required(body.input?.confirmationTitle),
+      });
+      await studioStore.set(collection, stateId, result.data);
+      return NextResponse.json(result);
     }
     if (body.action === "render-tistory") {
       const data = await ownedWorkspace(required(body.input?.workspaceId));
@@ -213,7 +231,7 @@ export async function POST(request: Request) {
       const contentId = required(body.input?.contentId);
       const content = data.contents.find((item) => item.id === contentId && item.workspaceId === data.workspace!.id);
       if (!content?.document) throw new Error("Canonical content was not found.");
-      const document = await placeAvailableTistoryPosts(data, content, content.document);
+      const document = ensureContentSeoPolicy(await placeAvailableTistoryPosts(data, content, content.document), content);
       const quality = new QualityEngine().review(document, { ...qualityContext(content), revisionId: contentRevisionId(document) });
       let next = contentRevisionId(document) === contentRevisionId(content.document) ? data : applyCanonicalDocument(data, contentId, document, "autosave", quality.reviewedAt);
       next = updateContent(next, contentId, { quality, status: quality.approved ? "ready" : "in_review", updatedAt: quality.reviewedAt });
@@ -226,6 +244,10 @@ export async function POST(request: Request) {
     const status = message(error).includes("OPENAI_API_KEY") ? 503 : 400;
     return NextResponse.json({ error: message(error) }, { status });
   }
+}
+
+function ensureContentSeoPolicy(document: ContentDocument, content: UserData["contents"][number]): ContentDocument {
+  return ensureSeoKeywordPlacement(document, content.primaryKeyword);
 }
 
 function qualityContext(content: UserData["contents"][number]) {
