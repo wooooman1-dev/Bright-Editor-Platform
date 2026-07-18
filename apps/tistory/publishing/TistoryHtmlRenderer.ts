@@ -14,9 +14,12 @@ export class TistoryHtmlRenderer {
       if (block.type === "video") return [...before, `<div class="bright-embed"><a href="${attribute(block.source)}">${escape(block.source)}</a></div>`];
       const className = `bright-${block.purpose ?? "cta"}`;
       const target = block.target === "_blank" ? ' target="_blank" rel="noopener noreferrer"' : "";
+      if (block.purpose === "internal_link" && block.targetUrl) {
+        return [...before, `<aside class="${className}" style="margin:28px 0;padding:18px 20px;border:1px solid #cfe0ff;border-radius:14px;background:#f3f7ff;"><strong style="display:block;margin-bottom:8px;color:#234b8f;font-size:15px;">함께 읽으면 좋은 글</strong><a href="${attribute(block.targetUrl)}"${target} style="color:#1456c0;font-weight:700;text-decoration:underline;text-underline-offset:3px;line-height:1.65;">${escape(block.label)} →</a></aside>`];
+      }
       return [...before, block.targetUrl ? `<p class="${className}"><a href="${attribute(block.targetUrl)}"${target}>${escape(block.label)}</a></p>` : `<div class="${className} bright-link-required"><strong>${escape(block.label)}</strong><span>URL 입력 필요</span></div>`];
     }).filter(Boolean).join("\n");
-    const relatedHtml = related.length ? `<section class="bright-related-posts"><h2>관련 글 보기</h2><ul>${related.slice(0, 3).map((block) => block.type === "button" ? `<li><a href="${attribute(block.targetUrl)}"${block.target === "_blank" ? ' target="_blank" rel="noopener noreferrer"' : ""}>${escape(block.label)}</a></li>` : "").join("")}</ul></section>` : "";
+    const relatedHtml = related.length ? `<section class="bright-related-posts"><h2>함께 보면 좋은 글</h2><ul>${related.slice(0, 3).map((block) => block.type === "button" ? `<li><a href="${attribute(block.targetUrl)}"${block.target === "_blank" ? ' target="_blank" rel="noopener noreferrer"' : ""}>${escape(block.label)}</a></li>` : "").join("")}</ul></section>` : "";
     return [body, relatedHtml].filter(Boolean).join("\n");
   }
 }
