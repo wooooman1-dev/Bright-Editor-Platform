@@ -51,11 +51,14 @@ describe("TistoryHtmlRenderer characterization baseline", () => {
     expect(html).toContain('업로드가 필요한 이미지');
   });
 
-  it("keeps the current video, CTA, internal-link, monetization, and missing-link output", () => {
+  it("keeps video, CTA, monetization, missing-link output and highlights the contextual internal link", () => {
     const html = renderer.render(document);
     expect(html).toContain('<div class="bright-embed"><a href="https://www.youtube.com/watch?v=a&amp;b=1">https://www.youtube.com/watch?v=a&amp;b=1</a></div>');
     expect(html).toContain('<p class="bright-cta"><a href="/next">계속하기</a></p>');
-    expect(html).toContain('<p class="bright-internal_link"><a href="https://bright-health.tistory.com/entry/internal">내부 글</a></p>');
+    expect(html).toContain('<aside class="bright-internal_link"');
+    expect(html).toContain('background:#f3f7ff');
+    expect(html).toContain('href="https://bright-health.tistory.com/entry/internal"');
+    expect(html).toContain('내부 글 →');
     expect(html).toContain('<p class="bright-monetization"><a href="https://example.com/product?a=1&amp;b=2" target="_blank" rel="noopener noreferrer">외부 상품</a></p>');
     expect(html).toContain('<div class="bright-cta bright-link-required"><strong>주소 필요</strong><span>URL 입력 필요</span></div>');
   });
@@ -63,6 +66,7 @@ describe("TistoryHtmlRenderer characterization baseline", () => {
   it("moves only verified Tistory related posts into one final section and limits them to three", () => {
     const html = renderer.render(document);
     const relatedSection = html.slice(html.indexOf('class="bright-related-posts"'));
+    expect(relatedSection).toContain("함께 보면 좋은 글");
     expect(relatedSection).toContain("관련 글 1");
     expect(relatedSection).toContain('관련 글 2</a>');
     expect(relatedSection).toContain('target="_blank" rel="noopener noreferrer"');
