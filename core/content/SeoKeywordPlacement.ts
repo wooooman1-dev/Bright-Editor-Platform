@@ -4,7 +4,7 @@ import type { ContentMetadata } from "./ContentMetadata";
 
 const MAX_TITLE_LENGTH = 68;
 const placeholderKeywords = new Set(["article", "content", "guide", "본문"]);
-const titleIntentPattern = /(?:가이드|방법|식단|효과|원인|증상|관리|추천|주의|완화|예방|비교|정리)/u;
+const titleIntentPattern = /(?:가이드|방법|식단|효과|원인|증상|관리|추천|주의|완화|예방|비교|정리|이해)/u;
 
 export function ensureSeoKeywordPlacement(
   document: ContentDocument,
