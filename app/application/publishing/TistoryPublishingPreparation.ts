@@ -88,18 +88,28 @@ export async function calculateTistoryReadiness(input: Readonly<{
   const currentRevision = content.document ? contentRevisionId(content.document) : undefined;
   const currentRuleQuality = content.document ? new QualityEngine().review(content.document, { contentType: content.contentType, platform: content.platform ?? "tistory", primaryKeyword: content.primaryKeyword, searchIntent: content.searchIntent, revisionId: currentRevision }) : undefined;
   const qualityPassed = Boolean(content.quality?.approved && currentRuleQuality?.approved && currentRevision && content.quality.reviewedRevisionId === currentRevision);
+  const localImageCount = content.document?.blocks.filter((block) => block.type === "image" && /^\/api\/media\//i.test(block.source)).length ?? 0;
   let permissionPassed = false;
+  let mediaPermissionPassed = localImageCount === 0;
   if (connection && owned) {
+    const gate = new PublishingPermissionGate();
     try {
-      new PublishingPermissionGate().authorize({ workspaceId: data.workspace!.id, projectId: project.id, contentId: content.id, platformConnectionId: connection.id, workflow: "draft.create", finalConfirmation: true }, connection);
+      gate.authorize({ workspaceId: data.workspace!.id, projectId: project.id, contentId: content.id, platformConnectionId: connection.id, workflow: "draft.create", finalConfirmation: true }, connection);
       permissionPassed = true;
     } catch { permissionPassed = false; }
+    if (localImageCount) {
+      try {
+        gate.authorize({ workspaceId: data.workspace!.id, projectId: project.id, contentId: content.id, platformConnectionId: connection.id, workflow: "media.upload", finalConfirmation: true }, connection);
+        mediaPermissionPassed = true;
+      } catch { mediaPermissionPassed = false; }
+    }
   }
   const checks: TistoryReadinessCheck[] = [
     { key: "enabled_tistory", passed: enabled, message: enabled ? "티스토리가 Workspace에서 활성화되었습니다." : "Workspace 설정에서 티스토리를 활성화해 주세요." },
     { key: "publishing_account", passed: owned && connected && verified && session && accountStored, message: owned && connected && verified && session && accountStored ? `계정 ${connection!.displayName}이 자동 적용되었습니다.` : "연결·검증·세션이 유효한 Workspace 소유 티스토리 계정을 적용해 주세요." },
     { key: "category", passed: categoryStored, message: categoryStored ? (preparation!.platformCategoryId === null ? "카테고리 없음이 명시적으로 적용되었습니다." : `카테고리 ${preparation!.platformCategoryName}이 적용되었습니다.`) : "티스토리 카테고리 또는 카테고리 없음을 선택해 주세요." },
     { key: "quality", passed: qualityPassed, message: qualityPassed ? `원고 품질 ${currentRuleQuality!.overallScore}점으로 승인되었습니다.` : "현재 원고 Revision의 품질 승인이 필요합니다." },
+    { key: "media_upload_permission", passed: mediaPermissionPassed, message: localImageCount === 0 ? "외부 업로드가 필요한 로컬 이미지가 없습니다." : mediaPermissionPassed ? `로컬 이미지 ${localImageCount}개의 Tistory 업로드가 허용되었습니다.` : `로컬 이미지 ${localImageCount}개가 있습니다. 설정의 이미지 권한에서 이 계정의 업로드를 허용해 주세요.` },
     { key: "draft_only", passed: policy.publishing.draftOnly && !policy.publishing.publicPublish, message: policy.publishing.draftOnly && !policy.publishing.publicPublish ? "Draft Only 정책이 적용되었습니다." : "Draft Only 정책을 확인해 주세요." },
     { key: "review_first", passed: policy.publishing.reviewFirst, message: policy.publishing.reviewFirst ? "Review First 정책이 적용되었습니다." : "Review First 정책을 확인해 주세요." },
     { key: "permission_gate", passed: permissionPassed, message: permissionPassed ? "Permission Gate에서 임시저장이 허용되었습니다." : "이 계정의 임시저장 권한을 확인해 주세요." },
