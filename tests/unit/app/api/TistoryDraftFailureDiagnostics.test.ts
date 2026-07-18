@@ -19,4 +19,15 @@ describe("Tistory Draft failure diagnostics", () => {
     expect(serviceSource).toContain("runtimeFailure: result.diagnostic?.runtimeFailure");
     expect(serviceSource).toContain("safeError: result.error");
   });
+
+  it("prepares Tistory media before the existing Draft Worker and never during diagnostics", () => {
+    expect(serviceSource).toContain("const mediaPlan = input.diagnosticMode");
+    expect(serviceSource).toContain("? Object.freeze({ document: input.document, items: Object.freeze([]) })");
+    expect(serviceSource.indexOf("await this.executeMediaWorker(commandPath)")).toBeLessThan(serviceSource.indexOf("await this.executeWorker(commandPath)"));
+  });
+
+  it("does not automatically retry a local-media draft and duplicate remote uploads", () => {
+    expect(routeSource).toContain("const hasLocalMedia = content.document.blocks.some");
+    expect(routeSource).toContain("if (!diagnosticMode && !hasLocalMedia && isRetryableDraftStartupFailure(result))");
+  });
 });
