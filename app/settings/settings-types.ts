@@ -38,5 +38,5 @@ export type SettingsSnapshot = Readonly<{
   publishing: StatusSummary;
 }>;
 
-export type SettingsSection = "overview" | "ai" | "enabled-platforms" | "connections" | "publishing" | "automation" | "workspace" | "appearance" | "danger";
+export type SettingsSection = "overview" | "ai" | "enabled-platforms" | "connections" | "publishing" | "media" | "automation" | "workspace" | "appearance" | "danger";
 export const themes: readonly ThemePreference[] = ["system", "light", "dark"];
