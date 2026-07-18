@@ -55,9 +55,9 @@ function mergeChangedByKey<T>(
   next: readonly T[] | undefined,
   keyOf: (item: T) => string,
 ): readonly T[] {
-  const currentMap = new Map((current ?? []).map((item) => [keyOf(item), item]));
-  const baseMap = new Map((base ?? []).map((item) => [keyOf(item), item]));
-  const nextMap = new Map((next ?? []).map((item) => [keyOf(item), item]));
+  const currentMap = toMap(current, keyOf);
+  const baseMap = toMap(base, keyOf);
+  const nextMap = toMap(next, keyOf);
 
   for (const key of baseMap.keys()) {
     if (!nextMap.has(key)) currentMap.delete(key);
@@ -77,6 +77,12 @@ function mergeChangedMediaAssets(
   const bySource = new Map<string, MediaAsset>();
   for (const asset of merged) bySource.set(asset.source, asset);
   return Object.freeze([...bySource.values()]);
+}
+
+function toMap<T>(values: readonly T[] | undefined, keyOf: (item: T) => string): Map<string, T> {
+  const result = new Map<string, T>();
+  for (const item of values ?? []) result.set(keyOf(item), item);
+  return result;
 }
 
 function sameValue(left: unknown, right: unknown): boolean {
