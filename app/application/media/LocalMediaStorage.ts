@@ -18,19 +18,22 @@ export class LocalMediaStorage {
     if (!bytes.byteLength) throw new Error("Image data is empty.");
     const storageKey = `${randomUUID()}.${extension}`;
     await mkdir(localMediaRoot, { recursive: true });
-    await writeFile(path.join(localMediaRoot, storageKey), bytes);
+    await writeFile(localMediaFilePath(storageKey), bytes);
     return Object.freeze({ storageKey, source: `/api/media/${storageKey}` });
   }
 
   async read(storageKey: string): Promise<Uint8Array> {
-    validateStorageKey(storageKey);
-    return readFile(path.join(localMediaRoot, storageKey));
+    return readFile(localMediaFilePath(storageKey));
   }
 
   async remove(storageKey: string): Promise<void> {
-    validateStorageKey(storageKey);
-    await unlink(path.join(localMediaRoot, storageKey)).catch(() => undefined);
+    await unlink(localMediaFilePath(storageKey)).catch(() => undefined);
   }
+}
+
+export function localMediaFilePath(storageKey: string): string {
+  validateStorageKey(storageKey);
+  return path.join(localMediaRoot, storageKey);
 }
 
 export function imageTypeFromMimeType(mimeType: string): Readonly<{ extension: SupportedImageExtension; mimeType: SupportedImageMimeType }> {
