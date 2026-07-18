@@ -29,7 +29,9 @@ export class TistoryDraftApplicationService {
   async execute(input: TistoryDraftExecution): Promise<TistoryDraftSaveResult> {
     const operationId = randomUUID(), startedAt = this.now().toISOString();
     const workflow = input.diagnosticMode ? "draft.verify" : "draft.create";
-    const mediaPlan = createTistoryMediaUploadPlan(input.document);
+    const mediaPlan = input.diagnosticMode
+      ? Object.freeze({ document: input.document, items: Object.freeze([]) })
+      : createTistoryMediaUploadPlan(input.document);
     let result: TistoryDraftSaveResult;
     let mediaUploadCompleted = false;
     try {
