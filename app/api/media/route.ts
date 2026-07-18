@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { NextResponse } from "next/server";
 
-import type { MediaAsset, ImageGenerationQuality, ImageGenerationSize } from "../../../core/media";
+import { buildProjectMediaLibrary, type MediaAsset, type ImageGenerationQuality, type ImageGenerationSize } from "../../../core/media";
 import { studioStore } from "../../application/studio-store";
 import { LocalMediaStorage, assertImageSignature, imageTypeFromMimeType } from "../../application/media/LocalMediaStorage";
 import { OpenAIImageProvider } from "../../application/media/OpenAIImageProvider";
@@ -11,6 +11,23 @@ import type { UserData } from "../../user-flow/user-data";
 const collection = "application";
 const stateId = "user-data";
 const defaultMaxUploadBytes = 10 * 1024 * 1024;
+
+export async function GET(request: Request) {
+  try {
+    const contentId = requiredText(new URL(request.url).searchParams.get("contentId"), "Content is required.");
+    const data = await studioStore.get<UserData>(collection, stateId);
+    const content = data?.contents.find((item) => item.id === contentId);
+    if (!content) throw new Error("프로젝트 이미지 목록을 불러올 콘텐츠를 찾지 못했습니다.");
+    const assets = buildProjectMediaLibrary({
+      assets: data.mediaMetadata,
+      contents: data.contents,
+      projectId: content.projectId,
+    });
+    return NextResponse.json({ assets, projectId: content.projectId });
+  } catch (error) {
+    return NextResponse.json({ error: message(error) }, { status: statusCode(error) });
+  }
+}
 
 export async function POST(request: Request) {
   try {
@@ -37,7 +54,8 @@ async function uploadImage(request: Request) {
   const imageType = imageTypeFromMimeType(file.type);
   const bytes = new Uint8Array(await file.arrayBuffer());
   assertImageSignature(bytes, imageType.mimeType);
-  const stored = await new LocalMediaStorage().save(bytes, imageType.extension);
+  const storage = new LocalMediaStorage();
+  const stored = await storage.save(bytes, imageType.extension);
   const asset = createAsset({
     alt: text(form.get("alt")),
     blockId,
@@ -51,6 +69,12 @@ async function uploadImage(request: Request) {
     sourceType: "upload",
     workspaceId: owner.workspaceId,
   });
+  try {
+    await persistMediaAsset(asset);
+  } catch (error) {
+    await storage.remove(stored.storageKey);
+    throw error;
+  }
   return NextResponse.json({ asset });
 }
 
@@ -67,7 +91,8 @@ async function generateImage(request: Request) {
     size: normalizeSize(body.size),
   });
   assertImageSignature(generated.bytes, generated.mimeType);
-  const stored = await new LocalMediaStorage().save(generated.bytes, generated.fileExtension);
+  const storage = new LocalMediaStorage();
+  const stored = await storage.save(generated.bytes, generated.fileExtension);
   const asset = createAsset({
     alt: text(body.alt),
     blockId,
@@ -82,6 +107,12 @@ async function generateImage(request: Request) {
     sourceType: "ai_generated",
     workspaceId: owner.workspaceId,
   });
+  try {
+    await persistMediaAsset(asset);
+  } catch (error) {
+    await storage.remove(stored.storageKey);
+    throw error;
+  }
   return NextResponse.json({ asset, generation: { model: generated.model, quality: generated.quality, size: generated.size } });
 }
 
@@ -93,6 +124,18 @@ async function assertOwnedImageBlock(contentId: string, blockId: string): Promis
   const workspaceId = content.workspaceId ?? data?.workspace?.id;
   if (!workspaceId) throw new Error("이미지 소유 작업 공간을 확인하지 못했습니다.");
   return Object.freeze({ projectId: content.projectId, workspaceId });
+}
+
+async function persistMediaAsset(asset: MediaAsset): Promise<void> {
+  await studioStore.update<UserData>(collection, stateId, (current) => {
+    if (!current) throw new Error("이미지 메타데이터를 저장할 작업 공간을 찾지 못했습니다.");
+    const content = current.contents.find((item) => item.id === asset.metadata.contentId);
+    if (!content || content.projectId !== asset.metadata.projectId || content.workspaceId !== asset.metadata.workspaceId) {
+      throw new Error("이미지 소유 정보가 현재 콘텐츠와 일치하지 않습니다.");
+    }
+    const mediaMetadata = [...(current.mediaMetadata ?? []).filter((item) => item.id !== asset.id && item.source !== asset.source), asset];
+    return Object.freeze({ ...current, mediaMetadata: Object.freeze(mediaMetadata) });
+  });
 }
 
 function createAsset(input: Readonly<{
