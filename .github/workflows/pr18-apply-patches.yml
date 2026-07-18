@@ -16,6 +16,7 @@ jobs:
       - run: node scripts/apply-content-delete-title-route.mjs
       - run: node scripts/apply-editor-title-status.mjs
       - run: node scripts/apply-editor-danger-zone.mjs
+      - run: node scripts/apply-content-delete-title-followup.mjs
       - name: Commit exact patches
         run: |
           if git diff --quiet; then exit 0; fi
