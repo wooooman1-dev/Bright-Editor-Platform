@@ -16,6 +16,6 @@ export default async function WorkspaceSettingsPage({ params, searchParams }: { 
 }
 
 function readSection(value?: string): SettingsSection {
-  const allowed: readonly SettingsSection[] = ["overview", "ai", "enabled-platforms", "connections", "publishing", "automation", "workspace", "appearance", "danger"];
+  const allowed: readonly SettingsSection[] = ["overview", "ai", "enabled-platforms", "connections", "publishing", "media", "automation", "workspace", "appearance", "danger"];
   return allowed.includes(value as SettingsSection) ? value as SettingsSection : "overview";
 }
