@@ -47,7 +47,7 @@ export function updateWorkspaceName(data: UserData, name: string, now = new Date
 export function updatePublishingPolicy(data: UserData, sequentialDraftSave: boolean, now = new Date()): UserData {
   if (!data.workspace) throw new Error("워크스페이스를 찾을 수 없습니다.");
   const current = resolveWorkspaceSettings(data);
-  return { ...data, workspace: { ...data.workspace, updatedAt: now.toISOString(), settings: { ...current, publishing: { ...defaultPublishingPolicy, sequentialDraftSave } } } };
+  return { ...data, workspace: { ...data.workspace, updatedAt: now.toISOString(), settings: { ...current, publishing: { ...defaultPublishingPolicy, sequentialDraftSave } } };
 }
 
 export function updateAppearance(data: UserData, theme: unknown, now = new Date()): UserData {
@@ -74,16 +74,19 @@ export function connectionSummary(connections: readonly PlatformConnection[], pl
 }
 
 export async function automationStatus() {
-  const worker = path.join(process.cwd(), "apps", "tistory", "workflows", "tistory-draft-worker.mjs");
+  const workers = [
+    path.join(process.cwd(), "apps", "tistory", "workflows", "tistory-draft-worker.mjs"),
+    path.join(process.cwd(), "apps", "tistory", "workflows", "tistory-media-preparation-worker.mjs"),
+  ];
   const browserRoots = candidateBrowserRoots();
   let chromiumAvailable = false;
   let workerRegistered = false;
   for (const root of browserRoots) {
     try { if ((await readdir(root)).some((name) => name.startsWith("chromium-") || name.startsWith("chromium_headless_shell-"))) { chromiumAvailable = true; break; } } catch { /* try the next standard browser location */ }
   }
-  try { await access(worker); workerRegistered = true; } catch { workerRegistered = false; }
+  try { await Promise.all(workers.map((worker) => access(worker))); workerRegistered = true; } catch { workerRegistered = false; }
   const ready = chromiumAvailable && workerRegistered;
-  return { status: ready ? "ready" as const : "unavailable" as const, backendAvailable: true, chromiumAvailable, workerRegistered, checkedAt: new Date().toISOString(), message: ready ? "Tistory 임시저장 자동화를 사용할 수 있습니다." : "콘텐츠 작성과 편집은 가능하지만 Tistory 임시저장은 사용할 수 없습니다." };
+  return { status: ready ? "ready" as const : "unavailable" as const, backendAvailable: true, chromiumAvailable, workerRegistered, checkedAt: new Date().toISOString(), message: ready ? "Tistory 임시저장과 이미지 준비 자동화를 사용할 수 있습니다." : "콘텐츠 작성과 편집은 가능하지만 Tistory 임시저장 또는 이미지 준비 자동화는 사용할 수 없습니다." };
 }
 
 function candidateBrowserRoots() {
