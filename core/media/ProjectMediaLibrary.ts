@@ -1,5 +1,5 @@
 import type { ContentDocument, ImageBlock } from "../content";
-import type { MediaAsset } from "./Media";
+import type { MediaAsset, MediaSourceType } from "./Media";
 
 export type ProjectMediaContent = Readonly<{
   id: string;
@@ -53,7 +53,7 @@ export function buildProjectMediaLibrary(input: Readonly<{
           mimeType: block.mimeType,
           projectId: input.projectId,
           prompt: block.prompt,
-          sourceType: block.sourceType === "ai_generated" ? "ai_generated" : block.sourceType === "external" ? "external" : "upload",
+          sourceType: legacySourceType(block),
         }),
         source: block.source,
       }));
@@ -85,4 +85,10 @@ export function buildProjectMediaLibrary(input: Readonly<{
 
 function imageBlocks(document?: ContentDocument): readonly ImageBlock[] {
   return document?.blocks.filter((block): block is ImageBlock => block.type === "image") ?? [];
+}
+
+function legacySourceType(block: ImageBlock): MediaSourceType {
+  if (block.sourceType === "ai_generated") return "ai_generated";
+  if (block.sourceType === "external") return "external";
+  return block.source.startsWith("/api/media/") ? "upload" : "external";
 }
