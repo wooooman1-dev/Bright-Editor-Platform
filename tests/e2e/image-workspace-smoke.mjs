@@ -15,6 +15,7 @@ try {
   await expectVisible(page.getByRole("button", { name: "파일 불러오기" }), "file loading button");
   await expectVisible(page.getByRole("button", { name: "AI 생성하기" }), "AI generation button");
   await expectVisible(page.getByRole("button", { name: "프롬프트 복사" }), "prompt copy button");
+  await expectVisible(page.getByText("Project 이미지 재사용", { exact: true }), "Project media reuse control");
 
   await page.getByText("요소 추가", { exact: true }).click();
   await page.getByRole("button", { name: "이미지 추가" }).click();
@@ -29,7 +30,7 @@ try {
     "base64",
   );
   await inputs.nth(inputCount - 1).setInputFiles({ name: "verification.png", mimeType: "image/png", buffer: png });
-  await page.getByText("이미지 파일을 불러와 현재 이미지 블록에 연결했습니다.", { exact: true }).waitFor({ timeout: 15_000 });
+  await page.getByText("이미지 파일을 불러와 현재 이미지 블록과 Project 이미지에 연결했습니다.", { exact: true }).waitFor({ timeout: 15_000 });
 
   const previews = page.locator('img[alt="콘텐츠 이미지 미리보기"], img[alt="건강 정보를 설명하는 예시 이미지"]');
   assert(await previews.count() >= 1, "uploaded image preview was not rendered");
@@ -41,12 +42,25 @@ try {
   assert(mediaResponse.ok(), `media endpoint returned ${mediaResponse.status()}`);
   assert(mediaResponse.headers()["content-type"] === "image/png", `unexpected media content type: ${mediaResponse.headers()["content-type"]}`);
 
+  await page.getByText("Project 이미지 재사용", { exact: true }).first().click();
+  await page.getByRole("button", { name: "이 이미지 사용" }).first().waitFor({ timeout: 10_000 });
+  await page.getByRole("button", { name: "이 이미지 사용" }).first().click();
+  await page.getByText("Project 이미지를 현재 블록에 재사용했습니다. 파일 복사본은 생성하지 않았습니다.", { exact: true }).waitFor({ timeout: 10_000 });
+
+  const studioResponse = await page.request.get(`${baseUrl}/api/studio`);
+  assert(studioResponse.ok(), `studio endpoint returned ${studioResponse.status()}`);
+  const studio = await studioResponse.json();
+  const content = studio.data?.contents?.find((item) => item.id === "ci-image-content");
+  const imageBlocks = content?.document?.blocks?.filter((block) => block.type === "image") ?? [];
+  assert(imageBlocks.length === 2, `expected 2 canonical image blocks, received ${imageBlocks.length}`);
+  assert(imageBlocks.every((block) => block.source === source), "Project media reuse did not preserve the same source");
+  assert(imageBlocks[0].assetId && imageBlocks[0].assetId === imageBlocks[1].assetId, "Project media reuse did not preserve the same assetId");
+
   await page.reload({ waitUntil: "networkidle" });
   await page.getByText("준비됨", { exact: true }).waitFor();
-  const persisted = page.locator(`img[src="${source}"]`);
-  await persisted.waitFor({ timeout: 10_000 });
+  await waitForCount(page.locator(`img[src="${source}"]`), 2, "reused image persistence");
 
-  console.log("Image workspace browser smoke test passed.");
+  console.log("Image workspace and Project media reuse browser smoke test passed.");
 } finally {
   await browser.close();
 }
@@ -57,7 +71,6 @@ async function expectVisible(locator, label) {
 }
 
 async function waitForCount(locator, expected, label) {
-  await locator.first().waitFor({ state: "visible", timeout: 10_000 });
   const started = Date.now();
   while (Date.now() - started < 10_000) {
     if (await locator.count() === expected) return;
