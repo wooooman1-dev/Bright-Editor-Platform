@@ -26,13 +26,14 @@ export function createTistoryMediaUploadPlan(document: ContentDocument): Tistory
   const blocks = document.blocks.map((block) => {
     if (block.type !== "image") return block;
     const match = block.source.match(localMediaSourcePattern);
-    if (!match) return block;
+    const storageKey = match?.[1];
+    if (!storageKey) return block;
     const placeholderUrl = `${placeholderOrigin}${encodeURIComponent(block.id)}`;
     items.push(Object.freeze({
       alt: block.alt,
       blockId: block.id,
       placeholderUrl,
-      storageKey: match[1],
+      storageKey,
     }));
     return Object.freeze({ ...block, source: placeholderUrl });
   });
