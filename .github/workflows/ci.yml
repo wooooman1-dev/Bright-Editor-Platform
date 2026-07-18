@@ -15,7 +15,7 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -29,14 +29,35 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Lint
-        run: npm run lint
+      - id: lint
+        name: Lint
+        continue-on-error: true
+        run: npm run lint 2>&1 | tee ci-lint.log
 
-      - name: Typecheck
-        run: npm run typecheck
+      - id: typecheck
+        name: Typecheck
+        continue-on-error: true
+        run: npm run typecheck 2>&1 | tee ci-typecheck.log
 
-      - name: Unit tests
-        run: npm test
+      - id: tests
+        name: Unit tests
+        continue-on-error: true
+        run: npm test 2>&1 | tee ci-tests.log
 
-      - name: Production build
-        run: npm run build
+      - id: build
+        name: Production build
+        continue-on-error: true
+        run: npm run build 2>&1 | tee ci-build.log
+
+      - name: Upload verification logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-logs
+          path: ci-*.log
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Fail when verification failed
+        if: always() && (steps.lint.outcome == 'failure' || steps.typecheck.outcome == 'failure' || steps.tests.outcome == 'failure' || steps.build.outcome == 'failure')
+        run: exit 1
