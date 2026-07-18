@@ -55,9 +55,10 @@ export async function POST(request: Request) {
     const diagnosticMode = body.action === "body_editor_probe" || body.action === "category_verification_probe" || body.action === "draft_reopen_verify" ? body.action : undefined;
     const execution = { workspaceId, projectId, contentId, connection, document: content.document, primaryKeyword: content.primaryKeyword, finalConfirmation: body.finalConfirmation === true, selectedTarget, categoryId: preparation.platformCategoryId, categoryName: preparation.platformCategoryName, ...(diagnosticMode ? { diagnosticMode } : {}) };
     const service = new TistoryDraftApplicationService(audits);
+    const hasLocalMedia = content.document.blocks.some((block) => block.type === "image" && /^\/api\/media\//i.test(block.source));
     let result = await service.execute(execution);
     let attempts = 1;
-    if (!diagnosticMode && isRetryableDraftStartupFailure(result)) {
+    if (!diagnosticMode && !hasLocalMedia && isRetryableDraftStartupFailure(result)) {
       attempts = 2;
       result = await service.execute(execution);
     }
