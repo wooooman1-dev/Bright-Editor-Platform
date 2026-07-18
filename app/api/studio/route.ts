@@ -85,14 +85,14 @@ export async function POST(request: Request) {
         let persisted = applyCanonicalDocument(owned, existing.id, document, "ai_revision", quality.reviewedAt);
         persisted = updateContent(persisted, existing.id, { quality, status: quality.approved ? "ready" : "in_review" });
         const next = { ...persisted, qualityReports: [...(persisted.qualityReports ?? []).filter((item) => item.contentId !== existing.id), { contentId: existing.id, report: quality }] };
-        const saved = await persistServerMutation(next);
+        const saved = await persistServerMutation(owned, next);
         return NextResponse.json({ document, initialQuality, quality, finalReviewQuality: pipeline.finalReviewQuality, qualityHistory: pipeline.qualityHistory, attemptHistory: pipeline.attemptHistory, automaticImprovementCount: pipeline.automaticImprovementCount, reachedTarget: pipeline.reachedTarget, finalRevisionId: contentRevisionId(document), data: saved });
       } catch (error) {
         const quality = new QualityEngine().review(initialDocument, context);
         let persisted = applyCanonicalDocument(owned, existing.id, initialDocument, "generation", quality.reviewedAt);
         persisted = updateContent(persisted, existing.id, { quality, status: "in_review", generationError: `자동 Final Review 실패: ${message(error)}` });
         const next = { ...persisted, qualityReports: [...(persisted.qualityReports ?? []).filter((item) => item.contentId !== existing.id), { contentId: existing.id, report: quality }] };
-        const saved = await persistServerMutation(next);
+        const saved = await persistServerMutation(owned, next);
         return NextResponse.json({ aiReviewError: message(error), document: initialDocument, initialQuality, quality, data: saved });
       }
     }
@@ -112,7 +112,7 @@ export async function POST(request: Request) {
       let next = applyCanonicalDocument(data, contentId, document, "ai_revision", reviewedAt);
       next = updateContent(next, contentId, { quality, status: quality.approved ? "ready" : "in_review", generationError: undefined, updatedAt: reviewedAt });
       next = { ...next, qualityReports: [...(next.qualityReports ?? []).filter((item) => item.contentId !== contentId), { contentId, report: quality }] };
-      const saved = await persistServerMutation(next);
+      const saved = await persistServerMutation(data, next);
       return NextResponse.json({ document, initialQuality, quality, revisionId: contentRevisionId(document), data: saved });
     }
     if (body.action === "revise") {
@@ -176,7 +176,7 @@ export async function POST(request: Request) {
       let next = applyCanonicalDocument(data, contentId, document, "ai_revision", appliedAt);
       next = updateContent(next, contentId, { quality, status: quality.approved ? "ready" : "in_review", updatedAt: appliedAt });
       next = { ...next, qualityReports: [...(next.qualityReports ?? []).filter((item) => item.contentId !== contentId), { contentId, report: quality }] };
-      const saved = await persistServerMutation(next);
+      const saved = await persistServerMutation(data, next);
       return NextResponse.json({ document, quality, improvement, revisionId: contentRevisionId(document), data: saved });
     }
     if (body.action === "content-deletion-impact") {
@@ -221,7 +221,7 @@ export async function POST(request: Request) {
       let next = contentRevisionId(document) === contentRevisionId(content.document) ? data : applyCanonicalDocument(data, contentId, document, "autosave", quality.reviewedAt);
       next = updateContent(next, contentId, { quality, status: quality.approved ? "ready" : "in_review", updatedAt: quality.reviewedAt });
       const persisted = { ...next, qualityReports: [...(next.qualityReports ?? []).filter((item) => item.contentId !== contentId), { contentId, report: quality }] };
-      const saved = await persistServerMutation(persisted);
+      const saved = await persistServerMutation(data, persisted);
       return NextResponse.json({ document, quality, data: saved });
     }
     return NextResponse.json({ error: "Unknown action." }, { status: 400 });
@@ -250,8 +250,8 @@ function ownedProject(data: UserData, projectId: string) {
   return project;
 }
 
-async function persistServerMutation(next: UserData): Promise<UserData> {
-  return studioStore.update<UserData>(collection, stateId, (current) => mergeServerMutationSnapshot(current, next));
+async function persistServerMutation(base: UserData, next: UserData): Promise<UserData> {
+  return studioStore.update<UserData>(collection, stateId, (current) => mergeServerMutationSnapshot(current, base, next));
 }
 
 function message(error: unknown): string { return error instanceof Error ? error.message : "Request failed."; }
