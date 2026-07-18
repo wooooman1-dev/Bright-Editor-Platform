@@ -1,3 +1,4 @@
+import type { MediaAsset } from "../../../core/media";
 import type { UserData } from "../../user-flow/user-data";
 
 export function mergeUserDataSnapshot(current: UserData | undefined, input: unknown): UserData {
@@ -23,6 +24,18 @@ export function mergeUserDataSnapshot(current: UserData | undefined, input: unkn
   });
 }
 
+export function mergeServerMutationSnapshot(current: UserData | undefined, next: UserData): UserData {
+  if (!current) return next;
+  return Object.freeze({
+    ...next,
+    history: mergeByKey(current.history, next.history, (item) => item.id),
+    mediaMetadata: mergeMediaAssets(current.mediaMetadata, next.mediaMetadata),
+    publishingRecords: mergeByKey(current.publishingRecords, next.publishingRecords, (item) => item.id),
+    qualityReports: mergeByKey(current.qualityReports, next.qualityReports, (item) => item.contentId),
+    scheduledPublishing: mergeByKey(current.scheduledPublishing, next.scheduledPublishing, (item) => `${item.contentId}:${item.platform}`),
+  });
+}
+
 function assertUserDataSnapshot(input: unknown): UserData {
   if (!input || typeof input !== "object") throw new Error("Application state is required.");
   const candidate = input as Partial<UserData>;
@@ -34,4 +47,20 @@ function assertUserDataSnapshot(input: unknown): UserData {
 
 function frozenCopy<T>(values: readonly T[] | undefined): readonly T[] {
   return Object.freeze([...(values ?? [])]);
+}
+
+function mergeByKey<T>(current: readonly T[] | undefined, next: readonly T[] | undefined, keyOf: (item: T) => string): readonly T[] {
+  const merged = new Map<string, T>();
+  for (const item of current ?? []) merged.set(keyOf(item), item);
+  for (const item of next ?? []) merged.set(keyOf(item), item);
+  return Object.freeze([...merged.values()]);
+}
+
+function mergeMediaAssets(current: readonly MediaAsset[] | undefined, next: readonly MediaAsset[] | undefined): readonly MediaAsset[] {
+  const merged = [...(current ?? [])];
+  for (const asset of next ?? []) {
+    const withoutDuplicate = merged.filter((item) => item.id !== asset.id && item.source !== asset.source);
+    merged.splice(0, merged.length, ...withoutDuplicate, asset);
+  }
+  return Object.freeze(merged);
 }
