@@ -8,6 +8,7 @@ const mediaRouteSource = readFileSync(join(process.cwd(), "app/api/media/route.t
 const imageProviderSource = readFileSync(join(process.cwd(), "app/application/media/OpenAIImageProvider.ts"), "utf8");
 const generationSource = readFileSync(join(process.cwd(), "app/application/EditorialGenerationStrategy.ts"), "utf8");
 const imageBlockSource = readFileSync(join(process.cwd(), "core/content/blocks/ImageBlock.ts"), "utf8");
+const mediaLibrarySource = readFileSync(join(process.cwd(), "core/media/ProjectMediaLibrary.ts"), "utf8");
 
 describe("Bright Studio image workspace", () => {
   it("offers independent prompt, upload, generation, and copy actions for each image block", () => {
@@ -35,6 +36,20 @@ describe("Bright Studio image workspace", () => {
     expect(mediaRouteSource).toContain("assertOwnedImageBlock(contentId, blockId)");
     expect(mediaRouteSource).toContain("imageTypeFromMimeType(file.type)");
     expect(mediaRouteSource).toContain("BRIGHT_STUDIO_MAX_IMAGE_BYTES");
+  });
+
+  it("persists Project media metadata atomically and removes a new local file when metadata persistence fails", () => {
+    expect(mediaRouteSource).toContain("studioStore.update<UserData>");
+    expect(mediaRouteSource).toContain("mediaMetadata: Object.freeze(mediaMetadata)");
+    expect(mediaRouteSource).toContain("await storage.remove(stored.storageKey)");
+  });
+
+  it("lists and reuses Project images without creating duplicate files", () => {
+    expect(imageEditorSource).toContain("Project 이미지 재사용");
+    expect(imageEditorSource).toContain("파일 복사본은 만들지 않습니다");
+    expect(imageEditorSource).toContain("referenceCount");
+    expect(mediaRouteSource).toContain("buildProjectMediaLibrary");
+    expect(mediaLibrarySource).toContain("referenceCount: references.length");
   });
 
   it("uses the interchangeable image provider boundary for OpenAI image generation", () => {
