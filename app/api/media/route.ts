@@ -130,7 +130,8 @@ async function persistMediaAsset(asset: MediaAsset): Promise<void> {
   await studioStore.update<UserData>(collection, stateId, (current) => {
     if (!current) throw new Error("이미지 메타데이터를 저장할 작업 공간을 찾지 못했습니다.");
     const content = current.contents.find((item) => item.id === asset.metadata.contentId);
-    if (!content || content.projectId !== asset.metadata.projectId || content.workspaceId !== asset.metadata.workspaceId) {
+    const workspaceId = content?.workspaceId ?? current.workspace?.id;
+    if (!content || content.projectId !== asset.metadata.projectId || workspaceId !== asset.metadata.workspaceId) {
       throw new Error("이미지 소유 정보가 현재 콘텐츠와 일치하지 않습니다.");
     }
     const mediaMetadata = [...(current.mediaMetadata ?? []).filter((item) => item.id !== asset.id && item.source !== asset.source), asset];
