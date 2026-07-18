@@ -1,0 +1,24 @@
+name: PR19 Apply Delete Patch
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  apply:
+    if: github.head_ref == 'fix/related-links-and-delete-confirmation'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - run: node scripts/apply-delete-confirmation-removal.mjs
+      - name: Commit API patch
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add app/api/studio/route.ts
+          git commit -m "fix: remove content deletion title confirmation"
+          git push origin HEAD:${{ github.head_ref }}
