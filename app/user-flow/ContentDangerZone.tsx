@@ -30,7 +30,6 @@ export function ContentDangerZone({
   workspaceId: string;
 }) {
   const [impact, setImpact] = useState<ContentDeletionImpact>();
-  const [confirmationTitle, setConfirmationTitle] = useState("");
   const [notice, setNotice] = useState("");
   const [working, setWorking] = useState(false);
 
@@ -41,7 +40,6 @@ export function ContentDangerZone({
       const result = await request({ action: "content-deletion-impact", input: { workspaceId, contentId } }) as { impact?: ContentDeletionImpact; error?: string };
       if (!result.impact) throw new Error(result.error ?? "삭제 영향도를 확인하지 못했습니다.");
       setImpact(result.impact);
-      setConfirmationTitle("");
     } catch (error) {
       setNotice(message(error));
     } finally {
@@ -50,14 +48,14 @@ export function ContentDangerZone({
   };
 
   const deleteContent = async () => {
-    if (!impact || confirmationTitle.trim() !== impact.title) return;
+    if (!impact) return;
     setWorking(true);
     onDeletingChange(true);
     setNotice("콘텐츠를 백업한 뒤 삭제하고 있습니다.");
     try {
       const result = await request({
         action: "delete-content",
-        input: { workspaceId, contentId, confirmationTitle },
+        input: { workspaceId, contentId },
       }) as { data?: UserData; backupFileName?: string; error?: string };
       if (!result.data) throw new Error(result.error ?? "콘텐츠를 삭제하지 못했습니다.");
       await onDeleted(result.data);
@@ -88,6 +86,7 @@ export function ContentDangerZone({
       ) : (
         <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900">
           <p className="font-semibold">삭제 영향도</p>
+          <p className="mt-2 font-medium">{impact.title}</p>
           <ul className="mt-2 space-y-1">
             <li>현재 콘텐츠 1개</li>
             <li>Revision {impact.historyCount}개</li>
@@ -97,21 +96,11 @@ export function ContentDangerZone({
             <li>연결 미디어 {impact.mediaMetadataCount}개</li>
             <li>외부 Tistory 글 삭제: 없음</li>
           </ul>
-          <p className="mt-3">삭제 전 로컬 백업이 자동 생성됩니다.</p>
-          <label className="mt-4 block font-semibold">
-            삭제 확인을 위해 제목을 정확히 입력해 주세요.
-            <input
-              className="mt-2 w-full rounded-lg border border-red-200 bg-white px-3 py-2 font-normal"
-              disabled={working}
-              onChange={(event) => setConfirmationTitle(event.target.value)}
-              placeholder={impact.title}
-              value={confirmationTitle}
-            />
-          </label>
+          <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900">삭제 전 로컬 백업이 자동 생성됩니다. 아래 버튼을 누르면 즉시 백업 후 삭제합니다.</p>
           <div className="mt-4 flex flex-wrap gap-2">
             <button
               className="rounded-lg bg-red-600 px-4 py-2.5 font-semibold text-white disabled:opacity-50"
-              disabled={working || confirmationTitle.trim() !== impact.title}
+              disabled={working}
               onClick={() => void deleteContent()}
               type="button"
             >
@@ -120,7 +109,7 @@ export function ContentDangerZone({
             <button
               className="rounded-lg border bg-white px-4 py-2.5 font-semibold disabled:opacity-50"
               disabled={working}
-              onClick={() => { setImpact(undefined); setConfirmationTitle(""); setNotice(""); }}
+              onClick={() => { setImpact(undefined); setNotice(""); }}
               type="button"
             >
               취소
