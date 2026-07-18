@@ -7,6 +7,7 @@ import { DangerZone } from "../user-flow/DangerZone";
 import { GlobalHeader } from "../shared/ui/GlobalHeader";
 import { supportedWorkspacePlatforms, type ThemePreference, type WorkspacePlatform } from "../user-flow/user-data";
 import { SettingsConnections } from "./SettingsConnections";
+import { SettingsMediaPermissions } from "./SettingsMediaPermissions";
 import type { SettingsSection, SettingsSnapshot, StatusSummary } from "./settings-types";
 import { themes } from "./settings-types";
 import { applyTheme } from "./theme";
@@ -14,7 +15,7 @@ import { applyTheme } from "./theme";
 const platformLabels: Readonly<Record<WorkspacePlatform, string>> = { tistory: "Tistory", wordpress: "WordPress", youtube: "YouTube", naver_cafe: "Naver Cafe" };
 const sections: readonly Readonly<{ id: SettingsSection; label: string }>[] = [
   { id: "overview", label: "개요" }, { id: "ai", label: "AI" }, { id: "enabled-platforms", label: "Enabled Platforms" },
-  { id: "connections", label: "플랫폼 연결" }, { id: "publishing", label: "발행 설정" }, { id: "automation", label: "자동화 상태" },
+  { id: "connections", label: "플랫폼 연결" }, { id: "publishing", label: "발행 설정" }, { id: "media", label: "이미지 권한" }, { id: "automation", label: "자동화 상태" },
   { id: "workspace", label: "워크스페이스" }, { id: "appearance", label: "화면 설정" }, { id: "danger", label: "위험 구역" },
 ];
 
@@ -53,6 +54,7 @@ export function WorkspaceSettings({ initialSection = "overview", workspaceId }: 
         {section === "enabled-platforms" ? <EnabledPlatforms busy={busy} onSave={(enabledPlatforms) => action({ action: "save-enabled-platforms", enabledPlatforms })} snapshot={snapshot} /> : null}
         {section === "connections" ? <SettingsConnections connections={snapshot.connections} enabledPlatforms={snapshot.settings.enabledPlatforms} onRefresh={refresh} workspaceId={workspaceId} /> : null}
         {section === "publishing" ? <PublishingSettings busy={busy} onSave={(value) => action({ action: "save-publishing", sequentialDraftSave: value })} snapshot={snapshot} /> : null}
+        {section === "media" ? <SettingsMediaPermissions connections={snapshot.connections} onRefresh={refresh} workspaceId={workspaceId} /> : null}
         {section === "automation" ? <AutomationSettings busy={busy} onCheck={() => action({ action: "check-automation" }).then(() => refresh())} snapshot={snapshot} setSection={setSection} /> : null}
         {section === "workspace" ? <WorkspaceSection busy={busy} onAction={action} snapshot={snapshot} /> : null}
         {section === "appearance" ? <AppearanceSection busy={busy} onSave={(theme) => action({ action: "save-appearance", theme })} snapshot={snapshot} /> : null}
@@ -63,10 +65,12 @@ export function WorkspaceSettings({ initialSection = "overview", workspaceId }: 
 }
 
 export function Overview({ setSection, snapshot }: { setSection: (section: SettingsSection) => void; snapshot: SettingsSnapshot }) {
+  const mediaEnabled = snapshot.connections.filter((connection) => connection.platform === "tistory" && connection.permissions.includes("media.upload")).length;
   const cards: readonly { title: string; summary: StatusSummary; detail: string; target: SettingsSection }[] = [
     { title: "AI", summary: snapshot.ai, detail: snapshot.ai.message, target: "ai" },
     ...snapshot.settings.enabledPlatforms.map((platform) => ({ title: platformLabels[platform], summary: snapshot.platforms[platform]!, detail: accountDetail(snapshot.platforms[platform]!), target: "connections" as const })),
     { title: "Publishing", summary: snapshot.publishing, detail: "검토 후 임시저장만 허용합니다.", target: "publishing" },
+    { title: "Media Upload", summary: { status: mediaEnabled ? "ready" : "configuration_required" }, detail: mediaEnabled ? `${mediaEnabled}개 Tistory 계정에서 이미지 업로드 허용` : "계정별 이미지 업로드는 기본 차단 상태입니다.", target: "media" },
     { title: "Browser Automation", summary: snapshot.automation, detail: snapshot.automation.message, target: "automation" },
     { title: "Workspace Backup", summary: { status: snapshot.backup.modifiedAt ? "ready" : "configuration_required" }, detail: snapshot.backup.modifiedAt ? `마지막 백업 ${snapshot.backup.modifiedAt}` : (snapshot.backup.message ?? "백업이 없습니다."), target: "workspace" },
     { title: "Workspace", summary: snapshot.persistence, detail: snapshot.persistence.message ?? "로컬 저장소 상태", target: "workspace" },

@@ -1,0 +1,68 @@
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { randomUUID } from "node:crypto";
+
+import { studioDataPath } from "../studio-store";
+
+const storageKeyPattern = /^[a-f0-9-]+\.(?:png|jpe?g|webp)$/i;
+
+export const localMediaRoot = process.env.BRIGHT_STUDIO_MEDIA_PATH
+  ? path.resolve(process.env.BRIGHT_STUDIO_MEDIA_PATH)
+  : path.join(path.dirname(studioDataPath), "media");
+
+export type SupportedImageMimeType = "image/png" | "image/jpeg" | "image/webp";
+export type SupportedImageExtension = "png" | "jpeg" | "webp";
+
+export class LocalMediaStorage {
+  async save(bytes: Uint8Array, extension: SupportedImageExtension): Promise<Readonly<{ storageKey: string; source: string }>> {
+    if (!bytes.byteLength) throw new Error("Image data is empty.");
+    const storageKey = `${randomUUID()}.${extension}`;
+    await mkdir(localMediaRoot, { recursive: true });
+    await writeFile(localMediaFilePath(storageKey), bytes);
+    return Object.freeze({ storageKey, source: `/api/media/${storageKey}` });
+  }
+
+  async read(storageKey: string): Promise<Uint8Array> {
+    return readFile(localMediaFilePath(storageKey));
+  }
+
+  async remove(storageKey: string): Promise<void> {
+    await unlink(localMediaFilePath(storageKey)).catch(() => undefined);
+  }
+}
+
+export function localMediaFilePath(storageKey: string): string {
+  validateStorageKey(storageKey);
+  return path.join(localMediaRoot, storageKey);
+}
+
+export function imageTypeFromMimeType(mimeType: string): Readonly<{ extension: SupportedImageExtension; mimeType: SupportedImageMimeType }> {
+  if (mimeType === "image/png") return { extension: "png", mimeType };
+  if (mimeType === "image/jpeg") return { extension: "jpeg", mimeType };
+  if (mimeType === "image/webp") return { extension: "webp", mimeType };
+  throw new Error("PNG, JPEG, WEBP 이미지만 불러올 수 있습니다.");
+}
+
+export function assertImageSignature(bytes: Uint8Array, mimeType: SupportedImageMimeType): void {
+  const valid = mimeType === "image/png"
+    ? bytes.length >= 8 && [137, 80, 78, 71, 13, 10, 26, 10].every((value, index) => bytes[index] === value)
+    : mimeType === "image/jpeg"
+      ? bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
+      : bytes.length >= 12 && ascii(bytes, 0, 4) === "RIFF" && ascii(bytes, 8, 12) === "WEBP";
+  if (!valid) throw new Error("선택한 파일의 실제 이미지 형식이 확장자 또는 MIME 형식과 일치하지 않습니다.");
+}
+
+export function imageMimeTypeFromStorageKey(storageKey: string): SupportedImageMimeType {
+  validateStorageKey(storageKey);
+  if (/\.png$/i.test(storageKey)) return "image/png";
+  if (/\.webp$/i.test(storageKey)) return "image/webp";
+  return "image/jpeg";
+}
+
+function ascii(bytes: Uint8Array, start: number, end: number): string {
+  return String.fromCharCode(...bytes.slice(start, end));
+}
+
+function validateStorageKey(storageKey: string): void {
+  if (!storageKeyPattern.test(storageKey)) throw new Error("Invalid media storage key.");
+}

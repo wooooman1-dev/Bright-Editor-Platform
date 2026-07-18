@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+      - "feat/**"
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BRIGHT_STUDIO_DEV_FIXTURES: "1"
+      BRIGHT_STUDIO_DATA_PATH: ${{ runner.temp }}/bright-studio-ci/studio-data.json
+      BRIGHT_STUDIO_MEDIA_PATH: ${{ runner.temp }}/bright-studio-ci/media
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - id: lint
+        name: Lint
+        continue-on-error: true
+        run: npm run lint 2>&1 | tee ci-lint.log
+
+      - id: typecheck
+        name: Typecheck
+        continue-on-error: true
+        run: npm run typecheck 2>&1 | tee ci-typecheck.log
+
+      - id: tests
+        name: Unit tests
+        continue-on-error: true
+        run: npm test 2>&1 | tee ci-tests.log
+
+      - id: build
+        name: Production build
+        continue-on-error: true
+        run: npm run build 2>&1 | tee ci-build.log
+
+      - id: browser
+        name: Image workspace browser smoke test
+        continue-on-error: true
+        run: |
+          npx playwright install --with-deps chromium
+          npm start > ci-app.log 2>&1 &
+          APP_PID=$!
+          trap 'kill $APP_PID 2>/dev/null || true' EXIT
+          for attempt in {1..60}; do
+            if curl --fail --silent --show-error http://127.0.0.1:3000/dev/image-workspace > /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl --fail --silent --show-error http://127.0.0.1:3000/dev/image-workspace > /dev/null
+          node tests/e2e/image-workspace-smoke.mjs 2>&1 | tee ci-browser.log
+
+      - name: Upload verification logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-logs
+          path: ci-*.log
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Fail when verification failed
+        if: always() && (steps.lint.outcome == 'failure' || steps.typecheck.outcome == 'failure' || steps.tests.outcome == 'failure' || steps.build.outcome == 'failure' || steps.browser.outcome == 'failure')
+        run: exit 1

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { studioStore } from "../../application/studio-store";
+import { mergeServerMutationSnapshot, mergeUserDataSnapshot } from "../../application/persistence/mergeUserDataSnapshot";
 import { AIWorkflow } from "../../../core/ai";
 import { contentRevisionId, evaluateQualityImprovement, qualityImprovementRejectionMessage, QualityEngine } from "../../../core/quality";
 import { EditorialGenerationStrategy } from "../../application/EditorialGenerationStrategy";
@@ -29,25 +30,11 @@ export async function GET() {
 export async function PUT(request: Request) {
   try {
     const body = await request.json();
-    if (!body || typeof body !== "object") throw new Error("Application state is required.");
-    const current = await studioStore.get<UserData>(collection, stateId);
-    await studioStore.set(collection, stateId, preserveServerQuality(current, body));
+    await studioStore.update<UserData>(collection, stateId, (current) => mergeUserDataSnapshot(current, body));
     return NextResponse.json({ saved: true });
   } catch (error) {
     return NextResponse.json({ error: message(error) }, { status: 400 });
   }
-}
-
-function preserveServerQuality(current: UserData | undefined, input: unknown): unknown {
-  if (!current || !input || typeof input !== "object" || !Array.isArray((input as Partial<UserData>).contents)) return input;
-  const incoming = input as UserData;
-  const contents = incoming.contents.map((content) => {
-    const serverContent = current.contents.find((item) => item.id === content.id);
-    if (serverContent?.quality) return { ...content, quality: serverContent.quality };
-    const { quality: _clientQuality, ...withoutClientQuality } = content; void _clientQuality;
-    return withoutClientQuality;
-  });
-  return { ...incoming, contents, qualityReports: current.qualityReports ?? [] };
 }
 
 export async function POST(request: Request) {
@@ -98,15 +85,15 @@ export async function POST(request: Request) {
         let persisted = applyCanonicalDocument(owned, existing.id, document, "ai_revision", quality.reviewedAt);
         persisted = updateContent(persisted, existing.id, { quality, status: quality.approved ? "ready" : "in_review" });
         const next = { ...persisted, qualityReports: [...(persisted.qualityReports ?? []).filter((item) => item.contentId !== existing.id), { contentId: existing.id, report: quality }] };
-        await studioStore.set(collection, stateId, next);
-        return NextResponse.json({ document, initialQuality, quality, finalReviewQuality: pipeline.finalReviewQuality, qualityHistory: pipeline.qualityHistory, attemptHistory: pipeline.attemptHistory, automaticImprovementCount: pipeline.automaticImprovementCount, reachedTarget: pipeline.reachedTarget, finalRevisionId: contentRevisionId(document), data: next });
+        const saved = await persistServerMutation(owned, next);
+        return NextResponse.json({ document, initialQuality, quality, finalReviewQuality: pipeline.finalReviewQuality, qualityHistory: pipeline.qualityHistory, attemptHistory: pipeline.attemptHistory, automaticImprovementCount: pipeline.automaticImprovementCount, reachedTarget: pipeline.reachedTarget, finalRevisionId: contentRevisionId(document), data: saved });
       } catch (error) {
         const quality = new QualityEngine().review(initialDocument, context);
         let persisted = applyCanonicalDocument(owned, existing.id, initialDocument, "generation", quality.reviewedAt);
         persisted = updateContent(persisted, existing.id, { quality, status: "in_review", generationError: `자동 Final Review 실패: ${message(error)}` });
         const next = { ...persisted, qualityReports: [...(persisted.qualityReports ?? []).filter((item) => item.contentId !== existing.id), { contentId: existing.id, report: quality }] };
-        await studioStore.set(collection, stateId, next);
-        return NextResponse.json({ aiReviewError: message(error), document: initialDocument, initialQuality, quality, data: next });
+        const saved = await persistServerMutation(owned, next);
+        return NextResponse.json({ aiReviewError: message(error), document: initialDocument, initialQuality, quality, data: saved });
       }
     }
     if (body.action === "final-review") {
@@ -125,8 +112,8 @@ export async function POST(request: Request) {
       let next = applyCanonicalDocument(data, contentId, document, "ai_revision", reviewedAt);
       next = updateContent(next, contentId, { quality, status: quality.approved ? "ready" : "in_review", generationError: undefined, updatedAt: reviewedAt });
       next = { ...next, qualityReports: [...(next.qualityReports ?? []).filter((item) => item.contentId !== contentId), { contentId, report: quality }] };
-      await studioStore.set(collection, stateId, next);
-      return NextResponse.json({ document, initialQuality, quality, revisionId: contentRevisionId(document), data: next });
+      const saved = await persistServerMutation(data, next);
+      return NextResponse.json({ document, initialQuality, quality, revisionId: contentRevisionId(document), data: saved });
     }
     if (body.action === "revise") {
       const input = body.input ?? {};
@@ -189,8 +176,8 @@ export async function POST(request: Request) {
       let next = applyCanonicalDocument(data, contentId, document, "ai_revision", appliedAt);
       next = updateContent(next, contentId, { quality, status: quality.approved ? "ready" : "in_review", updatedAt: appliedAt });
       next = { ...next, qualityReports: [...(next.qualityReports ?? []).filter((item) => item.contentId !== contentId), { contentId, report: quality }] };
-      await studioStore.set(collection, stateId, next);
-      return NextResponse.json({ document, quality, improvement, revisionId: contentRevisionId(document), data: next });
+      const saved = await persistServerMutation(data, next);
+      return NextResponse.json({ document, quality, improvement, revisionId: contentRevisionId(document), data: saved });
     }
     if (body.action === "content-deletion-impact") {
       const data = await ownedWorkspace(required(body.input?.workspaceId));
@@ -234,8 +221,8 @@ export async function POST(request: Request) {
       let next = contentRevisionId(document) === contentRevisionId(content.document) ? data : applyCanonicalDocument(data, contentId, document, "autosave", quality.reviewedAt);
       next = updateContent(next, contentId, { quality, status: quality.approved ? "ready" : "in_review", updatedAt: quality.reviewedAt });
       const persisted = { ...next, qualityReports: [...(next.qualityReports ?? []).filter((item) => item.contentId !== contentId), { contentId, report: quality }] };
-      await studioStore.set(collection, stateId, persisted);
-      return NextResponse.json({ document, quality, data: persisted });
+      const saved = await persistServerMutation(data, persisted);
+      return NextResponse.json({ document, quality, data: saved });
     }
     return NextResponse.json({ error: "Unknown action." }, { status: 400 });
   } catch (error) {
@@ -261,6 +248,10 @@ function ownedProject(data: UserData, projectId: string) {
   const project = data.projects.find((item) => item.id === projectId && item.workspaceId === data.workspace!.id);
   if (!project) throw new Error("Project does not belong to this Workspace.");
   return project;
+}
+
+async function persistServerMutation(base: UserData, next: UserData): Promise<UserData> {
+  return studioStore.update<UserData>(collection, stateId, (current) => mergeServerMutationSnapshot(current, base, next));
 }
 
 function message(error: unknown): string { return error instanceof Error ? error.message : "Request failed."; }

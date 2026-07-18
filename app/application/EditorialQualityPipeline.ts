@@ -1,5 +1,5 @@
 import type { AIProvider } from "../../core/ai";
-import type { ContentDocument } from "../../core/content";
+import { restoreProtectedImageAssets, type ContentDocument } from "../../core/content";
 import { QualityEngine, type QualityReviewContext } from "../../core/quality";
 import { EditorialGenerationStrategy } from "./EditorialGenerationStrategy";
 
@@ -79,7 +79,7 @@ export class EditorialQualityPipeline {
 
   private async evaluateCandidate(response: string, current: ContentDocument, parseInput: ParseInput, place: (document: ContentDocument) => Promise<ContentDocument>, qualityContext: QualityReviewContext): Promise<{ document: ContentDocument; quality: QualityReport; rejectionReason?: string }> {
     try {
-      const parsed = this.strategy.parse(response, parseInput);
+      const parsed = restoreProtectedImageAssets(current, this.strategy.parse(response, parseInput));
       const linkError = verifiedLinkError(current, parsed);
       const safetyError = manuscriptSafetyError(current, parsed);
       const shapeError = editorialShapeError(parsed, parseInput);
@@ -97,7 +97,7 @@ function automaticImprovementInstruction(document: ContentDocument, quality: Qua
   const diagnostics = manuscriptDiagnostics(document, requiredInformation);
   return `Automatically improve this complete Korean canonical ContentDocument. This is improvement attempt ${attempt} of ${MAX_AUTOMATIC_IMPROVEMENTS}. Rewrite the manuscript itself; never change, reinterpret, soften, or game the Quality Engine, its weights, thresholds, evidence, or approval rules.
 Use the complete Rule Quality result below as the correction specification. Resolve every reported reason and actionable task with concrete changes to the relevant title, metadata, heading, paragraph, image recommendation, or approved-link placement. Do not respond with a review, plan, explanation, or vague promise to make it better.
-Preserve every verified internal_link and related_post URL, label, purpose, target, and sourceExternalPostId exactly. Never invent a URL, statistic, citation, personal experience, or claim. Preserve the canonical Content Model and return the entire revised document as JSON only in the same shape accepted by the generator.
+Preserve every verified internal_link and related_post URL, label, purpose, target, and sourceExternalPostId exactly. Preserve every attached image source, assetId, sourceType, fileName, mimeType, prompt, purpose, and block ID exactly. Never invent a URL, statistic, citation, personal experience, or claim. Preserve the canonical Content Model and return the entire revised document as JSON only in the same shape accepted by the generator.
 Rule Quality result: ${JSON.stringify(quality)}
 Manuscript diagnostics: ${JSON.stringify(diagnostics)}
 Canonical document: ${JSON.stringify(document)}`;

@@ -1,12 +1,22 @@
 import type { ContentDocument } from "../content";
 
 export type MediaKind = "image" | "video" | "embed";
+export type MediaSourceType = "upload" | "ai_generated" | "external";
 export type MediaMetadata = Readonly<{
   alt?: string;
+  blockId?: string;
+  contentId?: string;
   createdAt: string;
+  fileName?: string;
   height?: number;
   mimeType?: string;
+  model?: string;
+  projectId?: string;
+  prompt?: string;
+  sizeBytes?: number;
+  sourceType?: MediaSourceType;
   width?: number;
+  workspaceId?: string;
 }>;
 export type MediaAsset = Readonly<{
   id: string;
@@ -14,17 +24,36 @@ export type MediaAsset = Readonly<{
   metadata: MediaMetadata;
   source: string;
 }>;
-export type ImagePurpose = "hero" | "comparison" | "checklist" | "infographic" | "summary" | "warning";
+export type ImagePurpose = "hero" | "comparison" | "checklist" | "infographic" | "summary" | "warning" | "inline";
 export type ImagePlan = Readonly<{
   alt: string;
   placement: number;
+  prompt?: string;
   purpose: ImagePurpose;
 }>;
-export type ThumbnailPlan = Readonly<{ alt: string; purpose: ImagePurpose }>;
+export type ThumbnailPlan = Readonly<{ alt: string; prompt?: string; purpose: ImagePurpose }>;
+
+export type ImageGenerationSize = "1024x1024" | "1024x1536" | "1536x1024";
+export type ImageGenerationQuality = "low" | "medium" | "high";
+export type ImageGenerationRequest = Readonly<{
+  prompt: string;
+  quality?: ImageGenerationQuality;
+  size?: ImageGenerationSize;
+}>;
+export type ImageGenerationResult = Readonly<{
+  bytes: Uint8Array;
+  fileExtension: "png" | "jpeg" | "webp";
+  mimeType: "image/png" | "image/jpeg" | "image/webp";
+  model: string;
+  quality: ImageGenerationQuality;
+  size: ImageGenerationSize;
+}>;
 
 export interface ImageStrategy { plan(document: ContentDocument): readonly ImagePlan[]; }
 export interface ThumbnailStrategy { plan(document: ContentDocument): ThumbnailPlan | undefined; }
 export interface AltGenerator { generate(context: Readonly<{ title: string; purpose: ImagePurpose }>): Promise<string>; }
+export interface ImageProvider { generate(request: ImageGenerationRequest): Promise<ImageGenerationResult>; }
+/** @deprecated Use ImageProvider for image generation implementations. */
 export interface FutureImageProvider { generate(plan: ImagePlan): Promise<MediaAsset>; }
 
 export interface MediaLibrary {

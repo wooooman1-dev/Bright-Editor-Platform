@@ -1,7 +1,7 @@
 export type Platform = "tistory" | "wordpress";
 export type AutomationPermission =
   | "connection.verify" | "category.read" | "category.select" | "draft.create"
-  | "draft.verify" | "draft.update" | "publish.execute" | "post.update" | "post.delete"
+  | "draft.verify" | "media.upload" | "draft.update" | "publish.execute" | "post.update" | "post.delete"
   | "account.settings.update";
 export const safeDraftPermissions: readonly AutomationPermission[] = Object.freeze([
   "connection.verify", "category.read", "category.select", "draft.create", "draft.verify",
