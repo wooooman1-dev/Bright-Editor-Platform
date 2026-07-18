@@ -66,17 +66,18 @@ describe("ContentDeletionService", () => {
     }));
   });
 
-  it("requires the exact current title before writing a backup or deleting data", async () => {
+  it("deletes after impact review without requiring the title to be typed again", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "bright-content-delete-"));
     roots.push(root);
-    const service = new ContentDeletionService(root);
+    const service = new ContentDeletionService(root, () => new Date("2026-07-18T01:02:03.000Z"));
 
-    await expect(service.delete(data(), {
+    const result = await service.delete(data(), {
       workspaceId: "workspace-1",
       contentId: "content-a",
-      confirmationTitle: "다른 제목",
-    })).rejects.toThrow("현재 콘텐츠 제목을 정확히 입력");
-    expect(await readdir(root)).toEqual([]);
+    });
+
+    expect(result.data.contents.map((item) => item.id)).toEqual(["content-b"]);
+    expect(await readdir(root)).toEqual([result.backupFileName]);
   });
 
   it("writes a backup first and removes only records owned by the selected content", async () => {
@@ -87,7 +88,6 @@ describe("ContentDeletionService", () => {
     const result = await service.delete(data(), {
       workspaceId: "workspace-1",
       contentId: "content-a",
-      confirmationTitle: "삭제할 콘텐츠",
     });
 
     expect(result.data.projects).toHaveLength(1);

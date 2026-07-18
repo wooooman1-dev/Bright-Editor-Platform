@@ -202,7 +202,6 @@ export async function POST(request: Request) {
       const result = await new ContentDeletionService().delete(data, {
         workspaceId: data.workspace!.id,
         contentId: required(body.input?.contentId),
-        confirmationTitle: required(body.input?.confirmationTitle),
       });
       await studioStore.set(collection, stateId, result.data);
       return NextResponse.json(result);

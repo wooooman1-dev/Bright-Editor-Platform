@@ -18,10 +18,12 @@ describe("Studio content deletion and SEO policy boundaries", () => {
     expect(routeSource).toContain("return NextResponse.json({ document, quality, data: persisted });");
   });
 
-  it("exposes impact and backup-first content deletion actions", () => {
+  it("exposes impact and backup-first content deletion without requiring the title again", () => {
     expect(routeSource).toContain('body.action === "content-deletion-impact"');
     expect(routeSource).toContain('body.action === "delete-content"');
     expect(routeSource).toContain("new ContentDeletionService().delete(data");
+    expect(routeSource).toContain("contentId: required(body.input?.contentId)");
+    expect(routeSource).not.toContain("confirmationTitle: required(body.input?.confirmationTitle)");
     expect(routeSource).toContain("await studioStore.set(collection, stateId, result.data)");
   });
 });

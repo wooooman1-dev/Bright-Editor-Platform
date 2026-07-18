@@ -17,14 +17,13 @@ export function ProjectCardActions({ brandName, project, workspaceId, onCreateTo
   const [menuOpen, setMenuOpen] = useState(false);
   const [mode, setMode] = useState<"idle" | "rename" | "delete">("idle");
   const [name, setName] = useState(project.name);
-  const [confirmation, setConfirmation] = useState("");
   const [impact, setImpact] = useState<Impact>();
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
 
   const openRename = () => { setMenuOpen(false); setName(project.name); setNotice(""); setMode("rename"); };
   const openDelete = async () => {
-    setMenuOpen(false); setMode("delete"); setImpact(undefined); setConfirmation(""); setNotice(""); setBusy(true);
+    setMenuOpen(false); setMode("delete"); setImpact(undefined); setNotice(""); setBusy(true);
     try { const result = await deletionCall({ action: "project-impact", workspaceId, projectId: project.id }); setImpact(result.impact as Impact); }
     catch { setNotice("삭제 영향을 확인하지 못했습니다. 프로젝트는 변경되지 않았습니다."); }
     finally { setBusy(false); }
@@ -36,9 +35,9 @@ export function ProjectCardActions({ brandName, project, workspaceId, onCreateTo
     finally { setBusy(false); }
   };
   const remove = async () => {
-    if (!impact || confirmation !== impact.name) return; setBusy(true); setNotice("");
+    if (!impact) return; setBusy(true); setNotice("");
     try {
-      const result = await deletionCall({ action: "delete-project", workspaceId, projectId: project.id, confirmation });
+      const result = await deletionCall({ action: "delete-project", workspaceId, projectId: project.id });
       if (result.status === "cleanup_required") { setNotice(`백업 ${String(result.backupName ?? "생성됨")} · ${String(result.error ?? "삭제 정리 상태를 확인해 주세요.")}`); return; }
       await onDeleted(); setMode("idle");
     } catch { setNotice("프로젝트를 삭제하지 못했습니다. 기존 프로젝트는 유지됩니다."); }
@@ -53,7 +52,7 @@ export function ProjectCardActions({ brandName, project, workspaceId, onCreateTo
       <button className="block w-full rounded-lg px-3 py-2 text-left text-sm text-red-700 hover:bg-red-50" onClick={() => void openDelete()} role="menuitem" type="button">프로젝트 삭제</button>
     </div>
     {mode === "rename" ? <Dialog title="프로젝트 수정" onClose={() => setMode("idle")}><label className="block text-sm font-semibold">프로젝트 이름<input aria-label="수정할 프로젝트 이름" autoFocus className="mt-2 w-full rounded-xl border px-4 py-3 font-normal" onChange={(event) => setName(event.target.value)} value={name} /></label><div className="mt-5 flex gap-2"><button className="rounded-xl bg-[#ff6b6b] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-40" disabled={busy || !name.trim()} onClick={() => void saveRename()} type="button">저장</button><button className="rounded-xl border px-4 py-2.5 text-sm" disabled={busy} onClick={() => setMode("idle")} type="button">취소</button></div>{notice ? <p className="mt-3 text-sm text-red-700">{notice}</p> : null}</Dialog> : null}
-    {mode === "delete" ? <Dialog title="프로젝트 삭제" onClose={() => !busy && setMode("idle")}><p className="text-sm"><strong>{project.name}</strong>{brandName ? ` · 브랜드 ${brandName}` : " · 연결된 브랜드 없음"}</p>{busy && !impact ? <p className="mt-4 text-sm">삭제 영향을 확인하고 있습니다.</p> : null}{impact ? <><ul className="mt-4 grid gap-2 rounded-xl bg-[#f8f8fa] p-4 text-sm sm:grid-cols-2"><li>Content {impact.contentCount}개</li><li>로컬 Draft {impact.draftCount}개</li><li>History {impact.historyCount}개</li><li>Autosave {impact.autosaveCount}개</li><li>Quality {impact.qualityReportCount}개</li><li>Publishing Preparation {impact.publishingPreparationCount}개</li><li>발행 기록 {impact.publishingRecordCount}개</li><li>예약 기록 {impact.scheduleRecordCount}개</li></ul><p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm">삭제 전에 버전 백업을 생성합니다. Content, History, Autosave와 Publishing Preparation이 함께 제거되며 삭제 후 UI에서 복구할 수 없습니다. 참조 정리에 실패하면 프로젝트를 유지하고 cleanup_required 상태를 표시합니다.</p><label className="mt-4 block text-sm font-semibold">정확한 프로젝트명 <strong>{impact.name}</strong> 입력<input aria-label="삭제 확인 프로젝트 이름" className="mt-2 w-full rounded-xl border px-4 py-3 font-normal" onChange={(event) => setConfirmation(event.target.value)} value={confirmation} /></label><button className="mt-4 rounded-xl bg-red-700 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-40" disabled={busy || confirmation !== impact.name} onClick={() => void remove()} type="button">백업 후 프로젝트 삭제</button></> : null}{notice ? <p aria-live="polite" className="mt-3 text-sm text-red-700">{notice}</p> : null}</Dialog> : null}
+    {mode === "delete" ? <Dialog title="프로젝트 삭제" onClose={() => !busy && setMode("idle")}><p className="text-sm"><strong>{project.name}</strong>{brandName ? ` · 브랜드 ${brandName}` : " · 연결된 브랜드 없음"}</p>{busy && !impact ? <p className="mt-4 text-sm">삭제 영향을 확인하고 있습니다.</p> : null}{impact ? <><ul className="mt-4 grid gap-2 rounded-xl bg-[#f8f8fa] p-4 text-sm sm:grid-cols-2"><li>Content {impact.contentCount}개</li><li>로컬 Draft {impact.draftCount}개</li><li>History {impact.historyCount}개</li><li>Autosave {impact.autosaveCount}개</li><li>Quality {impact.qualityReportCount}개</li><li>Publishing Preparation {impact.publishingPreparationCount}개</li><li>발행 기록 {impact.publishingRecordCount}개</li><li>예약 기록 {impact.scheduleRecordCount}개</li></ul><p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm">삭제 전에 버전 백업을 생성합니다. Content, History, Autosave와 Publishing Preparation이 함께 제거되며 삭제 후 UI에서 복구할 수 없습니다. 아래 버튼을 누르면 즉시 백업 후 삭제합니다.</p><button className="mt-4 rounded-xl bg-red-700 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-40" disabled={busy} onClick={() => void remove()} type="button">백업 후 프로젝트 삭제</button></> : null}{notice ? <p aria-live="polite" className="mt-3 text-sm text-red-700">{notice}</p> : null}</Dialog> : null}
   </div>;
 }
 

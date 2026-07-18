@@ -55,13 +55,8 @@ export class ContentDeletionService {
   async delete(data: UserData, input: Readonly<{
     workspaceId: string;
     contentId: string;
-    confirmationTitle: string;
   }>): Promise<ContentDeletionResult> {
     const impact = this.impact(data, input.workspaceId, input.contentId);
-    if (input.confirmationTitle.trim() !== impact.title) {
-      throw new Error("삭제 확인을 위해 현재 콘텐츠 제목을 정확히 입력해 주세요.");
-    }
-
     const deletedContent = data.contents.find((item) => item.id === input.contentId)!;
     const deletedHistory = (data.history ?? []).filter((item) => item.contentId === input.contentId);
     const deletedQualityReports = (data.qualityReports ?? []).filter((item) => item.contentId === input.contentId);
