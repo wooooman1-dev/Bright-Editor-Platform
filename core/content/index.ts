@@ -7,6 +7,7 @@ export type { ContentDocument } from "./ContentDocument";
 export { calculateContentMetrics, canonicalDocumentText } from "./ContentMetrics";
 export { deriveContentTags } from "./ContentTags";
 export { placeRecommendedPosts, rankRelatedPosts, type PublicPostCandidate } from "./RelatedPostRecommendation";
+export { restoreProtectedImageAssets } from "./ProtectedImageAssets";
 export { isVerifiedEditorialLink, restoreVerifiedEditorialLinks } from "./ProtectedEditorialLinks";
 export { buildReadableSeoTitle, ensureSeoKeywordPlacement } from "./SeoKeywordPlacement";
 export type { ContentMetrics } from "./ContentMetrics";
@@ -33,7 +34,7 @@ export type {
   HeadingBlock,
   HeadingLevel,
 } from "./blocks/HeadingBlock";
-export type { ImageBlock } from "./blocks/ImageBlock";
+export type { ImageBlock, ImageBlockPurpose, ImageBlockSourceType } from "./blocks/ImageBlock";
 export type { ParagraphBlock } from "./blocks/ParagraphBlock";
 export type { VideoBlock } from "./blocks/VideoBlock";
 export { ContentNormalizer } from "./processors/ContentNormalizer";
