@@ -46,7 +46,7 @@ describe("restoreProtectedImageAssets", () => {
       purpose: "inline",
       source: "/api/media/image-1.png",
       sourceType: "ai_generated",
-      alt: "수정 ALT",
+      alt: "원본 ALT",
     });
   });
 
@@ -70,5 +70,19 @@ describe("restoreProtectedImageAssets", () => {
     };
     const candidate: ContentDocument = { ...planned, blocks: [] };
     expect(restoreProtectedImageAssets(planned, candidate).blocks).toEqual([]);
+  });
+
+  it("protects an attached external image and the user's ALT and prompt", () => {
+    const external: ContentDocument = {
+      id: "external",
+      title: "외부 이미지",
+      blocks: [{ id: "external-image", type: "image", source: "https://images.example.com/photo.jpg", sourceType: "external", alt: "사용자 ALT", prompt: "사용자 프롬프트", purpose: "hero" }],
+    };
+    const candidate: ContentDocument = {
+      ...external,
+      blocks: [{ id: "external-image", type: "image", source: "", alt: "AI ALT", prompt: "AI 프롬프트", purpose: "inline" }],
+    };
+
+    expect(restoreProtectedImageAssets(external, candidate).blocks[0]).toEqual(external.blocks[0]);
   });
 });

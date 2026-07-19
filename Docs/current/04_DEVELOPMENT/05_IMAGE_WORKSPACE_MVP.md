@@ -77,6 +77,26 @@ sourceType
 
 `prompt`는 본문 작성 지시가 아니라 외부 이미지 도구에서도 바로 사용할 수 있는 독립 제작 프롬프트다.
 
+### 이미지 프롬프트 문맥·다양성 정책
+
+AI가 반환한 source-empty 이미지 추천은 추가 AI 호출 없이 Core Image Prompt Strategy를 통과한다.
+
+Core는 각 ImageBlock에 대해 블록 순서, 가장 가까운 이전 Heading, 다음 Heading 전까지의 Paragraph, ALT, purpose, 글 제목·주요 키워드와 이전 이미지 역할을 수집한다. 동일하거나 지나치게 유사하거나 섹션 문맥과 purpose를 반영하지 못한 프롬프트는 이 문맥과 purpose별 구도 정책을 사용해 결정론적으로 보정한다.
+
+purpose별 기본 역할:
+
+- `hero`: 글 전체를 대표하는 넓은 장면
+- `inline`: 현재 섹션의 행동·원리를 설명하는 세부 장면
+- `comparison`: 좌우 또는 전후 비교
+- `checklist`: 단계와 확인 항목 분리
+- `infographic`: 정보 관계와 흐름 구조화
+- `summary`: 핵심 요점 정리
+- `warning`: 위험 신호와 피해야 할 행동 강조
+
+프롬프트 유사도는 공백·대소문자·문장부호를 정규화하고 공통 스타일 토큰을 제외한 로컬 토큰 집합으로 계산한다. 임베딩이나 별도 AI 호출은 사용하지 않는다.
+
+이 보정은 AI가 새 ContentDocument를 반환하는 generation, final review, revision, quality improvement parser 경계에만 적용한다. Autosave와 재접속은 이 경계를 통과하지 않으므로 사용자가 편집한 prompt를 다시 작성하지 않는다. 실제 source가 연결된 이미지는 source, assetId, ALT, prompt, purpose와 미디어 필드를 보존한다.
+
 별도의 이미지 전략 AI 호출은 추가하지 않는다. 실제 `AI 생성하기`를 사용자가 명시적으로 선택한 경우에만 OpenAI Image API를 호출한다.
 
 기본 이미지 모델:

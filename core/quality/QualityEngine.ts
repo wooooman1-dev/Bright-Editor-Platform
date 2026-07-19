@@ -1,4 +1,14 @@
-import { calculateContentMetrics, canonicalDocumentText, type ContentDocument } from "../content";
+import {
+  analyzeContentOpportunityAlignment,
+  calculateContentMetrics,
+  canonicalDocumentText,
+  normalizeSeoKeyword,
+  titleContainsPrimaryKeyword,
+  type ConfirmedContentOpportunity,
+  type ContentDocument,
+  type ContentOpportunityQualityReview,
+} from "../content";
+import { analyzeImagePrompts, type ImagePromptIssue } from "../media";
 import { contentLengthProfile, qualityDimensionWeights } from "./QualityScoringPolicy";
 
 export type QualityCategory = "searchIntent" | "seo" | "readability" | "structure" | "completeness" | "usefulness" | "htmlQuality" | "imageStrategy" | "internalLinks" | "cta";
@@ -14,12 +24,13 @@ export type QualityDimensionResult = Readonly<{
   evidence: readonly QualityEvidence[];
 }>;
 export type QualityFinding = Readonly<{ category: QualityCategory; message: string; severity: "error" | "warning" | "info" }>;
-export type QualityReviewContext = Readonly<{ contentType?: string; platform?: string; primaryKeyword?: string; searchIntent?: string; revisionId?: string; reviewedAt?: string }>;
+export type QualityReviewContext = Readonly<{ contentType?: string; platform?: string; primaryKeyword?: string; searchIntent?: string; opportunity?: ConfirmedContentOpportunity; revisionId?: string; reviewedAt?: string }>;
 export type QualityReport = Readonly<{
   approved: boolean;
   approvalState: "approved" | "improvement_required" | "blocked";
   findings: readonly QualityFinding[];
   overallScore: number;
+  opportunityReview?: ContentOpportunityQualityReview;
   reviews: readonly QualityDimensionResult[];
   dimensions: readonly QualityDimensionResult[];
   tasks: readonly Readonly<{ category: QualityCategory; message: string; status: "action_required" | "blocked" }>[];
@@ -34,17 +45,28 @@ export class QualityEngine {
     const dimensions = evaluate(signals);
     const overallScore = Math.round(dimensions.reduce((sum, item) => sum + item.score * qualityDimensionWeights[item.category], 0) / 100);
     const blocked = dimensions.some((item) => item.status === "blocked");
+    const opportunityReview = signals.opportunityAlignment?.review;
+    const opportunityBlocked = opportunityReview ? !opportunityReview.pass : false;
+    const evidenceClaimTasks = signals.unsupportedEvidenceClaims.map((message) => ({ category: "searchIntent" as const, message, status: "blocked" as const }));
     const editorialTargets = new Set<QualityCategory>(["searchIntent", "seo", "readability", "completeness"]);
-    const approved = overallScore >= 95 && !blocked && dimensions.every((item) => item.score >= (editorialTargets.has(item.category) ? 95 : 80));
-    const findings = dimensions.flatMap((item) => item.reasons.map((message) => ({ category: item.category, message, severity: item.status === "blocked" ? "error" as const : "warning" as const })));
+    const approved = overallScore >= 95 && !blocked && !opportunityBlocked && evidenceClaimTasks.length === 0 && dimensions.every((item) => item.score >= (editorialTargets.has(item.category) ? 95 : 80));
+    const opportunityTasks = opportunityReview ? opportunitySignals(opportunityReview)
+      .filter((item) => !item.signal.pass)
+      .map((item) => ({ category: "searchIntent" as const, message: `${item.label}: ${item.signal.blockingReason ?? item.signal.detectedMismatch ?? "Content Opportunity와 원고가 일치하지 않습니다."}`, status: "blocked" as const })) : [];
+    const findings = [
+      ...dimensions.flatMap((item) => item.reasons.map((message) => ({ category: item.category, message, severity: item.status === "blocked" ? "error" as const : "warning" as const }))),
+      ...opportunityTasks.map((item) => ({ category: item.category, message: item.message, severity: "error" as const })),
+      ...evidenceClaimTasks.map((item) => ({ category: item.category, message: item.message, severity: "error" as const })),
+    ];
     return Object.freeze({
       approved,
-      approvalState: approved ? "approved" : blocked ? "blocked" : "improvement_required",
+      approvalState: approved ? "approved" : blocked || opportunityBlocked || evidenceClaimTasks.length ? "blocked" : "improvement_required",
       findings: Object.freeze(findings),
       overallScore,
+      ...(opportunityReview ? { opportunityReview } : {}),
       reviews: Object.freeze(dimensions),
       dimensions: Object.freeze(dimensions),
-      tasks: Object.freeze(dimensions.flatMap((item) => item.tasks.map((message) => ({ category: item.category, message, status: item.status === "blocked" ? "blocked" as const : "action_required" as const })))),
+      tasks: Object.freeze([...dimensions.flatMap((item) => item.tasks.map((message) => ({ category: item.category, message, status: item.status === "blocked" ? "blocked" as const : "action_required" as const }))), ...opportunityTasks, ...evidenceClaimTasks]),
       reviewedAt: context.reviewedAt ?? new Date().toISOString(),
       reviewedRevisionId: context.revisionId ?? contentRevisionId(document),
       weights: qualityDimensionWeights,
@@ -73,12 +95,15 @@ function measure(document: ContentDocument, context: QualityReviewContext) {
   const headings = document.blocks.filter((block) => block.type === "heading");
   const buttons = document.blocks.filter((block) => block.type === "button");
   const images = document.blocks.filter((block) => block.type === "image");
-  const normalized = text.toLowerCase();
+  const imagePromptAnalysis = analyzeImagePrompts(document, context.primaryKeyword);
+  const opportunityAlignment = context.opportunity ? analyzeContentOpportunityAlignment(document, context.opportunity) : undefined;
+  const unsupportedEvidenceClaims = context.opportunity ? detectUnsupportedEvidenceClaims(text, context.opportunity) : [];
+  const normalized = normalizeSeoKeyword(text).toLocaleLowerCase("ko-KR");
   const planningPattern = /(?:작성할|다룰 예정|추가 예정|초안 지시|기획안|아웃라인|목차를 구성|will (?:write|cover|discuss)|to be written|placeholder|todo|tbd|insert .+ here)/i;
   const placeholderPattern = /(?:lorem ipsum|내용을 입력|여기에 .+ 입력|예시 문구|placeholder|todo|tbd)/i;
   const headingNames = headings.map((item) => item.text.trim().toLowerCase()).filter(Boolean);
   const duplicateHeadingCount = headingNames.length - new Set(headingNames).size;
-  const keyword = context.primaryKeyword?.trim().toLowerCase() ?? "";
+  const keyword = normalizeSeoKeyword(context.primaryKeyword ?? "").toLocaleLowerCase("ko-KR");
   const keywordOccurrences = keyword ? normalized.split(keyword).length - 1 : 0;
   const profile = contentLengthProfile(context.contentType, context.platform);
   const paragraphSentenceCounts = paragraphs.map((item) => sentenceCount(item.text));
@@ -93,7 +118,17 @@ function measure(document: ContentDocument, context: QualityReviewContext) {
   const titleLength = document.title.trim().length;
   const titleColonCount = matches(document.title, /:/g);
   const titleListSeparatorCount = matches(document.title, /[·,/]/g);
-  return { document, context, text, metrics, paragraphs, headings, buttons, images, planning: planningPattern.test(text), placeholders: placeholderPattern.test(text), duplicateHeadingCount, emptyHeadings: headings.filter((item) => !item.text.trim()).length, keyword, keywordOccurrences, profile, shortParagraphs, repeatedOpenings, clicheCount, experienceClaim, sections, shallowSections, metaDescription, titleLength, titleColonCount, titleListSeparatorCount };
+  return { document, context, text, metrics, paragraphs, headings, buttons, images, imagePromptAnalysis, opportunityAlignment, unsupportedEvidenceClaims, planning: planningPattern.test(text), placeholders: placeholderPattern.test(text), duplicateHeadingCount, emptyHeadings: headings.filter((item) => !item.text.trim()).length, keyword, keywordOccurrences, profile, shortParagraphs, repeatedOpenings, clicheCount, experienceClaim, sections, shallowSections, metaDescription, titleLength, titleColonCount, titleListSeparatorCount };
+}
+
+function detectUnsupportedEvidenceClaims(text: string, opportunity: ConfirmedContentOpportunity): readonly string[] {
+  const result: string[] = [], noMarket = opportunity.marketEvidenceStatus === "unavailable";
+  if (noMarket && /(?:월간\s*검색량\s*(?:은|이|:)?\s*[\d,.]+|CPC\s*(?:는|가|:)?\s*[₩$]?\s*[\d,.]+|시장\s*(?:에서\s*)?1위|검색량(?:이|은)\s*높)/i.test(text)) result.push("확인된 외부 시장 Evidence 없이 검색량, CPC, 시장 순위 또는 높은 수요를 주장할 수 없습니다.");
+  if (opportunity.freshness === "stale" && /(?:최신|현재|최근)\s*(?:데이터|검색량|추세|성과)/i.test(text)) result.push("stale Evidence를 최신 또는 현재 데이터처럼 서술할 수 없습니다.");
+  if (/광고\s*경쟁도.{0,24}SEO\s*(?:난이도|경쟁도)/i.test(text)) result.push("Google Ads 광고 경쟁도를 SEO 난이도로 변환할 수 없습니다.");
+  if (/(?:CPC|RPM).{0,30}(?:예상\s*수익|수익을\s*예측)/i.test(text)) result.push("CPC 또는 RPM을 게시물 예상 수익으로 직접 환산할 수 없습니다.");
+  if (/추천\s*유형.{0,20}(?:품질\s*점수|원고\s*점수)/i.test(text)) result.push("추천 유형은 원고 품질 점수가 아닙니다.");
+  return Object.freeze(result);
 }
 
 function evaluate(s: Signals): QualityDimensionResult[] {
@@ -110,8 +145,13 @@ function evaluate(s: Signals): QualityDimensionResult[] {
   const intentTerms = meaningfulTerms(s.context.searchIntent ?? "");
   const reflectedIntentTerms = intentTerms.filter((term) => s.text.toLowerCase().includes(term)).length;
   const intentMetadata = Boolean(s.document.metadata?.primarySearchIntent?.trim());
-  const searchIntentScore = !s.context.searchIntent ? 0 : intentMetadata && intro.length >= 80 && depthScore >= 85 ? 100 : reflectedIntentTerms >= Math.min(3, intentTerms.length) && intro.length >= 80 ? 95 : 68;
+  const measuredSearchIntentScore = !s.context.searchIntent ? 0 : intentMetadata && intro.length >= 80 && depthScore >= 85 ? 100 : reflectedIntentTerms >= Math.min(3, intentTerms.length) && intro.length >= 80 ? 95 : 68;
+  const searchIntentScore = s.opportunityAlignment?.review.pass === false ? 0 : measuredSearchIntentScore;
   const imageStrategyComplete = s.images.length > 0 && s.images.every((item) => item.alt.trim().length >= 4);
+  const actionableImageIssues = s.imagePromptAnalysis.issues.filter((item) => item.code !== "missing_prompt");
+  const imagePromptPenalty = actionableImageIssues.reduce((sum, item) => sum + imageIssuePenalty(item), 0);
+  const imageStrategyBaseScore = imageStrategyComplete ? 100 : s.images.length ? 60 : 35;
+  const imageStrategyScore = clamp(imageStrategyBaseScore - imagePromptPenalty);
   const internalLinkScore = contextualInternalLinks.length > 0 && relatedPosts.length >= 3 ? 100 : contextualInternalLinks.length > 0 ? 55 + Math.min(20, relatedPosts.length * 10) : 10 + Math.min(30, relatedPosts.length * 10);
   const internalLinkReasons = [
     ...(contextualInternalLinks.length ? [] : ["본문 중간에 실제 URL이 있는 내부 링크가 없습니다."]),
@@ -122,7 +162,7 @@ function evaluate(s: Signals): QualityDimensionResult[] {
   const titleLooksLikeKeywordList = s.titleListSeparatorCount > 2;
   const titlePenalty = (titleTooLong ? 20 : 0) + (titleHasRepeatedColon ? 10 : 0) + (titleLooksLikeKeywordList ? 10 : 0);
   const keywordRepeated = keywordDensity > 0.08 || s.keywordOccurrences > 15;
-  const titleContainsKeyword = Boolean(s.keyword && s.document.title.toLowerCase().includes(s.keyword));
+  const titleContainsKeyword = Boolean(s.keyword && titleContainsPrimaryKeyword(s.document.title, s.keyword));
   const metaDescriptionValid = s.metaDescription.length >= 60 && s.metaDescription.length <= 180;
   const seoBase = s.keyword
     ? 55 + (titleContainsKeyword ? 20 : 0) + (s.keywordOccurrences > 0 ? 15 : 0) + (metaDescriptionValid ? 10 : 0) - (keywordRepeated ? 35 : 0)
@@ -130,7 +170,7 @@ function evaluate(s: Signals): QualityDimensionResult[] {
 
   return [
     dimension("searchIntent", searchIntentScore,
-      !s.context.searchIntent ? ["확정된 검색 의도 정보가 없어 평가할 수 없습니다."] : searchIntentScore >= 85 ? [] : ["도입부와 주요 섹션이 확정된 검색 의도를 충분히 해결하지 못합니다."], s.context.searchIntent ? ["도입부와 주요 섹션에서 독자의 검색 목적을 직접 해결하세요."] : ["콘텐츠 기획의 검색 의도를 저장한 뒤 다시 검토하세요."], [{ signal: "confirmedSearchIntent", value: s.context.searchIntent ?? false }, { signal: "reflectedIntentTerms", value: reflectedIntentTerms }, { signal: "intentMetadata", value: intentMetadata }], s.context.searchIntent ? "evaluated" : "blocked"),
+      !s.context.searchIntent ? ["확정된 검색 의도 정보가 없어 평가할 수 없습니다."] : s.opportunityAlignment?.review.pass === false ? ["원고의 주제·대표 키워드·검색 의도·본문이 확정 Content Opportunity와 일치하지 않습니다."] : searchIntentScore >= 85 ? [] : ["도입부와 주요 섹션이 확정된 검색 의도를 충분히 해결하지 못합니다."], s.context.searchIntent ? ["확정 Content Opportunity의 주제와 검색 의도에 맞게 제목·목차·본문 전체를 다시 정렬하세요."] : ["콘텐츠 기획의 검색 의도를 저장한 뒤 다시 검토하세요."], [{ signal: "confirmedSearchIntent", value: s.context.searchIntent ?? false }, { signal: "reflectedIntentTerms", value: reflectedIntentTerms }, { signal: "intentMetadata", value: intentMetadata }, { signal: "contentOpportunityConsistent", value: s.opportunityAlignment?.review.pass ?? "not_evaluated" }], s.context.searchIntent ? s.opportunityAlignment?.review.pass === false ? "blocked" : "evaluated" : "blocked"),
     dimension("seo", clamp(seoBase - titlePenalty),
       [
         ...(keywordRepeated ? ["핵심 키워드가 지나치게 반복됩니다."] : []),
@@ -153,8 +193,22 @@ function evaluate(s: Signals): QualityDimensionResult[] {
       [...(s.placeholders ? ["placeholder 또는 작성 지시 문구가 남아 있습니다."] : []), ...(externalClaims && !hasCitation ? ["수치나 연구 주장을 뒷받침하는 출처를 확인할 수 없습니다."] : []), ...(s.experienceClaim ? ["사용자가 제공하지 않은 개인 경험처럼 보이는 표현이 있습니다."] : []), ...(s.shallowSections ? ["주요 섹션에 실행 가능한 기준과 구체적인 설명이 부족합니다."] : [])], ["독자가 실행할 수 있는 기준·방법·예시·주의사항과 검증 가능한 근거를 추가하세요."], [{ signal: "placeholderDetected", value: s.placeholders }, { signal: "unsupportedClaimSignal", value: externalClaims && !hasCitation }, { signal: "fabricatedExperienceRisk", value: s.experienceClaim }, { signal: "shallowSections", value: s.shallowSections }], externalClaims && !hasCitation || s.experienceClaim ? "blocked" : "evaluated"),
     dimension("htmlQuality", clamp(100 - s.emptyHeadings * 30 - s.duplicateHeadingCount * 15 - (invalidHeadingOrder ? 25 : 0) - (s.document.blocks.length ? 0 : 100)),
       [...(!s.document.blocks.length ? ["렌더링할 canonical block이 없습니다."] : []), ...(invalidHeadingOrder ? ["제목 단계가 건너뛰어 HTML 문서 구조가 올바르지 않습니다."] : [])], ["빈 블록을 제거하고 제목 단계를 순서대로 정리하세요."], [{ signal: "blockCount", value: s.document.blocks.length }, { signal: "headingHierarchyValid", value: !invalidHeadingOrder }]),
-    dimension("imageStrategy", imageStrategyComplete ? 100 : s.images.length ? 60 : 35,
-      imageStrategyComplete ? [] : s.images.length ? ["이미지 추천 블록의 설명 텍스트가 부족합니다."] : ["본문에 이미지 전략 블록이 없습니다."], ["본문 흐름에 맞는 이미지 placeholder와 구체적인 ALT 설명을 배치하세요."], [{ signal: "recommendedImageBlocks", value: s.images.length }, { signal: "descriptiveImageBlocks", value: s.images.filter((item) => item.alt.trim().length >= 4).length }, { signal: "uploadedImageBlocks", value: s.images.filter((item) => Boolean(item.source.trim())).length }]),
+    dimension("imageStrategy", imageStrategyScore,
+      [
+        ...(imageStrategyComplete ? [] : s.images.length ? ["이미지 추천 블록의 설명 텍스트가 부족합니다."] : ["본문에 이미지 전략 블록이 없습니다."]),
+        ...actionableImageIssues.map((item) => item.message),
+      ],
+      actionableImageIssues.length ? actionableImageIssues.map(imageIssueTask) : ["본문 흐름에 맞는 이미지 placeholder와 구체적인 ALT 설명을 배치하세요."],
+      [
+        { signal: "recommendedImageBlocks", value: s.images.length },
+        { signal: "descriptiveImageBlocks", value: s.images.filter((item) => item.alt.trim().length >= 4).length },
+        { signal: "uploadedImageBlocks", value: s.images.filter((item) => Boolean(item.source.trim())).length },
+        { signal: "duplicateImagePrompts", value: actionableImageIssues.filter((item) => item.code === "duplicate_prompt").length },
+        { signal: "highSimilarityImagePrompts", value: actionableImageIssues.filter((item) => item.code === "high_similarity").length },
+        { signal: "purposeMismatchedImagePrompts", value: actionableImageIssues.filter((item) => item.code === "purpose_mismatch").length },
+        { signal: "sectionContextMissingImagePrompts", value: actionableImageIssues.filter((item) => item.code === "section_context_missing").length },
+        { signal: "uniformImagePurpose", value: actionableImageIssues.some((item) => item.code === "uniform_purpose") },
+      ]),
     dimension("internalLinks", internalLinkScore,
       internalLinkReasons, ["관련 섹션 뒤에 실제 URL이 있는 내부 링크 1개를 배치하고 문서 마지막에 실제 URL이 있는 관련 글 3개를 연결하세요."], [{ signal: "placedContextualInternalLinks", value: contextualInternalLinks.length }, { signal: "placedRelatedPosts", value: relatedPosts.length }]),
     dimension("cta", 100,
@@ -162,6 +216,33 @@ function evaluate(s: Signals): QualityDimensionResult[] {
   ];
 }
 function isPublicContentUrl(value: string, platform?: string): boolean { try { const url = new URL(value); if (url.protocol !== "https:" || /\/manage(?:\/|$)/i.test(url.pathname)) return false; return platform === "tistory" ? /\.tistory\.com$/i.test(url.hostname) && url.pathname.startsWith("/entry/") : true; } catch { return false; } }
+
+function imageIssuePenalty(issue: ImagePromptIssue): number {
+  return ({ duplicate_prompt: 30, high_similarity: 18, purpose_mismatch: 18, section_context_missing: 18, uniform_purpose: 16, missing_prompt: 0 })[issue.code];
+}
+
+function imageIssueTask(issue: ImagePromptIssue): string {
+  if (issue.code === "duplicate_prompt" || issue.code === "high_similarity") return `${issue.message} 각 이미지가 속한 H2를 기준으로 핵심 대상·행동·배경·구도·시점·정보 표현 중 두 가지 이상을 실제로 다르게 수정하세요.`;
+  if (issue.code === "purpose_mismatch") return `${issue.message} purpose에 맞는 전달 목적과 구도를 프롬프트에 명시하세요.`;
+  if (issue.code === "section_context_missing") return `${issue.message} 해당 H2의 핵심 행동이나 판단 기준을 장면 지시에 포함하세요.`;
+  if (issue.code === "uniform_purpose") return `${issue.message} 글 전체를 대표하는 장면과 섹션 설명·비교·요약 역할을 필요한 위치에 분배하세요.`;
+  return issue.message;
+}
+
+function opportunitySignals(review: ContentOpportunityQualityReview) {
+  return [
+    { label: "주제 충실도", signal: review.topicFidelity },
+    { label: "대표 키워드 정렬", signal: review.primaryKeywordAlignment },
+    { label: "검색 의도 충족", signal: review.searchIntentFulfillment },
+    { label: "보조 키워드 지원", signal: review.secondaryKeywordSupport },
+    { label: "제목·주제 정렬", signal: review.titleTopicAlignment },
+    { label: "목차 범위", signal: review.headingCoverage },
+    { label: "본문 범위", signal: review.bodyCoverage },
+    { label: "기획 원자성", signal: review.contentOpportunityConsistency },
+    { label: "주제 이탈", signal: review.crossTopicDrift },
+    { label: "미지원 키워드", signal: review.unsupportedKeywordUsage },
+  ] as const;
+}
 
 function dimension(category: QualityCategory, score: number, reasons: string[], tasks: string[], evidence: QualityEvidence[], evaluation: "evaluated" | "blocked" | "optional" = "evaluated"): QualityDimensionResult {
   const normalized = clamp(Math.round(score));

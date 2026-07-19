@@ -36,7 +36,8 @@ export type SettingsSnapshot = Readonly<{
   backup: Readonly<{ status?: SettingsStatus; message?: string; name?: string; modifiedAt?: string }>;
   persistence: StatusSummary;
   publishing: StatusSummary;
+  projects?: readonly Readonly<{ id: string; name: string }>[];
 }>;
 
-export type SettingsSection = "overview" | "ai" | "enabled-platforms" | "connections" | "publishing" | "media" | "automation" | "workspace" | "appearance" | "danger";
+export type SettingsSection = "overview" | "ai" | "enabled-platforms" | "connections" | "data-sources" | "publishing" | "media" | "automation" | "workspace" | "appearance" | "danger";
 export const themes: readonly ThemePreference[] = ["system", "light", "dark"];

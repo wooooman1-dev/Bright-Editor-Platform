@@ -61,6 +61,7 @@ describe("Bright Studio image workspace", () => {
   it("creates standalone production prompts in the existing single editorial generation call", () => {
     expect(generationSource).toContain("Every image block must include");
     expect(generationSource).toContain("standalone production prompt");
+    expect(generationSource).toContain("ensureDistinctImagePrompts");
     expect(generationSource).toContain('prompt: `${subject}. 한국 블로그 본문에 적합한 고품질 이미지');
   });
 });

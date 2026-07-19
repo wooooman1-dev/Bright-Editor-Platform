@@ -1,6 +1,6 @@
 "use client";
 
-import { buildReadableSeoTitle } from "../../core/content";
+import { buildReadableSeoTitle, normalizeSeoKeyword, titleContainsPrimaryKeyword } from "../../core/content";
 
 export function ContentSeoTitleStatus({
   currentTitle,
@@ -13,10 +13,10 @@ export function ContentSeoTitleStatus({
   onApply: (title: string) => Promise<void>;
   primaryKeyword?: string;
 }) {
-  const keyword = primaryKeyword?.trim() ?? "";
+  const keyword = normalizeSeoKeyword(primaryKeyword ?? "");
   if (!keyword) return null;
 
-  const included = currentTitle.toLocaleLowerCase("ko-KR").includes(keyword.toLocaleLowerCase("ko-KR"));
+  const included = titleContainsPrimaryKeyword(currentTitle, keyword);
   if (included) {
     return (
       <p className="mt-3 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800">

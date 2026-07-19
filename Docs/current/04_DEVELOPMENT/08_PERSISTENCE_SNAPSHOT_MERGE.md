@@ -58,6 +58,8 @@ scheduledPublishing
 
 Content별 `quality`도 클라이언트 전체 스냅샷이 변경할 수 없고 서버 상태를 유지한다.
 
+Content별 `planningWorkflow`는 revision을 비교한다. 더 낮은 revision 또는 같은 revision의 충돌 payload는 서버의 최신 workflow와 Planning 후보 snapshot을 유지한다. Planning 시작·완료·실패는 operation ID를 검증하는 서버 mutation으로 저장되어 늦은 Provider 응답이 재분석 이후 상태를 바꿀 수 없다.
+
 최초 상태가 아직 없는 경우에만 유효한 첫 스냅샷을 그대로 저장한다.
 
 ## 5. 서버 Workflow 병합
@@ -167,3 +169,9 @@ AI 품질검토 진행 중 이미지 업로드
 ```
 
 실제 Tistory 계정은 이 Persistence 병합 검증에 필요하지 않다.
+
+## 10. Data Source persistence boundary
+
+Workspace Data Source metadata, raw snapshots and normalized Evidence do not enlarge or replace `UserData`. They use the separate `.bright-studio/intelligence` snapshot store and raw-file references. Content Planning stores only the selected Opportunity's validated Evidence IDs and public summaries.
+
+The existing `mergeUserDataSnapshot` policy still owns Planning revision/operation protection and preserves Image Workspace, Project Media Library, quality, history and publishing collections. Before a client snapshot merge, non-empty Opportunity Evidence IDs are validated against the current Workspace. Recommendation type and Evidence fields are part of the Opportunity fingerprint, so a candidate change replaces them atomically with topic, keyword and intent.

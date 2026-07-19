@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import { calculateContentMetrics, placeRecommendedPosts, type ContentDocument, type PublicPostCandidate } from "../../core/content";
+import { analyzeContentOpportunityAlignment, calculateContentMetrics, hasCurrentContentOpportunityFingerprint, opportunityEvidenceLabel, placeRecommendedPosts, type ContentDocument, type PublicPostCandidate } from "../../core/content";
 import { contentRevisionId, type QualityCategory, type QualityReport } from "../../core/quality";
 import { PageContainer } from "../shared/ui/PageContainer";
-import { applyCanonicalDocument, updateContent, type UserContent, type UserData, type UserProject, type WorkspacePlatform } from "./user-data";
+import { applyCanonicalDocument, type UserContent, type UserData, type UserProject, type WorkspacePlatform } from "./user-data";
 import { normalizeQualityReview, type NormalizedQualityReview } from "./quality-review-ui";
 import { ContentDocumentEditor } from "./ContentDocumentEditor";
 import { ContentDangerZone } from "./ContentDangerZone";
@@ -99,11 +99,10 @@ export function EditorWorkspace({ content, data, project, onBack, onPersist }: {
   const retryGeneration = async () => {
     setWorking(true);
     try {
-      const result = await api("/api/studio", { action: "generate", input: { workspaceId: project.workspaceId, contentId: content.id, contentType: content.contentType ?? "article", keywords: [content.primaryKeyword ?? content.naturalLanguageRequest ?? "content", ...(content.relatedKeywords ?? [])], platform: "canonical", projectId: project.id, editorialContext: JSON.stringify({ request: content.naturalLanguageRequest, intent: content.interpretedIntent, audience: content.targetAudience, goal: content.contentGoal, searchIntent: content.searchIntent }) } }) as { document?: ContentDocument; quality?: QualityReport; error?: string };
-      if (!result.document) throw new Error(result.error ?? "Generation failed.");
-      let next = applyCanonicalDocument(data, content.id, result.document, "generation", now());
-      next = updateContent(next, content.id, { quality: result.quality, status: "draft" });
-      await onPersist(next); setDocumentDraft(result.document); setTitle(result.document.title); setQualityReport(result.quality); setNotice("Generation retry updated the existing Content record; no duplicate was created.");
+      const opportunity = content.opportunity;
+      const result = await api("/api/studio", { action: "generate", input: { workspaceId: project.workspaceId, contentId: content.id, contentType: content.contentType ?? "article", opportunityId: opportunity?.opportunityId, opportunityVersion: opportunity?.version, opportunityFingerprint: opportunity?.fingerprint, primaryKeyword: opportunity?.primaryKeyword ?? content.primaryKeyword, topic: opportunity?.selectedTopic, searchIntent: opportunity?.searchIntent, secondaryKeywords: opportunity?.secondaryKeywords, keywords: [content.primaryKeyword ?? "", ...(content.relatedKeywords ?? [])], platform: "canonical", projectId: project.id } }) as { document?: ContentDocument; quality?: QualityReport; data?: UserData; error?: string };
+      if (!result.document || !result.data) throw new Error(result.error ?? "Generation failed.");
+      await onPersist(result.data); setDocumentDraft(result.document); setTitle(result.document.title); setQualityReport(result.quality); setNotice("Generation retry updated the existing Content record; no duplicate was created.");
     } catch (error) { setNotice(`${message(error)} The existing Content record and plan remain safe.`); }
     finally { setWorking(false); }
   };
@@ -178,7 +177,7 @@ export function EditorWorkspace({ content, data, project, onBack, onPersist }: {
     <OperationNotice operation={operation} />
     {liveDocument ? <StrategySummary content={content} document={liveDocument} metrics={metrics} quality={normalizedQuality} /> : null}
     {content.generationError ? <section className="mt-6 rounded-[20px] border border-amber-200 bg-amber-50 p-5"><h2 className="font-semibold">AI configuration or generation is required</h2><p className="mt-2 text-sm">{content.generationError}</p><button className="mt-3 rounded-xl border bg-white px-4 py-2.5 text-sm font-semibold" disabled={working} onClick={() => void retryGeneration()} type="button">Retry generation without creating a duplicate</button></section> : null}
-    <section className="mt-6 rounded-[24px] border border-black/6 bg-white p-6"><label className="block text-sm font-semibold">제목<input className="mt-2 w-full rounded-xl border px-4 py-3 text-xl" onBlur={() => liveDocument && void commitDocument({ ...liveDocument, title }, "문서 제목을 저장했습니다.")} onChange={(event) => { setTitle(event.target.value); setQualityRequestState("idle"); setFinalConfirmation(false); }} value={title} /></label><ContentSeoTitleStatus currentTitle={title} disabled={working || !liveDocument} onApply={async (seoTitle) => { if (liveDocument) await commitDocument({ ...liveDocument, title: seoTitle }, "대표 키워드를 포함한 제목으로 보정했습니다."); }} primaryKeyword={content.primaryKeyword} /><p className="mt-3 text-sm text-[#77777f]">본문은 아래 canonical 블록 편집기에서 수정합니다. 블록 순서가 Preview와 Draft HTML에 그대로 반영됩니다.</p><div className="mt-4 flex flex-wrap gap-5 rounded-xl bg-[#f8f8fa] px-4 py-3 text-sm"><span><strong>글자 수</strong> {metrics.charactersWithSpaces.toLocaleString()}</span><span><strong>문단 수</strong> {metrics.paragraphCount}</span><span><strong>예상 읽기 시간</strong> {metrics.estimatedReadingMinutes}분</span></div><details className="mt-3 text-sm text-[#66666f]"><summary className="cursor-pointer font-semibold">상세 글 지표</summary><dl className="mt-3 grid gap-2 sm:grid-cols-3"><Info label="공백 제외 글자 수" value={metrics.charactersWithoutSpaces.toLocaleString()} /><Info label="한국어 글자 수" value={metrics.koreanCharacterCount.toLocaleString()} /><Info label="단어 단위" value={metrics.wordUnits.toLocaleString()} /><Info label="소제목 수" value={metrics.headingCount.toLocaleString()} /></dl></details></section>
+    <section className="mt-6 rounded-[24px] border border-black/6 bg-white p-6"><label className="block text-sm font-semibold">제목<input className="mt-2 w-full rounded-xl border px-4 py-3 text-xl disabled:opacity-60" disabled={working} onBlur={() => liveDocument && void commitDocument({ ...liveDocument, title }, "문서 제목을 저장했습니다.")} onChange={(event) => { setTitle(event.target.value); setQualityRequestState("idle"); setFinalConfirmation(false); }} value={title} /></label><ContentSeoTitleStatus currentTitle={title} disabled={working || !liveDocument} onApply={async (seoTitle) => { if (liveDocument) await commitDocument({ ...liveDocument, title: seoTitle }, "대표 키워드를 포함한 제목으로 보정했습니다."); }} primaryKeyword={content.primaryKeyword} /><p className="mt-3 text-sm text-[#77777f]">본문은 아래 canonical 블록 편집기에서 수정합니다. 블록 순서가 Preview와 Draft HTML에 그대로 반영됩니다.</p><div className="mt-4 flex flex-wrap gap-5 rounded-xl bg-[#f8f8fa] px-4 py-3 text-sm"><span><strong>글자 수</strong> {metrics.charactersWithSpaces.toLocaleString()}</span><span><strong>문단 수</strong> {metrics.paragraphCount}</span><span><strong>예상 읽기 시간</strong> {metrics.estimatedReadingMinutes}분</span></div><details className="mt-3 text-sm text-[#66666f]"><summary className="cursor-pointer font-semibold">상세 글 지표</summary><dl className="mt-3 grid gap-2 sm:grid-cols-3"><Info label="공백 제외 글자 수" value={metrics.charactersWithoutSpaces.toLocaleString()} /><Info label="한국어 글자 수" value={metrics.koreanCharacterCount.toLocaleString()} /><Info label="단어 단위" value={metrics.wordUnits.toLocaleString()} /><Info label="소제목 수" value={metrics.headingCount.toLocaleString()} /></dl></details></section>
     <section className="mt-6 rounded-[24px] border border-black/6 bg-white p-6"><h2 className="text-lg font-semibold">AI 문서 수정</h2><div className="mt-3 flex flex-col gap-2 sm:flex-row"><input className="flex-1 rounded-xl border px-4 py-3" onChange={(event) => setRevision(event.target.value)} placeholder="예: 결론을 강화해줘" value={revision} /><button className="rounded-xl border px-4 py-3 text-sm font-semibold disabled:opacity-50" disabled={working || !revision.trim()} onClick={() => void revise()} type="button">canonical 문서 수정</button></div></section>
     <section className="mt-6 rounded-[24px] border border-black/6 bg-white p-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-semibold">편집 보기</h2><p className="mt-1 text-sm text-[#77777f]">시각 편집과 현재 Renderer HTML을 전환합니다.</p></div><div className="flex gap-2"><button aria-pressed={editorViewMode === "visual"} className="rounded-xl border px-4 py-2 text-sm font-semibold" onClick={() => setEditorViewMode("visual")} type="button">시각 편집</button><button aria-pressed={editorViewMode === "html"} className="rounded-xl border px-4 py-2 text-sm font-semibold" onClick={() => setEditorViewMode("html")} type="button">HTML 보기</button></div></div></section>
     {editorViewMode === "visual" && liveDocument ? <><section className="mt-4 rounded-[20px] border border-black/6 bg-white p-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-semibold">티스토리 공개 게시글 동기화</h2><p className="mt-1 text-sm text-[#77777f]">{postCatalogState === "loading" ? "티스토리 게시글을 불러오는 중입니다." : postCatalogMessage || "계정을 선택한 뒤 공개 게시글을 불러오세요."}{postsRetrievedAt ? ` · 마지막 동기화 ${formatReviewTime(postsRetrievedAt)}` : ""}</p></div><button className="rounded-xl border px-4 py-2 text-sm font-semibold disabled:opacity-50" disabled={!selectedConnection || postCatalogState === "loading"} onClick={() => void loadPostCandidates(true)} type="button">후보 새로고침</button></div>{postCatalogState === "session_expired" ? <p className="mt-2 text-sm text-amber-800">세션이 만료되었습니다. 플랫폼 연결에서 다시 연결해 주세요.</p> : null}{postCatalogState === "partial" ? <p className="mt-2 text-sm text-amber-800">일부 게시글만 불러왔습니다. 현재 후보는 사용할 수 있으며 새로고침할 수 있습니다.</p> : null}</section><ContentDocumentEditor candidates={postCandidates} disabled={working || operation !== "idle"} document={liveDocument} onChange={commitDocument} /></> : null}
@@ -221,6 +220,62 @@ function draftFailureMessage(result: Record<string, unknown>) {
 function escapeHtml(value: string) { return value.replace(/[&<>]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[character]!); }
 function qualityLabel(category: QualityCategory) { return ({ searchIntent: "검색 의도", seo: "SEO", readability: "가독성", structure: "콘텐츠 구조", completeness: "정보 완성도", usefulness: "정보 유용성", htmlQuality: "HTML 품질", imageStrategy: "이미지 전략", internalLinks: "내부 링크", cta: "CTA" })[category]; }
 function PlacementSummary({ blocks }: { blocks: ContentDocument["blocks"] }) { const images = blocks.filter((block) => block.type === "image"), placedImages = images.filter((block) => block.source.trim()).length; const internalLinks = blocks.filter((block) => block.type === "button" && (block.purpose === "internal_link" || (!block.purpose && block.targetUrl.startsWith("/")))).length; return <section className="mt-4 grid gap-3 sm:grid-cols-2"><p className="rounded-xl bg-white p-4 text-sm"><strong>이미지</strong> · {placedImages ? `배치됨 ${placedImages}개` : images.length ? `추천됨 ${images.length}개` : "추천 없음"}</p><p className="rounded-xl bg-white p-4 text-sm"><strong>내부 링크</strong> · {internalLinks ? `배치됨 ${internalLinks}개` : "추천됨"}</p></section>; }
-function StrategySummary({ content, document, metrics, quality }: { content: UserContent; document: ContentDocument; metrics: ReturnType<typeof calculateContentMetrics>; quality: NormalizedQualityReview }) { const metadata = document.metadata; const secondary = metadata?.secondaryKeywords ?? content.relatedKeywords ?? []; const reflected = [content.primaryKeyword, ...secondary].filter((keyword): keyword is string => Boolean(keyword && document.blocks.some((block) => (block.type === "heading" || block.type === "paragraph") && block.text.toLowerCase().includes(keyword.toLowerCase())))); const links = document.blocks.filter((block) => block.type === "button"); return <details className="mt-6 rounded-[20px] border border-black/6 bg-white p-5" open><summary className="cursor-pointer font-semibold">오늘의 콘텐츠 전략</summary><dl className="mt-4 grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-3"><Info label="주제" value={document.title} /><Info label="대표 키워드" value={content.primaryKeyword ?? "자동 분석"} /><Info label="보조 키워드" value={secondary.slice(0, 5).join(", ") || "자동 분석"} /><Info label="롱테일·관련어" value={(metadata?.relatedTerms ?? []).slice(0, 5).join(", ") || "본문 구조에서 파생"} /><Info label="실제 반영 키워드" value={reflected.slice(0, 6).join(", ") || "검토 필요"} /><Info label="검색 의도" value={content.searchIntent ?? metadata?.primarySearchIntent ?? "자동 분석"} /><Info label="예상 독자" value={content.targetAudience ?? "프로젝트 기본 독자"} /><Info label="분량" value={`목표 4,500~6,000자 · 현재 ${metrics.charactersWithSpaces.toLocaleString()}자`} /><Info label="자동 배치" value={`내부링크 ${links.filter((item) => item.type === "button" && item.purpose === "internal_link").length} · 관련 글 ${links.filter((item) => item.type === "button" && item.purpose === "related_post").length} · 이미지 ${document.blocks.filter((item) => item.type === "image").length} · CTA ${links.filter((item) => item.type === "button" && item.purpose === "cta").length}`} /><Info label="품질" value={`${quality.overallScore}점 · ${quality.status === "ready" ? "준비 완료" : `개선 필요 ${quality.actionableTasks.length}개`}`} /></dl></details>; }
+function StrategySummary({ content, document, metrics, quality }: { content: UserContent; document: ContentDocument; metrics: ReturnType<typeof calculateContentMetrics>; quality: NormalizedQualityReview }) {
+  const metadata = document.metadata;
+  const planning = content.planning;
+  const opportunity = content.opportunity;
+  const secondary = opportunity?.secondaryKeywords ?? content.relatedKeywords ?? metadata?.secondaryKeywords ?? [];
+  const staleOpportunity = opportunity ? opportunity.contentId !== content.id || opportunity.projectId !== content.projectId || opportunity.workspaceId !== content.workspaceId || !hasCurrentContentOpportunityFingerprint(opportunity) : false;
+  const alignment = opportunity && !staleOpportunity ? analyzeContentOpportunityAlignment(document, opportunity) : undefined;
+  const strategyWarning = staleOpportunity
+    ? "저장된 Content Opportunity가 현재 Content 또는 Project에 속하지 않습니다. 전략을 다시 확인해 주세요."
+    : alignment?.status === "mismatch"
+      ? "제목·목차·본문이 확정된 Content Opportunity와 일치하지 않아 품질 승인이 차단됩니다."
+      : undefined;
+  const reflected = [content.primaryKeyword, ...secondary].filter((keyword): keyword is string => Boolean(keyword && document.blocks.some((block) => (block.type === "heading" || block.type === "paragraph") && block.text.toLowerCase().includes(keyword.toLowerCase()))));
+  const links = document.blocks.filter((block) => block.type === "button");
+  return (
+    <section className={`mt-6 rounded-[20px] border bg-white p-5 ${strategyWarning ? "border-amber-300" : "border-black/6"}`}>
+      <h2 className="font-semibold">콘텐츠 전략</h2>
+      {strategyWarning ? <p className="mt-3 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">{strategyWarning}</p> : null}
+      <dl className="mt-4 grid gap-4 text-sm sm:grid-cols-3">
+        <Info label="선정 주제" value={opportunity?.selectedTopic ?? "Legacy 기획"} />
+        <Info label="대표 키워드" value={opportunity?.primaryKeyword ?? content.primaryKeyword ?? "확정되지 않음"} />
+        <Info label="검색 의도" value={opportunity?.searchIntent ?? content.searchIntent ?? metadata?.primarySearchIntent ?? "자동 분석"} />
+        <Info label="보조 키워드" value={secondary.slice(0, 5).join(", ") || "없음"} />
+        <Info label="선정 방식" value={opportunity?.selectionMode === "automatic" ? "AI 자동 선정" : opportunity ? "사용자 지정" : "Legacy"} />
+        <Info label="데이터 출처" value={opportunity ? [...new Set(opportunity.opportunityEvidence.map((item) => opportunityEvidenceLabel(item.source)))].join(", ") : "기록 없음"} />
+      </dl>
+      <details className="mt-4 rounded-xl bg-[#f8f8fa] p-4">
+        <summary className="cursor-pointer text-sm font-semibold">AI 분석 상세보기</summary>
+        <dl className="mt-4 grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
+          <Info label="해석된 요청" value={content.naturalLanguageRequest ?? "저장된 요청 없음"} />
+          <Info label="선정 주제" value={opportunity?.selectedTopic ?? "Legacy 기획"} />
+          <Info label="의도" value={planning?.interpretedIntent ?? content.interpretedIntent ?? "자동 분석"} />
+          <Info label="분야" value={planning?.domain ?? content.domain ?? "자동 분석"} />
+          <Info label="대상 독자" value={planning?.targetAudience ?? content.targetAudience ?? "프로젝트 기본 독자"} />
+          <Info label="목표" value={planning?.contentGoal ?? content.contentGoal ?? "자동 분석"} />
+          <Info label="검색 의도" value={opportunity?.searchIntent ?? planning?.searchIntent ?? content.searchIntent ?? "자동 분석"} />
+          <Info label="콘텐츠 유형" value={opportunity?.contentType ?? planning?.recommendedContentType ?? content.contentType ?? "article"} />
+          <Info label="대표 키워드" value={opportunity?.primaryKeyword ?? content.primaryKeyword ?? "확정되지 않음"} />
+          <Info label="관련 키워드" value={secondary.slice(0, 8).join(", ") || "없음"} />
+          <Info label="독자의 핵심 문제" value={opportunity?.readerProblem ?? "저장된 문제 정의 없음"} />
+          <Info label="콘텐츠 방향" value={opportunity?.contentAngle ?? content.contentGoal ?? "자동 분석"} />
+          <Info label="예상 범위" value={opportunity?.expectedCoverage.join(", ") || "저장된 범위 없음"} />
+          <Info label="추천 근거" value={opportunity?.selectionRationale ?? planning?.recommendationReason ?? "저장된 근거 없음"} />
+          <Info label="Opportunity" value={opportunity ? `${opportunity.opportunityId} · v${opportunity.version} · ${opportunity.fingerprint}` : "Legacy 콘텐츠"} />
+          <Info label="신뢰도" value={planning ? `${Math.round(planning.confidence * 100)}%` : "Legacy 콘텐츠"} />
+          <Info label="주의사항" value={planning?.estimateDisclosure ?? "저장된 분석 주의사항 없음"} />
+          <Info label="선택된 플랫폼" value={planning?.recommendedPlatforms.join(", ") || content.platform || "canonical"} />
+          <Info label="실제 반영 키워드" value={reflected.slice(0, 6).join(", ") || "검토 필요"} />
+          <Info label="롱테일·관련어" value={(metadata?.relatedTerms ?? []).slice(0, 5).join(", ") || "본문 구조에서 파생"} />
+          <Info label="분량" value={`목표 4,500~6,000자 · 현재 ${metrics.charactersWithSpaces.toLocaleString()}자`} />
+          <Info label="자동 배치" value={`내부링크 ${links.filter((item) => item.type === "button" && item.purpose === "internal_link").length} · 관련 글 ${links.filter((item) => item.type === "button" && item.purpose === "related_post").length} · 이미지 ${document.blocks.filter((item) => item.type === "image").length} · CTA ${links.filter((item) => item.type === "button" && item.purpose === "cta").length}`} />
+          <Info label="품질" value={`${quality.overallScore}점 · ${quality.status === "ready" ? "준비 완료" : `개선 필요 ${quality.actionableTasks.length}개`}`} />
+        </dl>
+      </details>
+    </section>
+  );
+}
 function formatReviewTime(value: string) { try { return new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)); } catch { return value; } }
 function OperationNotice({ operation }: { operation: Operation }) { if (operation === "idle") return null; const copy = ({ quality: ["품질을 검토하고 있습니다.", "현재 Revision의 구조와 실제 배치 블록을 확인하고 있습니다."], improving: ["AI 개선안을 만들고 있습니다.", "기존 순서를 보존하며 필요한 부분만 개선하고 있습니다."], applying: ["개선안을 적용하고 있습니다.", "새 Revision 저장과 품질 재검토가 끝날 때까지 기다려 주세요."], preview: ["티스토리 미리보기를 만들고 있습니다.", "현재 canonical 문서를 Draft와 같은 Renderer로 변환하고 있습니다."], categories: ["티스토리 카테고리를 불러오고 있습니다.", "연결된 계정의 실제 목록을 확인하고 있습니다."], "category-save": ["카테고리를 저장하고 있습니다.", "선택값을 발행 준비 정보에 안전하게 저장하고 있습니다."], "draft-save": ["티스토리에 임시저장하고 있습니다.", "외부 Draft 저장과 검증이 끝날 때까지 브라우저를 닫지 마세요."], deleting: ["콘텐츠를 백업하고 정리하고 있습니다.", "로컬 백업과 연결 데이터 정리가 끝날 때까지 기다려 주세요."] } as const)[operation]; return <div aria-busy="true" aria-live="polite" className="bright-operation-notice rounded-xl border border-[#ffb3b3] bg-[#fff7f7] p-4"><p className="font-semibold">↻ {copy[0]}</p><p className="mt-1 text-sm text-[#66666f]">{copy[1]}</p></div>; }

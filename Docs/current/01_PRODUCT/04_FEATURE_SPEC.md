@@ -301,6 +301,8 @@ AI는 생성 전에 다음 내용을 분석한다.
 예상 콘텐츠 방향
 플랫폼 적합성
 중복 위험
+
+기본 자동 선정 모드에서는 키워드 목록이 아니라 완전한 Content Opportunity 후보를 반환한다. 각 후보는 주제, 대표·보조 키워드, 검색 의도, 독자 문제, 방향, 예상 범위, 추천 근거와 데이터 출처가 하나의 계약을 이룬다. 사용자가 주제를 명시한 경우 후보는 그 주제와 같은 검색 의도 안에 머문다. 외부 검색 데이터가 없으면 AI 추정과 콘텐츠 공백 추론으로 표시하고 검색량 수치를 만들지 않는다.
 Confirmation
 
 사용자는 AI 분석 결과를 확인하고 수정할 수 있어야 한다.
@@ -308,8 +310,9 @@ Confirmation
 Acceptance Criteria
 자연어 요청에서 핵심 생성 조건을 추출한다.
 AI 분석 결과를 본문 생성 전에 표시한다.
-사용자가 추천 키워드와 방향을 수정할 수 있다.
+사용자가 완전한 Content Opportunity를 선택할 수 있다. 직접 입력한 키워드는 기존 후보 필드와 결합하지 않고 Planning에서 다시 완전한 기회로 확인한다.
 사용자의 확인 없이 최종 콘텐츠 생성을 시작하지 않는다.
+서버가 확정 Opportunity의 identity, version, fingerprint와 소유권을 검증한 뒤 저장 snapshot만 Generation에 전달한다.
 Project DNA가 자동 적용된다.
 12. Feature 1.6 — AI Editorial Generation
 Purpose
@@ -336,6 +339,8 @@ Internal Link Strategy
 CTA Strategy
 Editing
 Content Model Generation
+
+The entire confirmed Content Opportunity is immutable input to Generation and Quality Review. Topic fidelity and search-intent fulfillment must be visible across title, H2 structure, body, image strategy, link context, and CTA. A keyword-prefixed unrelated manuscript is invalid and blocked rather than cosmetically corrected.
 Output
 Title
 Metadata

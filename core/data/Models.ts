@@ -8,6 +8,7 @@ export type Project = Readonly<{
   id: string;
   name: string;
   workspaceId: string;
+  dataSourceConnectionIds?: readonly string[];
 }>;
 export type Content = Readonly<{
   document: ContentDocument;

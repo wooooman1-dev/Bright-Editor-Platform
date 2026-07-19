@@ -24,11 +24,11 @@ export class ProjectDeletionError extends Error {
   constructor(readonly backupPath: string, readonly projectRestored: boolean) { super("Project deletion requires cleanup after rollback."); this.name = "ProjectDeletionError"; }
 }
 
-export interface SafeBackupWriter { write(scope: "project" | "workspace", id: string, snapshot: unknown): Promise<string>; }
+export interface SafeBackupWriter { write(scope: "project" | "workspace" | "data-source", id: string, snapshot: unknown): Promise<string>; }
 
 export class LocalSafeBackupWriter implements SafeBackupWriter {
   constructor(private readonly root = path.join(process.cwd(), ".bright-studio", "backups"), private readonly now = () => new Date()) {}
-  async write(scope: "project" | "workspace", id: string, snapshot: unknown): Promise<string> {
+  async write(scope: "project" | "workspace" | "data-source", id: string, snapshot: unknown): Promise<string> {
     await mkdir(this.root, { recursive: true });
     const timestamp = this.now().toISOString().replace(/[:.]/g, "-");
     const file = path.join(this.root, `v1-${scope}-${safe(id)}-${timestamp}.json`);

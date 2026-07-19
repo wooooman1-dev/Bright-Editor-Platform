@@ -1,0 +1,146 @@
+import { randomUUID } from "node:crypto";
+import { NextResponse } from "next/server";
+import {
+  isDataSourceProvider,
+  type DataSourceConnection,
+  type DataSourceResourceConfiguration,
+} from "../../../core/intelligence";
+import { secretStore } from "../../application/connections/connection-runtime";
+import {
+  dataSourceConnectionRepository,
+  dataSourceDeletionService,
+  dataSourceSnapshotRepository,
+  dataSourceSyncService,
+  googleOAuthClientFactory,
+  googleOAuthCredentialService,
+  googleOAuthStateStore,
+  projectDataSourceReferenceRepository,
+} from "../../application/data-sources/data-source-runtime";
+import { DataSourceError, publicDataSourceError } from "../../application/data-sources/DataSourceErrors";
+import { publicDataSourceConnection } from "../../application/data-sources/PublicDataSourceConnection";
+import { studioStore } from "../../application/studio-store";
+import type { UserData } from "../../user-flow/user-data";
+
+export async function GET(request: Request) {
+  try {
+    const url = new URL(request.url), workspaceId = required(url.searchParams.get("workspaceId"), "Workspace is required."), data = await ownedWorkspace(workspaceId);
+    const jobId = url.searchParams.get("jobId");
+    if (jobId) return NextResponse.json({ job: dataSourceSyncService.status(workspaceId, jobId) ?? null });
+    const projectId = url.searchParams.get("projectId");
+    if (projectId) ownedProject(data, projectId);
+    const connections = await dataSourceConnectionRepository.listByWorkspace(workspaceId);
+    const snapshots = await dataSourceSnapshotRepository.listByWorkspace(workspaceId);
+    const workspaceReferences = await projectDataSourceReferenceRepository.listByWorkspace(workspaceId);
+    const references = projectId ? workspaceReferences.filter((value) => value.projectId === projectId) : [];
+    return NextResponse.json({
+      connections: connections.map((connection) => ({ ...publicDataSourceConnection(connection, snapshots.filter((value) => value.connectionId === connection.id).sort((a, b) => b.syncedAt.localeCompare(a.syncedAt))[0]), projectReferenceCount: workspaceReferences.filter((value) => value.connectionId === connection.id).length })),
+      projectReferences: references.filter((value) => value.workspaceId === workspaceId),
+      googleOAuth: { configured: googleOAuthClientFactory.configured() },
+      conditionalProviders: [
+        { provider: "googleAdsKeywordPlanning", status: "configurationRequired", reason: "Google Ads API access and an authorized customer account must be verified before activation." },
+        { provider: "googleTrendsOfficial", status: "configurationRequired", reason: "Official Google Trends API access and a resource reference must be verified before activation. Scraping is not used." },
+      ],
+    });
+  } catch (error) { return failure(error); }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const body = await requestBody(request), workspaceId = required(body.workspaceId, "Workspace를 선택해 주세요.", "workspaceId");
+    await ownedWorkspace(workspaceId);
+    const confirmationMode = deletionMode(body.confirmationMode);
+    const result = await dataSourceDeletionService.delete({ workspaceId, connectionId: required(body.connectionId, "Data Source 연결을 선택해 주세요.", "connectionId"), connectionVersion: number(body.connectionVersion), confirmationMode });
+    return NextResponse.json(result);
+  } catch (error) { return failure(error); }
+}
+
+export async function POST(request: Request) {
+  try {
+    const body = await requestBody(request), workspaceId = required(body.workspaceId, "Workspace를 선택해 주세요.", "workspaceId"), data = await ownedWorkspace(workspaceId);
+    if (body.action === "save-connection") return await saveConnection(workspaceId, body);
+    if (body.action === "disconnect") return await disconnect(workspaceId, required(body.connectionId, "Data Source 연결을 선택해 주세요.", "connectionId"), number(body.connectionVersion));
+    if (body.action === "set-enabled") return await setEnabled(workspaceId, required(body.connectionId, "Data Source 연결을 선택해 주세요.", "connectionId"), number(body.connectionVersion), body.enabled === true);
+    if (body.action === "set-project-reference") return await setProjectReference(data, required(body.projectId, "Project를 선택해 주세요.", "projectId"), required(body.connectionId, "Data Source 연결을 선택해 주세요.", "connectionId"), body.enabled === true);
+    if (body.action === "sync") return await startSync(workspaceId, body);
+    throw new DataSourceError("지원하지 않는 Data Source 요청입니다.", "DATA_SOURCE_REQUEST_VALIDATION_ERROR", 400, "action");
+  } catch (error) { return failure(error); }
+}
+
+async function saveConnection(workspaceId: string, body: Record<string, unknown>) {
+  if (!isDataSourceProvider(body.provider)) throw new DataSourceError("지원하지 않는 Data Source Provider입니다.", "DATA_SOURCE_REQUEST_VALIDATION_ERROR", 400, "provider");
+  const provider = body.provider;
+  if (provider === "googleAdsKeywordPlanning" || provider === "googleTrendsOfficial") throw new DataSourceError("공식 API 접근이 확인되기 전에는 이 Provider를 활성화할 수 없습니다.", "DATA_SOURCE_REQUEST_VALIDATION_ERROR", 400, "provider");
+  const existing = typeof body.connectionId === "string" ? await ownedConnection(workspaceId, body.connectionId) : undefined;
+  if (existing && existing.version !== number(body.connectionVersion)) throw new DataSourceError("연결 정보가 변경되었습니다. 새로고침 후 다시 저장해 주세요.", "DATA_SOURCE_CONFLICT", 409, "connectionVersion");
+  const resourceConfiguration = sanitizeResourceConfiguration(body.resourceConfiguration), displayName = required(body.displayName, "표시 이름을 입력해 주세요.", "displayName"), credentials = sanitizeCredentials(body.credentials);
+  validateResource(provider, resourceConfiguration);
+  if (provider === "googleSearchConsole") {
+    if (Object.keys(credentials).length) throw new DataSourceError("Search Console credential은 Google OAuth callback에서만 저장할 수 있습니다.", "DATA_SOURCE_REQUEST_VALIDATION_ERROR", 400, "credentials");
+    if (!existing || existing.credentialMode !== "googleOAuth" || !existing.secretReference) throw new DataSourceError("먼저 Google 계정으로 Search Console을 연결해 주세요.", "DATA_SOURCE_CREDENTIAL_VALIDATION_ERROR", 400);
+    if (!existing.availableResources?.some((value) => value.siteUrl === resourceConfiguration.siteProperty)) throw new DataSourceError("선택한 Search Console 속성에 접근할 수 없습니다. 속성을 다시 선택해 주세요.", "GOOGLE_SEARCH_CONSOLE_RESOURCE_NOT_FOUND", 400, "siteProperty");
+  } else if (Object.keys(credentials).length) validateCredentials(provider, credentials);
+  let secretReference = existing?.secretReference, createdSecret: string | undefined;
+  if (provider !== "googleSearchConsole" && Object.keys(credentials).length) { createdSecret = await secretStore.storeSecret(`data-source-${workspaceId}-${provider}`, JSON.stringify(credentials)); secretReference = createdSecret; }
+  if (!secretReference) throw new DataSourceError(provider === "naverSearchTrend" ? "NAVER Client ID와 Client Secret을 입력해 주세요." : "OAuth access token을 입력해 주세요.", "DATA_SOURCE_CREDENTIAL_VALIDATION_ERROR", 400, provider === "naverSearchTrend" ? "clientId" : "accessToken");
+  const now = new Date().toISOString(), connection: DataSourceConnection = Object.freeze({ id: existing?.id ?? randomUUID(), workspaceId, provider, displayName, status: "connected", secretReference, credentialMode: provider === "googleSearchConsole" ? "googleOAuth" : "providerCredential", resourceConfiguration, availableResources: existing?.availableResources, enabled: body.enabled !== false, lastSuccessfulSyncAt: existing?.lastSuccessfulSyncAt, lastSyncAttemptAt: existing?.lastSyncAttemptAt, createdAt: existing?.createdAt ?? now, updatedAt: now, version: (existing?.version ?? 0) + 1 });
+  try {
+    await dataSourceConnectionRepository.save(connection);
+  } catch (error) { if (createdSecret) await secretStore.deleteSecret(createdSecret); throw error; }
+  if (createdSecret && existing?.secretReference) await secretStore.deleteSecret(existing.secretReference).catch(() => undefined);
+  return NextResponse.json({ connection: publicDataSourceConnection(connection) });
+}
+
+async function disconnect(workspaceId: string, connectionId: string, version: number) {
+  const connection = await ownedConnection(workspaceId, connectionId);
+  if (connection.version !== version) throw new DataSourceError("연결 정보가 변경되었습니다. 새로고침 후 다시 시도해 주세요.", "DATA_SOURCE_CONFLICT", 409, "connectionVersion");
+  await googleOAuthStateStore.invalidate({ workspaceId, connectionId }).catch(() => undefined);
+  await googleOAuthCredentialService.revoke(connection);
+  if (connection.secretReference) await secretStore.deleteSecret(connection.secretReference);
+  const now = new Date().toISOString();
+  await dataSourceConnectionRepository.save(Object.freeze({ ...connection, status: "disconnected", enabled: false, secretReference: undefined, activeOperationId: undefined, lastError: undefined, lastErrorCode: undefined, updatedAt: now, version: connection.version + 1 }));
+  return NextResponse.json({ disconnected: true, retainedSnapshots: true, message: "연결과 비밀정보를 해제했습니다. 마지막 성공 snapshot과 Evidence는 안전하게 유지됩니다." });
+}
+
+async function setEnabled(workspaceId: string, connectionId: string, version: number, enabled: boolean) {
+  const connection = await ownedConnection(workspaceId, connectionId);
+  if (connection.version !== version) throw new DataSourceError("연결 정보가 변경되었습니다. 새로고침 후 다시 시도해 주세요.", "DATA_SOURCE_CONFLICT", 409, "connectionVersion");
+  if (enabled && (connection.status === "disconnected" || !connection.secretReference)) throw new DataSourceError("연결 정보를 다시 설정한 후 활성화해 주세요.", "DATA_SOURCE_CREDENTIAL_VALIDATION_ERROR", 400);
+  await dataSourceConnectionRepository.save(Object.freeze({ ...connection, enabled, updatedAt: new Date().toISOString(), version: connection.version + 1 }));
+  return NextResponse.json({ enabled });
+}
+
+async function setProjectReference(data: UserData, projectId: string, connectionId: string, enabled: boolean) {
+  const project = ownedProject(data, projectId), connection = await ownedConnection(project.workspaceId, connectionId);
+  if (connection.workspaceId !== project.workspaceId) throw new DataSourceError("다른 Workspace의 Data Source를 이 Project에서 사용할 수 없습니다.", "DATA_SOURCE_PERMISSION_ERROR", 403);
+  if (enabled) await projectDataSourceReferenceRepository.save(Object.freeze({ workspaceId: project.workspaceId, projectId, connectionId, enabled: true, updatedAt: new Date().toISOString() }));
+  else await projectDataSourceReferenceRepository.delete(projectId, connectionId);
+  return NextResponse.json({ referenced: enabled });
+}
+
+async function startSync(workspaceId: string, body: Record<string, unknown>) {
+  const connectionId = required(body.connectionId, "Data Source 연결을 선택해 주세요.", "connectionId"), connection = await ownedConnection(workspaceId, connectionId);
+  const periodEnd = date(body.periodEnd, new Date()), periodStart = date(body.periodStart, new Date(Date.parse(periodEnd) - 27 * 86400000));
+  const job = await dataSourceSyncService.start({ workspaceId, connectionId, connectionVersion: number(body.connectionVersion), periodStart, periodEnd, operationId: typeof body.operationId === "string" ? body.operationId : undefined });
+  return NextResponse.json({ job, connectionVersion: connection.version + 1 });
+}
+
+async function ownedWorkspace(workspaceId: string) { const data = await studioStore.get<UserData>("application", "user-data"); if (!data?.workspace || data.workspace.id !== workspaceId) throw new DataSourceError("Workspace를 찾을 수 없습니다.", "DATA_SOURCE_NOT_FOUND", 404); return data; }
+function ownedProject(data: UserData, projectId: string) { const project = data.projects.find((value) => value.id === projectId && value.workspaceId === data.workspace?.id); if (!project) throw new DataSourceError("이 Workspace에서 Project에 접근할 수 없습니다.", "DATA_SOURCE_PERMISSION_ERROR", 403); return project; }
+async function ownedConnection(workspaceId: string, id: string) { const value = await dataSourceConnectionRepository.findById(id); if (!value) throw new DataSourceError("Data Source 연결을 찾을 수 없습니다.", "DATA_SOURCE_NOT_FOUND", 404); if (value.workspaceId !== workspaceId) throw new DataSourceError("이 Workspace에서 Data Source 연결에 접근할 수 없습니다.", "DATA_SOURCE_PERMISSION_ERROR", 403); return value; }
+function sanitizeResourceConfiguration(value: unknown): DataSourceResourceConfiguration {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return Object.freeze({});
+  const input = value as Record<string, unknown>, allowed = ["siteProperty", "country", "device", "searchType", "propertyId", "streamReference", "accountReference", "siteReference", "region", "gender", "customerReference", "officialResourceReference"];
+  const result: Record<string, string | readonly string[]> = {};
+  for (const key of allowed) if (typeof input[key] === "string" && input[key].trim()) result[key] = input[key].trim().slice(0, 500);
+  for (const key of ["ages", "keywords"]) if (Array.isArray(input[key])) result[key] = Object.freeze((input[key] as unknown[]).filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean).slice(0, 20));
+  return Object.freeze(result);
+}
+function sanitizeCredentials(value: unknown): Record<string, string> { if (!value || typeof value !== "object" || Array.isArray(value)) return {}; const input = value as Record<string, unknown>; return Object.fromEntries(["accessToken", "refreshToken", "clientId", "clientSecret"].flatMap((key) => typeof input[key] === "string" && input[key].trim() ? [[key, input[key].trim()]] : [])); }
+function validateResource(provider: DataSourceConnection["provider"], value: DataSourceResourceConfiguration) { if (provider === "googleSearchConsole" && !value.siteProperty) throw new DataSourceError("Search Console 사이트 속성을 입력해 주세요.", "DATA_SOURCE_RESOURCE_VALIDATION_ERROR", 400, "siteProperty"); if (provider === "googleAnalytics4" && !value.propertyId) throw new DataSourceError("GA4 property ID를 입력해 주세요.", "DATA_SOURCE_RESOURCE_VALIDATION_ERROR", 400, "propertyId"); if (provider === "googleAdSense" && !value.accountReference) throw new DataSourceError("AdSense 계정 리소스를 입력해 주세요.", "DATA_SOURCE_RESOURCE_VALIDATION_ERROR", 400, "accountReference"); if (provider === "naverSearchTrend" && !value.keywords?.length) throw new DataSourceError("NAVER 검색어를 하나 이상 입력해 주세요.", "DATA_SOURCE_RESOURCE_VALIDATION_ERROR", 400, "keywords"); }
+function validateCredentials(provider: DataSourceConnection["provider"], value: Record<string, string>) { if (provider === "naverSearchTrend" && (!value.clientId || !value.clientSecret)) throw new DataSourceError("NAVER Client ID와 Client Secret을 모두 입력해 주세요.", "DATA_SOURCE_CREDENTIAL_VALIDATION_ERROR", 400, !value.clientId ? "clientId" : "clientSecret"); if (provider !== "naverSearchTrend" && !value.accessToken) throw new DataSourceError("OAuth access token을 입력해 주세요.", "DATA_SOURCE_CREDENTIAL_VALIDATION_ERROR", 400, "accessToken"); }
+function required(value: unknown, error: string, field?: string): string { if (typeof value !== "string" || !value.trim()) throw new DataSourceError(error, "DATA_SOURCE_REQUEST_VALIDATION_ERROR", 400, field); return value.trim(); }
+function number(value: unknown): number { const result = Number(value); if (!Number.isInteger(result) || result < 0) throw new DataSourceError("올바른 connection version이 필요합니다.", "DATA_SOURCE_REQUEST_VALIDATION_ERROR", 400, "connectionVersion"); return result; }
+function deletionMode(value: unknown): "deleteDisconnected" | "disconnectAndDelete" { if (value === "deleteDisconnected" || value === "disconnectAndDelete") return value; throw new DataSourceError("삭제 확인 방식이 필요합니다.", "DATA_SOURCE_REQUEST_VALIDATION_ERROR", 400, "confirmationMode"); }
+function date(value: unknown, fallback: Date): string { if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value; return fallback.toISOString().slice(0, 10); }
+async function requestBody(request: Request): Promise<Record<string, unknown>> { try { const value = await request.json(); if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(); return value as Record<string, unknown>; } catch { throw new DataSourceError("올바른 요청 payload가 필요합니다.", "DATA_SOURCE_REQUEST_VALIDATION_ERROR", 400); } }
+function failure(error: unknown) { const value = publicDataSourceError(error); return NextResponse.json({ error: value.error, code: value.code, ...(value.field ? { field: value.field } : {}) }, { status: value.status }); }

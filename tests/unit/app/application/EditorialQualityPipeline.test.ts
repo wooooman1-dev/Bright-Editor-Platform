@@ -29,6 +29,15 @@ function articleWithVerifiedLinks() {
   ] };
 }
 
+function articleWithDuplicateImages() {
+  const value = article();
+  const blocks: Array<Record<string, unknown> & { type: string }> = [...value.blocks];
+  const headingIndexes = blocks.flatMap((block, index) => block.type === "heading" && block.level === 2 ? [index] : []);
+  blocks.splice((headingIndexes[0] ?? 0) + 2, 0, { type: "image", source: "", purpose: "inline", alt: "첫 섹션 실행 장면", prompt: "같은 생활 공간에서 같은 행동을 하는 장면" });
+  blocks.splice((headingIndexes[1] ?? 3) + 3, 0, { type: "image", source: "", purpose: "inline", alt: "둘째 섹션 실행 장면", prompt: "같은 생활 공간에서 같은 행동을 하는 장면" });
+  return { ...value, blocks };
+}
+
 describe("EditorialQualityPipeline", () => {
   it("stops after three automatic improvements and returns the highest-scoring manuscript", async () => {
     const response = JSON.stringify(article());
@@ -94,5 +103,19 @@ describe("EditorialQualityPipeline", () => {
     expect(instruction).toContain("missingRequiredInformation");
     expect(instruction).toContain("repeatedOrShallowParagraphs");
     expect(instruction).toContain("linkState");
+  });
+
+  it("does not leave duplicate prompts in final-review or improvement candidates", async () => {
+    const response = JSON.stringify(articleWithDuplicateImages());
+    const generate = vi.fn(async (request: AIRequest) => { void request; return { content: response, model: "test-model" }; });
+    const parseInput = { contentId: "content-images", contentType: "article" as never, keywords: ["실용 가이드"], platform: "tistory" as never, projectId: "project-1" };
+    const initial = new EditorialGenerationStrategy().parse(response, parseInput);
+    const result = await new EditorialQualityPipeline({ generate }).run({ document: initial, finalReviewInstruction: () => "final", parseInput, qualityContext: { contentType: "article", platform: "tistory", primaryKeyword: "실용 가이드" } });
+
+    for (const quality of result.qualityHistory) {
+      expect(quality.dimensions.find((item) => item.category === "imageStrategy")?.evidence).toContainEqual({ signal: "duplicateImagePrompts", value: 0 });
+    }
+    const prompts = result.document.blocks.flatMap((block) => block.type === "image" ? [block.prompt] : []);
+    expect(new Set(prompts).size).toBe(prompts.length);
   });
 });

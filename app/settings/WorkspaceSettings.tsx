@@ -7,6 +7,7 @@ import { DangerZone } from "../user-flow/DangerZone";
 import { GlobalHeader } from "../shared/ui/GlobalHeader";
 import { supportedWorkspacePlatforms, type ThemePreference, type WorkspacePlatform } from "../user-flow/user-data";
 import { SettingsConnections } from "./SettingsConnections";
+import { SettingsDataSources } from "./SettingsDataSources";
 import { SettingsMediaPermissions } from "./SettingsMediaPermissions";
 import type { SettingsSection, SettingsSnapshot, StatusSummary } from "./settings-types";
 import { themes } from "./settings-types";
@@ -15,7 +16,7 @@ import { applyTheme } from "./theme";
 const platformLabels: Readonly<Record<WorkspacePlatform, string>> = { tistory: "Tistory", wordpress: "WordPress", youtube: "YouTube", naver_cafe: "Naver Cafe" };
 const sections: readonly Readonly<{ id: SettingsSection; label: string }>[] = [
   { id: "overview", label: "개요" }, { id: "ai", label: "AI" }, { id: "enabled-platforms", label: "Enabled Platforms" },
-  { id: "connections", label: "플랫폼 연결" }, { id: "publishing", label: "발행 설정" }, { id: "media", label: "이미지 권한" }, { id: "automation", label: "자동화 상태" },
+  { id: "connections", label: "플랫폼 연결" }, { id: "data-sources", label: "데이터 소스" }, { id: "publishing", label: "발행 설정" }, { id: "media", label: "이미지 권한" }, { id: "automation", label: "자동화 상태" },
   { id: "workspace", label: "워크스페이스" }, { id: "appearance", label: "화면 설정" }, { id: "danger", label: "위험 구역" },
 ];
 
@@ -53,6 +54,7 @@ export function WorkspaceSettings({ initialSection = "overview", workspaceId }: 
         {section === "ai" ? <AISettings busy={busy} onCheck={() => action({ action: "check-ai" })} snapshot={snapshot} /> : null}
         {section === "enabled-platforms" ? <EnabledPlatforms busy={busy} onSave={(enabledPlatforms) => action({ action: "save-enabled-platforms", enabledPlatforms })} snapshot={snapshot} /> : null}
         {section === "connections" ? <SettingsConnections connections={snapshot.connections} enabledPlatforms={snapshot.settings.enabledPlatforms} onRefresh={refresh} workspaceId={workspaceId} /> : null}
+        {section === "data-sources" ? <SettingsDataSources projects={snapshot.projects ?? []} workspaceId={workspaceId} /> : null}
         {section === "publishing" ? <PublishingSettings busy={busy} onSave={(value) => action({ action: "save-publishing", sequentialDraftSave: value })} snapshot={snapshot} /> : null}
         {section === "media" ? <SettingsMediaPermissions connections={snapshot.connections} onRefresh={refresh} workspaceId={workspaceId} /> : null}
         {section === "automation" ? <AutomationSettings busy={busy} onCheck={() => action({ action: "check-automation" }).then(() => refresh())} snapshot={snapshot} setSection={setSection} /> : null}

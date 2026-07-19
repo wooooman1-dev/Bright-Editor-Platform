@@ -1409,3 +1409,33 @@ AI-Context-Safe
 ```markdown
 Status: Approved
 Implementation Status: Not Implemented
+```
+
+## 25. Workspace Data Sources and Opportunity Recommendation Types
+
+Implementation status: Foundation implemented; official-account verification pending.
+
+External market and performance data is owned by Workspace-level `DataSourceConnection`, not by Project and not by Publishing `PlatformConnection`. Projects opt into same-Workspace connections by reference. Credentials remain in SecretStore.
+
+Official Provider data follows this lifecycle:
+
+```text
+Manual Sync
+→ Raw Snapshot
+→ Normalized Evidence
+→ Project-scoped Planning Context
+→ Server Evidence Matching
+→ Recommendation Classification
+```
+
+Content creation never calls an external market API in real time. No connection or snapshot is required for internal blog-growth planning.
+
+Every candidate has one server-classified recommendation type:
+
+- `comprehensive` / 종합 추천: current verified external Evidence plus internal growth Evidence.
+- `marketOpportunity` / 시장 기회 추천: verified external Evidence without enough internal growth support for comprehensive.
+- `blogGrowth` / 블로그 성장 추천: internal content-gap/link/cluster Evidence without verified external market opportunity.
+
+Editorial inference alone is never market Evidence. Candidate counts and types are not balanced artificially. Cards do not claim an overall first place or fabricated score. They show Evidence summary, Provider, period, freshness, confidence and limitations.
+
+AI can organize a topic, intent, reader problem and rationale from a read-only bundle but cannot create canonical Evidence. The server validates Evidence IDs, Workspace ownership, freshness and classification after AI output and stores those fields atomically with the complete Opportunity.

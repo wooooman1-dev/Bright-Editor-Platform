@@ -33,7 +33,7 @@ type Screen =
   | Readonly<{ name: "home" }>
   | Readonly<{ name: "connections" }>
   | Readonly<{ name: "project"; projectId: string }>
-  | Readonly<{ name: "create"; projectId: string; automatic?: boolean }>
+  | Readonly<{ name: "create"; projectId: string; automatic?: boolean; contentId?: string }>
   | Readonly<{ name: "editor"; projectId: string; contentId: string }>;
 
 export function FirstRunExperience() {
@@ -45,7 +45,7 @@ export function FirstRunExperience() {
     let active = true;
     void fetch("/api/studio", { cache: "no-store" })
       .then(async (response) => response.json() as Promise<{ data?: UserData | null }>)
-      .then((result) => { if (active) { const next = result.data ? parseStoredUserData(JSON.stringify(result.data)) : emptyUserData; setData(next); applyTheme(next.workspace?.settings?.appearance.theme ?? "system"); } })
+      .then((result) => { if (active) { const next = result.data ? parseStoredUserData(JSON.stringify(result.data)) : emptyUserData; setData(next); setScreen(screenFromLocation(next)); applyTheme(next.workspace?.settings?.appearance.theme ?? "system"); } })
       .finally(() => { if (active) setHydrated(true); });
     return () => { active = false; };
   }, []);
@@ -53,14 +53,23 @@ export function FirstRunExperience() {
   const persist = async (next: UserData) => {
     setData(next);
     const response = await fetch("/api/studio", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(next) });
-    if (!response.ok) { const result = await response.json() as { error?: string }; throw new Error(result.error ?? "Local persistence failed."); }
+    const result = await response.json() as { data?: UserData; error?: string };
+    if (!response.ok) throw new Error(result.error ?? "Local persistence failed.");
+    if (result.data) setData((current) => mergePersistedData(current, parseStoredUserData(JSON.stringify(result.data))));
   };
-  const refreshData = async () => {
+  const refreshData = useCallback(async (): Promise<UserData> => {
     const response = await fetch("/api/studio", { cache: "no-store" });
     const result = await response.json() as { data?: UserData | null; error?: string };
     if (!response.ok || !result.data) throw new Error(result.error ?? "작업 공간을 새로 불러오지 못했습니다.");
-    setData(parseStoredUserData(JSON.stringify(result.data)));
-  };
+    const next = parseStoredUserData(JSON.stringify(result.data));
+    setData(next);
+    return next;
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    syncLocation(screen);
+  }, [hydrated, screen]);
 
   const workspaces: readonly WorkspaceSummary[] = data.workspace ? [{ id: data.workspace.id, name: data.workspace.name }] : [];
 
@@ -77,6 +86,7 @@ export function FirstRunExperience() {
   const requestedProjectId = screen.name === "project" || screen.name === "create" || screen.name === "editor" ? screen.projectId : undefined;
   const activeProject = requestedProjectId ? data.projects.find((project) => project.id === requestedProjectId && project.workspaceId === data.workspace!.id) : undefined;
   const activeContent = screen.name === "editor" && activeProject ? data.contents.find((content) => content.id === screen.contentId && content.workspaceId === data.workspace!.id && content.projectId === activeProject.id) : undefined;
+  const activePlanningContent = screen.name === "create" && screen.contentId && activeProject ? data.contents.find((content) => content.id === screen.contentId && content.workspaceId === data.workspace!.id && content.projectId === activeProject.id) : undefined;
 
   return (
     <main className="min-h-screen bg-[#f8f8fa] text-[#19191b]">
@@ -90,14 +100,18 @@ export function FirstRunExperience() {
           data={data}
           project={activeProject}
           onBack={() => setScreen({ name: "home" })}
-          onOpenContent={(contentId) => setScreen({ name: "editor", projectId: activeProject.id, contentId })}
+          onOpenContent={(contentId) => {
+            const target = data.contents.find((item) => item.id === contentId);
+            const resumesPlanning = target?.planningWorkflow && target.planningWorkflow.status !== "generated" && target.planningWorkflow.status !== "cancelled";
+            setScreen(resumesPlanning ? { name: "create", projectId: activeProject.id, contentId } : { name: "editor", projectId: activeProject.id, contentId });
+          }}
           onCreateContent={(automatic) => setScreen({ name: "create", projectId: activeProject.id, automatic })}
           onDeleted={() => { window.location.assign("/"); }}
           onPersist={persist}
           onRename={async (name) => persist(renameProject(data, activeProject.id, name, nowLabel()))}
         />
       ) : null}
-      {screen.name === "create" && activeProject ? <ContentCreationFlow key={activeProject.id} automatic={screen.automatic === true} data={data} onBack={() => setScreen({ name: "project", projectId: activeProject.id })} onOpenEditor={(contentId) => setScreen({ name: "editor", projectId: activeProject.id, contentId })} onPersist={persist} project={activeProject} /> : null}
+      {screen.name === "create" && activeProject ? <ContentCreationFlow key={activeProject.id} automatic={screen.automatic === true} content={activePlanningContent} data={data} onBack={() => setScreen({ name: "project", projectId: activeProject.id })} onContentStarted={(contentId) => setScreen((current) => current.name === "create" ? { ...current, contentId } : current)} onOpenEditor={(contentId) => setScreen({ name: "editor", projectId: activeProject.id, contentId })} onPersist={persist} onRefresh={refreshData} onRestore={setData} project={activeProject} /> : null}
       {screen.name === "editor" && activeProject && activeContent ? (
         <EditorWorkspace
           key={`${activeProject.id}:${activeContent.id}`}
@@ -136,7 +150,7 @@ function WorkspaceCreation({ onCreate }: { onCreate: (name: string) => void }) {
   );
 }
 
-function WorkspaceHome({ data, onCreateToday, onOpenProject, onPersist, onRefresh }: { data: UserData; onCreateToday: (projectId: string) => void; onOpenProject: (projectId: string) => void; onPersist: (data: UserData) => Promise<void>; onRefresh: () => Promise<void> }) {
+function WorkspaceHome({ data, onCreateToday, onOpenProject, onPersist, onRefresh }: { data: UserData; onCreateToday: (projectId: string) => void; onOpenProject: (projectId: string) => void; onPersist: (data: UserData) => Promise<void>; onRefresh: () => Promise<unknown> }) {
   const [showForm, setShowForm] = useState(data.projects.length === 0);
   const [notice, setNotice] = useState("");
   const brandsById = useMemo(() => new Map(data.brands.map((brand) => [brand.id, brand])), [data.brands]);
@@ -226,7 +240,7 @@ function ProjectScreen({ data, onBack, onCreateContent, onDeleted, onOpenContent
       <PublishingTargetSelector data={data} onPersist={onPersist} project={project} workspaceId={data.workspace!.id} />
       <section className="mt-8">
         <h2 className="text-lg font-semibold">콘텐츠</h2>
-        {contents.length === 0 ? <p className="mt-4 rounded-[20px] border border-dashed border-black/10 bg-white p-6 text-sm text-[#77777f]">아직 콘텐츠가 없습니다.</p> : <div className="mt-4 space-y-3">{contents.map((content) => <button className="flex w-full items-center justify-between rounded-[20px] border border-black/6 bg-white p-5 text-left" key={content.id} onClick={() => onOpenContent(content.id)} type="button"><span><span className="block font-semibold">{content.title}</span><span className="mt-1 block text-xs text-[#92929a]">임시저장 · {content.updatedAt}</span></span><span className="text-sm font-semibold text-[#d94848]">편집 →</span></button>)}</div>}
+        {contents.length === 0 ? <p className="mt-4 rounded-[20px] border border-dashed border-black/10 bg-white p-6 text-sm text-[#77777f]">아직 콘텐츠가 없습니다.</p> : <div className="mt-4 space-y-3">{contents.map((content) => { const resumable = content.planningWorkflow && content.planningWorkflow.status !== "generated" && content.planningWorkflow.status !== "cancelled"; return <button className="flex w-full items-center justify-between rounded-[20px] border border-black/6 bg-white p-5 text-left" key={content.id} onClick={() => onOpenContent(content.id)} type="button"><span><span className="block font-semibold">{content.title}</span><span className="mt-1 block text-xs text-[#92929a]">{resumable ? `Planning · ${planningStatusLabel(content.planningWorkflow!.status)}` : "임시저장"} · {content.updatedAt}</span></span><span className="text-sm font-semibold text-[#d94848]">{resumable ? "이어서 작성 →" : "편집 →"}</span></button>; })}</div>}
       </section>
       <section className="mt-8 rounded-[20px] border border-black/6 bg-white p-5"><h2 className="font-semibold">Project settings</h2><p className="mt-2 text-sm text-[#77777f]">Project name: {project.name} · Brand: {brand?.name ?? "None"}</p></section>
       <DangerZone onDeleted={onDeleted} projectId={project.id} scope="project" workspaceId={data.workspace!.id} />
@@ -344,6 +358,66 @@ function PublishingTargetSelector({ data, onPersist, project, workspaceId }: { d
 
 function Field({ label, onChange, placeholder, value }: { label: string; onChange: (value: string) => void; placeholder?: string; value: string }) {
   return <label className="block text-sm font-semibold">{label}<input className="mt-2 w-full rounded-xl border border-black/8 bg-[#fafafa] px-4 py-3 font-normal outline-none" onChange={(event) => onChange(event.target.value)} placeholder={placeholder} value={value} /></label>;
+}
+
+function screenFromLocation(data: UserData): Screen {
+  if (typeof window === "undefined") return { name: "home" };
+  const query = new URLSearchParams(window.location.search);
+  const name = query.get("view");
+  const projectId = query.get("projectId") ?? "";
+  const contentId = query.get("contentId") ?? "";
+  const project = data.projects.find((item) => item.id === projectId && item.workspaceId === data.workspace?.id);
+  if (!project) return { name: "home" };
+  if (name === "create") {
+    const content = contentId ? data.contents.find((item) => item.id === contentId && item.projectId === project.id && item.workspaceId === project.workspaceId) : undefined;
+    return contentId && !content ? { name: "project", projectId } : { name: "create", projectId, ...(content ? { contentId: content.id } : {}) };
+  }
+  if (name === "editor") {
+    const content = data.contents.find((item) => item.id === contentId && item.projectId === project.id && item.workspaceId === project.workspaceId);
+    if (content) return { name: "editor", projectId, contentId: content.id };
+  }
+  return { name: "project", projectId };
+}
+
+function syncLocation(screen: Screen): void {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  url.searchParams.delete("view");
+  url.searchParams.delete("projectId");
+  url.searchParams.delete("contentId");
+  if (screen.name === "project" || screen.name === "create" || screen.name === "editor") {
+    url.searchParams.set("view", screen.name);
+    url.searchParams.set("projectId", screen.projectId);
+    if ((screen.name === "create" || screen.name === "editor") && screen.contentId) url.searchParams.set("contentId", screen.contentId);
+  }
+  window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
+function planningStatusLabel(status: NonNullable<UserContent["planningWorkflow"]>["status"]): string {
+  return ({
+    requested: "요청 저장됨",
+    planning: "분석 중",
+    candidatesReady: "후보 준비 완료",
+    opportunitySelected: "후보 선택됨",
+    opportunityConfirmed: "기획 확정됨",
+    generating: "원고 생성 중",
+    generated: "생성 완료",
+    failed: "오류 · 재시도 가능",
+    cancelled: "취소됨",
+  })[status];
+}
+
+function mergePersistedData(local: UserData, server: UserData): UserData {
+  const localById = new Map(local.contents.map((content) => [content.id, content]));
+  return {
+    ...server,
+    contents: server.contents.map((content) => {
+      const localContent = localById.get(content.id);
+      const localRevision = localContent?.planningWorkflow?.revision ?? -1;
+      const serverRevision = content.planningWorkflow?.revision ?? -1;
+      return localContent && localRevision > serverRevision ? localContent : content;
+    }),
+  };
 }
 
 function createId(prefix: string): string {

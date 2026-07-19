@@ -16,10 +16,12 @@ describe("server-calculated Quality Review API", () => {
     mocks.get.mockResolvedValue(current);
     mocks.update.mockImplementation(async (_collection: string, _stateId: string, updater: (value: UserData | undefined) => UserData) => updater(current));
     const response = await POST(new Request("http://localhost/api/studio", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "review-quality", input: { workspaceId: "workspace", contentId: "content", overallScore: 100, approved: true } }) }));
-    const result = await response.json() as { quality: { overallScore: number; approved: boolean; reviewedRevisionId: string }; data: UserData };
+    const result = await response.json() as { document: { title: string }; quality: { overallScore: number; approved: boolean; reviewedRevisionId: string; tasks: Array<{ category: string; message: string }> }; data: UserData };
     expect(result.quality.overallScore).toBeLessThan(100);
     expect(result.quality.approved).toBe(false);
     expect(result.quality.reviewedRevisionId).toMatch(/^rev-/);
+    expect(result.document.title).toBe("기획안");
+    expect(result.quality.tasks.some((task) => task.category === "seo" && task.message.includes("핵심 키워드"))).toBe(true);
     expect(result.data).toEqual(expect.objectContaining({ qualityReports: [expect.objectContaining({ contentId: "content" })] }));
     expect(mocks.update).toHaveBeenCalledWith("application", "user-data", expect.any(Function));
   });

@@ -537,6 +537,8 @@ CTA 전략
 내부 링크 전략
 편집
 Content Model 생성
+
+Generation receives one server-owned Content Opportunity contract. Topic, primary keyword, secondary keywords, search intent, audience, reader problem, content angle, expected coverage, exclusions, duplicate-avoidance context, content role, and platform requirements enter the existing generation call together. The client cannot replace individual fields after confirmation.
 16.2 Quality Review
 
 별도의 AI 호출로 다음 내용을 검토한다.
@@ -553,6 +555,8 @@ CTA 전략
 중복
 금지 표현
 전체 완성도
+
+The same confirmed Opportunity is included in the existing Quality Review call. The reviewer must correct full-manuscript topic drift rather than attach a keyword to an unrelated title. Server-side structured evidence blocks approval when topic fidelity, intent fulfillment, heading/body coverage, or secondary-keyword support remains inconsistent. No additional AI call is introduced for this contract.
 16.3 Rule Validation
 
 Rule Validation은 AI 호출과 별개로 실행한다.

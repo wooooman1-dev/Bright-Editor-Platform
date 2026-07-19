@@ -5,15 +5,17 @@ import { describe, expect, it } from "vitest";
 const routeSource = readFileSync(join(process.cwd(), "app/api/studio/route.ts"), "utf8");
 
 describe("Studio content deletion and SEO policy boundaries", () => {
-  it("enforces the confirmed primary keyword across document-producing paths", () => {
-    expect(routeSource).toContain("const initialDocument = ensureContentSeoPolicy(await placeAvailableTistoryPosts(owned, existing, result.document), existing);");
-    expect(routeSource).toContain("placeDocument: async (document) => ensureContentSeoPolicy(await placeAvailableTistoryPosts(owned, existing, document), existing)");
-    expect(routeSource).toContain("const document = ensureContentSeoPolicy(parsed, current);");
-    expect(routeSource.match(/document = ensureContentSeoPolicy\(await placeAvailableTistoryPosts\(data, content, document\), content\);/gu)?.length).toBeGreaterThanOrEqual(3);
+  it("enforces the confirmed Opportunity before SEO placement across AI document paths", () => {
+    expect(routeSource).toContain("const initialDocument = applyContentPolicy(await placeAvailableTistoryPosts(owned, existing, result.document), existing);");
+    expect(routeSource).toContain("placeDocument: async (document) => applyContentPolicy(await placeAvailableTistoryPosts(owned, existing, document), existing)");
+    expect(routeSource).toContain("const document = applyContentPolicy(restoreProtectedImageAssets(current.document, parsed), current, true);");
+    expect(routeSource.match(/document = applyContentPolicy\(await placeAvailableTistoryPosts\(data, content, document\), content\);/gu)?.length).toBeGreaterThanOrEqual(3);
+    expect(routeSource).toContain("applyContentOpportunityPolicy(document, content.opportunity)");
   });
 
-  it("normalizes and persists the title before Quality Review scoring", () => {
-    expect(routeSource).toContain("const document = ensureContentSeoPolicy(await placeAvailableTistoryPosts(data, content, content.document), content);");
+  it("keeps manual title edits intact during diagnostic Quality Review", () => {
+    expect(routeSource).toContain("const document = await placeAvailableTistoryPosts(data, content, content.document);");
+    expect(routeSource).not.toContain("ensureContentSeoPolicy(await placeAvailableTistoryPosts(data, content, content.document), content)");
     expect(routeSource).toContain("contentRevisionId(document) === contentRevisionId(content.document) ? data : applyCanonicalDocument");
     expect(routeSource).toContain("return NextResponse.json({ document, quality, data: saved });");
   });

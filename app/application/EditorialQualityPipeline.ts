@@ -51,7 +51,7 @@ export class EditorialQualityPipeline {
 
     while (!currentQuality.approved && automaticImprovementCount < MAX_AUTOMATIC_IMPROVEMENTS) {
       const response = await this.provider.generate({
-        instruction: automaticImprovementInstruction(currentDocument, currentQuality, automaticImprovementCount + 1, input.requiredInformation ?? []),
+        instruction: automaticImprovementInstruction(currentDocument, currentQuality, automaticImprovementCount + 1, input.requiredInformation ?? [], input.parseInput.contentOpportunity),
         metadata: { task: "quality-auto-improvement" },
       });
       const candidate = await this.evaluateCandidate(response.content, currentDocument, input.parseInput, place, input.qualityContext);
@@ -93,11 +93,12 @@ export class EditorialQualityPipeline {
   }
 }
 
-function automaticImprovementInstruction(document: ContentDocument, quality: QualityReport, attempt: number, requiredInformation: readonly string[]): string {
+function automaticImprovementInstruction(document: ContentDocument, quality: QualityReport, attempt: number, requiredInformation: readonly string[], opportunity: ParseInput["contentOpportunity"]): string {
   const diagnostics = manuscriptDiagnostics(document, requiredInformation);
   return `Automatically improve this complete Korean canonical ContentDocument. This is improvement attempt ${attempt} of ${MAX_AUTOMATIC_IMPROVEMENTS}. Rewrite the manuscript itself; never change, reinterpret, soften, or game the Quality Engine, its weights, thresholds, evidence, or approval rules.
 Use the complete Rule Quality result below as the correction specification. Resolve every reported reason and actionable task with concrete changes to the relevant title, metadata, heading, paragraph, image recommendation, or approved-link placement. Do not respond with a review, plan, explanation, or vague promise to make it better.
-Preserve every verified internal_link and related_post URL, label, purpose, target, and sourceExternalPostId exactly. Preserve every attached image source, assetId, sourceType, fileName, mimeType, prompt, purpose, and block ID exactly. Never invent a URL, statistic, citation, personal experience, or claim. Preserve the canonical Content Model and return the entire revised document as JSON only in the same shape accepted by the generator.
+Preserve and fulfill this immutable Content Opportunity across the whole manuscript: ${JSON.stringify(opportunity ?? null)}. If the manuscript follows another topic, correct the full title, outline, body, source-empty image recommendations, link context, and CTA; never hide the mismatch by prefixing the primary keyword.
+Preserve every verified internal_link and related_post URL, label, purpose, target, and sourceExternalPostId exactly. Preserve every attached image source, assetId, sourceType, fileName, mimeType, ALT, prompt, purpose, and block ID exactly. For source-empty image recommendations, reflect the nearest H2's actual content, keep roles purposeful, and make every image differ from the others in at least two of subject, action, background, composition, viewpoint, or information expression while retaining one coherent brand style. Never invent a URL, statistic, citation, personal experience, or claim. Preserve the canonical Content Model and return the entire revised document as JSON only in the same shape accepted by the generator.
 Rule Quality result: ${JSON.stringify(quality)}
 Manuscript diagnostics: ${JSON.stringify(diagnostics)}
 Canonical document: ${JSON.stringify(document)}`;

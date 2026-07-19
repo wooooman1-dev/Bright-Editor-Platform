@@ -89,7 +89,7 @@ Create Content
     ↓
 AI 분석
     ↓
-추천 키워드 및 콘텐츠 방향 확인
+대표 키워드 간편 확인
     ↓
 사용자 승인
     ↓
@@ -113,6 +113,22 @@ Platform Draft Save
     ↓
 Content Library 및 Intelligence 갱신
 
+### 3.1 대표 키워드 확인과 AI 분석 표시 정책
+
+기본 생성 흐름은 긴 AI 분석 결과를 독립 화면으로 노출하지 않는다. AI 분석이 끝나면 기존 생성 화면 안에 Content Opportunity 후보와 명시적 확정 버튼이 있는 간결한 확인 카드를 표시한다. 각 후보는 선정 주제, 대표 키워드, 검색 의도, 보조 키워드, 주요 범위, 추천 근거와 데이터 출처를 하나의 세트로 보여 준다. 추천 1순위는 기본 선택할 수 있지만 사용자가 확정 버튼을 누르기 전에는 콘텐츠 생성 API를 호출하지 않는다.
+
+AI 자동 선정 모드에서는 프로젝트 전략과 기존 콘텐츠 공백을 바탕으로 아직 다루지 않은 Content Opportunity를 제안한다. 사용자 지정 모드에서는 사용자가 명시한 주제를 고정하고 같은 검색 의도 안에서만 후보를 만든다. 검색량 공급원이 연결되지 않은 현재 상태에서는 `AI 추정`, `콘텐츠 공백 추론`, `근거 미확인`을 구분하며 검색량·CPC·경쟁도 수치를 만들거나 실제 데이터처럼 표현하지 않는다.
+
+Planning 후보는 확정값이 아니다. 사용자가 후보를 선택하면 대표 키워드 문자열만이 아니라 주제·검색 의도·보조 키워드·독자 문제·콘텐츠 방향·예상 범위·근거가 포함된 Opportunity 전체가 Content에 snapshot으로 저장된다. `Content.primaryKeyword`는 이 snapshot의 SEO mirror이며 생성 요청의 첫 키워드, Quality Context, Final Review, AI 수정, 품질 개선과 발행 준비가 같은 Opportunity를 공유한다. 직접 입력한 키워드는 기존 후보의 나머지 필드와 즉시 결합하지 않으며, 해당 키워드를 명시한 기존 Planning 호출로 완전한 Opportunity를 다시 확인한 뒤에만 생성할 수 있다.
+
+확정된 Content에는 기존 Planning 결과를 함께 보존한다. Editor의 제목 영역 근처에는 대표 키워드·검색 의도·대상 독자 요약을 표시하고, 전체 AI 분석은 기본적으로 접힌 `AI 분석 상세보기`에서 복원한다. 상세보기를 열거나 닫아도 문서 편집 상태를 변경하지 않으며 별도 AI 호출을 만들지 않는다.
+
+AI 결과는 Canonical Document로 채택하기 전에 확정 Opportunity의 주제, 대표 키워드, 검색 의도, 목차, 본문 핵심 범위와 보조 키워드 지원을 먼저 검증한다. 본문과 목차가 같은 기획을 따르고 제목만 대표 키워드 표현을 빠뜨린 경우에만 Core SEO 정책이 NFKC와 공백을 정규화해 한 번 자연스럽게 보정한다. 다른 주제의 제목·본문에는 키워드를 접두어로 결합하지 않으며 Quality 승인과 발행 준비를 차단한다. 사용자가 Editor에서 직접 제목을 수정해 키워드를 제거한 경우 Autosave가 강제로 되돌리지 않고 명시적 보정 선택을 제공한다.
+
+Opportunity 저장은 generation보다 먼저 완료되어야 한다. 서버는 Workspace·Project·Content 소유권, opportunity ID/version/fingerprint, 주제, 대표 키워드, 검색 의도와 보조 키워드가 저장된 snapshot과 모두 일치하는지 확인하고 클라이언트의 개별 기획 필드 대신 서버 snapshot을 생성 입력으로 사용한다. 오래된 Autosave와 AI Workflow 결과가 경합해도 확정 Opportunity와 그 canonical mirror를 제거하거나 다른 Content의 값으로 바꿀 수 없다.
+
+Planning 요청을 시작하면 후보 확정 전이라도 Project에 속한 임시 Content와 workflow snapshot을 먼저 저장한다. 분석 중 이동하거나 새로고침해도 같은 Content ID의 요청, 단계, 후보 전체, 선택 ID, 오류와 재시도 지점을 복원하며 재진입만으로 새 AI 요청을 만들지 않는다. 명시적 재분석은 새 operation ID와 revision으로 시작하고, 이전 응답은 최신 후보를 덮어쓸 수 없다.
+
 현재 첫 번째 실제 플랫폼 검증 대상은 Tistory이다.
 
 초기 Release의 핵심 성공 기준은 다음 통합 흐름이다.
@@ -124,6 +140,8 @@ Project
 Create Content
     ↓
 AI 분석
+    ↓
+대표 키워드 간편 확인
     ↓
 AI Generation
     ↓
@@ -1741,3 +1759,21 @@ Bright Studio는 다음 과정을 책임진다.
 콘텐츠 지식 갱신
 
 모든 화면과 기능은 사용자가 최소한의 수작업으로 전문적인 콘텐츠를 완성할 수 있도록 설계해야 한다.
+
+## Data Source-backed Today's Content Flow
+
+```text
+오늘의 글 작성
+→ 기존 Workspace / Project / durable Planning Content 확인
+→ Project가 참조한 최신 저장 Evidence 조회
+→ 실제 Project metadata 기반 내부 성장 Evidence 조회
+→ 기존 Planning AI 1회에 읽기 전용 Evidence bundle 제공
+→ 서버 Evidence 재연결·검증·추천 유형 판정
+→ 후보 전체 snapshot 저장
+→ 사용자 후보와 근거 확인
+→ Opportunity 원자적 확정
+→ 기존 Generation 1회
+→ 기존 Quality Review 1회
+```
+
+화면 이동, 새로고침과 재진입은 외부 sync나 AI Planning 재실행 사유가 아니다. 연결이나 snapshot이 없으면 블로그 성장 추천을 표시하고 검색 수요 미검증 limitation을 함께 표시한다. 외부 sync는 Workspace Settings의 Data Sources에서 사용자가 명시적으로 실행한다.

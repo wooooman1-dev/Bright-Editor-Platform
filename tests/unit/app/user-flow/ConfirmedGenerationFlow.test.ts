@@ -28,7 +28,7 @@ describe("planning to Editor integration", () => {
         model: "test",
       }),
     };
-    const plan = await new ContentPlanningStrategy(planningProvider).analyze("Create a practical guide");
+    const plan = await new ContentPlanningStrategy(planningProvider).analyze("Create a practical guide", undefined, { projectId: "project-1", selectionMode: "userSpecified" });
     const workspace = createWorkspace(emptyUserData, "Studio", "workspace-1");
     const projectData = createProject(workspace, { id: "project-1", name: "Project", brandIdFactory: () => "brand-1", now: "2026-07-13T00:00:00.000Z" });
     const confirmed = createContentFromPlan(projectData, {
@@ -55,7 +55,7 @@ describe("planning to Editor integration", () => {
     );
 
     expect(planningProvider.generate).toHaveBeenCalledOnce();
-    expect(persisted?.contents[0]).toMatchObject({ id: "content-1", document, status: "draft" });
+    expect(persisted?.contents[0]).toMatchObject({ id: "content-1", document, status: "draft", primaryKeyword: "practical guide", planning: plan });
     expect(openEditor).toHaveBeenCalledWith("content-1");
     expect(openEditor.mock.invocationCallOrder[0]).toBeGreaterThan(0);
   });

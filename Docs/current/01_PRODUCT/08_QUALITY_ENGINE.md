@@ -80,6 +80,9 @@ The Quality Engine evaluates multiple independent dimensions.
 - User intent coverage
 - Question completeness
 - Topic relevance
+- Confirmed Content Opportunity fidelity
+- Cross-topic drift detection
+- Search-intent fulfillment against the confirmed topic and reader problem
 
 ---
 
@@ -120,6 +123,7 @@ The Quality Engine evaluates multiple independent dimensions.
 - Semantic relevance
 - Meta description quality
 - Title optimization
+- Support for confirmed secondary keywords in the actual manuscript
 
 ---
 
@@ -282,8 +286,12 @@ The default publishing policy requires all mandatory gates to pass.
 - Rendering Validation Passed
 - No Critical Errors
 - Required Metadata Complete
+- Confirmed Content Opportunity Consistency Passed
+- No blocking topic drift or unsupported keyword plan
 
 Failure of any mandatory gate prevents publishing.
+
+The Opportunity gate returns structured evidence for topic fidelity, primary-keyword alignment, search-intent fulfillment, secondary-keyword support, title-topic alignment, heading coverage, body coverage, cross-topic drift, and unsupported keyword use. Local deterministic checks identify clear structural contradictions; the existing Quality Review AI call performs editorial correction without adding another provider call. A high weighted score cannot override a failed Opportunity gate.
 
 ---
 

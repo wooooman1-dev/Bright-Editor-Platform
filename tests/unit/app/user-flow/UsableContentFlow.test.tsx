@@ -9,12 +9,12 @@ import { QualityEngine } from "../../../../core/quality";
 const workspace = createWorkspace(emptyUserData, "Studio", "w");
 const projectData = createProject(workspace, { id: "p", name: "Project", brandIdFactory: () => "b", now: "now" });
 const project = projectData.projects[0];
-const plan = { interpretedIntent: "Intent", domain: "health", targetAudience: "reader", contentGoal: "help", recommendedPrimaryKeyword: "keyword", keywordCandidates: ["keyword"], searchIntent: "informational", recommendedContentType: "article", recommendedPlatforms: ["tistory"], suggestedTitleAngles: ["Title"], relatedKeywords: [], contentCluster: [], recommendationReason: "reason", confidence: 0.8, estimateDisclosure: "AI estimates" } as const;
+const plan = { interpretedIntent: "Keyword intent", domain: "health", targetAudience: "reader", contentGoal: "help", recommendedPrimaryKeyword: "keyword", keywordCandidates: ["keyword"], searchIntent: "keyword information", recommendedContentType: "article", recommendedPlatforms: ["tistory"], suggestedTitleAngles: ["Keyword guide"], relatedKeywords: [], contentCluster: [], recommendationReason: "reason", confidence: 0.8, estimateDisclosure: "AI estimates" } as const;
 const contentData = createContentFromPlan(projectData, { id: "c", projectId: "p", naturalLanguageRequest: "request", plan, primaryKeyword: "keyword", selectedPublishingAccountIds: [], now: "now" });
 
 describe("usable Content flow UI", () => {
   it("starts with a natural-language question and manual fallback", () => {
-    const html = renderToStaticMarkup(<ContentCreationFlow data={projectData} project={project} onBack={vi.fn()} onOpenEditor={vi.fn()} onPersist={vi.fn()} />);
+    const html = renderToStaticMarkup(<ContentCreationFlow data={projectData} project={project} onBack={vi.fn()} onContentStarted={vi.fn()} onOpenEditor={vi.fn()} onPersist={vi.fn()} onRefresh={vi.fn(async () => projectData)} onRestore={vi.fn()} />);
     expect(html).toContain("어떤 콘텐츠를 만들까요?"); expect(html).toContain("직접 설정하기");
     expect(html).toContain('/workspaces/w/settings?section=connections');
     expect(html).toContain("AI 기획, 콘텐츠 생성과 편집은 계속할 수 있습니다");
@@ -26,6 +26,7 @@ describe("usable Content flow UI", () => {
     reviewed = updateContent(reviewed, "c", { quality });
     const html = renderToStaticMarkup(<EditorWorkspace content={reviewed.contents[0]} data={reviewed} project={project} onBack={vi.fn()} onPersist={vi.fn()} />);
     expect(html).toContain("품질 검토"); expect(html).toContain("검색 의도"); expect(html).toContain("정보 완성도"); expect(html).toContain("글자 수"); expect(html).toContain("티스토리 미리보기"); expect(html).toContain("HTML 보기"); expect(html).not.toContain("원본 HTML"); expect(html).toContain("원고"); expect(html).toContain("문서 구조 보기"); expect(html).toContain("끌어서 H2 이동"); expect(html).toContain("위로 이동"); expect(html).toContain("CTA 추가"); expect(html).toContain("수익 링크 추가"); expect(html).toContain("자동 추천 변경"); expect(html).toContain("AI 개선안 만들기"); expect(html).toContain("Tistory 임시저장"); expect(html).toContain("Tistory 카테고리"); expect(html).toContain("품질 승인은 현재 Revision이 기준을 통과하면 자동 완료됩니다.");
+    expect(html).toContain("콘텐츠 전략"); expect(html).toContain("AI 분석 상세보기"); expect(html).toContain("Keyword intent"); expect(html).toContain("reader"); expect(html).not.toContain("<details class=\"mt-4 rounded-xl bg-[#f8f8fa] p-4\" open");
   });
   it("does not duplicate a Content record when the same confirmed id retries", () => {
     const retried = createContentFromPlan(contentData, { id: "c", projectId: "p", naturalLanguageRequest: "request", plan, primaryKeyword: "keyword", selectedPublishingAccountIds: [], now: "later" });

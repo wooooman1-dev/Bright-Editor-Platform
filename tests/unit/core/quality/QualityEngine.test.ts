@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { ContentDocument } from "../../../../core/content";
+import { confirmContentOpportunity, createContentOpportunityCandidate, type ContentDocument } from "../../../../core/content";
 import { contentRevisionId, PublishingGate, QualityEngine, qualityDimensionWeights } from "../../../../core/quality";
 
 const planning: ContentDocument = { id: "planning", title: "건강 관리 가이드 기획안", blocks: [
@@ -83,6 +83,22 @@ describe("QualityEngine dimension scoring", () => {
     expect(dimension?.evidence).toContainEqual({ signal: "placedRelatedPosts", value: 3 });
   });
 
+  it("reports duplicated image prompts as a concrete image-strategy task", () => {
+    const document: ContentDocument = { id: "duplicate-images", title: "중년 운동", blocks: [
+      { id: "h1", type: "heading", level: 2, text: "호흡 준비" },
+      { id: "p1", type: "paragraph", text: "어깨를 내리고 호흡을 천천히 정리합니다." },
+      { id: "image-1", type: "image", source: "", purpose: "inline", alt: "호흡 준비 자세", prompt: "중년 여성이 거실에서 스트레칭하는 모습" },
+      { id: "h2", type: "heading", level: 2, text: "허리 자세" },
+      { id: "p2", type: "paragraph", text: "무릎과 골반의 위치를 확인하며 허리를 늘립니다." },
+      { id: "image-2", type: "image", source: "", purpose: "inline", alt: "허리와 골반 자세", prompt: "중년 여성이 거실에서 스트레칭하는 모습" },
+    ] };
+    const dimension = new QualityEngine().review(document, { primaryKeyword: "중년 운동", searchIntent: "중년 운동 자세" }).dimensions.find((item) => item.category === "imageStrategy");
+
+    expect(dimension?.score).toBeLessThan(85);
+    expect(dimension?.evidence).toContainEqual({ signal: "duplicateImagePrompts", value: 1 });
+    expect(dimension?.tasks.join(" ")).toContain("핵심 대상·행동·배경·구도·시점·정보 표현 중 두 가지 이상");
+  });
+
   it("penalizes repeated one-sentence paragraphs and keyword stuffing", () => {
     const repeated = "건강 관리가 중요합니다.";
     const document: ContentDocument = { id: "repeated", title: "건강 관리 건강 관리 건강 관리", metadata: { buttonCount: 0, createdAt: "now", generator: "test", imageCount: 0, language: "ko", readingTime: 1, source: "test", updatedAt: "now", version: 1, videoCount: 0, wordCount: 30, metaDescription: "건강 관리 ".repeat(20) }, blocks: Array.from({ length: 18 }, (_, index) => ({ id: `p-${index}`, type: "paragraph", text: repeated })) };
@@ -100,6 +116,15 @@ describe("QualityEngine dimension scoring", () => {
     const report = new QualityEngine().review(document, { primaryKeyword: "건강 관리", searchIntent: "건강 관리 방법" });
     expect(report.dimensions.find((item) => item.category === "usefulness")).toMatchObject({ score: 0, status: "blocked" });
     expect(report.approved).toBe(false);
+  });
+
+  it("blocks market-volume claims when the canonical Opportunity has no external market Evidence", () => {
+    const opportunity = confirmContentOpportunity(createContentOpportunityCandidate({ sourceRequest: "건강 관리 글", selectionMode: "automatic", selectedTopic: "건강 관리 방법", primaryKeyword: "건강 관리", secondaryKeywords: [], searchIntent: "건강 관리 방법 탐색", audience: "일반 성인", contentType: "article", contentAngle: "실천 안내", readerProblem: "관리 기준 부족", expectedCoverage: ["실천 단계"], selectionRationale: "콘텐츠 공백", opportunityEvidence: [{ source: "inferred", summary: "내부 콘텐츠 공백" }], recommendationType: "blogGrowth", evidenceIds: [], marketEvidenceStatus: "unavailable", internalGrowthEvidenceStatus: "verified", freshness: "fresh", limitations: ["검색 수요는 검증되지 않았습니다."], classificationVersion: 1, confidence: 0.7, cautions: [], projectId: "project-1" }), { workspaceId: "workspace-1", projectId: "project-1", contentId: "article", confirmedAt: "now" });
+    const document = structured();
+    const withClaim = { ...document, id: "article", blocks: [{ id: "claim", type: "paragraph" as const, text: "이 키워드는 월간 검색량 12,000회이며 시장 1위입니다." }, ...document.blocks] };
+    const report = new QualityEngine().review(withClaim, { primaryKeyword: "건강 관리", searchIntent: "건강 관리 방법 탐색", opportunity });
+    expect(report.approved).toBe(false);
+    expect(report.tasks.some((task) => task.message.includes("외부 시장 Evidence"))).toBe(true);
   });
 
   it("can approve a complete article without uploaded images or an unnecessary CTA", () => {

@@ -77,6 +77,7 @@ async function snapshot(data: UserData) {
     backup,
     persistence: { status: "ready", message: "로컬 데이터 저장소를 정상적으로 읽었습니다." },
     publishing: { status: "ready", message: "검토 후 임시저장 정책이 서버에서 적용됩니다." },
+    projects: data.projects.map((project) => ({ id: project.id, name: project.name })),
   };
 }
 

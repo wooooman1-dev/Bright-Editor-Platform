@@ -607,6 +607,60 @@ Design 및 Development 문서 정렬
 
 구현이 Architecture 결정을 선행해서는 안 된다.
 
+D-030 Atomic Content Opportunity
+
+Status: Accepted
+
+AI 자동 주제 선정의 확인 단위는 대표 키워드 문자열이 아니라 하나의 Content Opportunity다.
+
+Opportunity는 선정 주제, 대표·보조 키워드, 검색 의도, 대상 독자, 독자 문제, 콘텐츠 방향, 예상 범위, 추천 근거와 근거 출처를 함께 소유한다. 후보 필드를 서로 섞지 않으며 사용자가 확정한 전체 snapshot을 Content에 version과 deterministic fingerprint로 저장한다.
+
+자동 선정 모드는 프로젝트 전략과 기존 콘텐츠 공백 안에서 기회를 고른다. 사용자 지정 모드는 명시된 주제를 다른 검색 의도로 바꾸지 않는다. 검증된 외부 검색 데이터가 없으면 검색량이나 경쟁도 수치를 만들지 않고 AI 추정 또는 콘텐츠 공백 추론임을 표시한다.
+
+Generation과 Quality Review는 저장된 동일 Opportunity를 사용한다. AI 결과는 주제·검색 의도·목차·본문 정합성을 통과한 뒤에만 SEO 제목 보정을 적용한다. 다른 주제의 원고에 대표 키워드를 접두어로 붙여 통과시키지 않으며 정합성 실패는 Quality 및 Publishing Gate를 차단한다.
+
+이 계약은 기존 Generation 1회와 Quality Review 1회의 기본 비용 정책 안에서 수행하며 별도의 의미 검증 AI 호출을 추가하지 않는다.
+
+D-031 Durable Content Planning Workflow
+
+Status: Accepted
+
+`오늘의 글 작성`과 사용자 지정 작성의 Planning은 후보 확정 전이라도 Workspace와 Project에 속한 임시 Content ID를 먼저 확보한다. 분석 요청, 선택 모드, 진행 단계, 후보 전체, 선택 ID, 오류와 재시도 단계는 이 Content에 revision과 operation ID가 있는 직렬화 가능한 workflow snapshot으로 저장한다.
+
+서버 persistence가 canonical source이며 화면 state는 그 projection이다. 화면 이동, 동일 Content 재진입, 새로고침, React 재마운트는 workflow를 초기화하거나 AI 요청을 다시 실행하는 이유가 아니다. 새 글, 취소, 삭제, 명시적 재분석만 새 operation을 시작하거나 기존 Planning을 초기화할 수 있다.
+
+늦게 도착한 이전 operation 응답과 같거나 오래된 revision 저장은 최신 workflow를 변경할 수 없다. 후보는 Content 안에서 Project binding과 fingerprint가 검증된 전체 Content Opportunity 단위로 저장·선택하며, 확정 후 Generation과 Quality Review는 D-030의 canonical Opportunity 계약을 그대로 따른다.
+
+D-032 Workspace Data Sources and Evidence-Classified Opportunities
+
+Status: Accepted
+
+외부 시장·성과 연결인 `DataSourceConnection`은 Publishing용 `PlatformConnection`과 다른 Workspace 소유 리소스다. Project는 같은 Workspace의 Data Source만 식별자로 참조하며 credential, OAuth token, client secret 원문을 소유하지 않는다. 비밀 원문은 D-009의 서버 전용 SecretStore에 저장하고 일반 metadata에는 `secretReference`만 둔다.
+
+공식 Provider API는 Content 생성 시 직접 호출하지 않는다. 수동 동기화는 Provider Adapter를 통해 원본 snapshot을 별도 저장한 뒤 공통 Evidence로 정규화한다. 마지막 성공 snapshot은 이후 동기화 실패와 연결 해제에도 보존하며, connection·Workspace·operation·version 경계를 검증해 중복 호출과 늦은 응답을 차단한다. Google Ads Keyword Planning과 Google Trends는 공식 권한이 확인된 경우에만 활성화하며 scraping, pytrends, 검색 결과 브라우저 자동화와 production mock market data를 사용하지 않는다.
+
+AI는 Evidence를 생성·수정하거나 Provider·metric·Evidence ID를 발명할 수 없다. 서버가 저장된 Evidence 조회, 후보 연결, Workspace 검증, freshness·limitation 계산과 추천 유형 판정을 수행한다. AI는 기존 Planning 1회 안에서 제공된 읽기 전용 Evidence bundle을 참고해 사람에게 읽기 쉬운 기획만 작성한다.
+
+각 Content Opportunity는 서버가 다음 중 정확히 하나로 판정한다.
+
+- `comprehensive`: fresh 또는 aging 상태의 검증된 외부 시장·실제 성과 Evidence와 내부 성장 Evidence가 모두 있고 중복·Project 적합성·검색 의도·안전성 gate를 통과
+- `marketOpportunity`: 검증된 외부 Evidence가 있고 내부 성장 근거가 종합 추천에 충분하지 않으며 동일 gate를 통과
+- `blogGrowth`: 외부 시장성이 확인되지 않았지만 content gap, verified public internal-link 또는 cluster Evidence가 있고 동일 gate를 통과
+
+editorial inference만으로 종합 추천이나 시장 기회 추천을 만들지 않는다. stale 외부 Evidence만으로 강한 종합 추천을 만들지 않는다. Evidence가 부족한 유형과 후보 수를 억지로 채우지 않으며 설명할 수 있는 근거가 없으면 전체 1순위 또는 시장 점수를 표시하지 않는다.
+
+추천 유형, Evidence ID·요약, 시장/내부 상태, freshness, limitation과 classification version은 Opportunity fingerprint에 포함한다. 후보 선택과 확정은 이 필드를 주제·키워드·검색 의도와 함께 원자적으로 교체·저장·복원한다. Quality Review는 동일 canonical Opportunity를 사용해 근거 없는 검색량·CPC·시장 순위, stale 최신성 주장, 광고 경쟁도와 SEO 난이도 혼동, CPC/RPM 수익 예측을 차단한다.
+
+D-033 Data Source Disable, Disconnect, and Safe Deletion
+
+Status: Accepted
+
+Data Source 비활성화, 연결 해제, 삭제는 서로 다른 동작이다. 비활성화는 Connection과 credential을 유지하고 동기화만 중지한다. 연결 해제는 credential을 제거하되 Connection, Project reference, Snapshot과 Evidence를 유지해 재연결을 허용한다. 데이터 소스 삭제는 명시적 위험 작업으로 Connection과 같은 Workspace의 모든 Project reference를 제거하고 credential, pending OAuth state와 active sync operation을 정리한다.
+
+삭제는 backup-first로 수행하고 삭제 tombstone, 모든 관련 Project reference 제거와 Connection metadata 제거를 하나의 원자적 persistence write로 완료한다. SecretStore 삭제가 실패하면 Connection metadata 제거를 진행하지 않는다. 외부 token revoke 실패는 로컬 정리를 막지 않는다. 진행 중 sync는 삭제 전에 superseded 처리하며 tombstone 이후 늦은 결과가 Snapshot, Evidence 또는 Connection을 다시 저장할 수 없다.
+
+Raw Snapshot, Snapshot metadata, normalized Evidence, 확정된 Content Opportunity의 evidenceIds, Quality Review, ContentDocument와 History는 삭제하지 않는다. tombstone은 provider, 표시 이름, resource와 보존 수량을 비밀정보 없이 기록한다. 삭제된 Connection의 Evidence는 과거 콘텐츠 근거 조회에는 남지만 Project reference와 현재 Connection이 없으므로 신규 Opportunity Planning에는 사용하지 않는다.
+
 
 ---
 

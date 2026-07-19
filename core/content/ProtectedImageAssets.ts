@@ -27,14 +27,15 @@ export function restoreProtectedImageAssets(original: ContentDocument, candidate
 }
 
 function isProtectedImage(block: ContentBlock): block is ImageBlock {
-  return block.type === "image" && Boolean(block.source.trim()) && (block.sourceType === "upload" || block.sourceType === "ai_generated" || Boolean(block.assetId));
+  return block.type === "image" && Boolean(block.source.trim());
 }
 
 function restoreAssetFields(original: ImageBlock, candidate: ImageBlock): ImageBlock {
   return Object.freeze({
     ...candidate,
-    alt: candidate.alt.trim() ? candidate.alt : original.alt,
+    alt: original.alt,
     ...(original.assetId ? { assetId: original.assetId } : {}),
+    ...(original.caption ? { caption: original.caption } : {}),
     ...(original.fileName ? { fileName: original.fileName } : {}),
     ...(original.mimeType ? { mimeType: original.mimeType } : {}),
     ...(original.prompt ? { prompt: original.prompt } : {}),

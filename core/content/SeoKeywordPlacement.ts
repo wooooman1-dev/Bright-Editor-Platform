@@ -10,7 +10,7 @@ export function ensureSeoKeywordPlacement(
   document: ContentDocument,
   primaryKeyword: string | undefined,
 ): ContentDocument {
-  const keyword = normalizeWhitespace(primaryKeyword ?? "");
+  const keyword = normalizeSeoKeyword(primaryKeyword ?? "");
   if (!keyword || placeholderKeywords.has(keyword.toLocaleLowerCase("ko-KR"))) {
     return document;
   }
@@ -60,12 +60,14 @@ export function ensureSeoKeywordPlacement(
 }
 
 export function buildReadableSeoTitle(originalTitle: string, keyword: string): string {
+  keyword = normalizeSeoKeyword(keyword);
   const normalizedTitle = normalizeTitle(originalTitle);
   const colonCount = (normalizedTitle.match(/:/gu) ?? []).length;
   const listSeparatorCount = (normalizedTitle.match(/[·,/]/gu) ?? []).length;
 
   if (
     containsExactKeyword(normalizedTitle, keyword)
+    && countExactKeyword(normalizedTitle, keyword) === 1
     && normalizedTitle.length <= MAX_TITLE_LENGTH
     && colonCount <= 1
     && listSeparatorCount <= 2
@@ -93,7 +95,7 @@ export function buildReadableSeoTitle(originalTitle: string, keyword: string): s
 }
 
 function compactTitleSegment(value: string, keyword: string): string {
-  let segment = normalizeWhitespace(value.replace(keyword, ""))
+  let segment = normalizeWhitespace(removeExactKeyword(value, keyword))
     .replace(/^[\-–—:·,\s]+|[\-–—:·,\s]+$/gu, "")
     .replace(/\([^)]{18,}\)/gu, "")
     .trim();
@@ -204,10 +206,37 @@ function buildMetaDescription(
 }
 
 function containsExactKeyword(value: string, keyword: string): boolean {
-  return normalizeWhitespace(value).toLocaleLowerCase("ko-KR")
-    .includes(keyword.toLocaleLowerCase("ko-KR"));
+  const normalizedKeyword = normalizeSeoKeyword(keyword).toLocaleLowerCase("ko-KR");
+  return Boolean(normalizedKeyword)
+    && normalizeSeoKeyword(value).toLocaleLowerCase("ko-KR").includes(normalizedKeyword);
 }
 
 function normalizeWhitespace(value: string): string {
   return value.trim().replace(/\s+/gu, " ");
+}
+
+/** Canonical comparison form for a confirmed SEO keyword. */
+export function normalizeSeoKeyword(value: string): string {
+  return normalizeWhitespace(value.normalize("NFKC"));
+}
+
+/** True only when the confirmed keyword remains one continuous normalized phrase. */
+export function titleContainsPrimaryKeyword(title: string, primaryKeyword: string): boolean {
+  return containsExactKeyword(title, primaryKeyword);
+}
+
+function countExactKeyword(value: string, keyword: string): number {
+  const normalizedKeyword = normalizeSeoKeyword(keyword);
+  if (!normalizedKeyword) return 0;
+  return normalizeSeoKeyword(value).match(new RegExp(escapeRegExp(normalizedKeyword), "giu"))?.length ?? 0;
+}
+
+function removeExactKeyword(value: string, keyword: string): string {
+  const normalizedKeyword = normalizeSeoKeyword(keyword);
+  if (!normalizedKeyword) return normalizeSeoKeyword(value);
+  return normalizeSeoKeyword(value).replace(new RegExp(escapeRegExp(normalizedKeyword), "giu"), " ");
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }

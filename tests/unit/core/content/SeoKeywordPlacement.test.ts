@@ -70,6 +70,31 @@ describe("ensureSeoKeywordPlacement", () => {
     expect(result.title.length).toBeLessThanOrEqual(68);
   });
 
+  it("corrects the reported inflammation title before it becomes canonical", () => {
+    const source = { ...createDocument(), title: "만성 염증 관리 가이드: 음식, 검사 수치와 생활습관" };
+    const first = ensureSeoKeywordPlacement(source, "장 건강 관리 방법");
+    const repeated = ensureSeoKeywordPlacement(first, "장 건강 관리 방법");
+
+    expect(first.title).toBe("장 건강 관리 방법: 만성 염증 관리 가이드");
+    expect(first.title.split("장 건강 관리 방법")).toHaveLength(2);
+    expect(repeated).toBe(first);
+  });
+
+  it("uses Unicode NFKC and repeated-whitespace normalization for exact phrase placement", () => {
+    const source = { ...createDocument(), title: "ＡＩ   콘텐츠 전략: 실전 가이드" };
+    const result = ensureSeoKeywordPlacement(source, "AI 콘텐츠 전략");
+
+    expect(result.title).toBe("ＡＩ 콘텐츠 전략: 실전 가이드");
+  });
+
+  it("removes repeated keyword occurrences while preserving a readable support phrase", () => {
+    const source = { ...createDocument(), title: "장 건강 관리 방법: 장 건강 관리 방법 실천 가이드" };
+    const result = ensureSeoKeywordPlacement(source, "장 건강 관리 방법");
+
+    expect(result.title).toBe("장 건강 관리 방법: 실천 가이드");
+    expect(result.title.split("장 건강 관리 방법")).toHaveLength(2);
+  });
+
   it("does not duplicate an exact keyword that is already placed", () => {
     const source = createDocument();
     const placed = ensureSeoKeywordPlacement(source, keyword);

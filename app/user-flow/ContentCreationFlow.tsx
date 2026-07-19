@@ -1,18 +1,24 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import type { ContentDocument } from "../../core/content";
+import { detectContentOpportunitySelectionMode, type ContentDocument, type ContentOpportunityCandidate } from "../../core/content";
 import type { QualityReport } from "../../core/quality";
 import { PageContainer } from "../shared/ui/PageContainer";
 import { completeConfirmedGeneration } from "./confirmed-generation";
+import { PrimaryKeywordConfirmation } from "./PrimaryKeywordConfirmation";
 import {
   createContentFromPlan,
+  failContentPlanning,
   resolveProjectStrategy,
+  selectContentPlanningOpportunity,
+  startContentGeneration,
+  startContentPlanning,
   updateContent,
   updateProjectTargets,
   type ContentPlanningResult,
+  type UserContent,
   type UserData,
   type UserProject,
 } from "./user-data";
@@ -28,26 +34,77 @@ type SafeConnection = Readonly<{
 
 type CreationOperation = "idle" | "planning" | "regenerating" | "generating";
 
-export function ContentCreationFlow({ automatic = false, data, project, onBack, onOpenEditor, onPersist }: {
+export function ContentCreationFlow({ automatic = false, content, data, project, onBack, onContentStarted, onOpenEditor, onPersist, onRefresh, onRestore }: {
   automatic?: boolean;
+  content?: UserContent;
   data: UserData;
   project: UserProject;
   onBack: () => void;
+  onContentStarted: (contentId: string) => void;
   onOpenEditor: (contentId: string) => void;
   onPersist: (data: UserData) => Promise<void>;
+  onRefresh: () => Promise<UserData>;
+  onRestore: (data: UserData) => void;
 }) {
-  const [request, setRequest] = useState("");
-  const [plan, setPlan] = useState<ContentPlanningResult>();
-  const [keyword, setKeyword] = useState("");
+  const restoredWorkflow = content?.planningWorkflow;
+  const [request, setRequest] = useState(restoredWorkflow?.request ?? content?.naturalLanguageRequest ?? "");
+  const [plan, setPlan] = useState<ContentPlanningResult | undefined>(content?.planning);
+  const [opportunityId, setOpportunityId] = useState(restoredWorkflow?.selectedOpportunityId ?? content?.planning?.opportunityCandidates?.[0]?.opportunityId ?? "");
+  const [customKeyword, setCustomKeyword] = useState("");
+  const [customKeywordSelected, setCustomKeywordSelected] = useState(false);
   const [connections, setConnections] = useState<readonly SafeConnection[]>([]);
-  const [selected, setSelected] = useState<readonly string[]>(project.selectedPublishingAccountIds ?? []);
-  const [notice, setNotice] = useState("");
+  const [selected, setSelected] = useState<readonly string[]>(content?.selectedPublishingAccountIds ?? project.selectedPublishingAccountIds ?? []);
+  const [notice, setNotice] = useState(restoredNotice(content));
   const [operation, setOperation] = useState<CreationOperation>("idle");
-  const [autoStarted, setAutoStarted] = useState(false);
-  const [contentId] = useState(() => createId("content"));
+  const [contentId] = useState(() => content?.id ?? createId("content"));
+  const latestDataRef = useRef(data);
+  const activeOperationRef = useRef(restoredWorkflow?.operationId ?? "");
+  const hydratedWorkflowRef = useRef(workflowSignature(restoredWorkflow));
+  const automaticStartRef = useRef(Boolean(content));
+  const planningSubmissionRef = useRef(false);
   const connected = useMemo(() => connections.filter((connection) => connection.status === "connected"), [connections]);
-  const working = operation !== "idle";
-  const progress = operationCopy(operation);
+  const workflowPending = content?.planningWorkflow?.status === "planning" || content?.planningWorkflow?.status === "generating";
+  const localWorking = operation !== "idle";
+  const working = localWorking || workflowPending;
+  const progress = operationCopy(operation !== "idle" ? operation : workflowOperation(content));
+  const opportunityCandidates = useMemo(() => plan?.opportunityCandidates ?? [], [plan]);
+  const confirmedOpportunity = useMemo(() => customKeywordSelected
+    ? undefined
+    : opportunityCandidates.find((candidate) => candidate.opportunityId === opportunityId),
+  [customKeywordSelected, opportunityCandidates, opportunityId]);
+
+  useEffect(() => { latestDataRef.current = data; }, [data]);
+
+  useEffect(() => {
+    const workflow = content?.planningWorkflow;
+    const signature = workflowSignature(workflow);
+    if (!workflow || signature === hydratedWorkflowRef.current) return;
+    let active = true;
+    void Promise.resolve().then(() => {
+      if (!active) return;
+      hydratedWorkflowRef.current = signature;
+      activeOperationRef.current = workflow.operationId;
+      setRequest(workflow.request);
+      setPlan(content.planning);
+      setOpportunityId(workflow.selectedOpportunityId ?? content.planning?.opportunityCandidates?.[0]?.opportunityId ?? "");
+      setNotice(restoredNotice(content));
+      if (workflow.status !== "planning" && workflow.status !== "generating") setOperation("idle");
+    });
+    return () => { active = false; };
+  }, [content]);
+
+  useEffect(() => {
+    const status = content?.planningWorkflow?.status;
+    if (status !== "planning" && status !== "generating") return;
+    const timer = window.setTimeout(() => {
+      void onRefresh().catch((error) => setNotice(`저장된 작업 상태를 다시 불러오지 못했습니다. ${message(error)}`));
+    }, 1200);
+    return () => window.clearTimeout(timer);
+  }, [content?.planningWorkflow?.revision, content?.planningWorkflow?.status, onRefresh]);
+
+  useEffect(() => {
+    if (content?.planningWorkflow?.status === "generated" && content.document) onOpenEditor(content.id);
+  }, [content?.document, content?.id, content?.planningWorkflow?.status, onOpenEditor]);
 
   useEffect(() => {
     void fetch(`/api/connections?workspaceId=${encodeURIComponent(project.workspaceId)}`, { cache: "no-store" })
@@ -63,75 +120,145 @@ export function ContentCreationFlow({ automatic = false, data, project, onBack, 
       });
   }, [project.workspaceId]);
 
-  const analyze = async (manual = false, regenerate = false) => {
+  const analyze = async (manual = false, regenerate = false, requestOverride?: string, selectionModeOverride?: "automatic" | "userSpecified") => {
+    if (planningSubmissionRef.current) return;
+    planningSubmissionRef.current = true;
+    const planningRequest = requestOverride ?? request;
+    const selectionMode = selectionModeOverride ?? content?.planningWorkflow?.selectionMode ?? detectContentOpportunitySelectionMode(planningRequest, automatic);
+    const operationId = createId("planning-operation");
+    activeOperationRef.current = operationId;
     setOperation(regenerate ? "regenerating" : "planning");
     setNotice(regenerate
       ? "기존 추천을 유지한 채 새 추천을 생성하고 있습니다."
       : manual ? "수동 기획을 준비하고 있습니다." : "요청을 분석하고 있습니다.");
     try {
+      const started = startContentPlanning(latestDataRef.current, {
+        id: contentId,
+        projectId: project.id,
+        request: planningRequest,
+        selectionMode,
+        operationId,
+        now: now(),
+      });
+      latestDataRef.current = started;
+      onContentStarted(contentId);
+      onRestore(started);
+      const startResponse = await fetch("/api/studio", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "start-planning",
+          input: {
+            naturalLanguageRequest: planningRequest,
+            workspaceId: project.workspaceId,
+            projectId: project.id,
+            contentId,
+            operationId,
+            selectionMode,
+          },
+        }),
+      });
+      const startResult = await startResponse.json() as { data?: UserData; error?: string };
+      if (!startResponse.ok || !startResult.data) throw new Error(startResult.error ?? "Planning 요청을 저장하지 못했습니다.");
+      latestDataRef.current = startResult.data;
+      onRestore(startResult.data);
       const response = await fetch("/api/studio", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: manual ? "manual-plan" : "plan",
           input: {
-            naturalLanguageRequest: request,
+            naturalLanguageRequest: planningRequest,
             workspaceId: project.workspaceId,
             projectId: project.id,
+            contentId,
+            operationId,
+            selectionMode,
           },
         }),
       });
-      const result = await response.json() as { plan?: ContentPlanningResult; error?: string };
+      const result = await response.json() as { plan?: ContentPlanningResult; data?: UserData; error?: string };
       if (!response.ok || !result.plan) throw new Error(result.error ?? "Planning failed.");
+      if (result.data) {
+        latestDataRef.current = result.data;
+        onRestore(result.data);
+      }
+      if (activeOperationRef.current !== operationId) return;
       setPlan(result.plan);
-      setKeyword(result.plan.recommendedPrimaryKeyword);
+      setOpportunityId(result.plan.opportunityCandidates?.[0]?.opportunityId ?? "");
+      setCustomKeyword("");
+      setCustomKeywordSelected(false);
       setNotice(regenerate
         ? "새 추천이 준비되었습니다. 변경된 키워드와 콘텐츠 방향을 확인해 주세요."
         : manual ? "수동 기획이 준비되었습니다. 모든 항목을 수정할 수 있습니다." : "추천 내용을 확인한 뒤 원고 생성을 승인해 주세요.");
     } catch (error) {
+      if (activeOperationRef.current !== operationId) return;
+      try {
+        const failed = failContentPlanning(latestDataRef.current, {
+          workspaceId: project.workspaceId,
+          projectId: project.id,
+          contentId,
+          operationId,
+          error: message(error),
+          retryFrom: "planning",
+          now: now(),
+        });
+        if (failed !== latestDataRef.current) {
+          latestDataRef.current = failed;
+          await onPersist(failed);
+        }
+      } catch { /* The server may already have completed or superseded this operation. */ }
       setNotice(regenerate
         ? `${message(error)} 기존 추천은 그대로 유지되었습니다. 다시 시도할 수 있습니다.`
         : `${message(error)} 입력한 요청은 보존되었습니다. 수동으로 계속하거나 AI 제공자 설정을 확인해 주세요.`);
     } finally {
-      setOperation("idle");
+      planningSubmissionRef.current = false;
+      if (activeOperationRef.current === operationId) {
+        setOperation("idle");
+      }
     }
   };
 
-  const confirm = async (generate: boolean, confirmedPlan = plan, confirmedRequest = request) => {
-    if (!confirmedPlan) return;
+  const confirm = async (generate: boolean, confirmedPlan = plan, confirmedRequest = request, selectedOpportunity = confirmedOpportunity) => {
+    if (!confirmedPlan || !selectedOpportunity) return;
     const readyAccountIds = selected.filter((id) => connected.some((connection) => connection.id === id));
-    setOperation("generating");
+    const generationOperationId = createId("generation-operation");
+    let generationStarted = false;
+    if (generate) setOperation("generating");
     setNotice("원고 생성 전에 콘텐츠 기록을 저장하고 있습니다.");
-    const confirmedKeyword = keyword || confirmedPlan.recommendedPrimaryKeyword;
-    let next = createContentFromPlan(data, {
+    let next = createContentFromPlan(latestDataRef.current, {
       id: contentId,
       projectId: project.id,
       naturalLanguageRequest: confirmedRequest,
       plan: confirmedPlan,
-      primaryKeyword: confirmedKeyword,
+      opportunity: selectedOpportunity,
       selectedPublishingAccountIds: readyAccountIds,
       now: now(),
     });
     next = updateProjectTargets(next, project.id, readyAccountIds, now());
+    latestDataRef.current = next;
     try {
       await onPersist(next);
       const tistoryAccountIds = readyAccountIds.filter((id) => connected.some((connection) => connection.id === id && connection.platform === "tistory"));
-      const preparationResponse = await fetch("/api/tistory", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "prepare",
-          workspaceId: project.workspaceId,
-          projectId: project.id,
-          contentId,
-          ...(tistoryAccountIds.length === 1 ? { connectionId: tistoryAccountIds[0] } : {}),
-        }),
-      });
-      const preparationResult = await preparationResponse.json() as { data?: UserData; error?: string };
-      if (!preparationResponse.ok) throw new Error(preparationResult.error ?? "티스토리 발행 계정 자동 적용에 실패했습니다.");
-      if (preparationResult.data) {
-        next = preparationResult.data;
-        await onPersist(next);
+      if (tistoryAccountIds.length) {
+        const preparationResponse = await fetch("/api/tistory", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "prepare",
+            workspaceId: project.workspaceId,
+            projectId: project.id,
+            contentId,
+            ...(tistoryAccountIds.length === 1 ? { connectionId: tistoryAccountIds[0] } : {}),
+          }),
+        });
+        const preparationResult = await preparationResponse.json() as { data?: UserData; error?: string };
+        if (!preparationResponse.ok) throw new Error(preparationResult.error ?? "티스토리 발행 계정 자동 적용에 실패했습니다.");
+        if (preparationResult.data) {
+          next = preparationResult.data;
+          latestDataRef.current = next;
+          onRestore(next);
+        }
       }
       const persistedAccountIds = next.contents.find((item) => item.id === contentId)?.selectedPublishingAccountIds ?? readyAccountIds;
       for (const connectionId of persistedAccountIds) {
@@ -149,6 +276,17 @@ export function ContentCreationFlow({ automatic = false, data, project, onBack, 
         onOpenEditor(contentId);
         return;
       }
+      next = startContentGeneration(next, {
+        workspaceId: project.workspaceId,
+        projectId: project.id,
+        contentId,
+        operationId: generationOperationId,
+        now: now(),
+      });
+      generationStarted = true;
+      activeOperationRef.current = generationOperationId;
+      latestDataRef.current = next;
+      await onPersist(next);
       setNotice("canonical ContentDocument 원고를 생성하고 있습니다.");
       const response = await fetch("/api/studio", {
         method: "POST",
@@ -157,17 +295,22 @@ export function ContentCreationFlow({ automatic = false, data, project, onBack, 
           action: "generate",
           input: {
             contentId,
-            contentType: confirmedPlan.recommendedContentType,
-            keywords: [confirmedKeyword, ...confirmedPlan.relatedKeywords],
+            contentType: selectedOpportunity.contentType,
+            opportunityId: selectedOpportunity.opportunityId,
+            opportunityVersion: selectedOpportunity.version,
+            opportunityFingerprint: selectedOpportunity.fingerprint,
+            primaryKeyword: selectedOpportunity.primaryKeyword,
+            topic: selectedOpportunity.selectedTopic,
+            searchIntent: selectedOpportunity.searchIntent,
+            secondaryKeywords: selectedOpportunity.secondaryKeywords,
+            keywords: [selectedOpportunity.primaryKeyword, ...selectedOpportunity.secondaryKeywords],
             platform: confirmedPlan.recommendedPlatforms[0] ?? "canonical",
             workspaceId: project.workspaceId,
             projectId: project.id,
+            operationId: generationOperationId,
             editorialContext: JSON.stringify({
               request: confirmedRequest,
-              interpretedIntent: confirmedPlan.interpretedIntent,
-              targetAudience: confirmedPlan.targetAudience,
-              contentGoal: confirmedPlan.contentGoal,
-              searchIntent: confirmedPlan.searchIntent,
+              opportunityId: selectedOpportunity.opportunityId,
             }),
           },
         }),
@@ -176,7 +319,8 @@ export function ContentCreationFlow({ automatic = false, data, project, onBack, 
       if (!response.ok || !result.document) throw new Error(result.error ?? "Generation failed.");
       if (result.data) {
         next = result.data;
-        await onPersist(next);
+        latestDataRef.current = next;
+        onRestore(next);
         onOpenEditor(contentId);
       } else {
         next = await completeConfirmedGeneration(next, {
@@ -187,6 +331,17 @@ export function ContentCreationFlow({ automatic = false, data, project, onBack, 
       }
     } catch (error) {
       const configurationRequired = message(error).includes("OPENAI_API_KEY");
+      if (generationStarted) {
+        next = failContentPlanning(next, {
+          workspaceId: project.workspaceId,
+          projectId: project.id,
+          contentId,
+          operationId: generationOperationId,
+          error: message(error),
+          retryFrom: "generation",
+          now: now(),
+        });
+      }
       next = updateContent(next, contentId, {
         status: configurationRequired ? "configuration_required" : "draft",
         generationError: message(error),
@@ -194,53 +349,72 @@ export function ContentCreationFlow({ automatic = false, data, project, onBack, 
       });
       let recoveryNotice = "콘텐츠 기록은 안전하게 보존되었습니다. 편집기에서 직접 작성하거나 나중에 다시 시도할 수 있습니다.";
       try {
+        latestDataRef.current = next;
         await onPersist(next);
       } catch (persistenceError) {
         recoveryNotice = `복구 데이터 저장에도 실패했습니다: ${message(persistenceError)}`;
       }
       setNotice(`${message(error)} ${recoveryNotice}`);
-      onOpenEditor(contentId);
+      if (!plan) onOpenEditor(contentId);
     } finally {
       setOperation("idle");
     }
   };
 
+  const selectOpportunity = async (candidate: ContentOpportunityCandidate) => {
+    setCustomKeywordSelected(false);
+    setOpportunityId(candidate.opportunityId);
+    const current = latestDataRef.current.contents.find((item) => item.id === contentId);
+    const workflow = current?.planningWorkflow;
+    if (!workflow || workflow.selectedOpportunityId === candidate.opportunityId) return;
+    try {
+      const next = selectContentPlanningOpportunity(latestDataRef.current, {
+        workspaceId: project.workspaceId,
+        projectId: project.id,
+        contentId,
+        opportunityId: candidate.opportunityId,
+        expectedRevision: workflow.revision,
+        now: now(),
+      });
+      latestDataRef.current = next;
+      await onPersist(next);
+      setNotice("선택한 Content Opportunity 전체를 저장했습니다.");
+    } catch (error) {
+      setNotice(message(error));
+      await onRefresh().catch(() => undefined);
+    }
+  };
+
+  const cancelPlanning = async () => {
+    if (!window.confirm("현재 Planning 작업과 저장된 후보를 취소할까요?")) return;
+    setNotice("Planning 작업을 취소하고 있습니다.");
+    try {
+      const response = await fetch("/api/studio", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete-content", input: { workspaceId: project.workspaceId, contentId } }),
+      });
+      const result = await response.json() as { data?: UserData; error?: string };
+      if (!response.ok || !result.data) throw new Error(result.error ?? "Planning 작업을 취소하지 못했습니다.");
+      latestDataRef.current = result.data;
+      onRestore(result.data);
+      onBack();
+    } catch (error) {
+      setNotice(message(error));
+    }
+  };
+
   useEffect(() => {
-    if (!automatic || autoStarted) return;
+    if (!automatic || automaticStartRef.current || content?.planningWorkflow) return;
+    automaticStartRef.current = true;
     const strategy = resolveProjectStrategy(project);
     const automaticRequest = `${strategy.primaryTopic} 프로젝트에서 아직 다루지 않은 주제를 선정해 ${strategy.targetAudience}을 위한 ${strategy.defaultContentType} 원고를 작성해줘. 세부 주제: ${strategy.subtopics.join(", ") || strategy.primaryTopic}. 제외 주제: ${strategy.excludedTopics.join(", ") || "없음"}.`;
-    void Promise.resolve()
-      .then(() => {
-        setAutoStarted(true);
-        setRequest(automaticRequest);
-        setOperation("planning");
-        setNotice("주제를 선정하고 있습니다. 기존 게시글과 중복 여부를 확인하고 있습니다.");
-        return fetch("/api/studio", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "plan",
-            input: {
-              naturalLanguageRequest: automaticRequest,
-              workspaceId: project.workspaceId,
-              projectId: project.id,
-            },
-          }),
-        });
-      })
-      .then(async (response) => {
-        const result = await response.json() as { plan?: ContentPlanningResult; error?: string };
-        if (!response.ok || !result.plan) throw new Error(result.error ?? "주제를 선정하지 못했습니다.");
-        setPlan(result.plan);
-        setKeyword(result.plan.recommendedPrimaryKeyword);
-        setNotice("Google SEO 원고를 작성하고 있습니다. 내부링크·이미지·CTA 구성과 품질검토를 함께 진행합니다.");
-        await confirm(true, result.plan, automaticRequest);
-      })
-      .catch((error) => {
-        setOperation("idle");
-        setNotice(`${message(error)} 기존 데이터는 변경되지 않았습니다. 다시 시도할 수 있습니다.`);
-      });
-  }, [automatic, autoStarted]); // eslint-disable-line react-hooks/exhaustive-deps
+    void Promise.resolve().then(() => {
+      setRequest(automaticRequest);
+      setNotice("주제를 선정하고 있습니다. 기존 게시글과 중복 여부를 확인하고 있습니다.");
+      return analyze(false, false, automaticRequest, "automatic");
+    });
+  }, [automatic]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <PageContainer className="py-8 sm:py-10 lg:py-12">
@@ -251,7 +425,10 @@ export function ContentCreationFlow({ automatic = false, data, project, onBack, 
         </div>
       ) : null}
 
-      <button className="text-sm font-semibold text-[#77777f]" disabled={working} onClick={onBack} type="button">← 프로젝트 대시보드</button>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <button className="text-sm font-semibold text-[#77777f]" onClick={onBack} type="button">← 프로젝트 대시보드</button>
+        {content?.planningWorkflow ? <button className="text-sm font-semibold text-red-700" onClick={() => void cancelPlanning()} type="button">현재 작업 취소</button> : null}
+      </div>
       <header className="mt-6 border-b border-black/6 pb-7">
         <p className="text-xs font-semibold tracking-[0.14em] text-[#ff6b6b] uppercase">{project.name}</p>
         <h1 className="mt-2 text-3xl font-semibold">어떤 콘텐츠를 만들까요?</h1>
@@ -262,59 +439,52 @@ export function ContentCreationFlow({ automatic = false, data, project, onBack, 
         <textarea
           autoFocus
           className="min-h-32 w-full rounded-xl border border-black/8 bg-[#fafafa] px-4 py-4 leading-7 disabled:opacity-60"
-          disabled={working}
-          onChange={(event) => setRequest(event.target.value)}
+          disabled={localWorking}
+          onChange={(event) => {
+            const value = event.target.value;
+            setRequest(value);
+            if (plan) {
+              setPlan(undefined);
+              setOpportunityId("");
+              setCustomKeyword("");
+              setCustomKeywordSelected(false);
+              setNotice("요청이 변경되어 이전 분석과 대표 키워드 선택을 초기화했습니다.");
+            }
+          }}
           placeholder="예: 50대를 위한 혈당 관리 글을 만들고 싶어"
           value={request}
         />
         <div className="mt-4 flex flex-wrap gap-2">
-          <button className="rounded-xl bg-[#ff6b6b] px-5 py-3 text-sm font-semibold text-white disabled:opacity-50" disabled={working || !request.trim()} onClick={() => void analyze(false)} type="button">{operation === "planning" ? "분석 중…" : "분석하고 추천받기"}</button>
-          <button className="rounded-xl border border-black/8 px-5 py-3 text-sm font-semibold disabled:opacity-50" disabled={working || !request.trim()} onClick={() => void analyze(true)} type="button">직접 설정하기</button>
+          <button className="rounded-xl bg-[#ff6b6b] px-5 py-3 text-sm font-semibold text-white disabled:opacity-50" disabled={localWorking || !request.trim()} onClick={() => void analyze(false, Boolean(plan))} type="button">{operation === "planning" ? "분석 중…" : workflowPending ? "분석 다시 시도" : "분석하고 추천받기"}</button>
+          <button className="rounded-xl border border-black/8 px-5 py-3 text-sm font-semibold disabled:opacity-50" disabled={localWorking || !request.trim()} onClick={() => void analyze(true, Boolean(plan))} type="button">직접 설정하기</button>
+          {workflowPending ? <button className="rounded-xl border border-blue-200 px-5 py-3 text-sm font-semibold text-blue-800 disabled:opacity-50" disabled={localWorking} onClick={() => void onRefresh()} type="button">저장 상태 새로고침</button> : null}
         </div>
         <p aria-live="polite" className="mt-3 text-sm text-[#77777f]">{notice}</p>
-        <p className="mt-3 text-xs text-[#92929a]">연결된 계정이 없어도 AI 기획, 콘텐츠 생성과 편집은 계속할 수 있습니다. <Link className="font-semibold text-[#d94848]" href={`/workspaces/${project.workspaceId}/settings?section=connections`}>설정에서 연결 관리</Link></p>
+        <p className="mt-3 text-xs text-[#92929a]">외부 데이터나 발행 계정이 없어도 AI 기획, 콘텐츠 생성과 편집은 계속할 수 있습니다. 외부 데이터가 없을 때는 블로그 성장 추천으로 사실대로 표시합니다. <Link className="font-semibold text-[#d94848]" href={`/workspaces/${project.workspaceId}/settings?section=data-sources`}>데이터 소스 관리</Link> · <Link className="font-semibold text-[#d94848]" href={`/workspaces/${project.workspaceId}/settings?section=connections`}>발행 연결 관리</Link></p>
       </section>
 
       {plan ? (
         <section aria-busy={operation === "regenerating"} className={`mt-6 rounded-[24px] border border-black/6 bg-white p-6 transition-opacity ${operation === "regenerating" ? "opacity-60" : ""}`}>
-          <h2 className="text-xl font-semibold">AI 분석 및 추천</h2>
-          <label className="mt-5 block text-sm font-semibold">해석된 요청
-            <textarea className="mt-2 min-h-20 w-full rounded-xl border px-4 py-3 font-normal disabled:opacity-60" disabled={working} onChange={(event) => setRequest(event.target.value)} value={request} />
-          </label>
-          <dl className="mt-5 grid gap-4 sm:grid-cols-2">
-            <Info label="의도" value={plan.interpretedIntent} />
-            <Info label="분야" value={plan.domain} />
-            <Info label="대상 독자" value={plan.targetAudience} />
-            <Info label="목표" value={plan.contentGoal} />
-            <Info label="검색 의도" value={plan.searchIntent} />
-            <Info label="콘텐츠 유형" value={plan.recommendedContentType} />
-          </dl>
-          <label className="mt-5 block text-sm font-semibold">대표 키워드
-            <input className="mt-2 w-full rounded-xl border px-4 py-3 font-normal disabled:opacity-60" disabled={working} onChange={(event) => setKeyword(event.target.value)} value={keyword} />
-          </label>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {plan.keywordCandidates.map((candidate) => (
-              <button className={`rounded-full border px-3 py-2 text-sm disabled:opacity-50 ${candidate === keyword ? "border-[#ff6b6b] bg-[#fff0f0]" : ""}`} disabled={working} key={candidate} onClick={() => setKeyword(candidate)} type="button">{candidate}</button>
-            ))}
-          </div>
-          <p className="mt-4 text-sm leading-6 text-[#77777f]">{plan.recommendationReason}</p>
-          <p className="mt-2 text-xs text-[#92929a]">신뢰도 {Math.round(plan.confidence * 100)}% · {plan.estimateDisclosure}</p>
-          <h3 className="mt-6 font-semibold">발행 계정</h3>
-          {connected.length ? (
-            <div className="mt-3 space-y-2">
-              {connected.map((connection) => (
-                <label className="flex gap-3 rounded-xl border p-3 text-sm" key={connection.id}>
-                  <input checked={selected.includes(connection.id)} disabled={working} onChange={() => setSelected(toggle(selected, connection.id))} type="checkbox" />
-                  {connection.platform}: {connection.displayName}
-                </label>
-              ))}
-            </div>
-          ) : <p className="mt-2 text-sm text-[#77777f]">연결된 발행 계정이 없어도 AI 기획, 콘텐츠 생성과 편집은 계속할 수 있습니다. 실제 미리보기와 임시저장만 준비 상태에 따라 제한됩니다.</p>}
-          <Link className="mt-3 inline-block text-sm font-semibold text-[#d94848]" href={`/workspaces/${project.workspaceId}/settings?section=connections`}>설정에서 플랫폼 연결 관리</Link>
+          <PrimaryKeywordConfirmation customKeyword={customKeyword} customKeywordSelected={customKeywordSelected} disabled={working} onCustomKeywordChange={setCustomKeyword} onReanalyzeCustom={() => { const constrainedRequest = `${request}\n사용자 지정 주제와 대표 키워드: ${customKeyword.trim()}. 이 주제와 같은 검색 의도 안에서 완전한 콘텐츠 기회를 구성해 줘.`; setRequest(constrainedRequest); void analyze(false, true, constrainedRequest, "userSpecified"); }} onSelectCandidate={(candidate: ContentOpportunityCandidate) => { void selectOpportunity(candidate); }} onSelectCustom={() => setCustomKeywordSelected(true)} opportunityCandidates={opportunityCandidates} plan={plan} request={request} selectedOpportunityId={opportunityId} />
+
+          <details className="mt-3 rounded-xl border border-black/6 p-4">
+            <summary className="cursor-pointer text-sm font-semibold">발행 계정 선택 (선택)</summary>
+            {connected.length ? (
+              <div className="mt-3 space-y-2">
+                {connected.map((connection) => (
+                  <label className="flex gap-3 rounded-xl border p-3 text-sm" key={connection.id}>
+                    <input checked={selected.includes(connection.id)} disabled={working} onChange={() => setSelected(toggle(selected, connection.id))} type="checkbox" />
+                    {connection.platform}: {connection.displayName}
+                  </label>
+                ))}
+              </div>
+            ) : <p className="mt-2 text-sm text-[#77777f]">연결된 계정이 없어도 이 키워드로 콘텐츠를 생성할 수 있습니다.</p>}
+            <Link className="mt-3 inline-block text-sm font-semibold text-[#d94848]" href={`/workspaces/${project.workspaceId}/settings?section=connections`}>설정에서 플랫폼 연결 관리</Link>
+          </details>
           <div className="mt-6 flex flex-wrap gap-2">
             <button className="rounded-xl border px-4 py-2.5 text-sm font-semibold disabled:opacity-50" disabled={working} onClick={() => void analyze(false, true)} type="button">{operation === "regenerating" ? "추천 생성 중…" : "추천 다시 생성"}</button>
-            <button className="rounded-xl border px-4 py-2.5 text-sm font-semibold disabled:opacity-50" disabled={working || !keyword.trim()} onClick={() => void confirm(false)} type="button">확인 후 직접 작성</button>
-            <button className="rounded-xl bg-[#ff6b6b] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50" disabled={working || !keyword.trim()} onClick={() => void confirm(true)} type="button">{operation === "generating" ? "원고 생성 중…" : "확인 후 원고 생성"}</button>
+            <button className="rounded-xl border px-4 py-2.5 text-sm font-semibold disabled:opacity-50" disabled={working || !confirmedOpportunity} onClick={() => void confirm(false)} type="button">이 기획으로 직접 작성</button>
+            <button className="rounded-xl bg-[#ff6b6b] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50" disabled={working || !confirmedOpportunity} onClick={() => void confirm(true)} type="button">{operation === "generating" ? "원고 생성 중…" : "이 기획으로 원고 만들기"}</button>
           </div>
         </section>
       ) : null}
@@ -322,15 +492,36 @@ export function ContentCreationFlow({ automatic = false, data, project, onBack, 
   );
 }
 
-function Info({ label, value }: { label: string; value: string }) {
-  return <div><dt className="text-xs font-semibold uppercase text-[#92929a]">{label}</dt><dd className="mt-1 text-sm">{value}</dd></div>;
-}
-
 function operationCopy(operation: CreationOperation): Readonly<{ title: string; detail: string }> | undefined {
   if (operation === "planning") return { title: "요청을 분석하고 추천을 준비하고 있습니다.", detail: "검색 의도와 독자, 키워드, 콘텐츠 방향을 확인하고 있습니다." };
   if (operation === "regenerating") return { title: "AI 추천을 다시 생성하고 있습니다.", detail: "현재 추천은 그대로 유지됩니다. 완료된 뒤에만 새 추천으로 교체합니다." };
   if (operation === "generating") return { title: "원고를 생성하고 있습니다.", detail: "콘텐츠 구조와 SEO, 이미지, 링크, CTA를 구성하고 자동 품질검토를 진행합니다." };
   return undefined;
+}
+
+function workflowOperation(content: UserContent | undefined): CreationOperation {
+  if (content?.planningWorkflow?.status === "planning") return content.planning ? "regenerating" : "planning";
+  if (content?.planningWorkflow?.status === "generating") return "generating";
+  return "idle";
+}
+
+function restoredNotice(content: UserContent | undefined): string {
+  const workflow = content?.planningWorkflow;
+  if (!workflow) return "";
+  if (workflow.status === "planning") return content.planning
+    ? "이전 추천을 유지한 채 재분석이 진행 중입니다. 완료 상태를 자동으로 확인합니다."
+    : "저장된 Planning 요청을 불러왔습니다. 완료 상태를 자동으로 확인합니다.";
+  if (workflow.status === "candidatesReady") return "저장된 Content Opportunity 후보를 복원했습니다.";
+  if (workflow.status === "opportunitySelected") return "선택한 Content Opportunity와 후보 전체를 복원했습니다.";
+  if (workflow.status === "opportunityConfirmed") return "확정된 Content Opportunity를 복원했습니다. 원고 생성을 이어갈 수 있습니다.";
+  if (workflow.status === "generating") return "저장된 원고 생성 진행 상태를 복원했습니다. 완료 상태를 자동으로 확인합니다.";
+  if (workflow.status === "generated") return "원고 생성이 완료된 상태를 복원했습니다.";
+  if (workflow.status === "failed") return `${workflow.error ?? content?.generationError ?? "이전 작업에 실패했습니다."} 저장된 단계에서 다시 시도할 수 있습니다.`;
+  return "저장된 Planning 작업을 복원했습니다.";
+}
+
+function workflowSignature(workflow: UserContent["planningWorkflow"]): string {
+  return workflow ? JSON.stringify(workflow) : "";
 }
 
 function toggle(values: readonly string[], id: string) {

@@ -7,6 +7,15 @@ import { JsonFileSnapshotDriver } from "../../../../app/application/JsonFileSnap
 import { SnapshotPersistenceStore, type PersistenceSnapshot, type PersistenceSnapshotDriver } from "../../../../core/data";
 
 describe("studio persistence safety", () => {
+  it("commits cross-collection batch mutations in one durable write", async () => {
+    let snapshot: PersistenceSnapshot = { connections: { connection: { id: "connection" } }, references: { first: { connectionId: "connection" }, keep: { connectionId: "other" } } };
+    const write = vi.fn(async (next: PersistenceSnapshot) => { snapshot = next; });
+    const store = new SnapshotPersistenceStore({ read: async () => snapshot, write });
+    await store.batch([{ type: "set", collection: "tombstones", id: "connection", value: { status: "archived" } }, { type: "delete", collection: "references", id: "first" }, { type: "delete", collection: "connections", id: "connection" }]);
+    expect(write).toHaveBeenCalledOnce();
+    expect(snapshot).toEqual({ connections: {}, references: { keep: { connectionId: "other" } }, tombstones: { connection: { status: "archived" } } });
+  });
+
   it("serializes concurrent updates in call order without losing fields", async () => {
     const directory = await mkdtemp(join(tmpdir(), "bright-persistence-order-"));
     const store = new SnapshotPersistenceStore(new JsonFileSnapshotDriver(join(directory, "state.json")));

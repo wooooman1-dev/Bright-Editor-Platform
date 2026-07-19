@@ -1,4 +1,5 @@
 export interface PersistenceStore {
+  batch(mutations: readonly PersistenceMutation[]): Promise<void>;
   delete(collection: string, id: string): Promise<void>;
   get<T>(collection: string, id: string): Promise<T | undefined>;
   list<T>(collection: string): Promise<readonly T[]>;
@@ -6,8 +7,24 @@ export interface PersistenceStore {
   update<T>(collection: string, id: string, update: (current: T | undefined) => T): Promise<T>;
 }
 
+export type PersistenceMutation = Readonly<
+  | { type: "delete"; collection: string; id: string }
+  | { type: "set"; collection: string; id: string; value: unknown }
+>;
+
 export class InMemoryPersistenceStore implements PersistenceStore {
   private readonly collections = new Map<string, Map<string, unknown>>();
+
+  async batch(mutations: readonly PersistenceMutation[]): Promise<void> {
+    const next = new Map([...this.collections].map(([collection, values]) => [collection, new Map(values)]));
+    for (const mutation of mutations) {
+      const values = next.get(mutation.collection) ?? new Map<string, unknown>();
+      if (mutation.type === "delete") values.delete(mutation.id); else values.set(mutation.id, mutation.value);
+      next.set(mutation.collection, values);
+    }
+    this.collections.clear();
+    for (const [collection, values] of next) this.collections.set(collection, values);
+  }
 
   async delete(collection: string, id: string): Promise<void> {
     this.collections.get(collection)?.delete(id);
@@ -46,6 +63,18 @@ export class SnapshotPersistenceStore implements PersistenceStore {
 
   constructor(private readonly driver: PersistenceSnapshotDriver) {}
 
+  async batch(mutations: readonly PersistenceMutation[]): Promise<void> {
+    return this.mutate((snapshot) => {
+      const next: Record<string, Record<string, unknown>> = Object.fromEntries(Object.entries(snapshot).map(([collection, values]) => [collection, { ...values }]));
+      for (const mutation of mutations) {
+        const values = next[mutation.collection] ?? {};
+        if (mutation.type === "delete") delete values[mutation.id]; else values[mutation.id] = mutation.value;
+        next[mutation.collection] = values;
+      }
+      return next;
+    });
+  }
+
   async delete(collection: string, id: string): Promise<void> {
     return this.mutate((snapshot) => {
       const values = { ...(snapshot[collection] ?? {}) };
@@ -55,11 +84,13 @@ export class SnapshotPersistenceStore implements PersistenceStore {
   }
 
   async get<T>(collection: string, id: string): Promise<T | undefined> {
+    await this.queue;
     const snapshot = (await this.driver.read()) ?? {};
     return snapshot[collection]?.[id] as T | undefined;
   }
 
   async list<T>(collection: string): Promise<readonly T[]> {
+    await this.queue;
     const snapshot = (await this.driver.read()) ?? {};
     return Object.values(snapshot[collection] ?? {}) as T[];
   }

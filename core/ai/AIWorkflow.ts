@@ -1,4 +1,4 @@
-import type { ContentDocument } from "../content";
+import type { ConfirmedContentOpportunity, ContentDocument } from "../content";
 import type { AIProvider } from "./AIProvider";
 
 export type PlatformId = string & { readonly __platformId: unique symbol };
@@ -7,6 +7,7 @@ export type ContentTypeId = string & { readonly __contentTypeId: unique symbol }
 export type GenerationInput = Readonly<{
   contentId?: string;
   contentType: ContentTypeId;
+  contentOpportunity?: ConfirmedContentOpportunity;
   editorialContext?: string;
   keywords: readonly string[];
   platform: PlatformId;
