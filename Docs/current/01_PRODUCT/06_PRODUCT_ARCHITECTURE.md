@@ -82,7 +82,7 @@ Project는 콘텐츠 전략과 운영 문맥의 중심이다.
 
 ## 3.5 Workspace First
 
-Workspace는 Project, Platform Connection, Publishing Account, 설정과 운영 기록을 소유한다.
+Workspace는 Project, Publishing 전용 PlatformConnection, 시장·성과 Evidence 전용 DataSourceConnection, 설정과 운영 기록을 소유한다.
 
 ## 3.6 Quality First
 
@@ -254,6 +254,7 @@ Workspace
 │   └── Platform Target
 ├── Platform Connections
 ├── Publishing Accounts
+├── Data Source Connections
 ├── Assets
 └── Workspace Settings
 8.1 Workspace
@@ -268,6 +269,7 @@ Project
 Brand
 Platform Connection
 Publishing Account
+Data Source Connection
 Workspace 설정
 Automation 권한
 Assets
@@ -350,6 +352,8 @@ Project DNA의 상세 설계는 09_PROJECT_DNA.md를 따른다.
 10. Content Intelligence Layer
 
 Content Intelligence Layer는 기존 콘텐츠와 프로젝트 지식을 활용하여 AI Generation의 품질을 높이는 Core 계층이다.
+
+현재 전체 상태는 `Partially Implemented`다. Content Opportunity, Planning 상태 Persistence와 Data Source and Opportunity Intelligence Foundation만 구현되었다. Project DNA, Content Library, Published Content Registry, Search Intent Memory, Keyword Memory, Topic Memory, Duplicate Detection, Cannibalization Detection과 Internal Link Intelligence는 미구현이다.
 
 주요 책임은 다음과 같다.
 
@@ -710,7 +714,7 @@ AI Engine, Settings 화면 또는 Core Service가 Playwright를 직접 실행해
 
 22. Platform Connection Architecture
 
-Platform Connection은 Workspace가 소유한다.
+PlatformConnection은 Workspace가 소유하며 Publishing에만 사용한다.
 
 Project는 Platform Connection을 직접 소유하지 않고 발행 대상 계정을 참조한다.
 
@@ -726,6 +730,21 @@ Workspace
 인증 정보는 원문으로 저장하지 않는다.
 
 SecretStore에는 Secret Reference만 저장한다.
+
+## 22.1 Data Source Connection Architecture
+
+DataSourceConnection도 Workspace가 소유하지만 PlatformConnection과 책임을 공유하지 않는다.
+
+- `PlatformConnection`: Publishing 계정, Draft Save, 플랫폼 권한과 자동화 전용
+- `DataSourceConnection`: 검색 시장·콘텐츠 성과 Snapshot과 Evidence 전용
+
+Project는 같은 Workspace의 DataSourceConnection만 `ProjectDataSourceReference` 식별자로 참조한다. Project는 credential, OAuth token, client secret 또는 연결 metadata를 복제하지 않는다.
+
+공식 Provider 호출은 콘텐츠 생성 중 직접 실행하지 않는다. 수동 동기화가 Raw Snapshot을 저장하고 공통 Evidence로 정규화한 뒤, Planning은 Project가 참조한 Evidence만 사용한다.
+
+Data Source and Opportunity Intelligence Foundation은 구현되었다. Google Search Console의 실제 OAuth 로그인, 속성 조회·선택, `https://bright-healthy.tistory.com/`의 `siteOwner` 확인, 실제 동기화와 Snapshot 생성이 외부 검증되었다. NAVER Search Trend 실제 연결·동기화와 legacy Search Console Data Source 삭제(`DELETE /api/data-sources` HTTP 200)도 외부 검증되었다.
+
+GA4와 AdSense 실제 계정 검증은 완료되지 않았다. Google Ads와 Google Trends는 공식 접근 전 비활성 상태다. 토큰 만료 후 자동 갱신, 쿼터 한계와 다양한 실제 Provider 응답은 추가 검증 대상이다.
 
 23. Platform Adapter Contract
 
@@ -905,8 +924,8 @@ Knowledge Graph
 Topic Cluster Engine
 Trend Intelligence
 Competitor Intelligence
-Search Console Integration
-GA4 Integration
+Search Console 확장 검증
+GA4 실제 계정 Integration 검증
 Performance Feedback
 AI Learning Memory
 Team Collaboration

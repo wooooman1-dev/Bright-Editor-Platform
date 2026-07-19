@@ -509,11 +509,11 @@ Sprint 7 — Project DNA, Content Library, and Internal Link Intelligence: Desig
 
 Sprint 8 — WordPress and Multi-platform Foundation: Design Approved; Not Implemented
 
-Current implementation baseline: Sprint 5 completed.
+Current implementation baseline: Sprint 5 completed plus the Data Source and Opportunity Intelligence Foundation implemented at `71d4899d`.
 
 Current external-environment gate: Editor → Preview → Tistory Category → Draft Save → reopened title/body/category and non-public-state verification.
 
-Sprint 6, Sprint 7, and Sprint 8 must not be treated as implemented or verified until repository code, tests, and external verification prove completion.
+Sprint 6, Sprint 7, and Sprint 8 must not be treated as fully implemented or verified until repository code, tests, and external verification prove completion. The cross-cutting Data Source and Opportunity Intelligence Foundation does not make Sprint 7 as a whole implemented.
 
 Implementation order must be selected explicitly from the approved architecture and the current repository state. Sprint numbering alone does not determine implementation order.
 
@@ -521,7 +521,7 @@ Implementation order must be selected explicitly from the approved architecture 
 
 ## Tistory Usable Flow Completion
 
-Status: Implemented in working tree; final real-account verification pending environment availability.
+Status: Implemented in repository at `71d4899d`; final real-account Tistory Draft reopen verification pending.
 
 - Replaced the normal post-Project dead end with natural-language planning, confirmation, durable Content creation, generation/manual fallback, Editor, autosave/history, Quality Review, exact Tistory preview, and permission-gated draft save.
 - Extended the approved PlatformConnection boundary with least-privilege account permissions and safe audit records.
@@ -530,7 +530,7 @@ Status: Implemented in working tree; final real-account verification pending env
 
 ## Editor Quality and Tistory Preparation Completion
 
-Status: Implemented in working tree; harmless real-account category retrieval remains an environment-dependent verification step.
+Status: Implemented in repository; harmless real-account category retrieval remains an environment-dependent verification step.
 
 - Replaced the five binary checks with server-calculated, revision-bound ten-dimension scoring and canonical weights.
 - Added content-type-aware completeness thresholds and conservative planning/placeholder/structure/link/image/CTA signals.
@@ -540,9 +540,51 @@ Status: Implemented in working tree; harmless real-account category retrieval re
 
 ## Workspace Settings Integration
 
-Status: Implemented in working tree; real-account verification remains environment-dependent.
+Status: Implemented in repository; real-account Publishing verification remains environment-dependent.
 
 - Added a Workspace-scoped user Settings route backed by existing `studioStore`, connection repositories, provider configuration, permission gate, registered automation workflow, backup writer, and deletion service.
 - Kept API keys, credentials, cookies, sessions, and secret references server-only.
 - Preserved Review First, Draft Only, public-publish denial, and the registered workflow allowlist.
 - Connected Create Content to verified Settings accounts while preserving AI and Editor use without a publishing connection.
+
+## Data Source and Opportunity Intelligence Foundation
+
+Status: Implemented in repository and pushed to `main`/`origin/main` at `71d4899d feat: add content intelligence and data source workflows`.
+
+Implemented:
+
+- atomic Content Opportunity confirmation and deterministic alignment
+- durable Planning state Persistence with operation/revision stale-write protection
+- Workspace-owned `DataSourceConnection`
+- same-Workspace `ProjectDataSourceReference`
+- Publishing-only `PlatformConnection` separated from market/performance Evidence-only `DataSourceConnection`
+- official Search Console, GA4, AdSense and NAVER Search Trend adapters
+- Raw Snapshot, normalized Evidence, manual sync, freshness and isolation policies
+- server-classified Opportunity recommendations and deterministic unsupported-claim Quality guards
+- distinct disable, disconnect and backup-first safe deletion contracts
+
+Automated verification completed:
+
+- 118 test files and 589 tests passed
+- 6 files and 14 tests skipped by existing policy
+- lint, typecheck, test, build and `git diff --check` passed
+
+Externally verified:
+
+- Google Search Console OAuth real login
+- actual Search Console property listing
+- `https://bright-healthy.tistory.com/` selection with `siteOwner` permission
+- actual Search Console sync and Snapshot creation
+- NAVER Search Trend real connection and sync
+- actual legacy Google Search Console Data Source deletion
+- `DELETE /api/data-sources` HTTP 200
+
+Remaining gates:
+
+- Sprint 4 real Tistory Draft Save reopen verification; Sprint 4 and Epic 1 remain below Verified
+- GA4 and AdSense real-account verification
+- access-token automatic refresh after real expiry
+- quota-limit behavior and additional production Provider response variants
+- Google Ads and Google Trends remain inactive until official access is verified
+
+Content Intelligence remains partially implemented. Project DNA, Content Library, Published Content Registry, Search Intent Memory, Keyword Memory, Topic Memory, Duplicate Detection, Cannibalization Detection and Internal Link Intelligence are not implemented. Sprint 7 as a whole is not implemented.

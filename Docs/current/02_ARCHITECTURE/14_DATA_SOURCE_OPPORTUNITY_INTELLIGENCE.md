@@ -1,6 +1,6 @@
 # Data Source and Opportunity Intelligence Architecture
 
-Status: Google Search Console OAuth implemented; official-account verification pending
+Status: Foundation implemented; Google Search Console and NAVER selected flows externally verified; additional provider gates pending
 
 ## 1. Ownership and boundaries
 
@@ -103,7 +103,27 @@ Generation and Quality Review use the confirmed canonical Opportunity. The exist
 
 ## 10. Verification status
 
-Automated adapters, normalization, classification, isolation and regression tests are in scope. Actual Google/NAVER account authentication, resource access, quota behavior and returned production schemas remain manual external verification gates. Until those pass, no Provider is reported as externally verified.
+Implementation is present in `71d4899d feat: add content intelligence and data source workflows`, which is pushed to `main` and `origin/main`.
+
+Automated verification passed lint, typecheck, the full test suite, production build and `git diff --check`. The full suite passed 118 files and 589 tests; 6 files and 14 tests remain skipped by existing policy. Automated verification does not replace real Provider verification.
+
+Externally verified with real accounts and Provider responses:
+
+- Google Search Console OAuth login completed successfully.
+- The actual Search Console property list was returned.
+- `https://bright-healthy.tistory.com/` was selected with `siteOwner` permission.
+- An actual Search Console sync completed and created a Snapshot.
+- NAVER Search Trend connected and synchronized successfully.
+- The legacy Google Search Console Data Source was actually deleted, and `DELETE /api/data-sources` returned HTTP 200.
+
+Remaining external verification gates:
+
+- GA4 and AdSense real-account connection, resource selection and synchronization
+- automatic refresh after an access token actually expires
+- real quota limits and throttling behavior
+- additional production response variants from every supported Provider
+
+Google Ads Keyword Planning and Google Trends remain inactive until official access is verified. The completed checks above do not mark those Providers, GA4 or AdSense as externally verified.
 
 ## 11. Google Search Console OAuth 2.0
 
@@ -133,7 +153,7 @@ The OAuth state store persists only a SHA-256 state identifier and Workspace/Pro
 
 Stored Google credentials contain the access token, refresh token, expiry, token type, and granted scopes. They do not contain the authorization code, OAuth client secret, or ID token. Automatic access-token refresh writes a new access token and expiry back through DPAPI while preserving an existing refresh token when Google omits it.
 
-Legacy Search Console connections containing only a manually entered access token are not upgraded implicitly. They remain recoverable, retain snapshots and Evidence, and are publicly presented as requiring Google account reconnection.
+Legacy Search Console connections containing only a manually entered access token are not upgraded implicitly. Before deletion they remain recoverable, retain snapshots and Evidence, and are publicly presented as requiring Google account reconnection. The observed legacy Connection used for this implementation was subsequently deleted through the safe deletion contract; the API returned HTTP 200 while retained historical records remained subject to the preservation policy in section 2.
 
 Disconnect first invalidates pending local OAuth state, then makes a best-effort call to Google's official token revocation endpoint. Revocation timeout or failure never prevents local DPAPI credential deletion, Connection disconnection, or snapshot/Evidence retention.
 

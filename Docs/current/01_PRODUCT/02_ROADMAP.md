@@ -196,6 +196,7 @@ Designed	상세 설계가 완료된 상태
 Approved	구현이 승인된 상태
 In Progress	구현 또는 통합 진행 중
 Implemented	기능 코드가 구현된 상태
+Partially Implemented  승인 범위 중 명시된 Foundation만 구현되고 나머지 범위는 미구현인 상태
 Verified	테스트와 실제 동작이 검증된 상태
 Release Ready	사용자 관점의 전체 흐름이 검증된 상태
 Released	실제 사용 버전으로 배포된 상태
@@ -212,7 +213,7 @@ Stage 1	Platform and Content Foundation	Implemented
 Stage 2	Core Product Experience	Implemented
 Stage 3	AI Editorial and Quality Foundation	Implemented
 Stage 4	Tistory End-to-End Integration	In Progress
-Stage 5	Content Intelligence	Designed
+Stage 5	Content Intelligence	Partially Implemented
 Stage 6	WordPress Expansion	Planned
 Stage 7	Multi-Platform Workflow	Planned
 Stage 8	Content Repurposing	Planned
@@ -237,9 +238,9 @@ Sprint는 개발 실행 단위이며, Stage는 제품 가치와 장기 완료 �
 | Sprint 7 | Project DNA, Content Library, Internal Link Intelligence | Stage 5 | Design Approved, Not Implemented |
 | Sprint 8 | WordPress and Multi-platform Foundation | Stage 6, Stage 7 | Design Approved, Not Implemented |
 
-현재 Repository의 검증 기준은 Sprint 5 완료 상태이다.
+현재 Repository 기준은 Sprint 5 완료와 Data Source and Opportunity Intelligence Foundation 구현 완료 상태이다. 해당 Foundation은 `71d4899d feat: add content intelligence and data source workflows`로 `main`과 `origin/main`에 반영되었다.
 
-Sprint 6 이후 문서가 존재하더라도 해당 기능을 `Implemented` 또는 `Verified`로 판단해서는 안 된다. 실제 상태는 Repository 코드, 테스트 결과 및 Development 문서를 통해 별도로 확인한다.
+Sprint 6 이후 문서가 존재하더라도 Sprint 전체를 `Implemented` 또는 `Verified`로 판단해서는 안 된다. 특히 Sprint 7 전체는 미구현이며, 별도로 완료된 Data Source and Opportunity Intelligence Foundation만 `Implemented`다. 실제 상태는 Repository 코드, 자동 테스트, 외부 검증 결과 및 Development 문서를 통해 각각 확인한다.
 
 Sprint와 Stage의 관계는 일대일로 고정하지 않는다. 하나의 Sprint가 여러 Stage의 기반을 만들 수 있고, 하나의 Stage가 여러 Sprint에 걸쳐 완성될 수 있다.
 
@@ -511,13 +512,35 @@ Plugin System
 11. Stage 5 — Content Intelligence
 Status
 
-Designed
+Partially Implemented  승인 범위 중 명시된 Foundation만 구현되고 나머지 범위는 미구현인 상태
 
 Goal
 
 Project의 전략과 기존 콘텐츠 지식을 활용하여 반복 입력을 줄이고 콘텐츠 품질을 높인다.
 
 Scope
+
+Implemented Foundation
+
+Content Opportunity
+Planning 상태 Persistence
+Workspace 소유 DataSourceConnection
+같은 Workspace의 DataSourceConnection을 참조하는 ProjectDataSourceReference
+Publishing 전용 PlatformConnection과 시장·성과 Evidence 전용 DataSourceConnection 분리
+공식 Provider Snapshot과 정규화 Evidence
+Evidence 기반 Opportunity 분류와 Quality Guard
+
+Externally Verified Foundation Flows
+
+Google Search Console OAuth 실제 로그인
+Search Console 속성 목록 조회
+`https://bright-healthy.tistory.com/` 속성 선택과 `siteOwner` 권한 확인
+Search Console 실제 동기화와 Snapshot 생성
+NAVER Search Trend 실제 연결과 동기화
+legacy Google Search Console Data Source 삭제와 `DELETE /api/data-sources` HTTP 200 응답
+
+Remaining Content Intelligence Scope — Not Implemented
+
 Project DNA
 주요 주제
 세부 주제
@@ -619,6 +642,14 @@ Internal Link Intelligence
 Related Content Recommendation
     ↓
 AI Context Builder Integration
+
+Foundation Verification Boundary
+
+자동 검증은 전체 118개 파일, 589개 테스트 통과이며 기존 정책상 6개 파일, 14개 테스트는 skip 상태다. lint, typecheck, test, build와 `git diff --check`가 통과했다.
+
+Google Analytics 4와 Google AdSense의 실제 계정 검증은 완료되지 않았다. Google Ads Keyword Planning과 Google Trends는 공식 접근 확인 전 비활성 상태를 유지한다. 토큰 만료 후 자동 갱신, 실제 API 쿼터 한계와 다양한 Provider production 응답은 추가 외부 검증 항목이다.
+
+Content Intelligence 전체는 부분 구현 상태다. Project DNA, Content Library, Published Content Registry, Search Intent Memory, Keyword Memory, Topic Memory, Duplicate Detection, Cannibalization Detection과 Internal Link Intelligence가 구현되기 전에는 Stage 5 전체를 `Implemented` 또는 `Verified`로 올리지 않는다.
 Completion Criteria
 Project DNA가 생성 요청에 자동 적용된다.
 기존 콘텐츠를 생성 전에 조회한다.

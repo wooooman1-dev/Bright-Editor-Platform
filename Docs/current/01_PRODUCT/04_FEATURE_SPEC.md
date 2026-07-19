@@ -128,8 +128,8 @@ Playwright는 승인된 Workflow와 Permission Gate를 통해서만 실행한다
 
 5. Epic Overview
 Epic	Name	Status
-Epic 1	Core Content Workflow	Verified
-Epic 2	Content Intelligence	Designed
+Epic 1	Core Content Workflow	Implemented; External E2E Verification Pending
+Epic 2	Content Intelligence	Partially Implemented
 Epic 3	Multi-Platform Expansion	Planned
 Epic 4	Content Repurposing	Planned
 Epic 5	Analytics and Learning	Future
@@ -137,7 +137,7 @@ Epic 6	Team and Commercial Platform	Future
 6. Epic 1 — Core Content Workflow
 Status
 
-Verified
+Implemented; External E2E Verification Pending
 
 Epic 1은 Workspace에서 콘텐츠를 생성하고 편집한 뒤 품질 검토와 Tistory 임시저장까지 연결하는 기본 제품 흐름을 제공한다.
 
@@ -722,10 +722,12 @@ Actual Draft Verification
 
 Epic 1의 개별 기반 기능은 구현되어 있으나, Release 판단 시에는 위 전체 흐름의 실제 계정 검증 결과를 별도로 확인해야 한다.
 
+실제 Tistory Draft를 다시 열어 제목, 의미 있는 본문, 카테고리와 비공개 상태를 확인하기 전에는 Epic 1을 `Verified`로 표시하지 않는다.
+
 24. Epic 2 — Content Intelligence
 Status
 
-Designed
+Partially Implemented
 
 Epic 2는 Project와 기존 콘텐츠 데이터를 활용하여 Bright Studio가 반복 작업을 줄이고 더 정확한 추천을 제공하도록 한다.
 
@@ -1229,6 +1231,33 @@ AI Context Builder가 필요한 정보를 통합한다.
 AI가 Repository나 SecretStore를 직접 조회하지 않는다.
 사용자가 추천을 확인하고 수정하거나 거절할 수 있다.
 기존 Epic 1 Workflow가 손상되지 않는다.
+
+## 38.1 Epic 2 Current Implementation Boundary
+
+`71d4899d feat: add content intelligence and data source workflows`에서 다음 Foundation이 구현되어 `main`과 `origin/main`에 반영되었다.
+
+- 완전한 Content Opportunity 후보, 원자적 확정 snapshot, version과 fingerprint 검증
+- 재진입·새로고침 후 복원되는 Planning 상태 Persistence와 operation/revision 경계
+- Workspace가 소유하는 `DataSourceConnection`
+- Project가 같은 Workspace의 Data Source만 식별자로 참조하는 `ProjectDataSourceReference`
+- Publishing 전용 `PlatformConnection`과 시장·성과 Evidence 전용 `DataSourceConnection` 분리
+- 공식 Provider Adapter, Raw Snapshot, 정규화 Evidence, 수동 동기화와 Opportunity 분류
+- Data Source disable, disconnect와 safe deletion의 분리
+
+실계정 외부 검증이 완료된 범위는 다음과 같다.
+
+- Google Search Console OAuth 실제 로그인
+- 실제 Search Console 속성 목록 조회
+- `https://bright-healthy.tistory.com/` 선택과 `siteOwner` 권한 확인
+- 실제 Search Console 동기화와 Snapshot 생성
+- NAVER Search Trend 실제 연결과 동기화
+- legacy Google Search Console Data Source 실제 삭제와 `DELETE /api/data-sources` HTTP 200 확인
+
+자동 검증은 전체 118개 파일, 589개 테스트 통과다. 기존 정책상 6개 파일, 14개 테스트는 skip이며 lint, typecheck, test, build와 `git diff --check`가 통과했다. 이는 자동 검증 결과이며 위에 별도로 명시한 외부 검증 범위를 대신하지 않는다.
+
+Project DNA, Content Library, Published Content Registry, Search Intent Memory, Keyword Memory, Topic Memory, Duplicate Detection, Cannibalization Detection과 Internal Link Intelligence는 아직 구현되지 않았다. 따라서 Epic 2 전체는 `Partially Implemented`이며 `Implemented` 또는 `Verified`가 아니다.
+
+GA4와 AdSense 실제 계정 검증, 토큰 만료 후 자동 갱신, 쿼터 한계와 다양한 실제 Provider 응답 검증은 남아 있다. Google Ads와 Google Trends는 공식 접근 전 비활성 상태를 유지한다.
 39. Epic 3 — Multi-Platform Expansion
 Status
 

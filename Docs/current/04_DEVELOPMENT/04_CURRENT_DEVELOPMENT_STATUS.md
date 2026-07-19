@@ -2,9 +2,9 @@
 
 ## Baseline
 
-Implementation baseline: Sprint 5 completed.
+Implementation baseline: Sprint 5 completed plus Data Source and Opportunity Intelligence Foundation implemented.
 
-Architecture design baseline: Sprint 6, Sprint 7, and Sprint 8 approved and not implemented.
+Architecture design baseline: Sprint 6, Sprint 7, and Sprint 8 approved. Sprint 7 as a whole remains not implemented; only the separately identified Data Source and Opportunity Intelligence Foundation is implemented.
 
 Internal name: Bright Editor Platform
 
@@ -93,16 +93,16 @@ Implementation status must be determined from the repository code, test results,
 
 ## Next Actions
 
-1. Preserve Sprint 1–5 as the current implementation baseline.
+1. Preserve Sprint 1–5 and the implemented Data Source and Opportunity Intelligence Foundation as the current implementation baseline.
 2. Preserve Sprint 4 real-account draft verification as the current external execution gate.
-3. Treat Sprint 6, Sprint 7, and Sprint 8 as design approved but not implemented.
+3. Treat Sprint 6, Sprint 7, and Sprint 8 as design approved but not fully implemented; do not use the implemented Foundation to mark Sprint 7 as a whole implemented.
 4. Re-check the repository code, tests, and approved architecture before selecting the next implementation scope.
 5. Do not infer implementation order from Sprint numbering alone.
 6. Protect all completed Sprint 1–5 behavior during future implementation.
 
 ## Workspace Data Source and Opportunity Intelligence Foundation (2026-07-18)
 
-Implementation: complete in repository working tree; automated lint, typecheck, full test suite and production build passed.
+Implementation: complete in repository and pushed to `main`/`origin/main` at `71d4899d feat: add content intelligence and data source workflows`.
 
 Implemented foundation:
 
@@ -119,17 +119,35 @@ Implemented foundation:
 - Evidence-aware recommendation cards and Workspace Settings Data Sources UI
 - deterministic Quality Review guards for unsupported market claims
 
-Not externally verified:
+Automated verification completed:
 
-- real Google and NAVER accounts, OAuth scopes, selected resources, quotas and production response variants
-- Google Ads Keyword Planning official access
-- Google Trends official access
+- 118 test files and 589 tests passed
+- 6 files and 14 tests skipped by existing policy
+- lint, typecheck, test, build and `git diff --check` passed
 
-No provider is represented as externally verified until those manual checks pass. No commit or push is permitted before the external account gate requested for this work.
+Externally verified:
+
+- Google Search Console OAuth real login
+- actual Search Console property list retrieval
+- `https://bright-healthy.tistory.com/` property selection
+- `siteOwner` permission confirmation
+- actual Search Console sync and Snapshot creation
+- NAVER Search Trend real connection and synchronization
+- actual legacy Google Search Console Data Source deletion
+- `DELETE /api/data-sources` HTTP 200
+
+Still pending external verification:
+
+- GA4 and AdSense real accounts and production data
+- automatic token refresh after actual expiry
+- quota-limit behavior
+- additional real Provider response variants
+
+Google Ads Keyword Planning and Google Trends remain inactive until official access is verified.
 
 ## Google Search Console OAuth 2.0 Connection (2026-07-19)
 
-Implemented in the working tree:
+Implemented in repository at `71d4899d`:
 
 - official `googleapis` server-side OAuth client
 - exact development callback route `/api/data-sources/google/callback`
@@ -142,11 +160,19 @@ Implemented in the working tree:
 - legacy manual Search Console token detection and reconnect-required UI
 - manual token removal from the Search Console settings form
 
-Still requires external manual verification with a real Google test user, actual Search Console property, consent screen, token refresh, API quota, and production-shaped Search Analytics responses. The implementation must not be described as externally verified until that gate passes.
+Externally verified with a real Google account:
+
+- OAuth consent and login succeeded.
+- The actual Search Console property list was returned.
+- `https://bright-healthy.tistory.com/` was selected.
+- The selected property reported `siteOwner` permission.
+- Actual Search Console synchronization succeeded and created a Snapshot.
+
+Automatic refresh after a token actually expires, API quota behavior and additional production-shaped Search Analytics response variants remain verification gates. GA4 and AdSense are not externally verified by this Search Console result.
 
 ## Data Source Safe Deletion (2026-07-19)
 
-Implemented in the working tree:
+Implemented in repository at `71d4899d`:
 
 - distinct disable, disconnect and delete contracts
 - versioned secret-free backup before deletion
@@ -158,4 +184,32 @@ Implemented in the working tree:
 - tombstone write guards preventing late sync result persistence or Connection recreation
 - same-provider Settings selection recovery after card deletion
 
-Automated coverage verifies disconnected and active deletion, version/Workspace/idempotency boundaries, credential cleanup failure preservation, late sync rejection, Planning exclusion, historical Evidence ID retention and UI request binding. Actual deletion of the browser-observed legacy card remains a manual user-confirmed operation; tests do not delete real local Connection records.
+Automated coverage verifies disconnected and active deletion, version/Workspace/idempotency boundaries, credential cleanup failure preservation, late sync rejection, Planning exclusion, historical Evidence ID retention and UI request binding.
+
+External verification is complete for the observed legacy Google Search Console Data Source: the real legacy card was deleted through the safe deletion flow and `DELETE /api/data-sources` returned HTTP 200.
+
+## Content Intelligence Scope Boundary
+
+Content Opportunity and Planning state Persistence are implemented. The Data Source and Opportunity Intelligence Foundation is implemented and has the external verification listed above.
+
+Content Intelligence as a whole remains `Partially Implemented`. The following remain not implemented:
+
+- Project DNA
+- Content Library
+- Published Content Registry
+- Search Intent Memory
+- Keyword Memory
+- Topic Memory
+- Duplicate Detection
+- Cannibalization Detection
+- Internal Link Intelligence
+
+Sprint 7 as a whole must not be reported as implemented or verified.
+
+## Current External Gates
+
+- Sprint 4 remains implemented and automatically verified, but not Verified or Completed until a real Tistory Draft is saved, reopened and its title, meaningful body, category and non-public state are confirmed.
+- Epic 1 remains below Verified for the same Tistory end-to-end gate.
+- GA4 and AdSense real-account verification remains open.
+- Token refresh after actual expiry, quota limits and diverse real Provider responses remain open.
+- Google Ads and Google Trends remain inactive until official access is available and verified.

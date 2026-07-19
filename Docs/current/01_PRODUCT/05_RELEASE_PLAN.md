@@ -206,7 +206,7 @@ Release	Product Value	Status
 Release 0	Internal Foundation	Implemented
 Release 1	Personal Tistory Alpha	In Development
 Release 2	Personal Tistory Stable	Planned
-Release 3	Content Intelligence	Planned
+Release 3	Content Intelligence	Partially Implemented
 Release 4	WordPress Alpha	Planned
 Release 5	Multi-Platform Personal	Planned
 Release 6	Content Repurposing	Planned
@@ -530,13 +530,22 @@ Release 1 Critical 및 High 문제 해결
 10. Release 3 — Content Intelligence
 Status
 
-Planned
+Partially Implemented
 
 Goal
 
 기존 콘텐츠와 Project 전략을 다음 콘텐츠 생성에 재사용한다.
 
 Included Scope
+Implemented Foundation
+Content Opportunity
+Planning 상태 Persistence
+Workspace-owned DataSourceConnection
+same-Workspace ProjectDataSourceReference
+Provider Snapshot과 normalized Evidence
+Opportunity Evidence classification
+
+Remaining Release Scope — Not Implemented
 Project DNA 고급 설정
 Content Library
 Published Content Registry
@@ -548,6 +557,16 @@ Internal Link Intelligence
 Related Content Recommendation
 AI Context Builder
 Verified URL 정책
+
+Foundation Verification Status
+
+Data Source and Opportunity Intelligence Foundation은 `71d4899d feat: add content intelligence and data source workflows`로 `main`과 `origin/main`에 반영되었다. 전체 자동 검증은 118개 파일, 589개 테스트가 통과했고 기존 정책상 6개 파일, 14개 테스트는 skip 상태다. lint, typecheck, test, build와 `git diff --check`도 통과했다.
+
+Google Search Console은 실제 OAuth 로그인, 속성 목록 조회, `https://bright-healthy.tistory.com/` 선택, `siteOwner` 권한, 실제 동기화와 Snapshot 생성을 외부 검증했다. NAVER Search Trend 실제 연결·동기화와 legacy Google Search Console Data Source 삭제도 외부 검증했으며 `DELETE /api/data-sources`가 HTTP 200을 반환했다.
+
+GA4와 AdSense 실제 계정 검증은 남아 있다. Google Ads와 Google Trends는 공식 접근 전 비활성이다. 토큰 만료 후 자동 갱신, 쿼터 한계와 다양한 실제 Provider 응답도 추가 검증 Gate다.
+
+Project DNA, Content Library, Published Content Registry, Search Intent Memory, Keyword Memory, Topic Memory, Duplicate Detection, Cannibalization Detection과 Internal Link Intelligence가 미구현이므로 Release 3 전체를 `Implemented`, `Verified` 또는 Release Ready로 판단하지 않는다.
 Primary User Flow
 Create Content
     ↓
