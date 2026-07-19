@@ -1,16 +1,16 @@
-# Presentation Architecture
+# Presentation Architecture, Bright Components and Tistory Scheduling
 
-Version: 1.0
+Version: 1.1
 
 Status: Approved
 
-Sprint: Sprint 6
+Sprint: Sprint 6 — Presentation Architecture, Bright Components and Tistory Scheduling
 
 Document Type: Architecture Specification
 
 Owner: Core Platform
 
-Implementation Status: Not Implemented
+Implementation Status: Presentation Contract Foundation Implemented; Presentation Runtime and Scheduling Not Implemented
 
 ---
 
@@ -87,6 +87,26 @@ Architecture Acceptance Criteria
 Sprint 6은 시각 디자인을 완성하는 Sprint가 아니다.
 
 Sprint 6의 목적은 시각 디자인이 플랫폼마다 임의로 구현되지 않도록 안정적인 Presentation 계약을 만드는 것이다.
+
+## 2.1 Integrated Sprint Boundary
+
+기존 Sprint 6과 Sprint 6.5는 하나의 통합 Sprint로 관리한다. Sprint 6.5 번호는 별도 개발 단계로 사용하지 않는다.
+
+Gate 0은 기존 Sprint 4의 실제 Tistory Draft Save 전체 E2E 검증이다. 실제 Tistory Draft를 저장하고 다시 열어 제목, 의미 있는 본문 구조, Category와 비공개 상태를 확인해야 한다. 저장 클릭, 부분 검증 또는 자동 테스트만으로는 충분하지 않으며 Gate 0 통과 전에는 통합 Sprint Runtime 구현을 시작하지 않는다.
+
+현재 상태:
+
+- Presentation Contract Foundation: Implemented
+- Presentation Runtime: Not Implemented
+- Scheduling Domain: Not Implemented
+- Scheduling Runtime: Not Implemented
+- Integrated Sprint: Approved
+
+Workstream A는 Presentation Architecture, Bright Components, deterministic Presentation Resolver, theme-independent semantic HTML, RenderArtifact/checksum, PreviewApproval, Preview와 Draft의 동일 Artifact 사용과 Draft 재진입 의미 구조 검증을 순서대로 수행한다.
+
+Workstream B는 `ScheduledPublication`, `ScheduleJob`, `Asia/Seoul`, 고정 Revision/Account/Category, Tistory 자체 예약, 예약 시간 수정, Draft 보존 예약 취소, 예약 목록과 상태, 중복 방지, 실패 Job만 재시도, 앱 재시작 복원과 실제 외부 검증을 순서대로 수행한다.
+
+WordPress Renderer와 Draft Runtime은 Sprint 8 범위이며 통합 Sprint 6 Acceptance Criteria에 포함하지 않는다.
 
 3. Related Documents
 
@@ -1837,7 +1857,14 @@ Sanitization으로 필수 콘텐츠가 제거된 경우 성공 처리하지 않�
 알 수 없는 Component를 조용히 일반 div로 출력하지 않는다.
 29. Implementation Sequence
 
-Sprint 6 구현은 Sprint 7과 Sprint 8 설계를 기반으로 다음 순서로 진행한다.
+Sprint 6 구현은 Gate 0 통과 후 Workstream A와 Workstream B 순서로 진행한다.
+
+Gate 0. Real Tistory Draft Save E2E
+실제 Account와 Category 선택
+승인된 Revision과 Preview 확인
+Draft Save
+Draft 재진입
+제목, 의미 있는 본문 구조, Category와 비공개 상태 확인
 
 Phase 1. Foundation
 Presentation Terminology 확정
@@ -1900,14 +1927,23 @@ Bright Component Mapping
 Semantic Fallback
 Regression Test
 실제 Tistory Draft 확인
-Phase 9. WordPress Integration
-WordPress Renderer
-Bright Component HTML
-GeneratePress Responsibility 확인
-Bright Theme CSS Contract
-Shared Preview
-실제 WordPress Draft 확인
-Phase 10. Documentation and Verification
+Phase 9. Tistory Scheduling Domain and Permission
+ScheduledPublication
+ScheduleJob
+Asia/Seoul
+고정 Revision, Account와 Category
+schedule.publish 기본 OFF
+등록·시간 수정·취소 사용자 명시 승인
+중복 예약 방지
+Durable Persistence와 앱 재시작 복원
+Phase 10. Tistory Native Scheduling Runtime
+예약 등록과 외부 검증
+예약 시간 수정과 외부 검증
+Draft 보존 예약 취소와 외부 검증
+예약 목록과 상태
+실패 Job만 재시도
+성공 Job 재시도 금지
+Phase 11. Documentation and Verification
 Design System Token 연결
 Component Catalog 문서화
 Test 결과 기록
@@ -2019,15 +2055,14 @@ Image ALT
 Video Embed
 Draft Save
 실제 Editor에서 내용 유지
-WordPress
-Shared Preview
-Bright Component HTML
-GeneratePress 환경 표시
-Bright Theme 적용 전 가독성
-Bright Theme 적용 후 표현
-Draft Save
-WordPress 관리자 화면에서 실제 Draft 확인
-Public Publish 미실행
+Tistory Scheduling
+예약 등록과 예약 목록 확인
+Asia/Seoul 예약 시각 확인
+예약 시간 수정 확인
+Draft를 보존하는 예약 취소 확인
+실패 Job만 재시도되는지 확인
+앱 재시작 후 상태 복원 확인
+Public Publish Permission 미사용 확인
 31. Acceptance Criteria
 
 Sprint 6 상세 설계와 구현은 다음 조건을 만족해야 한다.
@@ -2112,13 +2147,18 @@ Bright Component를 단계적으로 적용할 수 있다.
 CSS가 없어도 의미가 유지된다.
 Registered Browser Workflow 경계를 유지한다.
 실제 Tistory Draft에서 결과를 확인할 수 있다.
-31.12 WordPress
-WordPress Renderer가 공통 Presentation Contract를 사용한다.
-GeneratePress와 Bright Theme의 책임이 분리된다.
-GeneratePress 원본 Theme를 수정하지 않는다.
-Bright Component HTML이 GeneratePress에 강하게 종속되지 않는다.
-Bright Theme가 없어도 콘텐츠를 읽을 수 있다.
-실제 WordPress Draft에서 결과를 확인할 수 있다.
+31.12 Tistory Scheduling
+ScheduledPublication과 ScheduleJob이 정의된다.
+Asia/Seoul 예약 시각을 사용한다.
+Revision, Account와 Category가 예약 생성 시 고정된다.
+예약 시간만 안전하게 수정할 수 있다.
+고정 대상 변경은 기존 예약 취소 후 새 예약으로 처리한다.
+예약 등록·시간 수정·취소마다 사용자 명시 승인을 요구한다.
+예약 취소는 외부 글 삭제로 처리하지 않는다.
+Draft 보존이 검증되지 않은 자동 취소를 실행하지 않는다.
+성공 Job을 재시도하지 않고 실패 Job만 재시도한다.
+중복 예약을 차단하고 앱 재시작 후 상태를 복원한다.
+실제 Tistory 예약 결과를 외부에서 검증한다.
 31.13 Platform Independence
 Presentation Engine이 Platform REST Endpoint를 알지 않는다.
 Presentation Engine이 Playwright를 호출하지 않는다.
@@ -2131,10 +2171,9 @@ Contract Test 통과
 Accessibility Test 통과
 Sanitization Test 통과
 Tistory Regression Test 통과
-WordPress Renderer Test 통과
 Preview Consistency Test 통과
 실제 Tistory Draft 검증
-실제 WordPress Draft 검증
+실제 Tistory 예약 등록·수정·취소 검증
 git diff --check 통과
 관련 문서 갱신
 32. Out of Scope
@@ -2151,6 +2190,7 @@ External Script Embed
 광고 Network Script
 WordPress Theme 자동 설치
 WordPress Plugin 자동 설치
+WordPress Renderer와 Draft Runtime
 GeneratePress 원본 수정
 Tistory Skin 자동 수정
 Theme Marketplace
@@ -2165,6 +2205,11 @@ Cross-workspace Theme Sharing
 Dynamic Personalization
 A/B Test
 Performance Analytics
+로컬 Scheduler
+반복 예약
+다중 플랫폼 예약
+AI 임의 예약 시간 결정
+자동 즉시 공개 발행
 
 Out of Scope 기능은 향후 확장을 막지 않되 Sprint 6 구현에 포함하지 않는다.
 

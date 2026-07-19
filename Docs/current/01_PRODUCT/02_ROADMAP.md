@@ -234,7 +234,7 @@ Sprint는 개발 실행 단위이며, Stage는 제품 가치와 장기 완료 �
 | Sprint 3 | Product UI Foundation | Stage 2 | Implemented |
 | Sprint 4 | Usable Content and Safe Draft Workflow | Stage 2, Stage 4 | Implemented |
 | Sprint 5 | Editorial Quality Pipeline | Stage 3 | Implemented |
-| Sprint 6 | Presentation Architecture and Bright Components | Stage 4 presentation foundation | Design Approved, Not Implemented |
+| Sprint 6 | Presentation Architecture, Bright Components and Tistory Scheduling | Stage 4 presentation and Tistory operation foundation | Approved; Contract Foundation Implemented, Runtime Not Implemented |
 | Sprint 7 | Project DNA, Content Library, Internal Link Intelligence | Stage 5 | Design Approved, Not Implemented |
 | Sprint 8 | WordPress and Multi-platform Foundation | Stage 6, Stage 7 | Design Approved, Not Implemented |
 
@@ -243,6 +243,32 @@ Sprint는 개발 실행 단위이며, Stage는 제품 가치와 장기 완료 �
 Sprint 6 이후 문서가 존재하더라도 Sprint 전체를 `Implemented` 또는 `Verified`로 판단해서는 안 된다. 특히 Sprint 7 전체는 미구현이며, 별도로 완료된 Data Source and Opportunity Intelligence Foundation만 `Implemented`다. 실제 상태는 Repository 코드, 자동 테스트, 외부 검증 결과 및 Development 문서를 통해 각각 확인한다.
 
 Sprint와 Stage의 관계는 일대일로 고정하지 않는다. 하나의 Sprint가 여러 Stage의 기반을 만들 수 있고, 하나의 Stage가 여러 Sprint에 걸쳐 완성될 수 있다.
+
+## 6.2 Integrated Sprint 6 Baseline
+
+통합 Sprint의 최종 명칭은 `Sprint 6 — Presentation Architecture, Bright Components and Tistory Scheduling`이다. 기존 Sprint 6.5는 별도 Sprint 번호로 사용하지 않으며 그 설계 범위는 Sprint 6 Workstream B에 흡수한다.
+
+현재 상태:
+
+- Design: Approved
+- Presentation Contract Foundation: Implemented
+- Presentation Runtime: Not Implemented
+- Scheduling Domain: Not Implemented
+- Scheduling Runtime: Not Implemented
+- Sprint Status: Approved
+- External Verification: Not Started
+
+Gate 0은 Sprint 4에서 남아 있는 실제 Tistory Draft Save 전체 E2E 검증이다. 실제 Draft를 저장하고 다시 열어 제목, 의미 있는 본문 구조, Category와 비공개 상태를 확인해야 한다. Gate 0 통과 전에는 Workstream A Runtime과 Workstream B 구현을 시작하지 않는다.
+
+Workstream A:
+
+Presentation Architecture → Bright Components → deterministic Presentation Resolver → theme-independent semantic HTML → RenderArtifact와 checksum → PreviewApproval → Preview와 Draft 동일 Artifact 사용 → 실제 Draft 재진입 의미 구조 검증
+
+Workstream B:
+
+ScheduledPublication → ScheduleJob → Asia/Seoul → 고정 Revision/Account/Category → Tistory 자체 예약 → 예약 시간 수정 → Draft 보존 예약 취소 → 예약 목록과 상태 → 중복 방지 → 실패 Job만 재시도 → 앱 재시작 복원 → 실제 Tistory 예약 외부 검증
+
+통합 Sprint는 실제 외부 검증 전 `Completed` 또는 `Verified`로 올리지 않는다.
 
 7. Stage 1 — Platform and Content Foundation
 Status

@@ -503,7 +503,7 @@ Sprint 4 — Usable Content and Safe Draft Workflow: Implemented and automatical
 
 Sprint 5 — Editorial Quality Pipeline: Completed
 
-Sprint 6 — Presentation Architecture and Bright Components: Design Approved; Not Implemented
+Sprint 6 — Presentation Architecture, Bright Components and Tistory Scheduling: Approved; Presentation Contract Foundation Implemented, Runtime Not Implemented
 
 Sprint 7 — Project DNA, Content Library, and Internal Link Intelligence: Design Approved; Not Implemented
 
@@ -516,6 +516,59 @@ Current external-environment gate: Editor → Preview → Tistory Category → D
 Sprint 6, Sprint 7, and Sprint 8 must not be treated as fully implemented or verified until repository code, tests, and external verification prove completion. The cross-cutting Data Source and Opportunity Intelligence Foundation does not make Sprint 7 as a whole implemented.
 
 Implementation order must be selected explicitly from the approved architecture and the current repository state. Sprint numbering alone does not determine implementation order.
+
+## Integrated Sprint 6 Implementation Plan
+
+Final name: `Sprint 6 — Presentation Architecture, Bright Components and Tistory Scheduling`
+
+기존 Sprint 6.5는 별도 개발 단계로 사용하지 않는다. 해당 Scheduling 설계는 통합 Sprint의 Workstream B로 흡수한다.
+
+Current status:
+
+- Sprint design: Approved
+- Presentation Contract Foundation: Implemented
+- Presentation Runtime: Not Implemented
+- Scheduling Domain: Not Implemented
+- Scheduling Runtime: Not Implemented
+- External verification: Not Started
+
+### Gate 0 — Real Tistory Draft Save E2E
+
+통합 Sprint 구현의 선행 Gate는 실제 Tistory Account에서 Draft를 저장하고 다시 열어 제목, 의미 있는 본문 구조, Category와 비공개 상태를 확인하는 것이다. 결과는 전체 `saved` 검증이어야 하며 save click, `partially_verified` 또는 자동 테스트만으로 통과하지 않는다.
+
+Gate 0을 통과하기 전에는 Workstream A Runtime이나 Workstream B 구현을 시작하지 않는다. Sprint 4와 Epic 1도 이 Gate 전에는 `Verified` 또는 `Completed`로 표시하지 않는다.
+
+### Workstream A — Presentation Runtime
+
+1. 기존 Contract Foundation과 Tistory Renderer characterization 보호
+2. Bright Components와 allowlisted Component Registry
+3. deterministic Presentation Resolver와 semantic fallback
+4. theme-independent semantic HTML, sanitizer와 accessibility validation
+5. 불변 RenderArtifact, checksum과 version compatibility
+6. PreviewApproval과 Content/Registry/Renderer 변경 invalidation
+7. Preview와 Draft의 동일 Artifact 사용
+8. 실제 Draft 재진입 의미 구조 검증
+
+### Workstream B — Tistory Scheduling
+
+1. ScheduledPublication과 ScheduleJob Domain
+2. Asia/Seoul 변환, 상태 전이, idempotency와 Persistence
+3. `schedule.publish` 기본 OFF와 Registered Workflow
+4. Quality/current Revision, Account, Category와 RenderArtifact 고정
+5. 예약 등록마다 사용자 명시 승인
+6. Tistory 자체 예약 기능 등록과 외부 검증
+7. 고정 대상을 유지한 예약 시간 수정과 명시 승인
+8. Draft 보존이 가능한 예약 취소와 명시 승인
+9. 예약 목록, 로컬/외부 상태와 unknown 조정
+10. 중복 예약 방지와 실패 Job만 재시도
+11. 앱 재시작 후 예약 및 Job 상태 복원
+12. 실제 Tistory 예약 등록·수정·취소 외부 검증
+
+Revision, Account 또는 Category 변경은 기존 예약에서 허용하지 않는다. 변경하려면 기존 예약을 안전하게 취소하고 새 예약을 생성한다. 예약 취소 과정에 글 삭제가 필요하면 별도 Delete Permission 승인 전 자동 실행하지 않는다.
+
+Out of scope: local Scheduler, recurring schedules, multi-platform scheduling, AI-selected schedule time and automatic immediate public publishing.
+
+통합 Sprint는 자동 테스트가 완료되어도 실제 Draft와 예약 외부 검증 전에는 `Completed` 또는 `Verified`로 표시하지 않는다.
 
 ---
 

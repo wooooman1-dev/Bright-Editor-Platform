@@ -21,7 +21,7 @@ Architecture status: Frozen
 | 3 | Product UI Foundation | Approved | Complete | Complete | Completed |
 | 4 | Usable Content and Safe Draft Workflow | Approved | Complete | Automated complete; real Tistory pending | Environment Verification Pending |
 | 5 | Editorial Quality Pipeline | Approved | Complete | Complete | Completed |
-| 6 | Presentation Architecture and Bright Components | Approved | Not started | Not started | Design Approved, Not Implemented |
+| 6 | Presentation Architecture, Bright Components and Tistory Scheduling | Approved | Contract Foundation only | Runtime and external verification not started | Approved |
 | 7 | Project DNA, Content Library, and Internal Link Intelligence | Approved | Not started | Not started | Design Approved, Not Implemented |
 | 8 | WordPress and Multi-platform Foundation | Approved | Not started | Not started | Design Approved, Not Implemented |
 
@@ -63,9 +63,12 @@ The architecture designs for Sprint 6, Sprint 7, and Sprint 8 are approved.
 
 ```text
 Sprint 6
-Presentation Architecture and Bright Components
+Presentation Architecture, Bright Components and Tistory Scheduling
 Design: Approved
-Implementation: Not started
+Presentation Contract Foundation: Implemented
+Presentation Runtime: Not Implemented
+Scheduling Domain: Not Implemented
+Scheduling Runtime: Not Implemented
 Verification: Not started
 
 Sprint 7
@@ -79,6 +82,8 @@ WordPress and Multi-platform Foundation
 Design: Approved
 Implementation: Not started
 Verification: Not started
+
+```
 
 The approved architecture documents are:
 
@@ -94,11 +99,49 @@ Implementation status must be determined from the repository code, test results,
 ## Next Actions
 
 1. Preserve Sprint 1–5 and the implemented Data Source and Opportunity Intelligence Foundation as the current implementation baseline.
-2. Preserve Sprint 4 real-account draft verification as the current external execution gate.
-3. Treat Sprint 6, Sprint 7, and Sprint 8 as design approved but not fully implemented; do not use the implemented Foundation to mark Sprint 7 as a whole implemented.
-4. Re-check the repository code, tests, and approved architecture before selecting the next implementation scope.
-5. Do not infer implementation order from Sprint numbering alone.
+2. Preserve Sprint 4 real-account draft verification as Gate 0 for the integrated Sprint 6.
+3. Do not start Sprint 6 Runtime implementation before Gate 0 passes.
+4. Treat Sprint 6, Sprint 7, and Sprint 8 as approved but not fully implemented; do not use an implemented Foundation to mark a whole Sprint implemented.
+5. Re-check the repository code, tests, and approved architecture before selecting the next implementation scope.
 6. Protect all completed Sprint 1–5 behavior during future implementation.
+
+## Integrated Sprint 6 Status
+
+Final name: `Sprint 6 — Presentation Architecture, Bright Components and Tistory Scheduling`
+
+기존 Sprint 6.5 번호는 더 이상 별도 개발 단계로 사용하지 않는다.
+
+Gate 0은 실제 Tistory Draft Save 후 Draft를 다시 열어 제목, 의미 있는 본문 구조, Category와 비공개 상태를 확인하는 전체 E2E 검증이다. 현재 Gate 0은 미완료다. 따라서 통합 Sprint Runtime 구현을 시작할 수 없고 Sprint 4와 Epic 1도 `Verified` 또는 `Completed`가 아니다.
+
+Workstream A status:
+
+- Presentation Contract Foundation: Implemented
+- Bright Components and deterministic Resolver: Not Implemented
+- Theme-independent semantic HTML Runtime: Not Implemented
+- RenderArtifact/checksum and PreviewApproval: Not Implemented
+- Preview/Draft same Artifact and reopened semantic verification: Not Implemented
+
+Workstream B status:
+
+- ScheduledPublication and ScheduleJob: Not Implemented
+- schedule.publish Permission and registered workflows: Not Implemented
+- Native Tistory create/update/cancel/list/verify: Not Implemented
+- Duplicate prevention, failed-only retry and restart recovery: Not Implemented
+- Real Tistory schedule verification: Not Started
+
+Safety baseline:
+
+- `schedule.publish`: default OFF
+- `public.publish`: default OFF
+- Draft Only: default ON
+- create, update-time and cancel require explicit user approval
+- Quality approval/current Revision, Account and Category are pinned
+- only schedule time may be updated; pinned target changes require cancel and recreate
+- cancel must preserve Draft and must not delete external content
+- a delete-dependent cancellation cannot run without separate Delete Permission
+- successful jobs are never retried; only failed jobs are retryable
+
+Local Scheduler, recurring schedules, multi-platform scheduling, AI-selected schedule times and automatic immediate public publishing remain out of scope. The integrated Sprint remains `Approved` and cannot become `Completed` or `Verified` before real external verification.
 
 ## Workspace Data Source and Opportunity Intelligence Foundation (2026-07-18)
 

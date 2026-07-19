@@ -937,6 +937,49 @@ Campaign Management
 
 이 기능들은 기존 Core와 Content Model 구조를 유지하면서 확장해야 한다.
 
+32.1 Integrated Sprint 6 Architecture
+
+통합 Sprint의 명칭은 `Sprint 6 — Presentation Architecture, Bright Components and Tistory Scheduling`이다. 기존 Sprint 6.5는 독립된 개발 단계가 아니며 Scheduling 범위는 Sprint 6 Workstream B에 포함한다.
+
+Gate 0은 기존 Sprint 4의 실제 Tistory Draft Save 전체 E2E 검증이다. 실제 Draft를 저장하고 다시 열어 제목, 의미 있는 본문 구조, Category와 비공개 상태를 확인하기 전에는 통합 Sprint Runtime 구현을 시작하지 않는다.
+
+Workstream A 경계:
+
+```text
+Canonical ContentDocument
+→ Deterministic Presentation Resolver
+→ Allowlisted Bright Components
+→ Theme-independent Semantic HTML
+→ Immutable RenderArtifact + Checksum
+→ PreviewApproval
+→ Same Artifact for Preview and Draft
+→ Reopened Tistory Draft Semantic Verification
+```
+
+공통 표현 계약은 Core/Shared가 소유한다. Tistory HTML 변환, DOM selector와 Draft 재진입 동작은 Apps/Tistory가 소유한다. Presentation Engine, AI와 일반 Core는 Playwright를 직접 호출하지 않는다.
+
+Workstream B 경계:
+
+```text
+ScheduledPublication
+→ Durable ScheduleJob
+→ Server Permission Gate
+→ Registered Tistory Scheduling Workflow
+→ Tistory Native Schedule
+→ External Schedule Verification
+→ Persistent Status and Audit
+```
+
+`ScheduledPublication`은 `Asia/Seoul` 시각과 고정 Content Revision, PlatformConnection Account, Category를 보존한다. `ScheduleJob`은 등록, 시간 수정, 취소와 검증의 idempotency 및 attempt를 관리한다. 성공 Job은 재시도하지 않으며 실패 Job만 재시도한다. 앱 재시작 후 예약과 Job 상태를 복원한다.
+
+예약 등록·시간 수정·취소는 모두 사용자 명시 승인과 서버 Permission Gate를 요구한다. `schedule.publish`와 `public.publish`는 기본 OFF이고 Draft Only는 기본 ON이다. 예약 후 Revision, Account 또는 Category 변경은 금지하며 변경하려면 기존 예약을 안전하게 취소하고 새 예약을 생성한다.
+
+예약 취소는 외부 글 삭제가 아니다. Tistory에서 예약 취소 후 Draft가 보존되는 것으로 검증된 경우에만 자동 취소한다. 삭제가 필요하면 별도 Delete Permission 승인 전 자동 실행하지 않는다.
+
+로컬 Scheduler, 반복 예약, 다중 플랫폼 예약, AI가 결정한 예약 시각과 자동 즉시 공개 발행은 통합 Sprint에서 제외한다.
+
+현재 상태는 Presentation Contract Foundation `Implemented`, Presentation Runtime `Not Implemented`, Scheduling Domain과 Runtime `Not Implemented`다. Sprint 전체는 `Approved`이며 실제 외부 검증 전 `Completed` 또는 `Verified`로 표시하지 않는다.
+
 33. Architecture Acceptance Criteria
 
 Product Architecture는 다음 조건을 만족해야 한다.

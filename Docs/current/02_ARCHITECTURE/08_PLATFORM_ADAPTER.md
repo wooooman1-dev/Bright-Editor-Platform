@@ -10,6 +10,8 @@ Document Type: Architecture Specification
 
 Implementation Status: Not Implemented
 
+Integrated Sprint 6 Extension: Tistory Scheduling Contract Approved; Domain and Runtime Not Implemented
+
 ---
 
 # 1. Purpose
@@ -1786,6 +1788,63 @@ YouTube Upload
 Naver Cafe Publishing
 
 Out of Scope 기능은 Interface 확장을 막지 않되 Sprint 8 구현에 포함하지 않는다.
+
+32.1 Integrated Sprint 6 Tistory Scheduling Contract
+
+`Sprint 6 — Presentation Architecture, Bright Components and Tistory Scheduling`은 Tistory 자체 예약 기능을 Platform Adapter의 승인된 외부 실행으로 추가한다. 기존 Sprint 6.5 번호는 별도 개발 단계로 사용하지 않는다. 이 절은 Sprint 8의 WordPress 및 Multi-platform 구현 상태를 변경하지 않는다.
+
+Gate 0은 실제 Tistory Draft Save 후 Draft를 다시 열어 제목, 의미 있는 본문 구조, Category와 비공개 상태를 확인하는 전체 E2E 검증이다. Gate 0 통과 전에는 아래 Runtime을 구현하지 않는다.
+
+공통 계약:
+
+```ts
+interface ScheduledPublication {
+  id: string;
+  workspaceId: string;
+  projectId: string;
+  contentId: string;
+  contentRevisionId: string;
+  renderArtifactId: string;
+  renderChecksum: string;
+  platform: "tistory";
+  platformConnectionId: string;
+  categoryId: string | null;
+  categoryName: string | null;
+  scheduledLocalDateTime: string;
+  timeZone: "Asia/Seoul";
+  scheduledAt: string;
+  status: "pending" | "executing" | "scheduled" | "failed" | "cancelling" | "cancelled" | "unknown";
+  externalScheduleId?: string;
+  externalContentId?: string;
+}
+
+interface ScheduleJob {
+  id: string;
+  scheduledPublicationId: string;
+  operation: "create" | "update-time" | "cancel" | "verify";
+  idempotencyKey: string;
+  status: "queued" | "running" | "succeeded" | "failed" | "unknown";
+  attempt: number;
+  retryable: boolean;
+}
+```
+
+Adapter/Workflow 경계:
+
+- Core는 예약 Domain, 상태 전이, idempotency, 시간과 Permission 요구사항을 정의한다.
+- Apps/Tistory는 예약 UI, DOM, selector, 예약 목록 조회와 Draft 보존 취소 동작을 소유한다.
+- AI와 Core는 Playwright를 직접 호출하지 않는다.
+- 모든 create, update-time, cancel은 서버 Permission Gate와 Registered Workflow를 통과한다.
+- `schedule.publish`와 `public.publish`는 기본 OFF이며 Draft Only는 기본 ON이다.
+- Quality Approval, 현재 Revision, 승인된 RenderArtifact/checksum이 실행 직전에 일치해야 한다.
+- Revision, Account와 Category는 예약 생성 시 고정하고 이후 변경하지 않는다.
+- 예약 시간 수정만 동일 예약에서 허용한다. 고정 대상 변경은 안전한 취소 후 새 예약으로 처리한다.
+- 예약 취소는 삭제가 아니다. Tistory에서 Draft 보존이 검증된 경우에만 자동 취소한다.
+- 삭제가 필요한 취소 흐름은 별도 Delete Permission 승인 전 실행하지 않는다.
+- 성공 Job은 재시도하지 않고 실패 Job만 동일 idempotency 경계에서 재시도한다.
+- 예약과 Job 상태는 앱 재시작 후 복원하고 `unknown` 외부 결과는 재실행 전에 조회·조정한다.
+
+통합 Sprint에서 로컬 Scheduler, 반복 예약, 다중 플랫폼 예약, AI 임의 예약 시각 결정과 자동 즉시 공개 발행은 지원하지 않는다. 실제 Tistory 예약 등록·수정·취소와 외부 상태가 검증되기 전에는 이 범위를 `Completed` 또는 `Verified`로 표시하지 않는다.
 
 33. Future Expansion
 

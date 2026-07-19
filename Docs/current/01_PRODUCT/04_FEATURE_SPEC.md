@@ -692,6 +692,84 @@ Acceptance Criteria
 임시저장 성공을 실제 결과로 검증한다.
 세션 만료, Editor 진입 실패, 저장 실패를 구분한다.
 실패 시 원본 콘텐츠와 Project 상태를 손상시키지 않는다.
+
+22.1 Feature 1.17 — Tistory Scheduled Publication
+
+Purpose
+
+Quality 승인된 특정 Content Revision을 사용자가 선택한 Tistory Account와 Category에 안전하게 예약하고, 예약 시간 수정·취소·상태 확인과 실패 복구를 제공한다.
+
+Domain
+
+- `ScheduledPublication`: Workspace, Project, Content, 고정 Revision, Account, Category, `Asia/Seoul` 예약 시각, 외부 예약 식별자와 현재 상태
+- `ScheduleJob`: create, update-time, cancel, verify 작업의 idempotency, attempt, 결과와 안전한 오류
+
+Workflow
+
+Publishing Preparation
+    ↓
+Quality Approval and Current Revision Check
+    ↓
+PreviewApproval and RenderArtifact Checksum
+    ↓
+Schedule Permission Gate
+    ↓
+Explicit User Approval
+    ↓
+Tistory Registered Scheduling Workflow
+    ↓
+External Schedule Verification
+    ↓
+Persistent Status and Audit
+
+Default Policy
+
+- `schedule.publish`: OFF
+- `public.publish`: OFF
+- Draft Only: ON
+- Time Zone: `Asia/Seoul`
+- Tistory native scheduling first
+
+Rules
+
+- 예약 등록, 예약 시간 수정과 예약 취소마다 사용자 명시 승인을 요구한다.
+- Quality 승인은 예약 대상 Revision과 일치해야 한다.
+- 예약 생성 후 Revision, Account와 Category를 변경할 수 없다.
+- 해당 항목 변경은 기존 예약을 취소하고 새 예약을 생성한다.
+- 기존 고정 대상을 유지하는 예약 시간만 안전하게 수정할 수 있다.
+- 같은 활성 예약을 중복 생성하지 않는다.
+- 성공한 ScheduleJob은 재시도하지 않고 실패한 Job만 재시도한다.
+- 예약과 Job 상태는 앱 재시작 후 복원한다.
+- 예약 취소는 글 삭제가 아니다.
+- Tistory에서 예약 취소 후 Draft 보존이 가능한 것으로 실제 검증된 경우에만 자동 취소한다.
+- 취소에 글 삭제가 필요하면 별도 Delete Permission 승인 전 자동 실행하지 않는다.
+- AI가 예약 시간을 임의로 결정하지 않는다.
+
+Acceptance Criteria
+
+- 승인된 고정 Revision, Account와 Category로 Tistory 예약을 등록하고 외부 결과를 검증한다.
+- 예약 시간을 수정하고 변경된 외부 시각을 검증한다.
+- Draft를 보존하는 방식으로 예약을 취소하고 외부 상태를 검증한다.
+- 예약 목록에 로컬 상태와 검증된 외부 상태를 구분해 표시한다.
+- 중복 예약, stale Revision, Permission 누락과 사용자 승인 누락을 서버에서 차단한다.
+- 실패 Job만 재시도하며 성공한 외부 예약을 중복 생성하지 않는다.
+- 앱 재시작 후 pending, failed와 unknown 상태를 복원하고 안전하게 조정한다.
+
+Out of Scope
+
+- 로컬 Scheduler
+- 반복 예약
+- 다중 플랫폼 예약
+- AI의 임의 예약 시간 결정
+- 자동 즉시 공개 발행
+
+22.2 Integrated Sprint 6 Presentation Boundary
+
+`Sprint 6 — Presentation Architecture, Bright Components and Tistory Scheduling`은 기존 Sprint 6과 Sprint 6.5 범위를 하나로 관리한다. 별도 Sprint 6.5 개발 단계는 두지 않는다.
+
+Presentation Contract Foundation은 구현되어 있다. Bright Components, deterministic Presentation Resolver, theme-independent semantic HTML, RenderArtifact/checksum, PreviewApproval과 Preview/Draft 동일 Artifact Runtime은 구현되지 않았다.
+
+실제 Tistory Draft Save 후 재진입하여 제목, 의미 있는 본문 구조, Category와 비공개 상태를 확인하는 Gate 0을 통과하기 전에는 통합 Sprint Runtime 구현을 시작하지 않는다. Sprint 전체는 외부 검증 전 `Completed` 또는 `Verified`로 표시하지 않는다.
 23. Epic 1 Completion Criteria
 
 Epic 1은 다음 통합 흐름이 실제로 검증되었을 때 완료로 판단한다.

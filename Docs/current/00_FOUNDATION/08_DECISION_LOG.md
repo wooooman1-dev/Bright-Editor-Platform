@@ -661,6 +661,37 @@ Data Source 비활성화, 연결 해제, 삭제는 서로 다른 동작이다. �
 
 Raw Snapshot, Snapshot metadata, normalized Evidence, 확정된 Content Opportunity의 evidenceIds, Quality Review, ContentDocument와 History는 삭제하지 않는다. tombstone은 provider, 표시 이름, resource와 보존 수량을 비밀정보 없이 기록한다. 삭제된 Connection의 Evidence는 과거 콘텐츠 근거 조회에는 남지만 Project reference와 현재 Connection이 없으므로 신규 Opportunity Planning에는 사용하지 않는다.
 
+D-034 Integrated Sprint 6 Presentation and Tistory Scheduling
+
+Status: Accepted
+
+기존 Sprint 6과 Sprint 6.5의 설계 범위는 `Sprint 6 — Presentation Architecture, Bright Components and Tistory Scheduling`이라는 하나의 통합 Sprint로 관리한다. Sprint 6.5 번호는 별도 개발 단계로 사용하지 않는다.
+
+통합 Sprint 구현의 Gate 0은 실제 Tistory 계정에서 Draft Save를 실행하고 Draft를 다시 열어 제목, 의미 있는 본문 구조, Category와 비공개 상태를 확인하는 전체 End-to-End 검증이다. 저장 버튼 클릭, 부분 검증 또는 자동 테스트만으로 Gate 0을 통과한 것으로 간주하지 않는다. Gate 0 통과 전에는 통합 Sprint의 Presentation Runtime 또는 Scheduling 구현을 시작하지 않는다.
+
+Workstream A는 Canonical `ContentDocument`에서 deterministic Presentation Resolver, allowlisted Bright Components와 theme-independent semantic HTML을 생성한다. 불변 `RenderArtifact`와 checksum을 저장하고 `PreviewApproval`을 해당 Artifact에 결합한다. Preview와 Tistory Draft는 승인된 동일 Artifact를 사용하며, Draft 재진입 후에는 Tistory가 정규화한 결과의 의미 구조가 일치하는지 검증한다. Presentation Contract Foundation은 구현되었지만 Presentation Runtime은 구현되지 않았다.
+
+Workstream B는 `ScheduledPublication`과 `ScheduleJob`을 정의하고 Tistory 자체 예약 기능을 우선 사용한다. 시간대는 `Asia/Seoul`로 고정하며 예약 대상 Content Revision, PlatformConnection Account와 Category를 고정한다. 로컬 Scheduler가 공개 시각까지 대기하거나 자체적으로 공개 작업을 실행하지 않는다.
+
+예약 안전 정책은 다음과 같다.
+
+- `schedule.publish`: 기본 Disabled
+- `public.publish`: 기본 Disabled
+- Draft Only: Enabled
+- Quality Approval과 현재 Content Revision 일치 필수
+- 예약 등록, 예약 시간 수정과 예약 취소마다 사용자 명시 승인 필수
+- 예약 후 Revision, Account 또는 Category 변경 금지
+- Revision, Account 또는 Category 변경 시 기존 예약을 안전하게 취소한 뒤 새 예약 생성
+- 예약 시간만 기존 고정 대상을 유지한 채 안전하게 수정 가능
+- 예약 취소는 외부 글 삭제가 아님
+- Tistory에서 예약 취소 후 Draft 보존이 검증된 경우에만 자동 취소
+- 취소 과정에 글 삭제가 필요하면 별도 Delete Permission 승인 전 자동 실행 금지
+- 활성 예약의 중복 생성 금지
+- 성공한 ScheduleJob 재시도 금지, 실패한 ScheduleJob만 동일 idempotency 경계에서 재시도
+- 앱 재시작 후 예약과 Job 상태 복원
+
+로컬 Scheduler, 반복 예약, 다중 플랫폼 예약, AI의 임의 예약 시간 결정과 자동 즉시 공개 발행은 통합 Sprint 범위에서 제외한다. 실제 Tistory 예약 등록·수정·취소와 외부 상태가 검증되기 전에는 Sprint 전체를 `Completed` 또는 `Verified`로 표시하지 않는다.
+
 
 ---
 

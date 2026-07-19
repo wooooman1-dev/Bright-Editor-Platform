@@ -410,6 +410,44 @@ Analytics
 자체 이미지 생성
 기존 외부 글 자동 수정
 기존 외부 글 자동 삭제
+
+Release 1의 `자동 예약 발행` 제외는 유지한다. 이는 통합 Sprint 6의 Tistory 예약 기능을 취소하는 의미가 아니라, Sprint 4 실제 Draft E2E Gate와 Release 1 검증이 끝나기 전에 예약 Runtime을 활성화하지 않는다는 의미다.
+
+## Integrated Sprint 6 Delivery Gate
+
+통합 Sprint 명칭은 `Sprint 6 — Presentation Architecture, Bright Components and Tistory Scheduling`이다. 기존 Sprint 6.5 번호는 별도 개발 단계로 사용하지 않는다.
+
+Gate 0:
+
+- 실제 Tistory Draft Save 실행
+- Draft 재진입
+- 제목, 의미 있는 본문 구조와 Category 확인
+- 공개되지 않은 상태 확인
+- `saved` 수준의 전체 결과 확인
+
+Gate 0 통과 전에는 Presentation Runtime과 Scheduling Domain/Runtime 구현을 시작하지 않는다.
+
+Workstream A Release Gate:
+
+- deterministic Presentation Resolver
+- theme-independent semantic HTML
+- 불변 RenderArtifact와 checksum
+- PreviewApproval
+- Preview와 Draft의 동일 Artifact 사용
+- 실제 Draft 재진입 의미 구조 검증
+
+Workstream B Release Gate:
+
+- `schedule.publish` 기본 OFF와 `public.publish` 기본 OFF
+- 예약 등록·시간 수정·취소마다 사용자 명시 승인
+- Quality 승인과 현재 Revision 일치
+- 고정 Revision, Account와 Category
+- Tistory 자체 예약 기능을 사용한 등록·시간 수정·Draft 보존 취소
+- 예약 목록과 외부 검증 상태
+- 중복 방지, 실패 Job만 재시도, 앱 재시작 복원
+- 실제 Tistory 예약 외부 검증
+
+로컬 Scheduler, 반복 예약, 다중 플랫폼 예약, AI 임의 예약 시간 결정과 자동 즉시 공개 발행은 이 Delivery 범위에서 제외한다. 모든 자동 테스트가 통과하더라도 실제 Tistory 외부 검증 전에는 통합 Sprint를 `Completed` 또는 `Verified`로 판정하지 않는다.
 Release 1 Functional Gate
 
 다음 기능은 실제로 연결되어야 한다.
