@@ -18,7 +18,7 @@ export class TistoryPostCatalogApplicationService {
     new PublishingPermissionGate().authorize({ ...input, platformConnectionId: input.connection.id, workflow: "post.read", finalConfirmation: false }, input.connection);
     const blogId = String(input.connection.publicMetadata.blogId ?? ""); if (!blogId) throw new Error("Tistory 계정 정보가 올바르지 않습니다.");
     const cachePath = this.cachePath(input.workspaceId, input.connection.id);
-    if (!input.refresh) { const cached = await readCache(cachePath); if (cached && this.now().getTime() - Date.parse(cached.retrievedAt) < CACHE_TTL_MS) return { ...cached, cached: true }; }
+    if (!input.refresh) { const cached = await readCache(cachePath); if (cached && cacheHasCategoryMetadata(cached) && this.now().getTime() - Date.parse(cached.retrievedAt) < CACHE_TTL_MS) return { ...cached, cached: true }; }
     const result = await this.adapter.readPosts({ blogId, storageStatePath: path.join(this.root, "connections", "tistory", input.connection.id, "storage-state.json") });
     const normalized = { ...result, posts: result.posts.map((post) => ({ ...post, publishingAccountId: input.connection.id })) };
     await mkdir(path.dirname(cachePath), { recursive: true }); await writeFile(cachePath, JSON.stringify(normalized), "utf8");
@@ -27,4 +27,5 @@ export class TistoryPostCatalogApplicationService {
   private cachePath(workspaceId: string, connectionId: string) { return path.join(this.root, "cache", "tistory-posts", safe(workspaceId), `${safe(connectionId)}.json`); }
 }
 async function readCache(file: string): Promise<TistoryPostCatalogResult | undefined> { try { return JSON.parse(await readFile(file, "utf8")) as TistoryPostCatalogResult; } catch { return undefined; } }
+function cacheHasCategoryMetadata(cache: TistoryPostCatalogResult) { return cache.posts.length === 0 || cache.posts.some((post) => Boolean(post.categoryId || post.categoryName)); }
 function safe(value: string) { return value.replace(/[^a-zA-Z0-9_-]/g, "_"); }

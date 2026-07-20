@@ -78,3 +78,10 @@ describe("primary keyword confirmation UI", () => {
     expect(source).toContain("disabled={working || !confirmedOpportunity}");
   });
 });
+
+
+it("handles legacy candidates without limitations", () => {
+  const source = readFileSync(join(process.cwd(), "app/user-flow/PrimaryKeywordConfirmation.tsx"), "utf8");
+  expect(source).toContain("const limitations = stringArray(candidate.limitations)");
+  expect(source).toContain("const evidence = Array.isArray(candidate.opportunityEvidence)");
+});

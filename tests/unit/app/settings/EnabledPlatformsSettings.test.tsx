@@ -8,7 +8,7 @@ import type { SettingsSnapshot } from "../../../../app/settings/settings-types";
 const snapshot: SettingsSnapshot = {
   workspace: { id: "workspace-1", name: "Studio", projectCount: 0, contentCount: 0, publishingAccountCount: 2 },
   settings: { enabledPlatforms: ["tistory", "wordpress"], publishing: { reviewFirst: true, draftOnly: true, publicPublish: false, sequentialDraftSave: true, qualityApprovalRequired: true }, appearance: { theme: "system" } },
-  ai: { provider: "OpenAI", status: "ready", configured: true, model: "test", message: "Ready" },
+  ai: { provider: "OpenAI", status: "ready", configured: true, generationModel: "gpt-5.6-terra", reviewModel: "gpt-5.6-sol", message: "Ready" },
   platforms: { tistory: { status: "connected", accountCount: 1, connectedCount: 1 }, wordpress: { status: "configuration_required", accountCount: 0, connectedCount: 0 } },
   connections: [], automation: { status: "ready", backendAvailable: true, chromiumAvailable: true, workerRegistered: true, tistorySessionReady: true, checkedAt: "now", message: "Ready" },
   backup: {}, persistence: { status: "ready", message: "Ready" }, publishing: { status: "ready", message: "Ready" },

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { access, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
 
@@ -15,7 +15,8 @@ export type TistoryDraftExecution = Readonly<{ workspaceId: string; projectId: s
 export type PublishingAuditRecord = Readonly<{ operationId: string; workspaceId: string; projectId: string; contentId: string; platformConnectionId: string; platform: "tistory"; workflow: "media.upload" | "draft.create" | "draft.verify"; requiredPermission: "media.upload" | "draft.create" | "draft.verify"; initiatedBy: "user"; confirmationState: "confirmed" | "missing"; startedAt: string; completedAt: string; result: TistoryDraftSaveResult["status"] | "completed"; safeErrorCode?: string }>;
 export interface PublishingAuditRepository { save(record: PublishingAuditRecord): Promise<void>; }
 
-type MediaPreparationResult = Readonly<{ status: "prepared" | "not_required" | "failed"; error?: string; code?: string }>;
+type MediaPreparationDiagnostic = Readonly<Record<string, string | number>>;
+type MediaPreparationResult = Readonly<{ status: "prepared" | "not_required" | "failed"; error?: string; code?: string; diagnostic?: MediaPreparationDiagnostic }>;
 
 export class TistoryDraftApplicationService {
   constructor(
@@ -46,7 +47,12 @@ export class TistoryDraftApplicationService {
       result = execution.result;
       mediaUploadCompleted = execution.mediaUploadCompleted;
     } catch (error) {
-      result = failed(error instanceof Error ? error.message : "Tistory draft save failed.");
+      const mediaFailure = readMediaPreparationFailure(error);
+      result = failed(
+        error instanceof Error ? error.message : "Tistory draft save failed.",
+        mediaFailure?.code,
+        mediaFailure?.diagnostic,
+      );
     }
 
     const completedAt = this.now().toISOString();
@@ -56,7 +62,7 @@ export class TistoryDraftApplicationService {
         platformConnectionId: input.connection.id, platform: "tistory", workflow: "media.upload", requiredPermission: "media.upload",
         initiatedBy: "user", confirmationState: input.finalConfirmation ? "confirmed" : "missing", startedAt, completedAt,
         result: mediaUploadCompleted ? "completed" : "failed",
-        ...(!mediaUploadCompleted && result.error ? { safeErrorCode: safeCode(result.error) } : {}),
+        ...(!mediaUploadCompleted && result.error ? { safeErrorCode: mediaFailureCode(result) ?? safeCode(result.error) } : {}),
       });
     }
     await this.audits.save({ operationId, workspaceId: input.workspaceId, projectId: input.projectId, contentId: input.contentId, platformConnectionId: input.connection.id, platform: "tistory", workflow, requiredPermission: workflow, initiatedBy: "user", confirmationState: input.finalConfirmation ? "confirmed" : "missing", startedAt, completedAt, result: result.status, ...(result.error ? { safeErrorCode: safeCode(result.error) } : {}) });
@@ -68,11 +74,7 @@ export class TistoryDraftApplicationService {
     if (!("categoryId" in input)) throw new Error("Tistory 카테고리를 선택하거나 '카테고리 없음'을 명시해 주세요.");
     const prepared = await new TistoryPublishingAdapter().prepare({ content: mediaPlan.document, platform: "tistory" });
     const tags = deriveContentTags(input.document, input.primaryKeyword);
-    const media = await Promise.all(mediaPlan.items.map(async (item) => {
-      const localPath = localMediaFilePath(item.storageKey);
-      await access(localPath);
-      return Object.freeze({ ...item, localPath });
-    }));
+    const media = mediaPlan.items.map((item) => Object.freeze({ ...item, localPath: localMediaFilePath(item.storageKey) }));
     const jobs = path.join(this.root, "publishing-jobs"), commandPath = path.join(jobs, `${operationId}.json`);
     await mkdir(jobs, { recursive: true });
     await writeFile(commandPath, JSON.stringify({ blogId, storageStatePath: path.join(this.root, "connections", "tistory", input.connection.id, "storage-state.json"), title: prepared.payload.title, html: prepared.payload.html, tags, media, categoryId: input.categoryId, categoryName: input.categoryName, diagnosticMode: input.diagnosticMode }), { encoding: "utf8", mode: 0o600 });
@@ -128,7 +130,11 @@ function runMediaWorker(commandPath: string): Promise<void> {
         const line = output.trim().split(/\r?\n/).at(-1); if (!line) throw new Error();
         const result = JSON.parse(line) as MediaPreparationResult;
         if (result.status === "prepared" || result.status === "not_required") resolve();
-        else reject(new Error(result.error ?? "Tistory image upload failed."));
+        else reject(new MediaPreparationError(
+          result.code ?? "media_upload_failed",
+          result.error ?? "Tistory image upload failed.",
+          result.diagnostic,
+        ));
       } catch (error) {
         reject(error instanceof Error ? error : new Error("The registered Tistory media upload workflow returned an invalid result."));
       }
@@ -136,5 +142,52 @@ function runMediaWorker(commandPath: string): Promise<void> {
   });
 }
 
-function failed(error: string): TistoryDraftSaveResult { return { saveClicked: false, saveNotificationDetected: false, draftIdDetected: false, draftListVerified: false, reopenedDraftVerified: false, titleMatched: false, bodyMatched: false, publicPostCreated: false, status: "failed", steps: [], error }; }
+class MediaPreparationError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly diagnostic?: MediaPreparationDiagnostic,
+  ) {
+    super(message);
+    this.name = "MediaPreparationError";
+  }
+}
+
+function readMediaPreparationFailure(error: unknown): Readonly<{ code: string; diagnostic?: MediaPreparationDiagnostic }> | undefined {
+  if (!(error instanceof Error)) return undefined;
+  const candidate = error as Error & { code?: unknown; diagnostic?: unknown };
+  if (typeof candidate.code !== "string" || !candidate.code.startsWith("media_")) return undefined;
+  const diagnostic = candidate.diagnostic && typeof candidate.diagnostic === "object"
+    ? candidate.diagnostic as MediaPreparationDiagnostic
+    : undefined;
+  return Object.freeze({ code: candidate.code, ...(diagnostic ? { diagnostic } : {}) });
+}
+
+function failed(
+  error: string,
+  mediaUploadFailureCode?: string,
+  mediaUploadDiagnostic?: MediaPreparationDiagnostic,
+): TistoryDraftSaveResult {
+  return {
+    saveClicked: false,
+    saveNotificationDetected: false,
+    draftIdDetected: false,
+    draftListVerified: false,
+    reopenedDraftVerified: false,
+    titleMatched: false,
+    bodyMatched: false,
+    publicPostCreated: false,
+    status: "failed",
+    steps: [],
+    error,
+    ...(mediaUploadFailureCode
+      ? { diagnostic: { mediaUploadFailureCode, ...(mediaUploadDiagnostic ? { mediaUploadDiagnostic } : {}) } }
+      : {}),
+  };
+}
+
+function mediaFailureCode(result: TistoryDraftSaveResult) {
+  const code = result.diagnostic?.mediaUploadFailureCode;
+  return typeof code === "string" ? code : undefined;
+}
 function safeCode(value: string) { return value.toUpperCase().replace(/[^A-Z0-9]+/g, "_").slice(0, 80); }

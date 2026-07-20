@@ -29,7 +29,7 @@ export type StatusSummary = Readonly<{
 export type SettingsSnapshot = Readonly<{
   workspace: Readonly<{ id: string; name: string; createdAt?: string; updatedAt?: string; projectCount: number; contentCount: number; publishingAccountCount: number }>;
   settings: WorkspaceSettings;
-  ai: Readonly<{ provider: string; status: SettingsStatus; configured: boolean; model: string; message: string }>;
+  ai: Readonly<{ provider: string; status: SettingsStatus; configured: boolean; generationModel: string; reviewModel: string; message: string }>;
   platforms: Readonly<Partial<Record<WorkspacePlatform, StatusSummary>>>;
   connections: readonly PublicConnection[];
   automation: Readonly<{ status: SettingsStatus; backendAvailable: boolean; chromiumAvailable: boolean; workerRegistered: boolean; tistorySessionReady: boolean; checkedAt: string; message: string }>;

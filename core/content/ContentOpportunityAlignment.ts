@@ -42,7 +42,8 @@ export function analyzeContentOpportunityAlignment(
   const topicKeywordCoverage = coverage(topicTerms, opportunity.primaryKeyword);
   const headingCoreCoverage = coverage(coreTerms, headings);
   const bodyCoreCoverage = coverage(coreTerms, body);
-  const intentCoverage = coverage(distinctiveTerms(opportunity.searchIntent), allText);
+  const intentTerms = contentIntentTerms(opportunity.searchIntent);
+  const intentCoverage = coverage(intentTerms, allText);
   const titleCoreCoverage = coverage(coreTerms, document.title);
   const supportedSecondary = opportunity.secondaryKeywords.filter((keyword) => phraseOrTermCoverage(keyword, allText));
   const expectedCoverage = opportunity.expectedCoverage.filter((item) => phraseOrTermCoverage(item, allText));
@@ -51,7 +52,7 @@ export function analyzeContentOpportunityAlignment(
   const topicKeywordPass = topicTerms.length === 0 || topicKeywordCoverage >= 0.5;
   const headingPass = coreTerms.length === 0 || headingCoreCoverage >= 0.34;
   const bodyPass = bodyHasKeyword || coreTerms.length === 0 || bodyCoreCoverage >= 0.5;
-  const intentPass = distinctiveTerms(opportunity.searchIntent).length === 0 || intentCoverage >= 0.34;
+  const intentPass = intentTerms.length === 0 || intentCoverage >= 0.5;
   const secondaryPass = opportunity.secondaryKeywords.length < 2
     || supportedSecondary.length >= Math.ceil(opportunity.secondaryKeywords.length / 2);
   const expectedPass = opportunity.expectedCoverage.length === 0
@@ -161,9 +162,37 @@ function distinctiveTerms(value: string): string[] {
   return [...new Set(normalize(value).split(/\s+/).map(koreanStem).filter((term) => term && !ignored.has(term)))];
 }
 
+export function contentIntentTerms(value: string): string[] {
+  const ignored = new Set([
+    "가이드", "관리", "방법", "정보", "정보형", "정보성", "실행형", "실행성", "비교형", "구매형", "상업형", "탐색형",
+    "글", "콘텐츠", "위한", "대한", "관련", "사용자", "독자", "탐색", "의도", "알기", "알고", "이해", "실천",
+    "어떤", "어떻게", "직접", "원하는", "찾는", "찾고", "확인", "확인할",
+  ]);
+  return [...new Set(normalize(value).split(/\s+/)
+    .filter((term) => term && !ignored.has(term))
+    .map(koreanStem)
+    .filter((term) => term.length >= 2 && !ignored.has(term)))];
+}
+
 function koreanStem(value: string): string {
   if (!/[가-힣]/.test(value) || value.length < 2) return value;
-  return value.replace(/(?:으로|에서|에게|까지|부터|처럼|보다|하고|하며|하는|하기|이다|이며|을|를|은|는|이|가|의|에|도|와|과)$/u, "") || value;
+  if (/^(?:하는|하기|하며|하고|하려는|하려고|하려면|알고|위한|대한)$/u.test(value)) return "";
+  const verbSuffixes = [
+    "해보려는", "해보려고", "해보려면", "하려는", "하려고", "하려면", "하는지", "할지", "하기를", "하면서",
+    "하고", "하며", "하는", "하기", "해서", "되는", "되어", "이다", "이며",
+  ];
+  for (const suffix of verbSuffixes) {
+    if (value.endsWith(suffix) && value.length - suffix.length >= 2) return value.slice(0, -suffix.length);
+  }
+  if (value.endsWith("자") && value.length > 2) return value.slice(0, -1);
+  const particleSuffixes = [
+    "으로는", "에서는", "에게는", "까지는", "부터는", "으로", "에서", "에게", "까지", "부터", "처럼", "보다", "들을",
+    "을", "를", "은", "는", "이", "가", "의", "에", "도", "와", "과",
+  ];
+  for (const suffix of particleSuffixes) {
+    if (value.endsWith(suffix) && value.length - suffix.length >= 1) return value.slice(0, -suffix.length);
+  }
+  return value;
 }
 
 function normalize(value: string): string {

@@ -15,4 +15,7 @@ export type ContentMetadata = Readonly<{
   secondaryIntent?: string;
   secondaryKeywords?: readonly string[];
   relatedTerms?: readonly string[];
+  tags?: readonly string[];
+  availableRelatedContentCandidates?: number;
+  internalLinkCatalogStatus?: "evaluated" | "category_missing" | "catalog_unavailable";
 }>;

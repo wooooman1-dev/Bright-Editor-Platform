@@ -1,22 +1,25 @@
 import type { ContentDocument } from "./ContentDocument";
 
-export type PublicPostCandidate = Readonly<{ externalPostId: string; title: string; publishedUrl: string; categoryName?: string; publishedAt?: string; excerpt?: string; keywords?: readonly string[] }>;
+export type PublicPostCandidate = Readonly<{ externalPostId: string; title: string; publishedUrl: string; categoryId?: string; categoryName?: string; publishedAt?: string; excerpt?: string; keywords?: readonly string[]; viewCount?: number }>;
 
-export function rankRelatedPosts(document: ContentDocument, candidates: readonly PublicPostCandidate[], context: Readonly<{ primaryKeyword?: string; categoryName?: string }> = {}): readonly PublicPostCandidate[] {
+export function rankRelatedPosts(document: ContentDocument, candidates: readonly PublicPostCandidate[], context: Readonly<{ primaryKeyword?: string; categoryId?: string | null; categoryName?: string }> = {}): readonly PublicPostCandidate[] {
+  const categoryIdentity = resolveCategoryIdentity(context.categoryId, context.categoryName);
+  if (!categoryIdentity) return Object.freeze([]);
   const used = new Set(document.blocks.flatMap((block) => block.type === "button" && block.targetUrl ? [normalizeUrl(block.targetUrl)] : []));
   const documentTerms = terms([document.title, context.primaryKeyword ?? "", ...document.blocks.flatMap((block) => block.type === "heading" ? [block.text] : [])].join(" "));
   const unique = new Map<string, PublicPostCandidate>();
 
   for (const candidate of candidates) {
     const normalizedUrl = normalizeUrl(candidate.publishedUrl);
+    if (!sameCategory(candidate, categoryIdentity)) continue;
     if (!candidate.title.trim() || !validPublicUrl(candidate.publishedUrl) || used.has(normalizedUrl) || unique.has(normalizedUrl)) continue;
     unique.set(normalizedUrl, candidate);
   }
 
-  return [...unique.values()]
-    .map((candidate) => ({ candidate, score: relevance(candidate, documentTerms, context.categoryName) }))
-    .sort((a, b) => b.score - a.score || publishedTime(b.candidate.publishedAt) - publishedTime(a.candidate.publishedAt) || a.candidate.title.localeCompare(b.candidate.title, "ko"))
-    .map(({ candidate }) => candidate);
+  return Object.freeze([...unique.values()]
+    .map((candidate) => ({ candidate, score: relevance(candidate, documentTerms), views: validViewCount(candidate.viewCount) }))
+    .sort((a, b) => b.score - a.score || b.views - a.views || publishedTime(b.candidate.publishedAt) - publishedTime(a.candidate.publishedAt) || a.candidate.title.localeCompare(b.candidate.title, "ko"))
+    .map(({ candidate }) => candidate));
 }
 
 export function placeRecommendedPosts(document: ContentDocument, ranked: readonly PublicPostCandidate[]): ContentDocument {
@@ -73,10 +76,33 @@ function validPlacedLink(block: ContentDocument["blocks"][number], purpose: "int
 }
 
 function uniqueBlockId(blocks: ContentDocument["blocks"], base: string) { const ids = new Set(blocks.map((block) => block.id)); let id = base, index = 2; while (ids.has(id)) id = `${base}-${index++}`; return id; }
-function relevance(candidate: PublicPostCandidate, documentTerms: ReadonlySet<string>, categoryName?: string) { const titleTerms = terms(candidate.title); const keywordTerms = new Set((candidate.keywords ?? []).map(normalizeTerm)); const excerptTerms = terms(candidate.excerpt ?? ""); let score = 0; for (const term of titleTerms) if (documentTerms.has(term)) score += 6; for (const term of keywordTerms) if (documentTerms.has(term)) score += 2; for (const term of excerptTerms) if (documentTerms.has(term)) score += 1; if (categoryName && candidate.categoryName === categoryName) score += 8; return score; }
+function relevance(candidate: PublicPostCandidate, documentTerms: ReadonlySet<string>) { const titleTerms = terms(candidate.title); const keywordTerms = new Set((candidate.keywords ?? []).map(normalizeTerm)); const excerptTerms = terms(candidate.excerpt ?? ""); let score = 0; for (const term of titleTerms) if (documentTerms.has(term)) score += 6; for (const term of keywordTerms) if (documentTerms.has(term)) score += 2; for (const term of excerptTerms) if (documentTerms.has(term)) score += 1; return score; }
 const genericTerms = new Set(["가이드", "건강", "관리", "방법", "이유", "정리", "최신", "필요한", "위한", "좋은", "실전", "절약", "안전한", "비용", "병원"]);
 function terms(value: string) { return new Set(value.toLowerCase().replace(/[^0-9a-z가-힣\s]/g, " ").split(/\s+/).map(normalizeTerm).filter((term) => term.length >= 2 && !genericTerms.has(term))); }
 function normalizeTerm(value: string) { return value.trim().toLowerCase(); }
 function normalizeUrl(value: string) { try { const url = new URL(value); url.hash = ""; return url.toString(); } catch { return value; } }
 function validPublicUrl(value: string) { try { const url = new URL(value); return url.protocol === "https:" && /\.tistory\.com$/i.test(url.hostname) && url.pathname.startsWith("/entry/") && !url.pathname.includes("/manage"); } catch { return false; } }
 function publishedTime(value?: string) { const parsed = Date.parse(value ?? ""); return Number.isFinite(parsed) ? parsed : 0; }
+function validViewCount(value?: number) { return Number.isFinite(value) && (value ?? 0) > 0 ? value! : 0; }
+
+type CategoryIdentity = Readonly<{ id?: string; normalizedNames: ReadonlySet<string> }>;
+function resolveCategoryIdentity(categoryId?: string | null, categoryName?: string): CategoryIdentity | undefined {
+  const id = categoryId == null ? undefined : String(categoryId).trim();
+  const names = categoryNameVariants(categoryName);
+  return id || names.size ? { ...(id ? { id } : {}), normalizedNames: names } : undefined;
+}
+function sameCategory(candidate: PublicPostCandidate, expected: CategoryIdentity): boolean {
+  const candidateId = candidate.categoryId?.trim();
+  if (expected.id && candidateId) return expected.id === candidateId;
+  const candidateNames = categoryNameVariants(candidate.categoryName);
+  if (!candidateNames.size || !expected.normalizedNames.size) return false;
+  return [...candidateNames].some((name) => expected.normalizedNames.has(name));
+}
+function categoryNameVariants(value?: string): ReadonlySet<string> {
+  if (!value?.trim()) return new Set();
+  const normalized = value.normalize("NFKC").toLocaleLowerCase("ko-KR");
+  const segments = normalized.split(/[>›/\\»]|\s+-\s+/u).map(normalizeCategoryName).filter(Boolean);
+  const all = normalizeCategoryName(normalized);
+  return new Set([all, ...segments, segments.at(-1) ?? ""].filter(Boolean));
+}
+function normalizeCategoryName(value: string) { return value.replace(/[\s·._-]+/gu, "").trim(); }

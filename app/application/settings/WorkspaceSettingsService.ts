@@ -1,6 +1,8 @@
 import { access, readdir } from "node:fs/promises";
 import path from "node:path";
 
+import { resolveOpenAIModelPolicy } from "../OpenAIModelPolicy";
+
 import type { PlatformConnection } from "../../../core/connections";
 import {
   supportedWorkspacePlatforms,
@@ -72,10 +74,11 @@ export function updateAppearance(data: UserData, theme: unknown, now = new Date(
 
 export function aiProviderStatus(environment: Readonly<Record<string, string | undefined>> = process.env) {
   const key = environment.OPENAI_API_KEY;
-  const model = environment.OPENAI_MODEL ?? "gpt-5-mini";
-  if (!key) return { provider: "OpenAI", status: "configuration_required" as const, configured: false, model, message: "OPENAI_API_KEY 설정이 필요합니다. .env 변경 후 개발 서버를 다시 시작해 주세요." };
-  if (!/^[\x21-\x7e]+$/.test(key)) return { provider: "OpenAI", status: "error" as const, configured: true, model, message: "API 키 형식이 올바르지 않습니다. .env를 확인한 뒤 서버를 다시 시작해 주세요." };
-  return { provider: "OpenAI", status: "ready" as const, configured: true, model, message: "환경변수 구성이 확인되었습니다. 상태 확인은 유료 API를 호출하지 않습니다." };
+  const models = resolveOpenAIModelPolicy(environment);
+  const base = { provider: "OpenAI", generationModel: models.generationModel, reviewModel: models.reviewModel };
+  if (!key) return { ...base, status: "configuration_required" as const, configured: false, message: "OPENAI_API_KEY 설정이 필요합니다. .env 변경 후 개발 서버를 다시 시작해 주세요." };
+  if (!/^[\x21-\x7e]+$/.test(key)) return { ...base, status: "error" as const, configured: true, message: "API 키 형식이 올바르지 않습니다. .env를 확인한 뒤 서버를 다시 시작해 주세요." };
+  return { ...base, status: "ready" as const, configured: true, message: "환경변수 구성이 확인되었습니다. 상태 확인은 유료 API를 호출하지 않습니다." };
 }
 
 export function connectionSummary(connections: readonly PlatformConnection[], platform: "tistory" | "wordpress") {

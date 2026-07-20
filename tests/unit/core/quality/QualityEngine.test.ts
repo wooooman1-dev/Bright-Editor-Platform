@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { confirmContentOpportunity, createContentOpportunityCandidate, type ContentDocument } from "../../../../core/content";
-import { contentRevisionId, PublishingGate, QualityEngine, qualityDimensionWeights } from "../../../../core/quality";
+import { contentRevisionId, PublishingGate, QualityEngine, qualityDimensionWeights, resolveQualityApproval } from "../../../../core/quality";
 
 const planning: ContentDocument = { id: "planning", title: "건강 관리 가이드 기획안", blocks: [
   { id: "h", type: "heading", level: 2, text: "작성할 내용" },
@@ -67,19 +67,21 @@ describe("QualityEngine dimension scoring", () => {
       { id: "internal", type: "button", purpose: "internal_link", label: "관련 글", targetUrl: "https://bright-health.tistory.com/entry/related" },
     ] };
     const report = new QualityEngine().review(recommended, { primaryKeyword: "추천", searchIntent: "추천" });
-    expect(report.dimensions.find((item) => item.category === "imageStrategy")).toMatchObject({ score: 100 });
+    expect(report.dimensions.find((item) => item.category === "imageStrategy")).toMatchObject({ score: 94 });
     expect(report.dimensions.find((item) => item.category === "internalLinks")?.evidence).toContainEqual({ signal: "placedContextualInternalLinks", value: 1 });
     expect(report.dimensions.find((item) => item.category === "cta")).toMatchObject({ score: 100, status: "ready", evaluation: "not_evaluated" });
+    expect(report.dimensions.find((item) => item.category === "cta")?.evidence).toContainEqual({ signal: "scoringExcluded", value: true });
   });
 
-  it("does not award a ready internal-link score when only final related posts exist", () => {
+  it("keeps internal-link placement diagnostics outside the quality score", () => {
     const document: ContentDocument = { id: "related-only", title: "관련 글만 있는 원고", blocks: [
       { id: "p", type: "paragraph", text: "본문 중간 링크 없이 관련 글만 배치된 원고입니다. 두 번째 문장으로 품질 평가 조건을 설명합니다." },
       ...Array.from({ length: 3 }, (_, index) => ({ id: `related-${index}`, type: "button" as const, purpose: "related_post" as const, label: `관련 글 ${index + 1}`, targetUrl: `https://bright-health.tistory.com/entry/related-${index + 1}`, target: "_self" as const })),
     ] };
     const dimension = new QualityEngine().review(document, { platform: "tistory", primaryKeyword: "관련 글", searchIntent: "관련 글 확인" }).dimensions.find((item) => item.category === "internalLinks");
-    expect(dimension?.score).toBeLessThan(85);
-    expect(dimension?.reasons).toContain("본문 중간에 실제 URL이 있는 내부 링크가 없습니다.");
+    expect(dimension?.score).toBe(100);
+    expect(dimension?.evaluation).toBe("not_evaluated");
+    expect(dimension?.evidence).toContainEqual({ signal: "scoringExcluded", value: true });
     expect(dimension?.evidence).toContainEqual({ signal: "placedRelatedPosts", value: 3 });
   });
 
@@ -99,6 +101,18 @@ describe("QualityEngine dimension scoring", () => {
     expect(dimension?.tasks.join(" ")).toContain("핵심 대상·행동·배경·구도·시점·정보 표현 중 두 가지 이상");
   });
 
+  it("does not award 100 image-strategy points to many general images with repeated roles", () => {
+    const blocks = Array.from({ length: 5 }, (_, index) => [
+      { id: `h-${index}`, type: "heading" as const, level: 2 as const, text: `건강 확인 기준 ${index + 1}` },
+      { id: `p-${index}`, type: "paragraph" as const, text: `각 섹션의 확인 기준을 설명합니다. 독자는 상황을 구분해 다음 행동을 정할 수 있습니다.` },
+      { id: `image-${index}`, type: "image" as const, source: "", purpose: "inline" as const, alt: `건강 확인 기준 ${index + 1} 설명 이미지`, prompt: `건강 확인 기준 ${index + 1}을 설명하는 서로 다른 생활 장면과 도구 배치, 교육적 구도, 텍스트와 로고 없음` },
+    ]).flat();
+    const document: ContentDocument = { id: "many-general-images", title: "건강 확인 가이드", blocks };
+    const dimension = new QualityEngine().review(document, { primaryKeyword: "건강 확인", searchIntent: "건강 확인 방법" }).dimensions.find((item) => item.category === "imageStrategy");
+    expect(dimension?.score).toBeLessThan(100);
+    expect(dimension?.evidence).toContainEqual({ signal: "repeatedImageRolePenalty", value: 15 });
+  });
+
   it("penalizes repeated one-sentence paragraphs and keyword stuffing", () => {
     const repeated = "건강 관리가 중요합니다.";
     const document: ContentDocument = { id: "repeated", title: "건강 관리 건강 관리 건강 관리", metadata: { buttonCount: 0, createdAt: "now", generator: "test", imageCount: 0, language: "ko", readingTime: 1, source: "test", updatedAt: "now", version: 1, videoCount: 0, wordCount: 30, metaDescription: "건강 관리 ".repeat(20) }, blocks: Array.from({ length: 18 }, (_, index) => ({ id: `p-${index}`, type: "paragraph", text: repeated })) };
@@ -114,7 +128,7 @@ describe("QualityEngine dimension scoring", () => {
       { id: "p", type: "paragraph", text: "검증되지 않은 개인 경험을 사실처럼 단정하는 본문입니다." },
     ] };
     const report = new QualityEngine().review(document, { primaryKeyword: "건강 관리", searchIntent: "건강 관리 방법" });
-    expect(report.dimensions.find((item) => item.category === "usefulness")).toMatchObject({ score: 0, status: "blocked" });
+    expect(report.dimensions.find((item) => item.category === "usefulness")).toMatchObject({ status: "blocked" });
     expect(report.approved).toBe(false);
   });
 
@@ -146,4 +160,72 @@ describe("QualityEngine dimension scoring", () => {
     expect(report.dimensions.find((item) => item.category === "imageStrategy")?.evidence).toContainEqual({ signal: "uploadedImageBlocks", value: 0 });
     expect(report.dimensions.find((item) => item.category === "cta")).toMatchObject({ evaluation: "not_evaluated", status: "ready" });
   });
+
+  it("exception-approves only integrity-safe scores between 90 and 94", () => {
+    const dimensions = [
+      { category: "searchIntent" as const, score: 92 },
+      { category: "seo" as const, score: 91 },
+      { category: "readability" as const, score: 90 },
+      { category: "completeness" as const, score: 93 },
+      { category: "structure" as const, score: 84 },
+      { category: "usefulness" as const, score: 88 },
+      { category: "htmlQuality" as const, score: 100 },
+      { category: "imageStrategy" as const, score: 90 },
+      { category: "internalLinks" as const, score: 100 },
+      { category: "cta" as const, score: 100 },
+    ];
+    expect(resolveQualityApproval(92, dimensions, true)).toEqual({ approved: true, approvalType: "exception" });
+    expect(resolveQualityApproval(92, dimensions, false)).toEqual({ approved: false, approvalType: "none" });
+    expect(resolveQualityApproval(89, dimensions, true)).toEqual({ approved: false, approvalType: "none" });
+    expect(resolveQualityApproval(92, dimensions.map((item) => item.category === "seo" ? { ...item, score: 89 } : item), true)).toEqual({ approved: false, approvalType: "none" });
+  });
+
+  it("always exposes a reason for every dimension score", () => {
+    const report = new QualityEngine().review(structured(), { contentType: "article", platform: "tistory", primaryKeyword: "건강 관리", searchIntent: "건강 관리 방법" });
+    expect(report.dimensions.every((dimension) => dimension.reasons.length > 0)).toBe(true);
+  });
+
+  it("explains structure, completeness, and usefulness deductions", () => {
+    const document: ContentDocument = { id: "diagnostic", title: "가정혈압 측정 방법", blocks: [
+      { id: "intro", type: "paragraph", text: "한 번의 숫자보다 같은 조건에서 기록하는 것이 중요합니다. 일정 기간 기록하고 필요한 경우 의료진에게 보여 주세요." },
+      { id: "h1", type: "heading", level: 2, text: "같은 조건으로 측정하기" },
+      { id: "p1", type: "paragraph", text: "같은 조건에서 재고 기록해야 합니다. 내부 링크를 연결하기 좋습니다." },
+      { id: "h2", type: "heading", level: 2, text: "같은 조건에서 다시 측정하기" },
+      { id: "p2", type: "paragraph", text: "잠시 쉬고 필요한 경우 다시 측정하며 기록을 남깁니다." },
+      { id: "end", type: "paragraph", text: "한 번의 수치로 판단하지 말고 기록하십시오." },
+    ] };
+    const report = new QualityEngine().review(document, { contentType: "article", platform: "tistory", primaryKeyword: "가정혈압 측정 방법", searchIntent: "집에서 혈압 재는 법" });
+    expect(report.dimensions.find((item) => item.category === "structure")?.reasons.join(" ")).toMatch(/겹치는|반복|편집자용/);
+    expect(report.dimensions.find((item) => item.category === "completeness")?.reasons.join(" ")).toContain("구체적인 시간·횟수·순서");
+    expect(report.dimensions.find((item) => item.category === "usefulness")?.reasons.join(" ")).toContain("실용 도구");
+  });
+
+  it("keeps CTA outside scoring while HTML still detects broken CTA markup", () => {
+    const document: ContentDocument = { id: "weak-elements", title: "건강 안내", blocks: [
+      { id: "p", type: "paragraph", text: "건강 안내 내용을 확인합니다." },
+      { id: "cta", type: "button", purpose: "cta", label: "자세히 보기", targetUrl: "invalid-url", target: "_self" },
+      { id: "cta", type: "paragraph", text: "중복 ID가 있는 문단입니다." },
+    ] };
+    const report = new QualityEngine().review(document, { platform: "tistory", primaryKeyword: "건강 안내", searchIntent: "건강 안내" });
+    expect(report.dimensions.find((item) => item.category === "cta")).toMatchObject({ score: 100, evaluation: "not_evaluated" });
+    expect(report.dimensions.find((item) => item.category === "htmlQuality")?.score).toBeLessThan(100);
+  });
+
+  it("penalizes missing Tistory bottom tags in SEO and exposes derived tags", () => {
+    const document: ContentDocument = { id: "tags", title: "혈압", metadata: { buttonCount: 0, createdAt: "now", generator: "test", imageCount: 0, language: "ko", readingTime: 1, source: "test", updatedAt: "now", version: 1, videoCount: 0, wordCount: 10, metaDescription: "혈압을 집에서 측정하는 방법과 기록 요령을 설명하는 짧은 안내입니다." }, blocks: [{ id: "p", type: "paragraph", text: "혈압을 측정하고 기록합니다." }] };
+    const seo = new QualityEngine().review(document, { platform: "tistory", primaryKeyword: "혈압", searchIntent: "혈압 측정" }).dimensions.find((item) => item.category === "seo");
+    expect(seo?.score).toBeLessThan(100);
+    expect(seo?.evidence.some((item) => item.signal === "tistoryTagCount")).toBe(true);
+  });
+
+  it("excludes internal links and CTA from overall approval scoring", () => {
+    const base = structured();
+    const withoutButtons = { ...base, blocks: base.blocks.filter((block) => block.type !== "button") };
+    const report = new QualityEngine().review(withoutButtons, { contentType: "article", platform: "tistory", primaryKeyword: "건강 관리", searchIntent: "건강 관리 방법" });
+    expect(report.weights.internalLinks).toBe(0);
+    expect(report.weights.cta).toBe(0);
+    expect(report.dimensions.find((item) => item.category === "internalLinks")?.evaluation).toBe("not_evaluated");
+    expect(report.dimensions.find((item) => item.category === "cta")?.evaluation).toBe("not_evaluated");
+  });
+
 });

@@ -10,6 +10,7 @@ export function deriveContentTags(
   primaryKeyword?: string,
   limit = 8,
 ): readonly string[] {
+  const persisted = document.metadata?.tags?.filter((item) => typeof item === "string" && item.trim()) ?? [];
   const tags: string[] = [];
   const seen = new Set<string>();
   const maximum = Math.max(1, limit);
@@ -28,6 +29,7 @@ export function deriveContentTags(
     }
   };
 
+  add(persisted, maximum);
   if (primaryKeyword?.trim()) add(tagCandidates(primaryKeyword), 3);
   for (const keyword of document.metadata?.secondaryKeywords ?? []) {
     if (tags.length >= maximum) break;

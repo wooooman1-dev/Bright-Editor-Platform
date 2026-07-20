@@ -229,12 +229,12 @@ Quality is evaluated across multiple weighted dimensions.
 | Content Structure | 10% |
 | Content Completeness | 10% |
 | Image Strategy | 5% |
-| Internal Links | 5% |
-| CTA Strategy | 3% |
+| Internal Links | Score excluded · generation/placement diagnostic only |
+| CTA Strategy | Score excluded · generation/placement diagnostic only |
 | Metadata | 3% |
 | Platform Compatibility | 4% |
 
-The overall score is calculated from all dimensions rather than a simple checklist.
+The overall score is calculated only from scoring dimensions. Internal Links and CTA Strategy remain required generation and publishing-support responsibilities, but their presence or count does not raise or lower the manuscript quality score. Broken URLs, wrong-category links, duplicated targets, and automation failures are reported as publishing or system diagnostics instead of content-quality points.
 
 ---
 

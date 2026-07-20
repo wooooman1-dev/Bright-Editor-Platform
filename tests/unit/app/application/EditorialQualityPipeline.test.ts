@@ -4,15 +4,25 @@ import { EditorialQualityPipeline } from "../../../../app/application/EditorialQ
 import { EditorialGenerationStrategy } from "../../../../app/application/EditorialGenerationStrategy";
 import type { AIProvider, AIRequest } from "../../../../core/ai";
 
-function article() {
-  const prose = "독자가 바로 실행할 수 있는 기준과 순서, 구체적인 예시, 주의할 점을 자연스럽게 연결해 충분히 설명합니다. ".repeat(14);
+type TestQualityReport = {
+  overallScore: number;
+  approved: boolean;
+  reviewedAt: string;
+  revisionId: string;
+  dimensions: Array<{ category: string; score: number; status: string; reasons: string[]; evidence: never[] }>;
+  tasks: Array<{ category: string; message: string; status: string }>;
+  findings: never[];
+};
+
+function rawDocument(title = "초기 원고") {
+  const prose = "독자가 바로 실행할 수 있도록 기준과 순서, 예시, 주의사항을 구체적인 문장으로 설명합니다. ".repeat(11);
   return {
-    title: "완성된 실용 가이드",
-    metaDescription: "독자가 필요한 기준과 실행 순서, 주의사항을 구체적으로 확인할 수 있도록 정리한 실용 가이드입니다.",
+    title,
+    metaDescription: "독자가 필요한 실행 기준과 순서, 주의사항을 확인할 수 있는 실용 안내입니다.",
     blocks: [
       { type: "paragraph", text: prose },
       ...Array.from({ length: 5 }, (_, index) => [
-        { type: "heading", level: 2, text: `구체적인 실행 단계 ${index + 1}` },
+        { type: "heading", level: 2, text: `실행 단계 ${index + 1}` },
         { type: "paragraph", text: prose },
         { type: "paragraph", text: prose },
       ]).flat(),
@@ -21,101 +31,133 @@ function article() {
   };
 }
 
-function articleWithVerifiedLinks() {
-  const value = article();
-  return { ...value, blocks: [...value.blocks,
-    { type: "button", purpose: "internal_link", label: "실제 내부 글", targetUrl: "https://bright-healthy.tistory.com/entry/verified-internal", target: "_self", sourceExternalPostId: "post-1" },
-    ...Array.from({ length: 3 }, (_, index) => ({ type: "button", purpose: "related_post", label: `실제 관련 글 ${index + 1}`, targetUrl: `https://bright-healthy.tistory.com/entry/verified-related-${index + 1}`, target: "_self", sourceExternalPostId: `post-${index + 2}` })),
-  ] };
+function report(overallScore: number, approved: boolean, readability = approved ? 96 : 88): TestQualityReport {
+  const scores = {
+    searchIntent: approved ? 97 : 90,
+    seo: approved ? 98 : 92,
+    readability,
+    structure: 90,
+    completeness: approved ? 96 : 85,
+    usefulness: 90,
+    html: 100,
+    imageStrategy: 100,
+    internalLinks: 100,
+    cta: 100,
+  } as const;
+  return {
+    overallScore,
+    approved,
+    reviewedAt: "2026-07-19T00:00:00.000Z",
+    revisionId: "rev-test",
+    dimensions: Object.entries(scores).map(([category, score]) => ({ category, score, status: "passed", reasons: [], evidence: [] })),
+    tasks: approved ? [] : [{ category: "completeness", message: "설명을 보강하세요.", status: "warning" }],
+    findings: [],
+  };
 }
 
-function articleWithDuplicateImages() {
-  const value = article();
-  const blocks: Array<Record<string, unknown> & { type: string }> = [...value.blocks];
-  const headingIndexes = blocks.flatMap((block, index) => block.type === "heading" && block.level === 2 ? [index] : []);
-  blocks.splice((headingIndexes[0] ?? 0) + 2, 0, { type: "image", source: "", purpose: "inline", alt: "첫 섹션 실행 장면", prompt: "같은 생활 공간에서 같은 행동을 하는 장면" });
-  blocks.splice((headingIndexes[1] ?? 3) + 3, 0, { type: "image", source: "", purpose: "inline", alt: "둘째 섹션 실행 장면", prompt: "같은 생활 공간에서 같은 행동을 하는 장면" });
-  return { ...value, blocks };
+function parseInput() {
+  return { contentId: "content-1", contentType: "article" as never, keywords: ["실용 안내"], platform: "canonical" as never, projectId: "project-1" };
 }
 
 describe("EditorialQualityPipeline", () => {
-  it("stops after three automatic improvements and returns the highest-scoring manuscript", async () => {
-    const response = JSON.stringify(article());
-    const generate = vi.fn(async (request: AIRequest) => { void request; return { content: response, model: "test-model" }; });
-    const provider: AIProvider = { generate };
-    const parseInput = { contentId: "content-1", contentType: "article" as never, keywords: ["실용 가이드"], platform: "tistory" as never, projectId: "project-1" };
-    const initial = new EditorialGenerationStrategy().parse(response, parseInput);
+  it("uses exactly one final quality-edit call", async () => {
+    const initial = new EditorialGenerationStrategy().parse(JSON.stringify(rawDocument()), parseInput());
+    const final = JSON.stringify(rawDocument("승인 원고"));
+    const generate = vi.fn(async (request: AIRequest) => { void request; return { content: final, model: "review" }; });
+    const reviews = [report(90, false), report(96, true)];
+    const qualityEngine = { review: vi.fn(() => reviews.shift() ?? report(96, true)) };
 
-    const result = await new EditorialQualityPipeline(provider).run({
+    const result = await new EditorialQualityPipeline({ generate } as AIProvider, undefined, qualityEngine as never).run({
       document: initial,
       finalReviewInstruction: () => "final review",
-      parseInput,
-      qualityContext: { contentType: "article", platform: "tistory", primaryKeyword: "실용 가이드" },
+      parseInput: parseInput(),
+      qualityContext: {},
     });
 
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(result.automaticImprovementCount).toBe(0);
+    expect(result.reachedTarget).toBe(true);
+    expect(result.document.title).toBe("승인 원고");
+  });
+
+  it("accepts a server-approved candidate even when a non-blocking score is lower", async () => {
+    const initial = new EditorialGenerationStrategy().parse(JSON.stringify(rawDocument()), parseInput());
+    const generate = vi.fn(async () => ({ content: JSON.stringify(rawDocument("최종 승인")), model: "review" }));
+    const reviews = [report(94, false, 99), report(95, true, 95)];
+    const qualityEngine = { review: vi.fn(() => reviews.shift() ?? report(95, true, 95)) };
+    const result = await new EditorialQualityPipeline({ generate } as AIProvider, undefined, qualityEngine as never).run({ document: initial, finalReviewInstruction: () => "final", parseInput: parseInput(), qualityContext: {} });
+    expect(result.reachedTarget).toBe(true);
+    expect(result.document.title).toBe("최종 승인");
+  });
+
+  it("exception-approves an integrity-safe candidate when overall is at least 90 and required dimensions are at least 90", async () => {
+    const initial = new EditorialGenerationStrategy().parse(JSON.stringify(rawDocument()), parseInput());
+    const generate = vi.fn(async () => ({ content: JSON.stringify(rawDocument("예외 승인 원고")), model: "review" }));
+    const exceptionReport = report(96, false);
+    exceptionReport.dimensions = exceptionReport.dimensions.map((dimension) =>
+      dimension.category === "completeness" ? { ...dimension, score: 93 } :
+      dimension.category === "readability" ? { ...dimension, score: 95 } :
+      dimension.category === "searchIntent" ? { ...dimension, score: 96 } :
+      dimension.category === "seo" ? { ...dimension, score: 97 } : dimension,
+    );
+    const reviews = [report(90, false), exceptionReport];
+    const qualityEngine = { review: vi.fn(() => reviews.shift() ?? exceptionReport) };
+
+    const result = await new EditorialQualityPipeline({ generate } as AIProvider, undefined, qualityEngine as never).run({
+      document: initial,
+      finalReviewInstruction: () => "final",
+      parseInput: parseInput(),
+      qualityContext: {},
+    });
+
+    expect(result.reachedTarget).toBe(true);
+    expect(result.quality.approved).toBe(false);
+    expect(result.document.title).toBe("예외 승인 원고");
+  });
+
+  it("keeps the recovery manuscript when the final candidate is still unapproved", async () => {
+    const initial = new EditorialGenerationStrategy().parse(JSON.stringify(rawDocument()), parseInput());
+    const generate = vi.fn(async () => ({ content: JSON.stringify(rawDocument("미달 후보")), model: "review" }));
+    const reviews = [report(90, false), report(93, false)];
+    const qualityEngine = { review: vi.fn(() => reviews.shift() ?? report(93, false)) };
+    const result = await new EditorialQualityPipeline({ generate } as AIProvider, undefined, qualityEngine as never).run({ document: initial, finalReviewInstruction: () => "final", parseInput: parseInput(), qualityContext: {} });
     expect(result.reachedTarget).toBe(false);
-    expect(result.automaticImprovementCount).toBe(3);
-    expect(result.qualityHistory).toHaveLength(5);
-    expect(generate).toHaveBeenCalledTimes(4);
-    for (const call of generate.mock.calls.slice(1)) {
-      expect(call[0].instruction).toContain("Rule Quality result:");
-      expect(call[0].instruction).toContain("\"dimensions\"");
-      expect(call[0].instruction).toContain("\"tasks\"");
-    }
-    expect(result.quality.overallScore).toBe(Math.max(...result.qualityHistory.slice(1).map((quality) => quality.overallScore)));
+    expect(result.document.title).toBe("미달 후보");
   });
 
-  it("rejects final-review and improvement responses that remove verified catalog links", async () => {
-    const linked = JSON.stringify(articleWithVerifiedLinks());
-    const withoutLinks = JSON.stringify(article());
-    const generate = vi.fn(async (request: AIRequest) => { void request; return { content: withoutLinks, model: "test-model" }; });
-    const parseInput = { contentId: "content-links", contentType: "article" as never, keywords: ["실용 가이드"], platform: "tistory" as never, projectId: "project-1" };
-    const initial = new EditorialGenerationStrategy().parse(linked, parseInput);
-    const result = await new EditorialQualityPipeline({ generate }).run({ document: initial, finalReviewInstruction: () => "final", parseInput, qualityContext: { contentType: "article", platform: "tistory", primaryKeyword: "실용 가이드" } });
-    const finalLinks = result.document.blocks.filter((block) => block.type === "button" && (block.purpose === "internal_link" || block.purpose === "related_post"));
-    expect(finalLinks).toHaveLength(4);
-    expect(result.attemptHistory).toHaveLength(4);
-    expect(result.attemptHistory.every((attempt) => attempt.accepted === false && attempt.rejectionReason === "verified_link_changed_or_removed")).toBe(true);
+  it("passes the complete approval contract and diagnostics in the single review prompt", async () => {
+    const initial = new EditorialGenerationStrategy().parse(JSON.stringify(rawDocument()), parseInput());
+    let instruction = "";
+    const generate = vi.fn(async (request: AIRequest) => { instruction = request.instruction; return { content: JSON.stringify(rawDocument("승인 원고")), model: "review" }; });
+    const qualityEngine = { review: vi.fn(() => report(96, true)) };
+    await new EditorialQualityPipeline({ generate } as AIProvider, undefined, qualityEngine as never).run({ document: initial, finalReviewInstruction: () => "base instruction", parseInput: parseInput(), qualityContext: {}, requiredInformation: ["실행 예시"] });
+    expect(instruction).toContain("second and final AI call");
+    expect(instruction).toContain("overallScore >= 95");
+    expect(instruction).toContain("readability >= 95");
+    expect(instruction).toContain("usefulness >= 90");
+    expect(instruction).toContain("Manuscript diagnostics");
+    expect(instruction).toContain("at least 4,800 non-whitespace prose characters");
+    expect(instruction).toContain("no maximum character limit");
+    expect(instruction).toContain("according to the topic and confirmed search intent");
+    expect(instruction).toContain("only where the section and reader intent genuinely require them");
+    expect(instruction).toContain("Keyword placement is mandatory");
+    expect(instruction).toContain("every confirmed secondary keyword naturally");
+    expect(instruction).toContain("Reader usefulness is a mandatory final-edit contract");
+    expect(instruction).toContain("Do not respond to a low usefulness score by merely adding sentences");
+    expect(instruction).toContain("Every H2 must provide distinct new information");
+    expect(instruction).toContain("fulfillment of its heading and editorial purpose, the new information, the section-appropriate concrete value");
+    expect(instruction).toContain("Evidence integrity is a mandatory final-edit contract");
+    expect(instruction).toContain("unsupportedClaimSignal");
+    expect(instruction).toContain("fabricatedExperienceRisk");
+    expect(instruction).toContain("Never solve this by inventing a citation, source, number, or personal story");
   });
 
-  it("rejects an AI revision that adds a URL outside the verified catalog set", async () => {
-    const linkedArticle = articleWithVerifiedLinks();
-    const invented = { ...linkedArticle, blocks: [...linkedArticle.blocks, { type: "button", purpose: "related_post", label: "검증되지 않은 글", targetUrl: "https://bright-healthy.tistory.com/entry/not-in-catalog", target: "_self", sourceExternalPostId: "invented" }] };
-    const linked = JSON.stringify(linkedArticle), inventedResponse = JSON.stringify(invented);
-    const generate = vi.fn(async (request: AIRequest) => { void request; return { content: inventedResponse, model: "test-model" }; });
-    const parseInput = { contentId: "content-url", contentType: "article" as never, keywords: ["실용 가이드"], platform: "tistory" as never, projectId: "project-1" };
-    const initial = new EditorialGenerationStrategy().parse(linked, parseInput);
-    const result = await new EditorialQualityPipeline({ generate }).run({ document: initial, finalReviewInstruction: () => "final", parseInput, qualityContext: { contentType: "article", platform: "tistory", primaryKeyword: "실용 가이드" } });
-    expect(result.attemptHistory.every((attempt) => attempt.rejectionReason === "unverified_url_added")).toBe(true);
-    expect(result.document.blocks.some((block) => block.type === "button" && block.targetUrl.includes("not-in-catalog"))).toBe(false);
-  });
-
-  it("passes completeness, usefulness, heading depth, missing requirements, and link state to improvements", async () => {
-    const response = JSON.stringify(article());
-    const generate = vi.fn(async (request: AIRequest) => { void request; return { content: response, model: "test-model" }; });
-    const parseInput = { contentId: "content-diagnostics", contentType: "article" as never, keywords: ["실용 가이드"], platform: "tistory" as never, projectId: "project-1" };
-    const initial = new EditorialGenerationStrategy().parse(response, parseInput);
-    await new EditorialQualityPipeline({ generate }).run({ document: initial, finalReviewInstruction: () => "final", parseInput, qualityContext: { contentType: "article", platform: "tistory", primaryKeyword: "실용 가이드" }, requiredInformation: ["실제 작성 예시", "응급 신호와 일반 상담 구분"] });
-    const instruction = generate.mock.calls[1]?.[0].instruction ?? "";
-    expect(instruction).toContain('"category":"completeness"');
-    expect(instruction).toContain('"category":"usefulness"');
-    expect(instruction).toContain("headingCharacterCounts");
-    expect(instruction).toContain("missingRequiredInformation");
-    expect(instruction).toContain("repeatedOrShallowParagraphs");
-    expect(instruction).toContain("linkState");
-  });
-
-  it("does not leave duplicate prompts in final-review or improvement candidates", async () => {
-    const response = JSON.stringify(articleWithDuplicateImages());
-    const generate = vi.fn(async (request: AIRequest) => { void request; return { content: response, model: "test-model" }; });
-    const parseInput = { contentId: "content-images", contentType: "article" as never, keywords: ["실용 가이드"], platform: "tistory" as never, projectId: "project-1" };
-    const initial = new EditorialGenerationStrategy().parse(response, parseInput);
-    const result = await new EditorialQualityPipeline({ generate }).run({ document: initial, finalReviewInstruction: () => "final", parseInput, qualityContext: { contentType: "article", platform: "tistory", primaryKeyword: "실용 가이드" } });
-
-    for (const quality of result.qualityHistory) {
-      expect(quality.dimensions.find((item) => item.category === "imageStrategy")?.evidence).toContainEqual({ signal: "duplicateImagePrompts", value: 0 });
-    }
-    const prompts = result.document.blocks.flatMap((block) => block.type === "image" ? [block.prompt] : []);
-    expect(new Set(prompts).size).toBe(prompts.length);
+  it("preserves the current manuscript when the response is invalid", async () => {
+    const initial = new EditorialGenerationStrategy().parse(JSON.stringify(rawDocument()), parseInput());
+    const qualityEngine = { review: vi.fn(() => report(90, false)) };
+    const result = await new EditorialQualityPipeline({ generate: async () => ({ content: "not-json", model: "review" }) } as AIProvider, undefined, qualityEngine as never).run({ document: initial, finalReviewInstruction: () => "final", parseInput: parseInput(), qualityContext: {} });
+    expect(result.reachedTarget).toBe(false);
+    expect(result.document.title).toBe("초기 원고");
+    expect(result.attemptHistory[0]?.rejectionReason).toBe("invalid_content_document");
   });
 });

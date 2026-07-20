@@ -40,15 +40,25 @@ export class OpportunityEvidenceService {
     const published = publicContents(data, project.id);
     const classified = candidates.flatMap((candidate) => {
       const matched = matchEvidence(candidate, bundle, project);
+      const duplicate = published.some((content) => isDirectDuplicate(candidate, content));
+      const aligned = projectAligned(candidate, project);
+      const searchIntentClear = candidate.searchIntent.trim().length >= 4;
+      const safe = safetyPassed(candidate);
       const assessment = assessOpportunityRecommendation({
         evidence: matched,
-        duplicate: published.some((content) => isDirectDuplicate(candidate, content)),
-        projectAligned: projectAligned(candidate, project),
-        searchIntentClear: candidate.searchIntent.trim().length >= 4,
-        safetyPassed: safetyPassed(candidate),
+        duplicate,
+        projectAligned: aligned,
+        searchIntentClear,
+        safetyPassed: safe,
       });
-      if (!assessment.recommendationType) return [];
+      const userSpecifiedFallback = candidate.selectionMode === "userSpecified" && searchIntentClear && safe;
+      const recommendationType = assessment.recommendationType ?? (userSpecifiedFallback ? "blogGrowth" as const : undefined);
+      if (!recommendationType) return [];
       const summaries = matched.map(toOpportunityEvidence);
+      const limitations = [...assessment.limitations];
+      if (userSpecifiedFallback && !matched.length) limitations.push("사용자가 직접 지정한 주제이므로 외부 시장 Evidence 없이 계속 진행합니다. 검색 수요와 성과 가능성은 검증되지 않았습니다.");
+      if (userSpecifiedFallback && duplicate) limitations.push("현재 Project에 유사한 공개 콘텐츠가 있을 수 있습니다. 중복 여부를 확인해 주세요.");
+      if (userSpecifiedFallback && !aligned) limitations.push("현재 Project 전략과의 연관성이 자동으로 확인되지 않았습니다. 사용자가 지정한 주제를 우선하여 계속 진행합니다.");
       return [createContentOpportunityCandidate({
         sourceRequest: candidate.sourceRequest,
         selectionMode: candidate.selectionMode,
@@ -63,14 +73,16 @@ export class OpportunityEvidenceService {
         expectedCoverage: candidate.expectedCoverage,
         selectionRationale: candidate.selectionRationale,
         opportunityEvidence: summaries,
-        recommendationType: assessment.recommendationType,
+        recommendationType,
         evidenceIds: matched.map((value) => value.evidenceId),
         marketEvidenceStatus: assessment.marketEvidenceStatus,
         internalGrowthEvidenceStatus: assessment.internalGrowthEvidenceStatus,
         freshness: assessment.freshness,
-        limitations: assessment.limitations,
+        limitations: Object.freeze([...new Set(limitations)]),
         classificationVersion: 1,
-        confidence: matched.length ? Math.min(candidate.confidence, matched.reduce((sum, value) => sum + value.confidence, 0) / matched.length) : 0,
+        confidence: matched.length
+          ? Math.min(candidate.confidence, matched.reduce((sum, value) => sum + value.confidence, 0) / matched.length)
+          : userSpecifiedFallback ? Math.min(candidate.confidence, 0.55) : 0,
         cautions: candidate.cautions,
         projectId: project.id,
       })];

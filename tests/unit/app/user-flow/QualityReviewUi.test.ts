@@ -42,4 +42,18 @@ describe("Quality Review UI compatibility normalization", () => {
     expect(normalizeQualityReview(undefined, { requestState: "loading" }).status).toBe("loading");
     expect(normalizeQualityReview(undefined, { requestState: "error", errorMessage: "API unavailable" })).toMatchObject({ status: "error", issues: ["API unavailable"] });
   });
+
+  it("preserves exception approval for the personal editor UI", () => {
+    const report = {
+      approved: true,
+      approvalType: "exception",
+      overallScore: 92,
+      reviewedRevisionId: "rev-exception",
+      reviewedAt: "2026-07-19T00:00:00.000Z",
+      dimensions: [{ category: "searchIntent", score: 92, status: "ready", evaluation: "evaluated", reasons: [], tasks: [], evidence: [] }],
+      tasks: [],
+    };
+    expect(normalizeQualityReview(report)).toMatchObject({ status: "ready", approvalType: "exception", overallScore: 92 });
+  });
+
 });

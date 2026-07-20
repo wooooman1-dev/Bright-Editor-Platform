@@ -3,10 +3,10 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { detectContentOpportunitySelectionMode, type ContentDocument, type ContentOpportunityCandidate } from "../../core/content";
-import type { QualityReport } from "../../core/quality";
+import { detectContentOpportunitySelectionMode, type ContentOpportunityCandidate } from "../../core/content";
 import { PageContainer } from "../shared/ui/PageContainer";
 import { completeConfirmedGeneration } from "./confirmed-generation";
+import { diagnosticDocumentAvailable, generatedDocumentReady, type GenerationCompletionResult } from "./generation-result";
 import { PrimaryKeywordConfirmation } from "./PrimaryKeywordConfirmation";
 import {
   createContentFromPlan,
@@ -272,6 +272,18 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
           throw new Error(result.error ?? "Publishing-account selection failed.");
         }
       }
+      next = createContentFromPlan(next, {
+        id: contentId,
+        projectId: project.id,
+        naturalLanguageRequest: confirmedRequest,
+        plan: confirmedPlan,
+        opportunity: selectedOpportunity,
+        selectedPublishingAccountIds: persistedAccountIds,
+        now: now(),
+      });
+      next = updateProjectTargets(next, project.id, persistedAccountIds, now());
+      latestDataRef.current = next;
+      await onPersist(next);
       if (!generate) {
         onOpenEditor(contentId);
         return;
@@ -287,7 +299,7 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
       activeOperationRef.current = generationOperationId;
       latestDataRef.current = next;
       await onPersist(next);
-      setNotice("canonical ContentDocument 원고를 생성하고 있습니다.");
+      setNotice("원고를 생성하고 최종 품질 검토·편집을 진행하고 있습니다. 승인 기준을 통과한 원고만 표시됩니다.");
       const response = await fetch("/api/studio", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -315,12 +327,26 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
           },
         }),
       });
-      const result = await response.json() as { document?: ContentDocument; quality?: QualityReport; data?: UserData; error?: string };
-      if (!response.ok || !result.document) throw new Error(result.error ?? "Generation failed.");
+      const result = await response.json() as GenerationCompletionResult;
       if (result.data) {
         next = result.data;
         latestDataRef.current = next;
         onRestore(next);
+      }
+      if (!generatedDocumentReady(result)) {
+        if (result.qualityTargetBlocked || result.reachedTarget === false || result.quality?.approved === false) {
+          if (diagnosticDocumentAvailable(result)) {
+            setNotice("품질 미승인 원고를 편집기에서 진단할 수 있도록 엽니다. 품질 승인 전에는 임시저장과 발행이 차단됩니다.");
+            onOpenEditor(contentId);
+            return;
+          }
+          setNotice(result.error ?? "원고가 자동 품질 승인 기준에 도달하지 못했습니다. 동일 기획으로 다시 생성해 주세요.");
+          return;
+        }
+        throw new Error(result.error ?? "Generation failed.");
+      }
+      if (!response.ok || !result.document) throw new Error(result.error ?? "Generation failed.");
+      if (result.data) {
         onOpenEditor(contentId);
       } else {
         next = await completeConfirmedGeneration(next, {

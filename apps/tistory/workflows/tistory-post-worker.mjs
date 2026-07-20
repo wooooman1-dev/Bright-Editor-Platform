@@ -1,6 +1,6 @@
 import { chromium } from "playwright";
 
-import { extractPublicPostRows, listingHasNoPostsMessage, publicPostListingUrls } from "./TistoryPostDiscovery.mjs";
+import { extractCategoryFromPostHtml, extractPublicPostRows, listingHasNoPostsMessage, publicPostListingUrls } from "./TistoryPostDiscovery.mjs";
 
 const [blogId, storageStatePath] = process.argv.slice(2);
 const origin = `https://${blogId}.tistory.com`;
@@ -45,7 +45,13 @@ try {
   const unique = collected.filter((item) => { const url = safePublicUrl(item.publishedUrl, origin); if (!url || seen.has(url)) return false; seen.add(url); return true; });
   for (let start = 0; start < unique.length; start += 6) {
     const verified = await Promise.all(unique.slice(start, start + 6).map(async (item) => ({ item, response: await context.request.get(item.publishedUrl, { timeout: 10000 }).catch(() => undefined) })));
-    for (const { item, response } of verified) { if (!response?.ok()) { partial = true; continue; } const externalPostId = decodeURIComponent(new URL(item.publishedUrl).pathname.slice("/entry/".length)); posts.push({ platform: "tistory", externalPostId, title: item.title, publishedUrl: item.publishedUrl, ...(item.categoryName ? { categoryName: item.categoryName } : {}), ...(item.publishedAt ? { publishedAt: item.publishedAt } : {}), ...(item.excerpt ? { excerpt: item.excerpt.slice(0, 400) } : {}), keywords: terms(`${item.title} ${item.categoryName ?? ""}`), status: "public", retrievedAt }); }
+    for (const { item, response } of verified) {
+      if (!response?.ok()) { partial = true; continue; }
+      const externalPostId = decodeURIComponent(new URL(item.publishedUrl).pathname.slice("/entry/".length));
+      const responseHtml = await response.text().catch(() => "");
+      const category = item.categoryName ? { categoryName: item.categoryName } : extractCategoryFromPostHtml(responseHtml, origin);
+      posts.push({ platform: "tistory", externalPostId, title: item.title, publishedUrl: item.publishedUrl, ...(category?.categoryId ? { categoryId: category.categoryId } : {}), ...(category?.categoryName ? { categoryName: category.categoryName } : {}), ...(item.publishedAt ? { publishedAt: item.publishedAt } : {}), ...(item.excerpt ? { excerpt: item.excerpt.slice(0, 400) } : {}), keywords: terms(`${item.title} ${category?.categoryName ?? ""}`), status: "public", retrievedAt });
+    }
   }
   const emptyDiagnostic = !posts.length && !diagnostic ? "공개 글 목록 페이지에서 검증 가능한 게시글을 찾지 못했습니다." : diagnostic;
   process.stdout.write(`${JSON.stringify({ posts, state: partial ? "partial" : posts.length ? "success" : "empty", retrievedAt, pagesRead, ...(emptyDiagnostic ? { diagnostic: emptyDiagnostic } : {}) })}\n`);
