@@ -47,6 +47,8 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
   onRestore: (data: UserData) => void;
 }) {
   const restoredWorkflow = content?.planningWorkflow;
+  const draftContentIdRef = useRef(content?.id ?? createId("content"));
+  const contentIdentity = `${project.id}:${content?.id ?? draftContentIdRef.current}`;
   const [request, setRequest] = useState(restoredWorkflow?.request ?? content?.naturalLanguageRequest ?? "");
   const [plan, setPlan] = useState<ContentPlanningResult | undefined>(content?.planning);
   const [opportunityId, setOpportunityId] = useState(restoredWorkflow?.selectedOpportunityId ?? content?.planning?.opportunityCandidates?.[0]?.opportunityId ?? "");
@@ -56,9 +58,11 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
   const [selected, setSelected] = useState<readonly string[]>(content?.selectedPublishingAccountIds ?? project.selectedPublishingAccountIds ?? []);
   const [notice, setNotice] = useState(restoredNotice(content));
   const [operation, setOperation] = useState<CreationOperation>("idle");
-  const [contentId] = useState(() => content?.id ?? createId("content"));
+  const [dirtyRequest, setDirtyRequest] = useState(false);
+  const contentId = content?.id ?? draftContentIdRef.current;
   const latestDataRef = useRef(data);
   const activeOperationRef = useRef(restoredWorkflow?.operationId ?? "");
+  const hydratedIdentityRef = useRef(contentIdentity);
   const hydratedWorkflowRef = useRef(workflowSignature(restoredWorkflow));
   const automaticStartRef = useRef(Boolean(content));
   const planningSubmissionRef = useRef(false);
@@ -76,6 +80,24 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
   useEffect(() => { latestDataRef.current = data; }, [data]);
 
   useEffect(() => {
+    if (hydratedIdentityRef.current === contentIdentity) return;
+    hydratedIdentityRef.current = contentIdentity;
+    hydratedWorkflowRef.current = workflowSignature(content?.planningWorkflow);
+    activeOperationRef.current = content?.planningWorkflow?.operationId ?? "";
+    automaticStartRef.current = Boolean(content);
+    planningSubmissionRef.current = false;
+    setRequest(content?.planningWorkflow?.request ?? content?.naturalLanguageRequest ?? "");
+    setPlan(content?.planning);
+    setOpportunityId(content?.planningWorkflow?.selectedOpportunityId ?? content?.planning?.opportunityCandidates?.[0]?.opportunityId ?? "");
+    setCustomKeyword("");
+    setCustomKeywordSelected(false);
+    setSelected(content?.selectedPublishingAccountIds ?? project.selectedPublishingAccountIds ?? []);
+    setNotice(restoredNotice(content));
+    setOperation("idle");
+    setDirtyRequest(false);
+  }, [contentIdentity, content, project.selectedPublishingAccountIds]);
+
+  useEffect(() => {
     const workflow = content?.planningWorkflow;
     const signature = workflowSignature(workflow);
     if (!workflow || signature === hydratedWorkflowRef.current) return;
@@ -87,11 +109,15 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
       setRequest(workflow.request);
       setPlan(content.planning);
       setOpportunityId(workflow.selectedOpportunityId ?? content.planning?.opportunityCandidates?.[0]?.opportunityId ?? "");
+      setSelected(content.selectedPublishingAccountIds ?? project.selectedPublishingAccountIds ?? []);
+      setCustomKeyword("");
+      setCustomKeywordSelected(false);
+      setDirtyRequest(false);
       setNotice(restoredNotice(content));
       if (workflow.status !== "planning" && workflow.status !== "generating") setOperation("idle");
     });
     return () => { active = false; };
-  }, [content]);
+  }, [content, project.selectedPublishingAccountIds]);
 
   useEffect(() => {
     const status = content?.planningWorkflow?.status;
@@ -188,6 +214,7 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
       setOpportunityId(result.plan.opportunityCandidates?.[0]?.opportunityId ?? "");
       setCustomKeyword("");
       setCustomKeywordSelected(false);
+      setDirtyRequest(false);
       setNotice(regenerate
         ? "새 추천이 준비되었습니다. 변경된 키워드와 콘텐츠 방향을 확인해 주세요."
         : manual ? "수동 기획이 준비되었습니다. 모든 항목을 수정할 수 있습니다." : "추천 내용을 확인한 뒤 원고 생성을 승인해 주세요.");
@@ -220,7 +247,7 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
   };
 
   const confirm = async (generate: boolean, confirmedPlan = plan, confirmedRequest = request, selectedOpportunity = confirmedOpportunity) => {
-    if (!confirmedPlan || !selectedOpportunity) return;
+    if (!confirmedPlan || !selectedOpportunity || dirtyRequest) return;
     const readyAccountIds = selected.filter((id) => connected.some((connection) => connection.id === id));
     const generationOperationId = createId("generation-operation");
     let generationStarted = false;
@@ -470,18 +497,19 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
             const value = event.target.value;
             setRequest(value);
             if (plan) {
-              setPlan(undefined);
-              setOpportunityId("");
-              setCustomKeyword("");
-              setCustomKeywordSelected(false);
-              setNotice("요청이 변경되어 이전 분석과 대표 키워드 선택을 초기화했습니다.");
+              const analyzedRequest = content?.planningWorkflow?.request ?? content?.naturalLanguageRequest ?? "";
+              const nextDirty = value !== analyzedRequest;
+              setDirtyRequest(nextDirty);
+              setNotice(nextDirty
+                ? "요청이 변경되었습니다. 기존 추천은 보존되며, 원고를 만들기 전에 다시 분석해 주세요."
+                : restoredNotice(content));
             }
           }}
           placeholder="예: 50대를 위한 혈당 관리 글을 만들고 싶어"
           value={request}
         />
         <div className="mt-4 flex flex-wrap gap-2">
-          <button className="rounded-xl bg-[#ff6b6b] px-5 py-3 text-sm font-semibold text-white disabled:opacity-50" disabled={localWorking || !request.trim()} onClick={() => void analyze(false, Boolean(plan))} type="button">{operation === "planning" ? "분석 중…" : workflowPending ? "분석 다시 시도" : "분석하고 추천받기"}</button>
+          <button className="rounded-xl bg-[#ff6b6b] px-5 py-3 text-sm font-semibold text-white disabled:opacity-50" disabled={localWorking || !request.trim()} onClick={() => void analyze(false, Boolean(plan))} type="button">{operation === "planning" ? "분석 중…" : workflowPending ? "분석 다시 시도" : dirtyRequest ? "변경 내용 다시 분석" : "분석하고 추천받기"}</button>
           <button className="rounded-xl border border-black/8 px-5 py-3 text-sm font-semibold disabled:opacity-50" disabled={localWorking || !request.trim()} onClick={() => void analyze(true, Boolean(plan))} type="button">직접 설정하기</button>
           {workflowPending ? <button className="rounded-xl border border-blue-200 px-5 py-3 text-sm font-semibold text-blue-800 disabled:opacity-50" disabled={localWorking} onClick={() => void onRefresh()} type="button">저장 상태 새로고침</button> : null}
         </div>
@@ -491,7 +519,7 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
 
       {plan ? (
         <section aria-busy={operation === "regenerating"} className={`mt-6 rounded-[24px] border border-black/6 bg-white p-6 transition-opacity ${operation === "regenerating" ? "opacity-60" : ""}`}>
-          <PrimaryKeywordConfirmation customKeyword={customKeyword} customKeywordSelected={customKeywordSelected} disabled={working} onCustomKeywordChange={setCustomKeyword} onReanalyzeCustom={() => { const constrainedRequest = `${request}\n사용자 지정 주제와 대표 키워드: ${customKeyword.trim()}. 이 주제와 같은 검색 의도 안에서 완전한 콘텐츠 기회를 구성해 줘.`; setRequest(constrainedRequest); void analyze(false, true, constrainedRequest, "userSpecified"); }} onSelectCandidate={(candidate: ContentOpportunityCandidate) => { void selectOpportunity(candidate); }} onSelectCustom={() => setCustomKeywordSelected(true)} opportunityCandidates={opportunityCandidates} plan={plan} request={request} selectedOpportunityId={opportunityId} />
+          <PrimaryKeywordConfirmation customKeyword={customKeyword} customKeywordSelected={customKeywordSelected} disabled={working || dirtyRequest} onCustomKeywordChange={setCustomKeyword} onReanalyzeCustom={() => { const constrainedRequest = `${request}\n사용자 지정 주제와 대표 키워드: ${customKeyword.trim()}. 이 주제와 같은 검색 의도 안에서 완전한 콘텐츠 기회를 구성해 줘.`; setRequest(constrainedRequest); void analyze(false, true, constrainedRequest, "userSpecified"); }} onSelectCandidate={(candidate: ContentOpportunityCandidate) => { void selectOpportunity(candidate); }} onSelectCustom={() => setCustomKeywordSelected(true)} opportunityCandidates={opportunityCandidates} plan={plan} request={request} selectedOpportunityId={opportunityId} />
 
           <details className="mt-3 rounded-xl border border-black/6 p-4">
             <summary className="cursor-pointer text-sm font-semibold">발행 계정 선택 (선택)</summary>
@@ -508,9 +536,9 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
             <Link className="mt-3 inline-block text-sm font-semibold text-[#d94848]" href={`/workspaces/${project.workspaceId}/settings?section=connections`}>설정에서 플랫폼 연결 관리</Link>
           </details>
           <div className="mt-6 flex flex-wrap gap-2">
-            <button className="rounded-xl border px-4 py-2.5 text-sm font-semibold disabled:opacity-50" disabled={working} onClick={() => void analyze(false, true)} type="button">{operation === "regenerating" ? "추천 생성 중…" : "추천 다시 생성"}</button>
-            <button className="rounded-xl border px-4 py-2.5 text-sm font-semibold disabled:opacity-50" disabled={working || !confirmedOpportunity} onClick={() => void confirm(false)} type="button">이 기획으로 직접 작성</button>
-            <button className="rounded-xl bg-[#ff6b6b] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50" disabled={working || !confirmedOpportunity} onClick={() => void confirm(true)} type="button">{operation === "generating" ? "원고 생성 중…" : "이 기획으로 원고 만들기"}</button>
+            <button className="rounded-xl border px-4 py-2.5 text-sm font-semibold disabled:opacity-50" disabled={working} onClick={() => void analyze(false, true)} type="button">{operation === "regenerating" ? "추천 생성 중…" : dirtyRequest ? "변경 내용으로 추천 다시 생성" : "추천 다시 생성"}</button>
+            <button className="rounded-xl border px-4 py-2.5 text-sm font-semibold disabled:opacity-50" disabled={working || dirtyRequest || !confirmedOpportunity} onClick={() => void confirm(false)} type="button">이 기획으로 직접 작성</button>
+            <button className="rounded-xl bg-[#ff6b6b] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50" disabled={working || dirtyRequest || !confirmedOpportunity} onClick={() => void confirm(true)} type="button">{operation === "generating" ? "원고 생성 중…" : "이 기획으로 원고 만들기"}</button>
           </div>
         </section>
       ) : null}
