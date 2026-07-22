@@ -102,14 +102,16 @@ function AccountList({ connections, onAction }: { connections: readonly PublicCo
     const projectReferences = connection.projectReferenceCount ?? 0;
     const contentReferences = connection.contentReferenceCount ?? 0;
     const hasReferences = projectReferences > 0 || contentReferences > 0;
-    const reconnectable = connection.platform === "tistory" && (connection.status === "disconnected" || connection.status === "failed");
+    const reconnectable = connection.platform === "tistory" && (connection.status === "disconnected" || connection.status === "expired" || connection.status === "failed");
     const connecting = connection.status === "connecting";
+    const sessionAvailable = connection.platform !== "tistory" || connection.publicMetadata.sessionStateAvailable === true;
 
     return <article className="rounded-xl border p-4" key={connection.id}>
       <div className="flex flex-wrap justify-between gap-3">
         <div>
           <h3 className="font-semibold">{connection.displayName}</h3>
           <p className="mt-1 text-sm text-[#77777f]">{connectionStatusLabel(connection.status)} · 임시저장 {connection.status === "connected" && connection.permissions.includes("draft.create") ? "가능" : "준비 필요"}</p>
+          {connection.platform === "tistory" ? <p className={`mt-1 text-sm font-medium ${sessionAvailable ? "text-emerald-700" : "text-amber-800"}`}>세션 {sessionAvailable ? "활성" : connection.status === "expired" ? "만료됨" : "재연결 필요"}</p> : null}
           <p className="mt-1 text-xs text-[#92929a]">마지막 확인: {connection.lastVerifiedAt ? new Date(connection.lastVerifiedAt).toLocaleString("ko-KR") : "기록 없음"}</p>
           {hasReferences ? <p className={`mt-2 text-sm font-medium ${connection.status === "connected" ? "text-emerald-700" : connecting ? "text-blue-700" : "text-amber-800"}`}>{connecting
             ? `기존 Project ${projectReferences}개 · Content ${contentReferences}개 참조 유지 중`
@@ -168,6 +170,7 @@ function connectionStatusLabel(status: PublicConnection["status"]): string {
   if (status === "connected") return "연결됨";
   if (status === "connecting") return "연결 중";
   if (status === "disconnected") return "연결 해제됨";
+  if (status === "expired") return "세션 만료";
   if (status === "failed") return "연결 실패";
   return status;
 }
