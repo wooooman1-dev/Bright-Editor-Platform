@@ -339,16 +339,16 @@ function resolveGenerationOpportunity(
     const stored = content.opportunity;
     const sameIdentity = Boolean(
       stored
-      && (
-        (typeof input.opportunityFingerprint === "string" && input.opportunityFingerprint === stored.fingerprint)
-        || (
-          typeof input.opportunityId === "string"
-          && input.opportunityId === stored.opportunityId
-          && String(input.opportunityVersion) === String(stored.version)
-        )
-      )
+      && typeof input.opportunityId === "string"
+      && input.opportunityId === stored.opportunityId
+      && String(input.opportunityVersion) === String(stored.version)
+      && typeof input.opportunityFingerprint === "string"
+      && input.opportunityFingerprint === stored.fingerprint
     );
-    if (!stored || !sameIdentity || !message(error).includes("선택한 콘텐츠 전략이 현재 원고와 일치하지 않습니다")) throw error;
+    const mismatchMessage = message(error);
+    const isCurrentDraftMismatch = mismatchMessage.includes("선택한 콘텐츠 전략이 현재 원고와 일치하지 않습니다")
+      || mismatchMessage.includes("선택한 콘텐츠 전략이 요청한 현재 원고와 일치하지 않습니다");
+    if (!stored || !sameIdentity || !isCurrentDraftMismatch) throw error;
     return resolveConfirmedGenerationOpportunity(content, {
       ...input,
       opportunityId: stored.opportunityId,
