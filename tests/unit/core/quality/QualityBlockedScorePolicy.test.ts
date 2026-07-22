@@ -3,13 +3,17 @@ import { describe, expect, it } from "vitest";
 import type { ContentDocument } from "../../../../core/content";
 import { QualityEngine } from "../../../../core/quality";
 
+const practicalParagraph = "먼저 기록표를 만들고 다음으로 단계별 순서를 확인합니다. 마지막으로 결과를 비교해 다음 행동을 정합니다. ";
 const unsafeDocument: ContentDocument = {
   id: "unsafe-usefulness",
   title: "건강 관리 방법",
   blocks: [
-    { id: "intro", type: "paragraph", text: "제가 직접 먹어봤고 연구에 따르면 97%가 좋아졌습니다. 건강 관리 방법을 설명합니다." },
-    { id: "h", type: "heading", level: 2, text: "실천 방법" },
-    { id: "p", type: "paragraph", text: "먼저 기록표를 만들고 다음으로 단계별 순서를 확인합니다. 마지막으로 결과를 비교합니다." },
+    { id: "intro", type: "paragraph", text: `제가 직접 먹어봤고 연구에 따르면 97%가 좋아졌습니다. 건강 관리 방법을 설명합니다. ${practicalParagraph.repeat(4)}` },
+    { id: "h1", type: "heading", level: 2, text: "실천 방법" },
+    { id: "p1", type: "paragraph", text: practicalParagraph.repeat(12) },
+    { id: "h2", type: "heading", level: 2, text: "기록 기준" },
+    { id: "p2", type: "paragraph", text: practicalParagraph.repeat(12) },
+    { id: "conclusion", type: "paragraph", text: practicalParagraph.repeat(6) },
   ],
 };
 
