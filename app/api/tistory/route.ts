@@ -4,6 +4,7 @@ import type { UserData } from "../../user-flow/user-data";
 import { PlatformConnectionService } from "../../../core/connections";
 import { contentRevisionId, PublishingGate, QualityEngine } from "../../../core/quality";
 import { connectionRepository, connectionStore, targetRepository } from "../../application/connections/connection-runtime";
+import { expireTistorySession, isTistorySessionExpiredFailure } from "../../application/connections/TistorySessionState";
 import { studioStore } from "../../application/studio-store";
 import { isPlatformEnabled, resolveWorkspaceSettings } from "../../application/settings/WorkspaceSettingsService";
 import { TistoryDraftApplicationService, type PublishingAuditRecord } from "../../application/publishing/TistoryDraftApplicationService";
@@ -63,6 +64,9 @@ export async function POST(request: Request) {
       result = await service.execute(execution);
     }
     if (isRetryableDraftStartupFailure(result)) result = normalizeDraftStartupFailure(result, attempts);
+    if (isTistorySessionExpiredFailure(result)) {
+      await connectionRepository.save(expireTistorySession(connection, new Date().toISOString()));
+    }
 
     const failed = result.status === "failed" || result.status === "partial_failure";
     const failedRecord = result.steps?.find((step) => !step.passed);
