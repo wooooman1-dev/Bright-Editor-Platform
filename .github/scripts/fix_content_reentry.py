@@ -1,0 +1,116 @@
+from pathlib import Path
+
+path = Path("app/user-flow/FirstRunExperience.tsx")
+text = path.read_text(encoding="utf-8")
+
+import_anchor = 'import { ContentCreationFlow } from "./ContentCreationFlow";\n'
+import_line = 'import { resolveContentOpenDestination } from "./content-navigation";\n'
+if import_line not in text:
+    if import_anchor not in text:
+        raise SystemExit("ContentCreationFlow import anchor not found")
+    text = text.replace(import_anchor, import_anchor + import_line, 1)
+
+old_open = '''          onOpenContent={(contentId) => {
+            const target = data.contents.find((item) => item.id === contentId);
+            const resumesPlanning = target?.planningWorkflow && target.planningWorkflow.status !== "generated" && target.planningWorkflow.status !== "cancelled";
+            setScreen(resumesPlanning ? { name: "create", projectId: activeProject.id, contentId } : { name: "editor", projectId: activeProject.id, contentId });
+          }}'''
+new_open = '''          onOpenContent={(contentId) => {
+            const target = data.contents.find((item) => item.id === contentId);
+            if (!target) return;
+            const destination = resolveContentOpenDestination(target);
+            setScreen(destination === "planning" ? { name: "create", projectId: activeProject.id, contentId } : { name: "editor", projectId: activeProject.id, contentId });
+          }}'''
+if old_open not in text:
+    raise SystemExit("onOpenContent block not found")
+text = text.replace(old_open, new_open, 1)
+
+old_connections = '''  const selectedConnectionIds = project.selectedPublishingAccountIds ?? [];
+  const selectedConnectionIdsKey = selectedConnectionIds.join(",");'''
+new_connections = '''  const selectedConnectionIds = useMemo(() => project.selectedPublishingAccountIds ?? [], [project.selectedPublishingAccountIds]);'''
+if old_connections in text:
+    text = text.replace(old_connections, new_connections, 1)
+    text = text.replace(
+        '  }, [latestContentId, project.workspaceId, selectedConnectionIdsKey]);',
+        '  }, [latestContentId, project.workspaceId, selectedConnectionIds]);',
+        1,
+    )
+
+old_card = '''{contents.length === 0 ? <p className="mt-4 rounded-[20px] border border-dashed border-black/10 bg-white p-6 text-sm text-[#77777f]">아직 콘텐츠가 없습니다.</p> : <div className="mt-4 space-y-3">{contents.map((content) => { const resumable = content.planningWorkflow && content.planningWorkflow.status !== "generated" && content.planningWorkflow.status !== "cancelled"; return <button className="flex w-full items-center justify-between rounded-[20px] border border-black/6 bg-white p-5 text-left" key={content.id} onClick={() => onOpenContent(content.id)} type="button"><span><span className="block font-semibold">{content.title}</span><span className="mt-1 block text-xs text-[#92929a]">{resumable ? `Planning · ${planningStatusLabel(content.planningWorkflow!.status)}` : "임시저장"} · {content.updatedAt}</span></span><span className="text-sm font-semibold text-[#d94848]">{resumable ? "이어서 작성 →" : "편집 →"}</span></button>; })}</div>}'''
+new_card = '''{contents.length === 0 ? <p className="mt-4 rounded-[20px] border border-dashed border-black/10 bg-white p-6 text-sm text-[#77777f]">아직 콘텐츠가 없습니다.</p> : <div className="mt-4 space-y-3">{contents.map((content) => { const destination = resolveContentOpenDestination(content); const resumable = destination === "planning"; const needsRevision = Boolean(content.document && content.quality?.approved === false); return <button className="flex w-full items-center justify-between rounded-[20px] border border-black/6 bg-white p-5 text-left" key={content.id} onClick={() => onOpenContent(content.id)} type="button"><span><span className="block font-semibold">{content.title}</span><span className="mt-1 block text-xs text-[#92929a]">{resumable ? `Planning · ${planningStatusLabel(content.planningWorkflow!.status)}` : needsRevision ? "품질 미달 · 수정 필요" : "임시저장"} · {content.updatedAt}</span></span><span className="text-sm font-semibold text-[#d94848]">{resumable ? "이어서 작성 →" : content.document ? "계속 수정 →" : "편집 →"}</span></button>; })}</div>}'''
+if old_card not in text:
+    raise SystemExit("content card block not found")
+text = text.replace(old_card, new_card, 1)
+
+old_location = '''  if (name === "create") {
+    const content = contentId ? data.contents.find((item) => item.id === contentId && item.projectId === project.id && item.workspaceId === project.workspaceId) : undefined;
+    return contentId && !content ? { name: "project", projectId } : { name: "create", projectId, ...(content ? { contentId: content.id } : {}) };
+  }'''
+new_location = '''  if (name === "create") {
+    const content = contentId ? data.contents.find((item) => item.id === contentId && item.projectId === project.id && item.workspaceId === project.workspaceId) : undefined;
+    if (content?.document) return { name: "editor", projectId, contentId: content.id };
+    return contentId && !content ? { name: "project", projectId } : { name: "create", projectId, ...(content ? { contentId: content.id } : {}) };
+  }'''
+if old_location not in text:
+    raise SystemExit("screenFromLocation create block not found")
+text = text.replace(old_location, new_location, 1)
+
+path.write_text(text, encoding="utf-8")
+
+helper = Path("app/user-flow/content-navigation.ts")
+helper.write_text(
+    '''import type { UserContent } from "./user-data";
+
+export type ContentOpenDestination = "planning" | "editor";
+
+export function resolveContentOpenDestination(
+  content: Pick<UserContent, "document" | "planningWorkflow">,
+): ContentOpenDestination {
+  if (content.document) return "editor";
+
+  const status = content.planningWorkflow?.status;
+  return status && status !== "generated" && status !== "cancelled"
+    ? "planning"
+    : "editor";
+}
+''',
+    encoding="utf-8",
+)
+
+test = Path("tests/unit/app/user-flow/ContentNavigation.test.ts")
+test.parent.mkdir(parents=True, exist_ok=True)
+test.write_text(
+    '''import { describe, expect, it } from "vitest";
+
+import { resolveContentOpenDestination } from "../../../../app/user-flow/content-navigation";
+
+describe("content editor re-entry", () => {
+  it("opens the editor whenever a generated document exists, even if planning failed", () => {
+    expect(resolveContentOpenDestination({
+      document: { id: "document-1" } as never,
+      planningWorkflow: { status: "failed" } as never,
+    })).toBe("editor");
+  });
+
+  it("opens the editor for a quality-revision draft with a generated document", () => {
+    expect(resolveContentOpenDestination({
+      document: { id: "document-1" } as never,
+      planningWorkflow: { status: "generating" } as never,
+    })).toBe("editor");
+  });
+
+  it("resumes planning only when no document exists and the workflow is still active", () => {
+    expect(resolveContentOpenDestination({
+      planningWorkflow: { status: "failed" } as never,
+    })).toBe("planning");
+  });
+
+  it.each(["generated", "cancelled"] as const)("does not resume planning for %s without a document", (status) => {
+    expect(resolveContentOpenDestination({
+      planningWorkflow: { status } as never,
+    })).toBe("editor");
+  });
+});
+''',
+    encoding="utf-8",
+)
