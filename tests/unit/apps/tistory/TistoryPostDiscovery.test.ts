@@ -10,7 +10,7 @@ describe("Tistory post category discovery", () => {
       <html><body>
         <a class="category" href="${origin}/category/%EA%B1%B4%EA%B0%95%EC%A0%95%EB%B3%B4">건강정보</a>
       </body></html>
-    `, origin)).toEqual({ categoryId: "건강정보", categoryName: "건강정보" });
+    `, origin)).toEqual({ categoryName: "건강정보" });
   });
 
   it("falls back to article section metadata when the skin has no category link", () => {

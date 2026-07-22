@@ -587,6 +587,18 @@ async function placeAvailableTistoryPosts(data: UserData, content: UserData["con
       contentId: content.id,
     });
 
+    console.info("[internal-link-trace] current category", {
+      categoryId: preparation.platformCategoryId,
+      categoryName: preparation.platformCategoryName,
+      catalogCategories: [
+        ...new Set(
+          catalog.posts.map(
+            (post) => `${post.categoryId ?? "null"}|${post.categoryName ?? "null"}`
+          ),
+        ),
+      ],
+    });
+
     const ranked = rankRelatedPosts(document, catalog.posts, { primaryKeyword: content.primaryKeyword, categoryId: preparation.platformCategoryId, categoryName: preparation.platformCategoryName ?? undefined });
     const placed = placeRecommendedPosts(document, ranked);
     console.info("[internal-link-trace] ranking and placement completed", {

@@ -14,7 +14,7 @@ const input = { workspaceId: "workspace", projectId: "project", contentId: "cont
 describe("TistoryPostCatalogApplicationService", () => {
   it("keeps cache separated by Workspace/account and refresh bypasses it", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "bright-posts-")); roots.push(root);
-    const readPosts = vi.fn().mockResolvedValue({ posts: [{ platform: "tistory", externalPostId: "1", title: "공개 글", publishedUrl: "https://blog.tistory.com/entry/one", categoryName: "건강정보", keywords: [], status: "public", retrievedAt: "2026-07-14T00:00:00.000Z" }], state: "success", retrievedAt: "2026-07-14T00:00:00.000Z", pagesRead: 1 });
+    const readPosts = vi.fn().mockResolvedValue({ posts: [{ platform: "tistory", externalPostId: "1", title: "공개 글", publishedUrl: "https://blog.tistory.com/entry/one", categoryId: "1038988", categoryName: "건강정보", keywords: [], status: "public", retrievedAt: "2026-07-14T00:00:00.000Z" }], state: "success", retrievedAt: "2026-07-14T00:00:00.000Z", pagesRead: 1 });
     const service = new TistoryPostCatalogApplicationService({ readPosts }, root, () => new Date("2026-07-14T01:00:00.000Z"));
     expect((await service.read(input)).cached).toBe(false);
     expect((await service.read(input)).cached).toBe(true);
@@ -25,13 +25,14 @@ describe("TistoryPostCatalogApplicationService", () => {
     const root = await mkdtemp(path.join(tmpdir(), "bright-posts-category-")); roots.push(root);
     const readPosts = vi.fn()
       .mockResolvedValueOnce({ posts: [{ platform: "tistory", externalPostId: "1", title: "공개 글", publishedUrl: "https://blog.tistory.com/entry/one", keywords: [], status: "public", retrievedAt: "2026-07-14T00:00:00.000Z" }], state: "success", retrievedAt: "2026-07-14T00:00:00.000Z", pagesRead: 1 })
-      .mockResolvedValueOnce({ posts: [{ platform: "tistory", externalPostId: "1", title: "공개 글", publishedUrl: "https://blog.tistory.com/entry/one", categoryName: "건강정보", keywords: ["건강정보"], status: "public", retrievedAt: "2026-07-14T01:00:00.000Z" }], state: "success", retrievedAt: "2026-07-14T01:00:00.000Z", pagesRead: 1 });
+      .mockResolvedValueOnce({ posts: [{ platform: "tistory", externalPostId: "1", title: "공개 글", publishedUrl: "https://blog.tistory.com/entry/one", categoryId: "1038988", categoryName: "건강정보", keywords: ["건강정보"], status: "public", retrievedAt: "2026-07-14T01:00:00.000Z" }], state: "success", retrievedAt: "2026-07-14T01:00:00.000Z", pagesRead: 1 });
     const service = new TistoryPostCatalogApplicationService({ readPosts }, root, () => new Date("2026-07-14T02:00:00.000Z"));
 
     expect((await service.read(input)).cached).toBe(false);
     const refreshed = await service.read(input);
 
     expect(refreshed.cached).toBe(false);
+    expect(refreshed.posts[0]?.categoryId).toBe("1038988");
     expect(refreshed.posts[0]?.categoryName).toBe("건강정보");
     expect(readPosts).toHaveBeenCalledTimes(2);
   });

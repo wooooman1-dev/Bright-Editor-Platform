@@ -48,9 +48,9 @@ export function extractCategoryFromPostHtml(html, expectedOrigin) {
   ];
   const linkMatch = patterns[0].exec(decoded);
   if (linkMatch) {
-    const categoryId = safeDecodeURIComponent(linkMatch[1]).replace(/\/+/g, "/").trim();
-    const categoryName = stripTags(linkMatch[2]).replace(/\s+/g, " ").trim() || categoryId.split("/").filter(Boolean).at(-1) || "";
-    return categoryName ? { categoryId, categoryName } : undefined;
+    const categoryPath = safeDecodeURIComponent(linkMatch[1]).replace(/\/+/g, "/").trim();
+    const categoryName = stripTags(linkMatch[2]).replace(/\s+/g, " ").trim() || categoryPath.split("/").filter(Boolean).at(-1) || "";
+    return categoryName ? { categoryName } : undefined;
   }
   for (const pattern of patterns.slice(1)) {
     const match = pattern.exec(decoded);

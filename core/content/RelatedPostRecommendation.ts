@@ -6,7 +6,6 @@ export function rankRelatedPosts(document: ContentDocument, candidates: readonly
   const categoryIdentity = resolveCategoryIdentity(context.categoryId, context.categoryName);
   if (!categoryIdentity) return Object.freeze([]);
   const used = new Set(document.blocks.flatMap((block) => block.type === "button" && block.targetUrl ? [normalizeUrl(block.targetUrl)] : []));
-  const documentTerms = terms([document.title, context.primaryKeyword ?? "", ...document.blocks.flatMap((block) => block.type === "heading" ? [block.text] : [])].join(" "));
   const unique = new Map<string, PublicPostCandidate>();
 
   for (const candidate of candidates) {
@@ -17,9 +16,7 @@ export function rankRelatedPosts(document: ContentDocument, candidates: readonly
   }
 
   return Object.freeze([...unique.values()]
-    .map((candidate) => ({ candidate, score: relevance(candidate, documentTerms), views: validViewCount(candidate.viewCount) }))
-    .sort((a, b) => b.score - a.score || b.views - a.views || publishedTime(b.candidate.publishedAt) - publishedTime(a.candidate.publishedAt) || a.candidate.title.localeCompare(b.candidate.title, "ko"))
-    .map(({ candidate }) => candidate));
+    .sort((a, b) => validViewCount(b.viewCount) - validViewCount(a.viewCount) || publishedTime(b.publishedAt) - publishedTime(a.publishedAt) || a.title.localeCompare(b.title, "ko") || a.externalPostId.localeCompare(b.externalPostId)));
 }
 
 export function placeRecommendedPosts(document: ContentDocument, ranked: readonly PublicPostCandidate[]): ContentDocument {
@@ -76,10 +73,6 @@ function validPlacedLink(block: ContentDocument["blocks"][number], purpose: "int
 }
 
 function uniqueBlockId(blocks: ContentDocument["blocks"], base: string) { const ids = new Set(blocks.map((block) => block.id)); let id = base, index = 2; while (ids.has(id)) id = `${base}-${index++}`; return id; }
-function relevance(candidate: PublicPostCandidate, documentTerms: ReadonlySet<string>) { const titleTerms = terms(candidate.title); const keywordTerms = new Set((candidate.keywords ?? []).map(normalizeTerm)); const excerptTerms = terms(candidate.excerpt ?? ""); let score = 0; for (const term of titleTerms) if (documentTerms.has(term)) score += 6; for (const term of keywordTerms) if (documentTerms.has(term)) score += 2; for (const term of excerptTerms) if (documentTerms.has(term)) score += 1; return score; }
-const genericTerms = new Set(["가이드", "건강", "관리", "방법", "이유", "정리", "최신", "필요한", "위한", "좋은", "실전", "절약", "안전한", "비용", "병원"]);
-function terms(value: string) { return new Set(value.toLowerCase().replace(/[^0-9a-z가-힣\s]/g, " ").split(/\s+/).map(normalizeTerm).filter((term) => term.length >= 2 && !genericTerms.has(term))); }
-function normalizeTerm(value: string) { return value.trim().toLowerCase(); }
 function normalizeUrl(value: string) { try { const url = new URL(value); url.hash = ""; return url.toString(); } catch { return value; } }
 function validPublicUrl(value: string) { try { const url = new URL(value); return url.protocol === "https:" && /\.tistory\.com$/i.test(url.hostname) && url.pathname.startsWith("/entry/") && !url.pathname.includes("/manage"); } catch { return false; } }
 function publishedTime(value?: string) { const parsed = Date.parse(value ?? ""); return Number.isFinite(parsed) ? parsed : 0; }
@@ -93,10 +86,25 @@ function resolveCategoryIdentity(categoryId?: string | null, categoryName?: stri
 }
 function sameCategory(candidate: PublicPostCandidate, expected: CategoryIdentity): boolean {
   const candidateId = candidate.categoryId?.trim();
-  if (expected.id && candidateId) return expected.id === candidateId;
-  const candidateNames = categoryNameVariants(candidate.categoryName);
-  if (!candidateNames.size || !expected.normalizedNames.size) return false;
-  return [...candidateNames].some((name) => expected.normalizedNames.has(name));
+  if (expected.id) {
+    if (!candidateId) return false;
+    if (isNumericCategoryId(expected.id) && isNumericCategoryId(candidateId)) return expected.id === candidateId;
+    if (isNumericCategoryId(expected.id) && !isNumericCategoryId(candidateId) && isLegacyNameCategoryId(candidateId, candidate.categoryName)) {
+      return categoryNamesOverlap(categoryNameVariants(candidate.categoryName), expected.normalizedNames);
+    }
+    return expected.id === candidateId;
+  }
+  return categoryNamesOverlap(categoryNameVariants(candidate.categoryName), expected.normalizedNames);
+}
+function categoryNamesOverlap(candidateNames: ReadonlySet<string>, expectedNames: ReadonlySet<string>) {
+  if (!candidateNames.size || !expectedNames.size) return false;
+  return [...candidateNames].some((name) => expectedNames.has(name));
+}
+function isNumericCategoryId(value: string) { return /^\d+$/.test(value); }
+function isLegacyNameCategoryId(categoryId: string, categoryName?: string) {
+  const idNames = categoryNameVariants(categoryId);
+  const names = categoryNameVariants(categoryName);
+  return categoryNamesOverlap(idNames, names);
 }
 function categoryNameVariants(value?: string): ReadonlySet<string> {
   if (!value?.trim()) return new Set();

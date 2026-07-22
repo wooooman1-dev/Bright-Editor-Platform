@@ -1,5 +1,6 @@
 import { chromium } from "playwright";
 
+import { readTistoryCategories, resolveCategoryIdByName } from "./TistoryCategoryDiscovery.mjs";
 import { extractCategoryFromPostHtml, extractPublicPostRows, listingHasNoPostsMessage, publicPostListingUrls } from "./TistoryPostDiscovery.mjs";
 
 const [blogId, storageStatePath] = process.argv.slice(2);
@@ -12,6 +13,11 @@ try {
   const sessionPage = await context.newPage();
   await sessionPage.goto(`${origin}/manage/posts`, { waitUntil: "domcontentloaded", timeout: 30000 });
   if (!sessionPage.url().startsWith(`${origin}/manage`)) throw coded("session_expired");
+  const categoryPage = await context.newPage();
+  await categoryPage.goto(`${origin}/manage/newpost`, { waitUntil: "domcontentloaded", timeout: 30000 });
+  const categories = await readTistoryCategories(categoryPage);
+  if (!categories.length) throw coded("selector_error");
+  await categoryPage.close();
   const page = await context.newPage();
   const collected = []; const discoveredUrls = new Set(); let pagesRead = 0; let partial = false; let diagnostic;
   for (let pageNumber = 1; pageNumber <= maxPages; pageNumber += 1) {
@@ -49,7 +55,9 @@ try {
       if (!response?.ok()) { partial = true; continue; }
       const externalPostId = decodeURIComponent(new URL(item.publishedUrl).pathname.slice("/entry/".length));
       const responseHtml = await response.text().catch(() => "");
-      const category = item.categoryName ? { categoryName: item.categoryName } : extractCategoryFromPostHtml(responseHtml, origin);
+      const discoveredCategory = item.categoryName ? { categoryName: item.categoryName } : extractCategoryFromPostHtml(responseHtml, origin);
+      const categoryId = resolveCategoryIdByName(discoveredCategory?.categoryName, categories);
+      const category = discoveredCategory?.categoryName ? { categoryId, categoryName: discoveredCategory.categoryName } : undefined;
       posts.push({ platform: "tistory", externalPostId, title: item.title, publishedUrl: item.publishedUrl, ...(category?.categoryId ? { categoryId: category.categoryId } : {}), ...(category?.categoryName ? { categoryName: category.categoryName } : {}), ...(item.publishedAt ? { publishedAt: item.publishedAt } : {}), ...(item.excerpt ? { excerpt: item.excerpt.slice(0, 400) } : {}), keywords: terms(`${item.title} ${category?.categoryName ?? ""}`), status: "public", retrievedAt });
     }
   }
