@@ -33,6 +33,10 @@ describe("TistorySessionState", () => {
     })).toBe(true);
   });
 
+  it("detects session expiration from a top-level diagnostic code", () => {
+    expect(isTistorySessionExpiredFailure({ diagnosticCode: "session_expired" })).toBe(true);
+  });
+
   it("does not treat unrelated workflow failures as session expiration", () => {
     expect(isTistorySessionExpiredFailure({
       failedStep: "body_verified",
