@@ -75,7 +75,7 @@ describe("primary keyword confirmation UI", () => {
     const analyzeStart = source.indexOf("const analyze");
     expect(source.slice(analyzeStart, source.indexOf("const confirm =", analyzeStart))).toContain("setPlan(result.plan)");
     expect(source).toContain("이 기획으로 원고 만들기");
-    expect(source).toContain("disabled={working || !confirmedOpportunity}");
+    expect(source).toContain("disabled={working || dirtyRequest || !confirmedOpportunity}");
   });
 });
 
