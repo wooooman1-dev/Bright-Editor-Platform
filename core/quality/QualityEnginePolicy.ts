@@ -45,21 +45,9 @@ function usefulnessScore(document: ContentDocument, context: QualityReviewContex
 }
 
 function countRepeatedCoreAdvice(paragraphs: readonly string[]): number {
-  const normalized = paragraphs
-    .map((paragraph) => paragraph.replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim().toLowerCase())
-    .filter((paragraph) => paragraph.length >= 40);
-  let repeated = 0;
-  for (let index = 0; index < normalized.length; index += 1) {
-    const current = new Set(normalized[index].split(" ").filter((token) => token.length >= 2));
-    for (let compare = index + 1; compare < normalized.length; compare += 1) {
-      const target = new Set(normalized[compare].split(" ").filter((token) => token.length >= 2));
-      const overlap = [...current].filter((token) => target.has(token)).length;
-      const minimum = Math.min(current.size, target.size);
-      if (minimum >= 5 && overlap / minimum >= 0.65) repeated += 1;
-    }
-  }
-  return repeated;
+  const patterns = [/(?:같은|일정한) 조건/, /한 번의 (?:숫자|수치)/, /기록(?:해|을 남)/, /의료진(?:에게|과)/, /임의로 (?:바꾸|변경)/];
+  return patterns.reduce((sum, pattern) => sum + Math.max(0, paragraphs.filter((paragraph) => pattern.test(paragraph)).length - 1), 0);
 }
 
-function matches(value: string, pattern: RegExp): number { return value.match(pattern)?.length ?? 0; }
+function matches(value: string, pattern: RegExp): number { return [...value.matchAll(pattern)].length; }
 function clamp(value: number): number { return Math.max(0, Math.min(100, value)); }
