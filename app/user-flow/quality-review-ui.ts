@@ -11,7 +11,7 @@ export type NormalizedQualityReview = Readonly<{
   revisionId: string | null;
   reviewedAt: string | null;
   issues: readonly string[];
-  actionableTasks: readonly Readonly<{ category: QualityCategory; message: string }> [];
+  actionableTasks: readonly Readonly<{ category: QualityCategory; message: string }>[];
 }>;
 
 export function normalizeQualityReview(
