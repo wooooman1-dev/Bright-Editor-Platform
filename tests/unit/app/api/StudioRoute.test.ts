@@ -105,6 +105,53 @@ describe("studio planning endpoint", () => {
     expect(current.contents[0].planning?.opportunityCandidates?.[0]).toMatchObject({ projectId: "project-1", fingerprint: expect.stringMatching(/^fp-/) });
   });
 
+  it("keeps a user-specified topic when Evidence cannot verify Project alignment", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "sk-test-ascii-key");
+    const directRequest = "제주도 가족 여행 준비물 체크리스트를 작성해 줘";
+    let current: UserData = {
+      workspace: { id: "workspace-1", name: "Studio", settings: { enabledPlatforms: ["tistory"], publishing: { reviewFirst: true, draftOnly: true, publicPublish: false, sequentialDraftSave: true, qualityApprovalRequired: true }, appearance: { theme: "system" } } },
+      brands: [],
+      projects: [{ id: "project-1", workspaceId: "workspace-1", name: "Health", description: "혈압과 중년 건강 운동 콘텐츠", createdAt: "now", updatedAt: "now" }],
+      contents: [],
+    };
+    storeMocks.get.mockImplementation(async () => current);
+    storeMocks.update.mockImplementation(async (_collection: string, _stateId: string, updater: (value: UserData | undefined) => UserData) => {
+      current = updater(current);
+      return current;
+    });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ output_text: JSON.stringify({
+      ...planningResult,
+      interpretedIntent: directRequest,
+      domain: "travel",
+      targetAudience: "가족 여행자",
+      contentGoal: "여행 준비물 안내",
+      recommendedPrimaryKeyword: "제주도 가족 여행 준비물",
+      keywordCandidates: ["제주도 가족 여행 준비물"],
+      searchIntent: "제주도 가족 여행에 필요한 준비물을 확인하려는 정보 탐색",
+      recommendedContentType: "checklist",
+      suggestedTitleAngles: ["제주도 가족 여행 준비물 체크리스트"],
+      relatedKeywords: ["제주도 여행 체크리스트"],
+      contentCluster: ["제주도 여행"],
+      recommendationReason: "사용자가 직접 지정한 주제를 실용적인 체크리스트로 구성합니다.",
+    }) }), { status: 200 }));
+
+    const response = await POST(new Request("http://localhost/api/studio", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "plan", input: { naturalLanguageRequest: directRequest, workspaceId: "workspace-1", projectId: "project-1", selectionMode: "userSpecified" } }),
+    }));
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.plan.opportunityCandidates).toHaveLength(1);
+    expect(body.plan.opportunityCandidates[0]).toMatchObject({
+      selectionMode: "userSpecified",
+      recommendationType: "blogGrowth",
+      marketEvidenceStatus: "unavailable",
+    });
+    expect(body.plan.opportunityCandidates[0].limitations).toContain("현재 Project 전략과의 연관성이 자동으로 확인되지 않았습니다. 사용자가 지정한 주제를 우선하여 계속 진행합니다.");
+  });
+
   it("invokes the Planning Provider once for concurrent requests with the same operationId", async () => {
     vi.stubEnv("OPENAI_API_KEY", "sk-test-ascii-key");
     let current: UserData = {
@@ -128,7 +175,7 @@ describe("studio planning endpoint", () => {
     expect(current.contents[0].planningWorkflow).toMatchObject({ status: "candidatesReady", revision: 2 });
   });
 
-  it("returns the generated ContentDocument when the bounded AI review times out", async () => {
+  it("uses the persisted confirmed Opportunity when same-identity request fields are stale", async () => {
     vi.stubEnv("OPENAI_API_KEY", "sk-test-ascii-key");
     vi.stubEnv("OPENAI_REVIEW_TIMEOUT_MS", "5");
     const prose = "Generated complete body with concrete context, useful actions, examples, and a clear outcome for readers. ".repeat(20);
@@ -158,30 +205,32 @@ describe("studio planning endpoint", () => {
         opportunityId: opportunity.opportunityId,
         opportunityVersion: opportunity.version,
         opportunityFingerprint: opportunity.fingerprint,
-        primaryKeyword: opportunity.primaryKeyword,
-        topic: opportunity.selectedTopic,
-        searchIntent: opportunity.searchIntent,
-        secondaryKeywords: opportunity.secondaryKeywords,
-        keywords: ["canonical"],
+        primaryKeyword: "stale keyword from a restored screen",
+        topic: "stale topic from a restored screen",
+        searchIntent: "stale intent from a restored screen",
+        secondaryKeywords: ["stale secondary keyword"],
+        keywords: ["stale keyword from a restored screen"],
         platform: "tistory",
         projectId: "project-1",
         workspaceId: "workspace-1",
       } }),
     }));
-    const result = await response.json() as { aiReviewError?: string; document?: { id: string; title: string }; data?: UserData };
+    const result = await response.json() as { aiReviewError?: string; document?: { id: string; title: string }; qualityTargetBlocked?: boolean; reachedTarget?: boolean; recoveryRevisionId?: string; data?: UserData };
 
     expect(response.status).toBe(200);
-    expect(result.document).toMatchObject({ id: "content-1", title: "Canonical guide" });
-    expect(result.data?.contents[0].title).toBe(result.document?.title);
-    expect(result.data?.contents[0].document?.title).toBe(result.document?.title);
+    expect(result.document).toBeUndefined();
+    expect(result.qualityTargetBlocked).toBe(true);
+    expect(result.reachedTarget).toBe(false);
+    expect(result.recoveryRevisionId).toMatch(/^rev-/);
+    expect(result.data?.contents[0].document?.title).toBe("Canonical guide");
     expect(result.data?.contents[0].primaryKeyword).toBe("canonical");
     expect(result.aiReviewError).toContain("timed out");
     expect(fetchSpy).toHaveBeenCalledTimes(2);
-    expect(result.data).toEqual(expect.objectContaining({ contents: [expect.objectContaining({ status: "in_review", generationError: expect.stringContaining("Final Review") })] }));
+    expect(result.data).toEqual(expect.objectContaining({ contents: [expect.objectContaining({ status: "draft", generationError: expect.stringContaining("최종 품질 검토") })] }));
     expect(vi.mocked(studioStore.update)).toHaveBeenCalledWith("application", "user-data", expect.any(Function));
   });
 
-  it("runs the final edit and at most three automatic quality improvements before persisting the best document", async () => {
+  it("uses one final quality-edit call and blocks editor completion when the result is still unapproved", async () => {
     vi.stubEnv("OPENAI_API_KEY", "sk-test-ascii-key");
     const prose = "This complete article explains the reader problem, practical actions, examples, and a concrete conclusion in readable language. ".repeat(18);
     const draft = { title: "Canonical guide", metaDescription: "Initial guide", primarySearchIntent: "informational guide", blocks: [
@@ -194,21 +243,24 @@ describe("studio planning endpoint", () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ output_text: JSON.stringify(draft) }), { status: 200 }))
       .mockImplementation(async () => new Response(JSON.stringify({ output_text: JSON.stringify(corrected) }), { status: 200 }));
     const response = await POST(new Request("http://localhost/api/studio", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "generate", input: { contentId: "content-1", contentType: "guide", opportunityId: opportunity.opportunityId, opportunityVersion: opportunity.version, opportunityFingerprint: opportunity.fingerprint, primaryKeyword: opportunity.primaryKeyword, topic: opportunity.selectedTopic, searchIntent: opportunity.searchIntent, secondaryKeywords: opportunity.secondaryKeywords, keywords: ["canonical"], platform: "tistory", projectId: "project-1", workspaceId: "workspace-1" } }) }));
-    const result = await response.json() as { automaticImprovementCount?: number; document?: { title: string; blocks: Array<{ text?: string }> }; finalRevisionId?: string; qualityHistory?: unknown[]; data?: UserData };
+    const result = await response.json() as { automaticImprovementCount?: number; document?: { title: string }; recoveryRevisionId?: string; qualityHistory?: unknown[]; reachedTarget?: boolean; qualityTargetBlocked?: boolean; data?: UserData };
     expect(response.status).toBe(200);
-    expect(fetchSpy.mock.calls.length).toBeGreaterThanOrEqual(2);
-    expect(fetchSpy.mock.calls.length).toBeLessThanOrEqual(5);
-    expect(result.automaticImprovementCount).toBe(fetchSpy.mock.calls.length - 2);
-    expect(result.qualityHistory).toHaveLength(fetchSpy.mock.calls.length);
-    expect(result.document?.title).toBe("Canonical guide");
-    expect(result.document?.blocks[0]?.text).not.toContain("Final edit applied");
-    expect(result.finalRevisionId).toMatch(/^rev-/);
-    expect(result.data).toEqual(expect.objectContaining({ history: [expect.objectContaining({ reason: "ai_revision" })] }));
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(result.automaticImprovementCount).toBe(0);
+    expect(result.qualityHistory).toHaveLength(2);
+    expect(result.document).toBeUndefined();
+    expect(result.reachedTarget).toBe(false);
+    expect(result.qualityTargetBlocked).toBe(true);
+    expect(result.recoveryRevisionId).toMatch(/^rev-/);
+    expect(result.data?.contents[0]).toMatchObject({ status: "draft" });
     expect(vi.mocked(studioStore.update)).toHaveBeenCalledWith("application", "user-data", expect.any(Function));
-    const improvementBody = JSON.parse(new TextDecoder().decode(fetchSpy.mock.calls[2]?.[1]?.body as Uint8Array));
-    expect(improvementBody.input).toContain("Rule Quality result:");
-    expect(improvementBody.input).toContain("\"dimensions\"");
-    expect(improvementBody.input).toContain("\"tasks\"");
+    const reviewBody = JSON.parse(new TextDecoder().decode(fetchSpy.mock.calls[1]?.[1]?.body as Uint8Array));
+    expect(reviewBody.input).toContain("second and final AI call");
+    expect(reviewBody.input).toContain("overallScore >= 95");
+    expect(reviewBody.input).toContain("readability >= 95");
+    expect(reviewBody.input).not.toContain("4,800–5,200 non-whitespace prose characters");
+    expect(reviewBody.input).not.toContain("12–18 paragraph blocks");
+    expect(reviewBody.input).toContain("distinct editorial purpose and section context");
   });
 
   it("restores the confirmed keyword when Final Review returns a title without it", async () => {

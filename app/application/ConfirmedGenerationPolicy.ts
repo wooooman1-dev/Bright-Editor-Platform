@@ -36,18 +36,26 @@ export function resolveConfirmedGenerationOpportunity(
     keywords?: unknown;
   }>,
 ): ConfirmedGenerationContract {
-  const opportunity = assertConfirmedContentOpportunity(content.opportunity, {
-    workspaceId: request.workspaceId,
-    projectId: request.projectId,
-    contentId: request.contentId,
-    opportunityId: request.opportunityId,
-    opportunityVersion: request.opportunityVersion,
-    opportunityFingerprint: request.opportunityFingerprint,
-    primaryKeyword: request.primaryKeyword,
-    selectedTopic: request.topic,
-    searchIntent: request.searchIntent,
-    secondaryKeywords: request.secondaryKeywords,
-  });
+  let opportunity: ConfirmedContentOpportunity;
+  try {
+    opportunity = assertConfirmedContentOpportunity(content.opportunity, {
+      workspaceId: request.workspaceId,
+      projectId: request.projectId,
+      contentId: request.contentId,
+      opportunityId: request.opportunityId,
+      opportunityVersion: request.opportunityVersion,
+      opportunityFingerprint: request.opportunityFingerprint,
+      primaryKeyword: request.primaryKeyword,
+      selectedTopic: request.topic,
+      searchIntent: request.searchIntent,
+      secondaryKeywords: request.secondaryKeywords,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("선택한 콘텐츠 전략이 현재 원고와 일치하지 않습니다")) {
+      throw new Error("선택한 콘텐츠 전략이 요청한 현재 원고와 일치하지 않습니다. 주제와 대표 키워드를 다시 확인해 주세요.");
+    }
+    throw error;
+  }
   const mirroredPrimary = normalizeSeoKeyword(content.primaryKeyword ?? "");
   const mirroredRelated = (content.relatedKeywords ?? []).map(normalizeSeoKeyword);
   if (mirroredPrimary.toLocaleLowerCase("ko-KR") !== opportunity.primaryKeyword.toLocaleLowerCase("ko-KR")

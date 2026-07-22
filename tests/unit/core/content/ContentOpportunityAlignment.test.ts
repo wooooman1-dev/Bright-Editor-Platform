@@ -50,7 +50,45 @@ describe("Content Opportunity manuscript alignment", () => {
     const report = new QualityEngine().review(unsupported, { opportunity, primaryKeyword: opportunity.primaryKeyword, searchIntent: opportunity.searchIntent });
     expect(report.approved).toBe(false);
     expect(report.approvalState).toBe("blocked");
+    expect(report.dimensions.find((item) => item.category === "searchIntent")?.score).toBeGreaterThan(0);
     expect(report.tasks.some((task) => task.message.includes("보조 키워드"))).toBe(true);
+  });
+
+  it("understands descriptive Korean execution intent without requiring its framing words in the manuscript", () => {
+    const exerciseOpportunity = confirmContentOpportunity(createContentOpportunityCandidate({
+      sourceRequest: "집에서 하는 근력운동 초보자 가이드", selectionMode: "automatic",
+      selectedTopic: "집에서 하는 근력운동 초보자 가이드", primaryKeyword: "집 근력운동 초보",
+      secondaryKeywords: ["초보자 근력운동 루틴", "집에서 하는 근력운동", "근력운동 4주 계획"],
+      searchIntent: "정보성/실행형(어떤 운동을 어떻게 시작할지 알고 직접 따라하려는 의도)",
+      audience: "근력운동을 처음 시작하는 성인", contentType: "guide", contentAngle: "주 3회 초보 루틴",
+      readerProblem: "안전한 시작 순서와 강도 기준을 모름",
+      expectedCoverage: ["공간·도구·안전", "기본 동작", "4주 계획", "세트와 반복 수", "부상 예방"],
+      selectionRationale: "프로젝트의 운동 콘텐츠 공백", opportunityEvidence: [{ source: "unknown", summary: "내부 콘텐츠 공백" }],
+      confidence: 0.75, cautions: [], projectId: "project-1",
+    }), { workspaceId: "workspace-1", projectId: "project-1", contentId: "content-1", confirmedAt: "now" });
+    const article: ContentDocument = {
+      id: "content-1",
+      title: "집 근력운동 초보가 안전하게 시작하는 4주 루틴",
+      metadata: { buttonCount: 0, createdAt: "now", generator: "test", imageCount: 0, language: "ko", readingTime: 5, source: "test", updatedAt: "now", version: 1, videoCount: 0, wordCount: 800, primarySearchIntent: exerciseOpportunity.searchIntent, metaDescription: "집 근력운동 초보가 공간과 도구를 준비하고 기본 동작과 주 3회 4주 계획을 안전하게 따라 할 수 있도록 설명합니다." },
+      blocks: [
+        { id: "intro", type: "paragraph", text: "집 근력운동 초보자는 어려운 동작보다 주 3회 기본 동작을 정해진 순서로 반복하는 것이 현실적인 시작입니다. 공간과 도구를 확인하고 자신의 체력에 맞는 세트와 반복 수를 선택하면 안전하게 따라 할 수 있습니다." },
+        { id: "h2-1", type: "heading", level: 2, text: "집 근력운동 초보가 먼저 준비할 공간·도구·안전" },
+        { id: "p-1", type: "paragraph", text: "미끄럽지 않은 바닥과 의자, 물병을 준비하고 통증이 없는 범위부터 시작합니다. 운동 전에는 가볍게 걷고 관절을 움직여 몸을 준비합니다." },
+        { id: "h2-2", type: "heading", level: 2, text: "초보자 근력운동 루틴의 기본 동작" },
+        { id: "p-2", type: "paragraph", text: "스쿼트와 벽 푸시업, 브리지와 플랭크 변형을 순서대로 수행합니다. 각 동작은 자세를 먼저 익힌 뒤 세트와 반복 수를 늘립니다." },
+        { id: "h2-3", type: "heading", level: 2, text: "근력운동 4주 계획과 주 3회 진행법" },
+        { id: "p-3", type: "paragraph", text: "첫 주는 동작을 익히고 둘째 주부터 반복 수를 조금씩 늘립니다. 셋째 주와 넷째 주에는 마지막 세트가 약간 힘든 수준으로 조절합니다." },
+        { id: "h2-4", type: "heading", level: 2, text: "세트·반복 수와 강도 조절" },
+        { id: "p-4", type: "paragraph", text: "한 동작을 8회에서 12회 반복하고 1세트부터 시작합니다. 자세가 안정되면 2세트와 3세트로 늘리되 통증이 생기면 중단합니다." },
+        { id: "h2-5", type: "heading", level: 2, text: "호흡과 부상 예방" },
+        { id: "p-5", type: "paragraph", text: "힘을 쓸 때 숨을 내쉬고 동작을 급하게 반동으로 수행하지 않습니다. 날카로운 통증이나 어지럼증이 있으면 운동을 멈추고 필요한 평가를 받습니다." },
+      ],
+    };
+    const alignment = analyzeContentOpportunityAlignment(article, exerciseOpportunity);
+    expect(alignment.review.searchIntentFulfillment.pass).toBe(true);
+    expect(alignment.review.pass).toBe(true);
+    const report = new QualityEngine().review(article, { opportunity: exerciseOpportunity, primaryKeyword: exerciseOpportunity.primaryKeyword, searchIntent: exerciseOpportunity.searchIntent });
+    expect(report.dimensions.find((item) => item.category === "searchIntent")?.score).toBeGreaterThanOrEqual(95);
   });
 });
 

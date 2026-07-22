@@ -4,6 +4,7 @@ export {
   type ContentBlockType,
 } from "./ContentBlockType";
 export type { ContentDocument } from "./ContentDocument";
+export { createContentOutline, type ContentOutlineEntry } from "./ContentOutline";
 export {
   assertConfirmedContentOpportunity,
   confirmContentOpportunity,
@@ -22,6 +23,7 @@ export {
 export {
   analyzeContentOpportunityAlignment,
   applyContentOpportunityPolicy,
+  contentIntentTerms,
   type ContentOpportunityAlignment,
   type ContentOpportunityQualityReview,
   type OpportunityAlignmentSignal,

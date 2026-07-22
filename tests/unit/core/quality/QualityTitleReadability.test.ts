@@ -47,6 +47,6 @@ describe("QualityEngine SEO title readability", () => {
     const seo = new QualityEngine().review(article(`${keyword}: 만성 염증 완화 식단 가이드`), { primaryKeyword: keyword }).dimensions.find((item) => item.category === "seo");
 
     expect(seo?.score).toBe(100);
-    expect(seo?.reasons).toEqual([]);
+    expect(seo?.reasons).toContain("모든 정의된 검사 기준을 통과했습니다.");
   });
 });

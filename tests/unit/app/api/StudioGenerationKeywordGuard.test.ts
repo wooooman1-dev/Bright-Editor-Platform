@@ -36,7 +36,7 @@ describe("Studio generate confirmed keyword guard", () => {
     const result = await response.json() as { error?: string };
 
     expect(response.status).toBe(400);
-    expect(result.error).toContain("선택한 콘텐츠 전략이 현재 원고와 일치하지 않습니다");
+    expect(result.error).toContain("선택한 콘텐츠 전략이 요청한 현재 원고와 일치하지 않습니다");
     expect(generate).not.toHaveBeenCalled();
   });
 

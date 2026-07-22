@@ -3,90 +3,93 @@ import { describe, expect, it } from "vitest";
 import { placeRecommendedPosts, rankRelatedPosts } from "../../../../core/content";
 
 const document = { id: "current", title: "건강검진 혈당 관리", blocks: [{ id: "h", type: "heading" as const, level: 2 as const, text: "공복혈당 관리 방법" }] };
+const context = { primaryKeyword: "공복혈당", categoryId: "1038988", categoryName: "건강정보" };
+
+function post(externalPostId: string, title: string, publishedUrl: string, categoryName: string, categoryId = "1038988") {
+  return { externalPostId, title, publishedUrl, categoryId, categoryName };
+}
 
 describe("rankRelatedPosts", () => {
-  it("ranks title relevance and same category ahead of fallback candidates", () => {
-    const ranked = rankRelatedPosts(document, [
-      { externalPostId: "other", title: "최신 운동 소식", publishedUrl: "https://blog.tistory.com/entry/other", categoryName: "운동" },
-      { externalPostId: "sugar", title: "공복혈당 관리 체크리스트", publishedUrl: "https://blog.tistory.com/entry/sugar", categoryName: "건강" },
-    ], { primaryKeyword: "공복혈당", categoryName: "건강" });
-    expect(ranked.map((item) => item.externalPostId)).toEqual(["sugar", "other"]);
+  it("matches the same numeric category id", () => {
+    const ranked = rankRelatedPosts(document, [post("one", "건강 글", "https://blog.tistory.com/entry/one", "건강정보")], context);
+    expect(ranked.map((item) => item.externalPostId)).toEqual(["one"]);
   });
 
-  it("excludes already used, duplicate, and non-public URLs", () => {
+  it("rejects a different numeric category id even when the name is the same", () => {
+    const ranked = rankRelatedPosts(document, [post("other", "건강 글", "https://blog.tistory.com/entry/other", "건강정보", "9999999")], context);
+    expect(ranked).toEqual([]);
+  });
+
+  it("temporarily matches a legacy name-shaped category id when categoryName agrees", () => {
+    const ranked = rankRelatedPosts(document, [{ ...post("legacy", "기존 캐시 글", "https://blog.tistory.com/entry/legacy", "건강정보"), categoryId: "건강정보" }], context);
+    expect(ranked.map((item) => item.externalPostId)).toEqual(["legacy"]);
+  });
+
+  it("rejects a legacy name-shaped category id when categoryName differs", () => {
+    const ranked = rankRelatedPosts(document, [{ ...post("legacy", "다른 글", "https://blog.tistory.com/entry/legacy", "도움되는정보"), categoryId: "도움되는정보" }], context);
+    expect(ranked).toEqual([]);
+  });
+
+  it("does not match a candidate without numeric category id when the expected id is numeric", () => {
+    const ranked = rankRelatedPosts(document, [{ externalPostId: "missing", title: "건강 글", publishedUrl: "https://blog.tistory.com/entry/missing", categoryName: "건강정보" }], context);
+    expect(ranked).toEqual([]);
+  });
+
+  it("sorts by views, then latest publish time, then a stable title order without relevance", () => {
+    const ranked = rankRelatedPosts(document, [
+      { ...post("semantic", "공복혈당 관리 체크리스트", "https://blog.tistory.com/entry/semantic", "건강정보"), viewCount: 10, publishedAt: "2026-07-20T00:00:00.000Z" },
+      { ...post("popular", "숙면 습관", "https://blog.tistory.com/entry/popular", "건강정보"), viewCount: 100, publishedAt: "2026-07-01T00:00:00.000Z" },
+      { ...post("latest", "운동 습관", "https://blog.tistory.com/entry/latest", "건강정보"), publishedAt: "2026-07-21T00:00:00.000Z" },
+      { ...post("older", "영양 습관", "https://blog.tistory.com/entry/older", "건강정보"), publishedAt: "2026-07-10T00:00:00.000Z" },
+    ], context);
+    expect(ranked.map((item) => item.externalPostId)).toEqual(["popular", "semantic", "latest", "older"]);
+  });
+
+  it("excludes current, duplicate, invalid, and different-category URLs", () => {
     const used = { ...document, blocks: [...document.blocks, { id: "link", type: "button" as const, purpose: "internal_link" as const, label: "used", targetUrl: "https://blog.tistory.com/entry/used" }] };
     const ranked = rankRelatedPosts(used, [
-      { externalPostId: "used", title: "used", publishedUrl: "https://blog.tistory.com/entry/used" },
-      { externalPostId: "admin", title: "admin", publishedUrl: "https://blog.tistory.com/manage/posts" },
-      { externalPostId: "draft", title: "draft", publishedUrl: "" },
-      { externalPostId: "fresh-a", title: "새 글", publishedUrl: "https://blog.tistory.com/entry/fresh" },
-      { externalPostId: "fresh-b", title: "중복 새 글", publishedUrl: "https://blog.tistory.com/entry/fresh#section" },
-    ]);
+      post("used", "used", "https://blog.tistory.com/entry/used", "건강정보"),
+      post("admin", "admin", "https://blog.tistory.com/manage/posts", "건강정보"),
+      post("fresh-a", "새 글", "https://blog.tistory.com/entry/fresh", "건강정보"),
+      post("fresh-b", "중복 새 글", "https://blog.tistory.com/entry/fresh#section", "건강정보"),
+      post("travel", "여행 글", "https://blog.tistory.com/entry/travel", "도움되는정보", "1057542"),
+    ], context);
     expect(ranked.map((item) => item.externalPostId)).toEqual(["fresh-a"]);
   });
 
-  it("keeps low-score public posts as helpful fallback candidates", () => {
-    const ranked = rankRelatedPosts(document, [
-      { externalPostId: "travel", title: "2026 최신 항공권 예약 방법 정리", publishedUrl: "https://blog.tistory.com/entry/travel" },
-      { externalPostId: "health", title: "건강검진 공복혈당 점검 체크리스트", publishedUrl: "https://blog.tistory.com/entry/health" },
-    ]);
-    expect(ranked.map((item) => item.externalPostId)).toEqual(["health", "travel"]);
+  it("does not fall back to the whole catalog when category is unavailable", () => {
+    expect(rankRelatedPosts(document, [post("health", "건강 글", "https://blog.tistory.com/entry/health", "건강정보")])).toEqual([]);
   });
 });
 
 describe("placeRecommendedPosts", () => {
-  it("automatically places one contextual internal link and three final related posts", () => {
-    const candidates = Array.from({ length: 5 }, (_, index) => ({ externalPostId: String(index), title: `공복혈당 관련 글 ${index}`, publishedUrl: `https://blog.tistory.com/entry/${index}` }));
+  it("places one contextual internal link and at most three related posts without URL reuse", () => {
+    const candidates = Array.from({ length: 86 }, (_, index) => post(String(index), `관련 글 ${index}`, `https://blog.tistory.com/entry/${index}`, "건강정보"));
     const placed = placeRecommendedPosts(document, candidates);
     const links = placed.blocks.filter((block) => block.type === "button");
     expect(links.filter((block) => block.type === "button" && block.purpose === "internal_link")).toHaveLength(1);
     expect(links.filter((block) => block.type === "button" && block.purpose === "related_post")).toHaveLength(3);
-    expect(links.every((block) => block.type === "button" && block.target === "_self")).toBe(true);
-    expect(links.map((block) => block.type === "button" ? block.sourceExternalPostId : undefined)).toEqual(["0", "1", "2", "3"]);
+    expect(new Set(links.map((block) => block.type === "button" ? block.targetUrl : "")).size).toBe(4);
   });
 
-  it("fills missing related-post slots instead of stopping when one already exists", () => {
-    const partial = { ...document, blocks: [...document.blocks, { id: "existing-related", type: "button" as const, purpose: "related_post" as const, label: "기존 관련 글", targetUrl: "https://blog.tistory.com/entry/existing", target: "_self" as const, sourceExternalPostId: "existing" }] };
-    const candidates = Array.from({ length: 4 }, (_, index) => ({ externalPostId: String(index), title: `도움이 되는 글 ${index}`, publishedUrl: `https://blog.tistory.com/entry/help-${index}` }));
-    const placed = placeRecommendedPosts(partial, candidates);
-    const links = placed.blocks.filter((block) => block.type === "button");
-    expect(links.filter((block) => block.type === "button" && block.purpose === "internal_link" && block.sourceExternalPostId)).toHaveLength(1);
-    expect(links.filter((block) => block.type === "button" && block.purpose === "related_post" && block.targetUrl.startsWith("https://blog.tistory.com/entry/"))).toHaveLength(3);
-  });
-
-  it("removes invalid mandatory placeholders before filling verified links", () => {
-    const invalid = { ...document, blocks: [...document.blocks,
-      { id: "empty-internal", type: "button" as const, purpose: "internal_link" as const, label: "빈 링크", targetUrl: "", target: "_self" as const },
-      { id: "manage-related", type: "button" as const, purpose: "related_post" as const, label: "관리 링크", targetUrl: "https://blog.tistory.com/manage/posts", target: "_self" as const },
-    ] };
-    const candidates = Array.from({ length: 4 }, (_, index) => ({ externalPostId: String(index), title: `검증된 공개 글 ${index}`, publishedUrl: `https://blog.tistory.com/entry/verified-${index}` }));
-    const placed = placeRecommendedPosts(invalid, candidates);
-    const mandatory = placed.blocks.filter((block) => block.type === "button" && (block.purpose === "internal_link" || block.purpose === "related_post"));
-    expect(mandatory).toHaveLength(4);
-    expect(mandatory.every((block) => block.type === "button" && block.targetUrl.startsWith("https://blog.tistory.com/entry/"))).toBe(true);
-    expect(mandatory.some((block) => block.id === "empty-internal" || block.id === "manage-related")).toBe(false);
-  });
-
-  it("deduplicates existing related posts and fills three unique final links", () => {
-    const duplicate = { ...document, blocks: [...document.blocks,
-      { id: "related-a", type: "button" as const, purpose: "related_post" as const, label: "같은 글 A", targetUrl: "https://blog.tistory.com/entry/same", target: "_self" as const },
-      { id: "related-b", type: "button" as const, purpose: "related_post" as const, label: "같은 글 B", targetUrl: "https://blog.tistory.com/entry/same#fragment", target: "_self" as const },
-    ] };
-    const candidates = Array.from({ length: 3 }, (_, index) => ({ externalPostId: String(index), title: `추가 글 ${index}`, publishedUrl: `https://blog.tistory.com/entry/add-${index}` }));
-    const placed = placeRecommendedPosts(duplicate, candidates);
-    const related = placed.blocks.filter((block) => block.type === "button" && block.purpose === "related_post");
-    expect(related).toHaveLength(3);
-    expect(new Set(related.map((block) => block.type === "button" ? new URL(block.targetUrl).pathname : "")).size).toBe(3);
-  });
-
-  it("uses every available verified post without inventing duplicates when fewer than four exist", () => {
+  it("uses only the available candidates when fewer than four exist", () => {
     const candidates = [
-      { externalPostId: "one", title: "도움 글 1", publishedUrl: "https://blog.tistory.com/entry/one" },
-      { externalPostId: "two", title: "도움 글 2", publishedUrl: "https://blog.tistory.com/entry/two" },
+      post("one", "도움 글 1", "https://blog.tistory.com/entry/one", "건강정보"),
+      post("two", "도움 글 2", "https://blog.tistory.com/entry/two", "건강정보"),
     ];
     const placed = placeRecommendedPosts(document, candidates);
     const links = placed.blocks.filter((block) => block.type === "button" && block.sourceExternalPostId);
     expect(links.map((block) => block.type === "button" ? block.sourceExternalPostId : undefined)).toEqual(["one", "two"]);
     expect(new Set(links.map((block) => block.type === "button" ? block.targetUrl : "")).size).toBe(2);
+  });
+
+  it("uses the single available candidate without inventing more", () => {
+    const placed = placeRecommendedPosts(document, [post("one", "도움 글 1", "https://blog.tistory.com/entry/one", "건강정보")]);
+    const links = placed.blocks.filter((block) => block.type === "button" && block.sourceExternalPostId);
+    expect(links.map((block) => block.type === "button" ? block.sourceExternalPostId : undefined)).toEqual(["one"]);
+  });
+
+  it("does not invent links when no candidates remain", () => {
+    expect(placeRecommendedPosts(document, []).blocks).toEqual(document.blocks);
   });
 });

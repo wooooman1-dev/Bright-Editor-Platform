@@ -19,12 +19,12 @@ describe("ContentCreationFlow recommendation progress", () => {
     expect(source).toContain('className="bright-operation-notice');
     expect(source).toContain("AI 추천을 다시 생성하고 있습니다.");
     expect(source).toContain("현재 추천은 그대로 유지됩니다. 완료된 뒤에만 새 추천으로 교체합니다.");
-    expect(source).toContain('operation === "regenerating" ? "추천 생성 중…" : "추천 다시 생성"');
+    expect(source).toContain('operation === "regenerating" ? "추천 생성 중…" : dirtyRequest ? "변경 내용으로 추천 다시 생성" : "추천 다시 생성"');
   });
 
-  it("locks the recommendation controls while work is running", () => {
+  it("locks the recommendation controls while work is running or the request changed", () => {
     expect(source).toContain('aria-busy={operation === "regenerating"}');
-    expect(source).toContain('disabled={working} onCustomKeywordChange={setCustomKeyword}');
+    expect(source).toContain('disabled={working || dirtyRequest} onCustomKeywordChange={setCustomKeyword}');
     expect(confirmationSource).toContain('fieldset className="mt-5 space-y-3" disabled={disabled}');
     expect(confirmationSource).toContain('disabled={!customKeywordSelected || disabled}');
     expect(source).toContain('checked={selected.includes(connection.id)} disabled={working}');

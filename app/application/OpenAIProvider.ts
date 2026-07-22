@@ -1,4 +1,5 @@
 import type { AIProvider, AIRequest, AIResponse } from "../../core/ai";
+import { openAIGenerationModel } from "./OpenAIModelPolicy";
 
 export class AIConfigurationError extends Error {
   constructor(message = "OPENAI_API_KEY is required to generate content.") {
@@ -10,7 +11,7 @@ export class AIConfigurationError extends Error {
 export class OpenAIProvider implements AIProvider {
   constructor(
     private readonly apiKey = process.env.OPENAI_API_KEY,
-    private readonly model = process.env.OPENAI_MODEL ?? "gpt-5-mini",
+    private readonly model = openAIGenerationModel(),
     private readonly timeoutMs = readTimeout(process.env.OPENAI_REQUEST_TIMEOUT_MS, 120_000),
   ) {}
 

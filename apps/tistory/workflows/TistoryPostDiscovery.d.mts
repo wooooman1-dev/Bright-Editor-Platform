@@ -11,3 +11,4 @@ export type TistoryDiscoveredPostRow = Readonly<{
 export function publicPostListingUrls(origin: string, pageNumber: number): readonly string[];
 export function extractPublicPostRows(page: Page, expectedOrigin: string): Promise<readonly TistoryDiscoveredPostRow[]>;
 export function listingHasNoPostsMessage(page: Page): Promise<boolean>;
+export function extractCategoryFromPostHtml(html: string, expectedOrigin: string): Readonly<{ categoryId?: string; categoryName: string }> | undefined;

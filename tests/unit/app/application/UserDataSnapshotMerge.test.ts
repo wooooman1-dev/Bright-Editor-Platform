@@ -87,6 +87,48 @@ describe("mergeUserDataSnapshot", () => {
     expect(mergeUserDataSnapshot(generated, stale).contents[0].title).toBe("장 건강 관리 방법: 만성 염증 관리 가이드");
   });
 
+  it("replaces an earlier confirmed Opportunity when a newer browser snapshot confirms the newly selected candidate", () => {
+    const firstCandidate = createContentOpportunityCandidate({
+      sourceRequest: "건강 글", selectionMode: "automatic", selectedTopic: "지방간 생활관리 원칙", primaryKeyword: "지방간 관리 방법",
+      secondaryKeywords: ["지방간 식단"], searchIntent: "지방간 관리 방법을 찾는 정보 탐색", audience: "건강검진 독자", contentType: "guide", contentAngle: "생활관리",
+      readerProblem: "지방간 관리 방법이 필요함", expectedCoverage: [], selectionRationale: "첫 번째 후보", opportunityEvidence: [{ source: "unknown", summary: "테스트" }], confidence: 0.8, cautions: [], projectId: "project-1",
+    });
+    const secondCandidate = createContentOpportunityCandidate({
+      sourceRequest: "건강 글", selectionMode: "automatic", selectedTopic: "건강검진 결과표의 주요 수치 이해와 후속 관리", primaryKeyword: "건강검진 결과표 읽는 법",
+      secondaryKeywords: ["건강검진 수치"], searchIntent: "건강검진 결과를 이해하려는 정보 탐색", audience: "건강검진 독자", contentType: "guide", contentAngle: "결과 해석",
+      readerProblem: "검진표 해석이 필요함", expectedCoverage: [], selectionRationale: "두 번째 후보", opportunityEvidence: [{ source: "unknown", summary: "테스트" }], confidence: 0.8, cautions: [], projectId: "project-1",
+    });
+    const first = confirmContentOpportunity(firstCandidate, { workspaceId: "workspace-1", projectId: "project-1", contentId: "content-1", confirmedAt: "2026-07-20T12:00:00.000Z" });
+    const second = confirmContentOpportunity(secondCandidate, { workspaceId: "workspace-1", projectId: "project-1", contentId: "content-1", confirmedAt: "2026-07-20T12:01:00.000Z" });
+    const planning = {
+      interpretedIntent: "건강 글", domain: "health", targetAudience: "건강검진 독자", contentGoal: "건강 정보",
+      recommendedPrimaryKeyword: first.primaryKeyword, keywordCandidates: [first.primaryKeyword, second.primaryKeyword], searchIntent: first.searchIntent,
+      recommendedContentType: "guide", recommendedPlatforms: ["tistory"], suggestedTitleAngles: [first.selectedTopic, second.selectedTopic],
+      relatedKeywords: [], contentCluster: [], recommendationReason: "후보 비교", confidence: 0.8, estimateDisclosure: "테스트",
+      opportunityCandidates: [firstCandidate, secondCandidate],
+    };
+    const current = snapshot({ contents: [{
+      ...snapshot().contents[0], title: first.selectedTopic, opportunity: first, planning: planning as never, primaryKeyword: first.primaryKeyword,
+      relatedKeywords: first.secondaryKeywords, searchIntent: first.searchIntent, contentType: first.contentType,
+      planningWorkflow: { status: "opportunityConfirmed", request: "건강 글", selectionMode: "automatic", operationId: "planning-1", revision: 5, selectedOpportunityId: first.opportunityId, lastSuccessfulStep: "confirmation", createdAt: "2026-07-20T11:00:00.000Z", updatedAt: "2026-07-20T12:00:00.000Z" },
+      updatedAt: "2026-07-20T12:00:00.000Z",
+    }] });
+    const selected = mergeUserDataSnapshot(current, snapshot({ contents: [{
+      ...current.contents[0], title: second.selectedTopic,
+      planningWorkflow: { ...current.contents[0].planningWorkflow!, status: "opportunitySelected", revision: 6, selectedOpportunityId: second.opportunityId, lastSuccessfulStep: "selection", updatedAt: "2026-07-20T12:00:30.000Z" },
+      updatedAt: "2026-07-20T12:00:30.000Z",
+    }] }));
+    const confirmed = mergeUserDataSnapshot(selected, snapshot({ contents: [{
+      ...selected.contents[0], title: second.selectedTopic, opportunity: second, primaryKeyword: second.primaryKeyword, relatedKeywords: second.secondaryKeywords, searchIntent: second.searchIntent, contentType: second.contentType,
+      planningWorkflow: { ...selected.contents[0].planningWorkflow!, status: "opportunityConfirmed", revision: 7, selectedOpportunityId: second.opportunityId, lastSuccessfulStep: "confirmation", updatedAt: "2026-07-20T12:01:00.000Z" },
+      updatedAt: "2026-07-20T12:01:00.000Z",
+    }] }));
+
+    expect(confirmed.contents[0].planningWorkflow?.selectedOpportunityId).toBe(second.opportunityId);
+    expect(confirmed.contents[0].opportunity?.opportunityId).toBe(second.opportunityId);
+    expect(confirmed.contents[0].primaryKeyword).toBe(second.primaryKeyword);
+  });
+
   it("does not let a later legacy autosave remove or mix the confirmed Opportunity", () => {
     const opportunity = confirmContentOpportunity(createContentOpportunityCandidate({
       sourceRequest: "장 건강 글", selectionMode: "userSpecified", selectedTopic: "장 건강 관리", primaryKeyword: "장 건강 관리 방법",

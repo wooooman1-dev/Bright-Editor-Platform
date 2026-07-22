@@ -11,7 +11,9 @@ export function mergeUserDataSnapshot(current: UserData | undefined, input: unkn
     const serverContent = current.contents.find((item) => item.id === content.id);
     if (serverContent && isOlderSnapshot(content.updatedAt, serverContent.updatedAt)) return serverContent;
     const planningProtectedContent = preserveNewerPlanningWorkflow(serverContent, content);
-    const opportunityProtectedContent = serverContent?.opportunity ? Object.freeze({
+    const preserveServerOpportunity = serverContent?.opportunity
+      && !isNewerConfirmedOpportunitySelection(serverContent, planningProtectedContent);
+    const opportunityProtectedContent = preserveServerOpportunity ? Object.freeze({
       ...planningProtectedContent,
       opportunity: serverContent.opportunity,
       primaryKeyword: serverContent.opportunity.primaryKeyword,
@@ -75,6 +77,22 @@ function preserveNewerPlanningWorkflow(server: UserContent | undefined, incoming
     });
   }
   return Object.freeze({ ...incoming, planning: server?.planning ?? incoming.planning });
+}
+
+function isNewerConfirmedOpportunitySelection(server: UserContent, incoming: UserContent): boolean {
+  const serverOpportunity = server.opportunity;
+  const incomingOpportunity = incoming.opportunity;
+  const serverWorkflow = server.planningWorkflow;
+  const incomingWorkflow = incoming.planningWorkflow;
+  if (!serverOpportunity || !incomingOpportunity || !incomingWorkflow) return false;
+  if (serverOpportunity.opportunityId === incomingOpportunity.opportunityId && serverOpportunity.fingerprint === incomingOpportunity.fingerprint) return false;
+  if (incomingWorkflow.selectedOpportunityId !== incomingOpportunity.opportunityId) return false;
+  if (!['opportunityConfirmed', 'generating', 'generated'].includes(incomingWorkflow.status)) return false;
+  if (serverWorkflow && incomingWorkflow.revision <= serverWorkflow.revision) return false;
+  return Boolean(incoming.planning?.opportunityCandidates?.some((candidate) => (
+    candidate.opportunityId === incomingOpportunity.opportunityId
+    && candidate.fingerprint === incomingOpportunity.fingerprint
+  )));
 }
 
 function validatePlanningContent(content: UserContent, server?: UserContent): UserContent {

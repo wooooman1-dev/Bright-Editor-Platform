@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { Fragment, useMemo, useState, type ReactNode } from "react";
 
-import type { ContentBlock, ContentDocument, PublicPostCandidate } from "../../core/content";
+import { createContentOutline, type ContentBlock, type ContentDocument, type ContentOutlineEntry, type PublicPostCandidate } from "../../core/content";
 import { ImageBlockEditor } from "./ImageBlockEditor";
 
 type ButtonPurpose = "cta" | "internal_link" | "monetization" | "related_post";
@@ -19,10 +19,8 @@ export function ContentDocumentEditor({
   onChange: (document: ContentDocument, message: string) => Promise<void>;
 }) {
   const [draggedId, setDraggedId] = useState<string>();
-  const headings = useMemo(
-    () => document.blocks.filter((block): block is Extract<ContentBlock, { type: "heading" }> => block.type === "heading" && (block.level === 2 || block.level === 3) && Boolean(block.text.trim())),
-    [document.blocks],
-  );
+  const outline = useMemo(() => createContentOutline(document), [document]);
+  const firstOutlineBlockId = outline[0]?.id;
 
   const replace = async (id: string, block: ContentBlock) => onChange(
     { ...document, blocks: document.blocks.map((item) => item.id === id ? block : item) },
@@ -80,7 +78,7 @@ export function ContentDocumentEditor({
     <details className="mb-8 rounded-xl bg-[#f8f8fa] p-4">
       <summary className="cursor-pointer font-semibold">문서 구조 보기</summary>
       <nav aria-label="문서 구조" className="mt-3 space-y-1">
-        {headings.map((heading) => <button className={`block w-full rounded-lg px-2 py-1.5 text-left text-sm hover:bg-white ${heading.level === 3 ? "pl-6 text-[#66666f]" : "font-semibold"}`} key={heading.id} onClick={() => globalThis.document.getElementById(`editor-${heading.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" })} type="button">{heading.text}</button>)}
+        {outline.map((heading) => <button className={`block w-full rounded-lg px-2 py-1.5 text-left text-sm hover:bg-white ${heading.level === 3 ? "pl-6 text-[#66666f]" : "font-semibold"}`} key={heading.id} onClick={() => globalThis.document.getElementById(`editor-${heading.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" })} type="button">{heading.text}</button>)}
       </nav>
     </details>
 
@@ -98,7 +96,9 @@ export function ContentDocumentEditor({
     </div>
 
     <div className="space-y-1">
-      {document.blocks.map((block, index) => <article className={`group relative rounded-lg border border-transparent px-2 py-2 transition hover:border-black/8 hover:bg-[#fcfcfd] ${draggedId === block.id ? "border-[#ff6b6b] bg-[#fff7f7] opacity-60" : ""}`} draggable={!disabled} id={`editor-${block.id}`} key={block.id} onDragEnd={() => setDraggedId(undefined)} onDragOver={(event) => event.preventDefault()} onDragStart={() => setDraggedId(block.id)} onDrop={(event) => { event.preventDefault(); if (draggedId) void move(draggedId, index); }}>
+      {document.blocks.map((block, index) => <Fragment key={block.id}>
+        {block.id === firstOutlineBlockId ? <DerivedTableOfContents outline={outline} /> : null}
+        <article className={`group relative rounded-lg border border-transparent px-2 py-2 transition hover:border-black/8 hover:bg-[#fcfcfd] ${draggedId === block.id ? "border-[#ff6b6b] bg-[#fff7f7] opacity-60" : ""}`} draggable={!disabled} id={`editor-${block.id}`} onDragEnd={() => setDraggedId(undefined)} onDragOver={(event) => event.preventDefault()} onDragStart={() => setDraggedId(block.id)} onDrop={(event) => { event.preventDefault(); if (draggedId) void move(draggedId, index); }}>
         <div className="absolute right-2 top-2 z-10 flex gap-1 rounded-lg border bg-white p-1 opacity-0 shadow-sm transition group-focus-within:opacity-100 group-hover:opacity-100">
           <span aria-label="이동 핸들" className="cursor-grab px-1 text-[#92929a]" title={`끌어서 ${blockLabel(block)} 이동`}>⠿</span>
           <button aria-label="위로 이동" className="rounded px-2 py-1 text-xs hover:bg-[#f2f2f4]" disabled={disabled || index === 0} onClick={() => void move(block.id, index - 1)} type="button">↑</button>
@@ -111,10 +111,22 @@ export function ContentDocumentEditor({
         {block.type === "image" ? <ImageBlockEditor key={`${block.id}:${block.alt}:${block.prompt ?? ""}:${block.purpose ?? ""}`} block={block} contentId={document.id} disabled={disabled} onChange={(next) => replace(block.id, next)} /> : null}
         {block.type === "button" ? <ButtonEditor block={block} disabled={disabled} onChange={(next) => replace(block.id, next)} /> : null}
         {block.type === "video" ? <p className="rounded-lg bg-[#f8f8fa] p-3 text-sm">비디오: {block.source}</p> : null}
-      </article>)}
+      </article>
+      </Fragment>)}
     </div>
     <RelatedPosts candidates={candidates} current={document} disabled={disabled} onAdd={(purpose, candidate) => void addCandidate(purpose, candidate)} />
   </section>;
+}
+
+function DerivedTableOfContents({ outline }: { outline: readonly ContentOutlineEntry[] }) {
+  return <nav aria-label="원고 자동 목차" className="my-8 rounded-xl border border-[#e8e3dc] bg-[#fbfaf8] px-6 py-5">
+    <div className="flex flex-wrap items-center justify-between gap-2"><strong className="text-lg">목차</strong><span className="text-xs text-[#77777f]">H2/H3에서 자동 생성 · 미리보기와 동일</span></div>
+    <ul className="mt-4 space-y-2 text-[16px] leading-7">
+      {outline.map((entry) => <li className={entry.level === 3 ? "pl-5 text-[#66666f]" : "font-medium"} key={entry.id}>
+        <button className="text-left hover:underline" onClick={() => globalThis.document.getElementById(`editor-${entry.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" })} type="button">{entry.text}</button>
+      </li>)}
+    </ul>
+  </nav>;
 }
 
 function ButtonEditor({ block, disabled, onChange }: { block: Extract<ContentBlock, { type: "button" }>; disabled: boolean; onChange: (block: Extract<ContentBlock, { type: "button" }>) => Promise<void> }) {
@@ -136,7 +148,7 @@ function ButtonEditor({ block, disabled, onChange }: { block: Extract<ContentBlo
 function RelatedPosts({ candidates, current, disabled, onAdd }: { candidates: readonly PublicPostCandidate[]; current: ContentDocument; disabled: boolean; onAdd: (purpose: "internal_link" | "related_post", candidate: PublicPostCandidate) => void }) {
   const selected = current.blocks.filter((block) => block.type === "button" && block.purpose === "related_post").length;
   const used = new Set(current.blocks.flatMap((block) => block.type === "button" ? [block.targetUrl] : []));
-  return <details className="mt-8 rounded-xl bg-[#f8f8fa] p-4"><summary className="cursor-pointer font-semibold">자동 추천 변경 · 관련 글 {selected}/3</summary><p className="mt-2 text-sm text-[#77777f]">자동 배치 결과가 마음에 들지 않을 때만 다른 공개 글을 선택하세요.</p><div className="mt-3 max-h-96 space-y-2 overflow-auto">{candidates.map((post) => <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-white p-3 text-sm" key={post.externalPostId}><span><strong>{post.title}</strong><span className="ml-2 text-[#77777f]">{post.categoryName ?? "카테고리 미확인"}</span></span><div className="flex gap-2"><a className="rounded border px-3 py-1.5" href={post.publishedUrl} rel="noopener noreferrer" target="_blank">실제 글 열기</a><button className="rounded border px-3 py-1.5 disabled:opacity-40" disabled={disabled || used.has(post.publishedUrl)} onClick={() => onAdd("internal_link", post)} type="button">본문 링크로 변경</button><button className="rounded border px-3 py-1.5 disabled:opacity-40" disabled={disabled || used.has(post.publishedUrl) || selected >= 3} onClick={() => onAdd("related_post", post)} type="button">관련 글로 변경</button></div></div>)}{!candidates.length ? <p className="text-sm">검증된 공개 게시글 후보가 없습니다.</p> : null}</div></details>;
+  return <details className="mt-8 rounded-xl bg-[#f8f8fa] p-4"><summary className="cursor-pointer font-semibold">자동 추천 변경 · 관련 글 {selected}개 · 최대 3개</summary><p className="mt-2 text-sm text-[#77777f]">같은 카테고리의 검증된 공개 글만 자동 배치하며, 후보가 부족하면 있는 만큼만 표시합니다.</p><div className="mt-3 max-h-96 space-y-2 overflow-auto">{candidates.map((post) => <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-white p-3 text-sm" key={post.externalPostId}><span><strong>{post.title}</strong><span className="ml-2 text-[#77777f]">{post.categoryName ?? "카테고리 미확인"}</span></span><div className="flex gap-2"><a className="rounded border px-3 py-1.5" href={post.publishedUrl} rel="noopener noreferrer" target="_blank">실제 글 열기</a><button className="rounded border px-3 py-1.5 disabled:opacity-40" disabled={disabled || used.has(post.publishedUrl)} onClick={() => onAdd("internal_link", post)} type="button">본문 링크로 변경</button><button className="rounded border px-3 py-1.5 disabled:opacity-40" disabled={disabled || used.has(post.publishedUrl) || selected >= 3} onClick={() => onAdd("related_post", post)} type="button">관련 글로 변경</button></div></div>)}{!candidates.length ? <p className="text-sm">검증된 공개 게시글 후보가 없습니다.</p> : null}</div></details>;
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) { return <label className="text-sm font-semibold">{label}{children}</label>; }

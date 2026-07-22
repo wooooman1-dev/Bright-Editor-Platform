@@ -35,6 +35,10 @@ export function PrimaryKeywordConfirmation({
         <legend className="sr-only">콘텐츠 기회 후보</legend>
         {opportunityCandidates.map((candidate) => {
           const selected = !customKeywordSelected && candidate.opportunityId === selectedOpportunityId;
+          const expectedCoverage = stringArray(candidate.expectedCoverage);
+          const secondaryKeywords = stringArray(candidate.secondaryKeywords);
+          const limitations = stringArray(candidate.limitations);
+          const evidence = Array.isArray(candidate.opportunityEvidence) ? candidate.opportunityEvidence : [];
           return (
             <label className={`block cursor-pointer rounded-xl border px-4 py-4 text-sm ${selected ? "border-[#ff6b6b] bg-[#fff7f7]" : "border-black/8"}`} key={candidate.opportunityId}>
               <span className="flex items-start gap-3">
@@ -43,13 +47,13 @@ export function PrimaryKeywordConfirmation({
                   <span className="flex flex-wrap items-center gap-2"><strong>{candidate.selectedTopic}</strong><span className="rounded-full bg-[#f3f3f5] px-2.5 py-1 text-xs font-semibold text-[#5f5f68]">{recommendationTypeLabel(candidate.recommendationType)}</span></span>
                   <span className="mt-2 block"><span className="font-semibold text-[#66666f]">대표 키워드</span> · {candidate.primaryKeyword}</span>
                   <span className="mt-1 block"><span className="font-semibold text-[#66666f]">검색 의도</span> · {candidate.searchIntent}</span>
-                  <span className="mt-1 block"><span className="font-semibold text-[#66666f]">주요 내용</span> · {candidate.expectedCoverage.join(", ") || candidate.secondaryKeywords.join(", ") || "후보 확정 후 원고에서 구체화"}</span>
+                  <span className="mt-1 block"><span className="font-semibold text-[#66666f]">주요 내용</span> · {expectedCoverage.join(", ") || secondaryKeywords.join(", ") || "후보 확정 후 원고에서 구체화"}</span>
                   <span className="mt-1 block"><span className="font-semibold text-[#66666f]">추천 이유</span> · {candidate.selectionRationale}</span>
-                  <span className="mt-2 block text-xs text-[#77777f]">근거 · {[...new Set(candidate.opportunityEvidence.map((item) => item.evidenceType ? evidenceTypeLabel(item.evidenceType) : opportunityEvidenceLabel(item.source)))].join(", ")}</span>
-                  <span className="mt-1 block text-xs text-[#77777f]">데이터 출처 · {[...new Set(candidate.opportunityEvidence.map((item) => item.provider).filter(Boolean))].join(", ") || "외부 데이터 없음"}</span>
-                  <span className="mt-1 block text-xs text-[#77777f]">데이터 기간 · {[...new Set(candidate.opportunityEvidence.map((item) => item.periodStart || item.periodEnd ? `${item.periodStart ?? "?"}~${item.periodEnd ?? "?"}` : "내부 현재 상태"))].join(", ")}</span>
+                  <span className="mt-2 block text-xs text-[#77777f]">근거 · {[...new Set(evidence.map((item) => item.evidenceType ? evidenceTypeLabel(item.evidenceType) : opportunityEvidenceLabel(item.source)))].join(", ")}</span>
+                  <span className="mt-1 block text-xs text-[#77777f]">데이터 출처 · {[...new Set(evidence.map((item) => item.provider).filter(Boolean))].join(", ") || "외부 데이터 없음"}</span>
+                  <span className="mt-1 block text-xs text-[#77777f]">데이터 기간 · {[...new Set(evidence.map((item) => item.periodStart || item.periodEnd ? `${item.periodStart ?? "?"}~${item.periodEnd ?? "?"}` : "내부 현재 상태"))].join(", ")}</span>
                   <span className={`mt-1 block text-xs ${candidate.freshness === "stale" ? "font-semibold text-amber-800" : "text-[#77777f]"}`}>freshness · {freshnessLabel(candidate.freshness)} · confidence {Math.round(candidate.confidence * 100)}%</span>
-                  <span className="mt-1 block text-xs leading-5 text-amber-800">제한사항 · {candidate.limitations.join(" ") || "없음"}</span>
+                  <span className="mt-1 block text-xs leading-5 text-amber-800">제한사항 · {limitations.join(" ") || "없음"}</span>
                 </span>
               </span>
             </label>
@@ -78,12 +82,17 @@ export function PrimaryKeywordConfirmation({
         </dl>
         <p className="mt-4 text-sm leading-6 text-[#77777f]">{plan.recommendationReason}</p>
         <div className="mt-5 space-y-3">
-          {opportunityCandidates.map((candidate) => <div className="rounded-xl border bg-white p-3" key={`${candidate.opportunityId}-evidence`}><p className="text-sm font-semibold">{candidate.selectedTopic} · {recommendationTypeLabel(candidate.recommendationType)}</p>{candidate.opportunityEvidence.map((item) => <p className="mt-2 text-xs leading-5 text-[#66666f]" key={item.evidenceId ?? `${item.source}-${item.summary}`}>{item.provider ?? opportunityEvidenceLabel(item.source)} · {item.summary}{item.sourceReference ? ` · ${item.sourceReference}` : ""}{item.limitation ? ` · 제한: ${item.limitation}` : ""}</p>)}</div>)}
+          {opportunityCandidates.map((candidate) => {
+            const evidence = Array.isArray(candidate.opportunityEvidence) ? candidate.opportunityEvidence : [];
+            return <div className="rounded-xl border bg-white p-3" key={`${candidate.opportunityId}-evidence`}><p className="text-sm font-semibold">{candidate.selectedTopic} · {recommendationTypeLabel(candidate.recommendationType)}</p>{evidence.map((item) => <p className="mt-2 text-xs leading-5 text-[#66666f]" key={item.evidenceId ?? `${item.source}-${item.summary}`}>{item.provider ?? opportunityEvidenceLabel(item.source)} · {item.summary}{item.sourceReference ? ` · ${item.sourceReference}` : ""}{item.limitation ? ` · 제한: ${item.limitation}` : ""}</p>)}</div>;
+          })}
         </div>
       </details>
     </>
   );
 }
+
+function stringArray(value: unknown): string[] { return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0) : []; }
 
 function recommendationTypeLabel(value: ContentOpportunityCandidate["recommendationType"]) { return value === "comprehensive" ? "종합 추천" : value === "marketOpportunity" ? "시장 기회 추천" : "블로그 성장 추천"; }
 function freshnessLabel(value: ContentOpportunityCandidate["freshness"]) { return value === "fresh" ? "최신" : value === "aging" ? "갱신 권장" : value === "stale" ? "오래됨" : "확인 불가"; }

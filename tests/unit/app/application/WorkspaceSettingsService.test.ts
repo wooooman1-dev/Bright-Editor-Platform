@@ -45,10 +45,10 @@ describe("Workspace Settings service", () => {
   it("reports configured, missing, and invalid OpenAI state without exposing the key", () => {
     const missing = aiProviderStatus({ OPENAI_MODEL: "gpt-test" });
     const invalid = aiProviderStatus({ OPENAI_API_KEY: "invalid key" });
-    const ready = aiProviderStatus({ OPENAI_API_KEY: "sk-secret-value", OPENAI_MODEL: "gpt-test" });
+    const ready = aiProviderStatus({ OPENAI_API_KEY: "sk-secret-value", OPENAI_GENERATION_MODEL: "gpt-generation", OPENAI_REVIEW_MODEL: "gpt-review" });
     expect(missing.status).toBe("configuration_required");
     expect(invalid.status).toBe("error");
-    expect(ready).toMatchObject({ status: "ready", configured: true, model: "gpt-test" });
+    expect(ready).toMatchObject({ status: "ready", configured: true, generationModel: "gpt-generation", reviewModel: "gpt-review" });
     expect(JSON.stringify([missing, invalid, ready])).not.toContain("sk-secret-value");
   });
 

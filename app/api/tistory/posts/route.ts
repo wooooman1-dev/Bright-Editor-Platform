@@ -18,7 +18,7 @@ export async function GET(request: Request) {
     const targets = targetRepository.listByProject ? await targetRepository.listByProject(project.id) : []; const selectedTarget = Boolean((content.selectedPublishingAccountIds?.includes(connection.id) || project.selectedPublishingAccountIds?.includes(connection.id) || content.publishingAccountId === connection.id) && targets.some((target) => target.platformConnectionId === connection.id));
     const result = await new TistoryPostCatalogApplicationService().read({ workspaceId, projectId: project.id, contentId, connection, selectedTarget, refresh: url.searchParams.get("refresh") === "true" });
     const eligible = result.posts.filter((post) => !content.publishedUrl || post.publishedUrl !== content.publishedUrl);
-    const posts = content.document ? rankRelatedPosts(content.document, eligible, { primaryKeyword: content.primaryKeyword, categoryName: content.publishingPreparation?.tistory?.platformCategoryName ?? undefined }) : eligible;
+    const posts = content.document ? rankRelatedPosts(content.document, eligible, { primaryKeyword: content.primaryKeyword, categoryId: content.publishingPreparation?.tistory?.platformCategoryId, categoryName: content.publishingPreparation?.tistory?.platformCategoryName ?? undefined }) : eligible;
     return NextResponse.json({ ...result, posts });
   } catch (error) {
     if (error instanceof TistoryPostWorkflowError) return NextResponse.json({ state: error.code, error: error.message, remediation: error.remediation }, { status: 400 });

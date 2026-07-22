@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { GlobalHeader } from "../shared/ui/GlobalHeader";
 import { PageContainer } from "../shared/ui/PageContainer";
@@ -40,6 +40,8 @@ export function FirstRunExperience() {
   const [data, setData] = useState<UserData>(emptyUserData);
   const [screen, setScreen] = useState<Screen>({ name: "home" });
   const [hydrated, setHydrated] = useState(false);
+  const locationInitialized = useRef(false);
+  const restoringHistory = useRef(false);
 
   useEffect(() => {
     let active = true;
@@ -68,8 +70,20 @@ export function FirstRunExperience() {
 
   useEffect(() => {
     if (!hydrated) return;
-    syncLocation(screen);
+    if (restoringHistory.current) { restoringHistory.current = false; return; }
+    syncLocation(screen, locationInitialized.current ? "push" : "replace");
+    locationInitialized.current = true;
   }, [hydrated, screen]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const onPopState = () => {
+      restoringHistory.current = true;
+      setScreen(screenFromLocation(data));
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [data, hydrated]);
 
   const workspaces: readonly WorkspaceSummary[] = data.workspace ? [{ id: data.workspace.id, name: data.workspace.name }] : [];
 
@@ -219,6 +233,33 @@ function ProjectScreen({ data, onBack, onCreateContent, onDeleted, onOpenContent
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState(project.name);
   const [renameState, setRenameState] = useState<"idle" | "saving" | "error" | "saved">("idle");
+  const latestContentId = [...contents].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0]?.id;
+  const selectedConnectionIds = project.selectedPublishingAccountIds ?? [];
+  const selectedConnectionIdsKey = selectedConnectionIds.join(",");
+
+  useEffect(() => {
+    if (!latestContentId || selectedConnectionIds.length === 0) return;
+
+    const controller = new AbortController();
+    void fetch(`/api/connections?workspaceId=${encodeURIComponent(project.workspaceId)}`, { cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        const result = await response.json() as { connections?: SafeConnection[] };
+        if (!response.ok) return [];
+        return (result.connections ?? []).filter((connection) => connection.platform === "tistory" && connection.status === "connected" && selectedConnectionIds.includes(connection.id));
+      })
+      .then(async (connections) => {
+        await Promise.allSettled(connections.map((connection) => fetch(
+          `/api/tistory/posts?workspaceId=${encodeURIComponent(project.workspaceId)}&contentId=${encodeURIComponent(latestContentId)}&connectionId=${encodeURIComponent(connection.id)}&refresh=false`,
+          { cache: "no-store", signal: controller.signal },
+        )));
+      })
+      .catch((error: unknown) => {
+        if (!(error instanceof DOMException && error.name === "AbortError")) console.warn("Tistory post catalog auto-sync failed.", error);
+      });
+
+    return () => controller.abort();
+  }, [latestContentId, project.workspaceId, selectedConnectionIdsKey]);
+
   const saveName = async () => {
     setRenameState("saving");
     try { await onRename(nameDraft); setRenameState("saved"); setEditingName(false); }
@@ -379,7 +420,7 @@ function screenFromLocation(data: UserData): Screen {
   return { name: "project", projectId };
 }
 
-function syncLocation(screen: Screen): void {
+function syncLocation(screen: Screen, mode: "push" | "replace"): void {
   if (typeof window === "undefined") return;
   const url = new URL(window.location.href);
   url.searchParams.delete("view");
@@ -390,7 +431,11 @@ function syncLocation(screen: Screen): void {
     url.searchParams.set("projectId", screen.projectId);
     if ((screen.name === "create" || screen.name === "editor") && screen.contentId) url.searchParams.set("contentId", screen.contentId);
   }
-  window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  const target = `${url.pathname}${url.search}${url.hash}`;
+  const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (target === current) return;
+  if (mode === "push") window.history.pushState({ brightStudioScreen: screen.name }, "", target);
+  else window.history.replaceState({ brightStudioScreen: screen.name }, "", target);
 }
 
 function planningStatusLabel(status: NonNullable<UserContent["planningWorkflow"]>["status"]): string {

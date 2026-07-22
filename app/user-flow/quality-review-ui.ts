@@ -1,4 +1,4 @@
-import type { QualityCategory, QualityDimensionResult } from "../../core/quality";
+import type { QualityApprovalType, QualityCategory, QualityDimensionResult } from "../../core/quality";
 
 const categories: readonly QualityCategory[] = ["searchIntent", "seo", "readability", "structure", "completeness", "usefulness", "htmlQuality", "imageStrategy", "internalLinks", "cta"];
 
@@ -6,6 +6,7 @@ export type QualityUiStatus = "no_review" | "loading" | "error" | "not_evaluated
 export type NormalizedQualityReview = Readonly<{
   dimensions: readonly QualityDimensionResult[];
   overallScore: number | null;
+  approvalType: QualityApprovalType;
   status: QualityUiStatus;
   revisionId: string | null;
   reviewedAt: string | null;
@@ -36,8 +37,9 @@ export function normalizeQualityReview(
   const stale = Boolean(context.currentRevisionId && revisionId !== context.currentRevisionId);
   const notEvaluated = dimensions.some((dimension) => dimension.status === "blocked");
   const approved = value.approved === true;
+  const approvalType: QualityApprovalType = value.approvalType === "exception" ? "exception" : value.approvalType === "standard" ? "standard" : approved ? "standard" : "none";
   const status: QualityUiStatus = stale ? "stale" : notEvaluated ? "not_evaluated" : approved ? "ready" : "improvement_required";
-  return Object.freeze({ dimensions: Object.freeze(dimensions), overallScore, status, revisionId, reviewedAt, issues: Object.freeze(issues), actionableTasks: Object.freeze(actionableTasks) });
+  return Object.freeze({ dimensions: Object.freeze(dimensions), overallScore, approvalType, status, revisionId, reviewedAt, issues: Object.freeze(issues), actionableTasks: Object.freeze(actionableTasks) });
 }
 
 function normalizeDimension(value: unknown): QualityDimensionResult[] {
@@ -62,7 +64,7 @@ function normalizeTasks(value: unknown, dimensions: readonly QualityDimensionRes
   }
   return dimensions.flatMap((dimension) => dimension.tasks.map((message) => ({ category: dimension.category, message })));
 }
-function empty(status: QualityUiStatus): NormalizedQualityReview { return Object.freeze({ dimensions: Object.freeze([]), overallScore: null, status, revisionId: null, reviewedAt: null, issues: Object.freeze([]), actionableTasks: Object.freeze([]) }); }
+function empty(status: QualityUiStatus): NormalizedQualityReview { return Object.freeze({ dimensions: Object.freeze([]), overallScore: null, approvalType: "none", status, revisionId: null, reviewedAt: null, issues: Object.freeze([]), actionableTasks: Object.freeze([]) }); }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 function text(value: unknown) { return typeof value === "string" && value.trim() ? value.trim() : null; }
 function score(value: unknown) { return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100 ? value : null; }

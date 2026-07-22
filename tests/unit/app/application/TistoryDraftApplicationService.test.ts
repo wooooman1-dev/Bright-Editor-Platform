@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { readFile, rm } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { TistoryDraftApplicationService } from "../../../../app/application/publishing/TistoryDraftApplicationService";
+import { localMediaFilePath } from "../../../../app/application/media/LocalMediaStorage";
 import { safeDraftPermissions, type PlatformConnection } from "../../../../core/connections";
 
 const connection: PlatformConnection = { id: "account", workspaceId: "workspace", platform: "tistory", displayName: "Blog", status: "connected", publicMetadata: { blogId: "blog" }, createdAt: "now", updatedAt: "now", selectedAsDefault: false, version: 1, automationPermissions: safeDraftPermissions, publishingPolicy: "review_first" };
@@ -77,5 +79,73 @@ describe("Tistory publishing application boundary", () => {
     expect(result.status).toBe("partial_failure");
     expect(result.draftSaveClickCount).toBe(1);
     expect(result.failedStep).toBe("body_reverified");
+  });
+  it("does not launch Draft Save after media upload fails", async () => {
+    const root = path.join(tmpdir(), `bright-tistory-media-failure-${Date.now()}`);
+    const storageKey = `${randomUUID()}.png`;
+    const mediaPath = localMediaFilePath(storageKey);
+    const executeWorker = vi.fn();
+    const executeMediaWorker = vi.fn(async () => { throw new Error("Tistory image upload failed."); });
+    const mediaConnection = {
+      ...connection,
+      automationPermissions: [...safeDraftPermissions, "media.upload" as const],
+      publicMetadata: { blogId: "blog", sessionStateAvailable: true },
+    };
+    const document = {
+      ...input.document,
+      blocks: [...input.document.blocks, { id: "image", type: "image" as const, source: `/api/media/${storageKey}`, alt: "Verification image" }],
+    };
+    try {
+      await mkdir(path.dirname(mediaPath), { recursive: true });
+      await writeFile(mediaPath, Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+      const result = await new TistoryDraftApplicationService(
+        { save: vi.fn() }, root, undefined, executeWorker, executeMediaWorker,
+      ).execute({ ...input, document, selectedTarget: true, categoryId: "category-42", categoryName: "Health", connection: mediaConnection });
+      expect(result.status).toBe("failed");
+      expect(result.saveClicked).toBe(false);
+      expect(executeMediaWorker).toHaveBeenCalledOnce();
+      expect(executeWorker).not.toHaveBeenCalled();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(mediaPath, { force: true });
+    }
+  });
+  it("preserves safe media completion diagnostics without launching Draft Save", async () => {
+    const root = path.join(tmpdir(), `bright-tistory-media-diagnostic-${Date.now()}`);
+    const storageKey = `${randomUUID()}.png`;
+    const mediaPath = localMediaFilePath(storageKey);
+    const executeWorker = vi.fn();
+    const executeMediaWorker = vi.fn(async () => {
+      throw Object.assign(new Error("Tistory 이미지 업로드 후 본문 이미지 구조가 생성되지 않았습니다."), {
+        code: "media_upload_timeout",
+        diagnostic: { blockId: "image", mediaIndex: 1, uploadMethod: "filechooser", baselineMediaCount: 1, lastMediaCount: 1 },
+      });
+    });
+    const mediaConnection = {
+      ...connection,
+      automationPermissions: [...safeDraftPermissions, "media.upload" as const],
+      publicMetadata: { blogId: "blog", sessionStateAvailable: true },
+    };
+    const document = {
+      ...input.document,
+      blocks: [...input.document.blocks, { id: "image", type: "image" as const, source: `/api/media/${storageKey}`, alt: "Verification image" }],
+    };
+    try {
+      await mkdir(path.dirname(mediaPath), { recursive: true });
+      await writeFile(mediaPath, Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+      const result = await new TistoryDraftApplicationService(
+        { save: vi.fn() }, root, undefined, executeWorker, executeMediaWorker,
+      ).execute({ ...input, document, selectedTarget: true, categoryId: "category-42", categoryName: "Health", connection: mediaConnection });
+      expect(result.status).toBe("failed");
+      expect(result.saveClicked).toBe(false);
+      expect(result.diagnostic).toMatchObject({
+        mediaUploadFailureCode: "media_upload_timeout",
+        mediaUploadDiagnostic: { blockId: "image", mediaIndex: 1, uploadMethod: "filechooser" },
+      });
+      expect(executeWorker).not.toHaveBeenCalled();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(mediaPath, { force: true });
+    }
   });
 });

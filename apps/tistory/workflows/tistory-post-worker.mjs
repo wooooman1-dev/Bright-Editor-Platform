@@ -1,6 +1,7 @@
 import { chromium } from "playwright";
 
-import { extractPublicPostRows, listingHasNoPostsMessage, publicPostListingUrls } from "./TistoryPostDiscovery.mjs";
+import { readTistoryCategories, resolveCategoryIdByName } from "./TistoryCategoryDiscovery.mjs";
+import { extractCategoryFromPostHtml, extractPublicPostRows, listingHasNoPostsMessage, publicPostListingUrls } from "./TistoryPostDiscovery.mjs";
 
 const [blogId, storageStatePath] = process.argv.slice(2);
 const origin = `https://${blogId}.tistory.com`;
@@ -12,6 +13,11 @@ try {
   const sessionPage = await context.newPage();
   await sessionPage.goto(`${origin}/manage/posts`, { waitUntil: "domcontentloaded", timeout: 30000 });
   if (!sessionPage.url().startsWith(`${origin}/manage`)) throw coded("session_expired");
+  const categoryPage = await context.newPage();
+  await categoryPage.goto(`${origin}/manage/newpost`, { waitUntil: "domcontentloaded", timeout: 30000 });
+  const categories = await readTistoryCategories(categoryPage);
+  if (!categories.length) throw coded("selector_error");
+  await categoryPage.close();
   const page = await context.newPage();
   const collected = []; const discoveredUrls = new Set(); let pagesRead = 0; let partial = false; let diagnostic;
   for (let pageNumber = 1; pageNumber <= maxPages; pageNumber += 1) {
@@ -45,7 +51,15 @@ try {
   const unique = collected.filter((item) => { const url = safePublicUrl(item.publishedUrl, origin); if (!url || seen.has(url)) return false; seen.add(url); return true; });
   for (let start = 0; start < unique.length; start += 6) {
     const verified = await Promise.all(unique.slice(start, start + 6).map(async (item) => ({ item, response: await context.request.get(item.publishedUrl, { timeout: 10000 }).catch(() => undefined) })));
-    for (const { item, response } of verified) { if (!response?.ok()) { partial = true; continue; } const externalPostId = decodeURIComponent(new URL(item.publishedUrl).pathname.slice("/entry/".length)); posts.push({ platform: "tistory", externalPostId, title: item.title, publishedUrl: item.publishedUrl, ...(item.categoryName ? { categoryName: item.categoryName } : {}), ...(item.publishedAt ? { publishedAt: item.publishedAt } : {}), ...(item.excerpt ? { excerpt: item.excerpt.slice(0, 400) } : {}), keywords: terms(`${item.title} ${item.categoryName ?? ""}`), status: "public", retrievedAt }); }
+    for (const { item, response } of verified) {
+      if (!response?.ok()) { partial = true; continue; }
+      const externalPostId = decodeURIComponent(new URL(item.publishedUrl).pathname.slice("/entry/".length));
+      const responseHtml = await response.text().catch(() => "");
+      const discoveredCategory = item.categoryName ? { categoryName: item.categoryName } : extractCategoryFromPostHtml(responseHtml, origin);
+      const categoryId = resolveCategoryIdByName(discoveredCategory?.categoryName, categories);
+      const category = discoveredCategory?.categoryName ? { categoryId, categoryName: discoveredCategory.categoryName } : undefined;
+      posts.push({ platform: "tistory", externalPostId, title: item.title, publishedUrl: item.publishedUrl, ...(category?.categoryId ? { categoryId: category.categoryId } : {}), ...(category?.categoryName ? { categoryName: category.categoryName } : {}), ...(item.publishedAt ? { publishedAt: item.publishedAt } : {}), ...(item.excerpt ? { excerpt: item.excerpt.slice(0, 400) } : {}), keywords: terms(`${item.title} ${category?.categoryName ?? ""}`), status: "public", retrievedAt });
+    }
   }
   const emptyDiagnostic = !posts.length && !diagnostic ? "공개 글 목록 페이지에서 검증 가능한 게시글을 찾지 못했습니다." : diagnostic;
   process.stdout.write(`${JSON.stringify({ posts, state: partial ? "partial" : posts.length ? "success" : "empty", retrievedAt, pagesRead, ...(emptyDiagnostic ? { diagnostic: emptyDiagnostic } : {}) })}\n`);
