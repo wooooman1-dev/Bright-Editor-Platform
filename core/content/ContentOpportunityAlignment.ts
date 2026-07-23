@@ -63,6 +63,30 @@ export function analyzeContentOpportunityAlignment(
     ? titleHasKeyword ? "aligned" : "title_only_missing"
     : "mismatch";
 
+  if (process.env.NODE_ENV !== "production") {
+    console.table({
+      contentId: document.id,
+      opportunityId: opportunity.opportunityId,
+      status,
+      topicKeywordPass,
+      titleTopicPass,
+      headingPass,
+      bodyPass,
+      intentPass,
+      expectedPass,
+      secondaryPass,
+      titleHasKeyword,
+      bodyHasKeyword,
+      topicKeywordCoverage: percent(topicKeywordCoverage),
+      titleCoreCoverage: percent(titleCoreCoverage),
+      headingCoreCoverage: percent(headingCoreCoverage),
+      bodyCoreCoverage: percent(bodyCoreCoverage),
+      intentCoverage: percent(intentCoverage),
+      expectedCoverage: `${expectedCoverage.length}/${opportunity.expectedCoverage.length}`,
+      supportedSecondary: `${supportedSecondary.length}/${opportunity.secondaryKeywords.length}`,
+    });
+  }
+
   const signal = (pass: boolean, score: number, evidence: string[], mismatch: string): OpportunityAlignmentSignal => Object.freeze({
     pass,
     score: pass ? Math.max(85, Math.round(score)) : Math.min(60, Math.round(score)),
