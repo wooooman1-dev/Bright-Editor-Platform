@@ -9,6 +9,7 @@ import { WorkspacePlatformOnboarding } from "../onboarding/WorkspacePlatformOnbo
 import type { WorkspaceSummary } from "../shared/view-models/workspace";
 import { applyTheme } from "../settings/theme";
 import { ContentCreationFlow } from "./ContentCreationFlow";
+import { resolveContentOpenDestination } from "./content-navigation";
 import { DangerZone } from "./DangerZone";
 import { EditorWorkspace } from "./EditorWorkspace";
 import { ProjectCardActions } from "./ProjectCardActions";
@@ -116,8 +117,9 @@ export function FirstRunExperience() {
           onBack={() => setScreen({ name: "home" })}
           onOpenContent={(contentId) => {
             const target = data.contents.find((item) => item.id === contentId);
-            const resumesPlanning = target?.planningWorkflow && target.planningWorkflow.status !== "generated" && target.planningWorkflow.status !== "cancelled";
-            setScreen(resumesPlanning ? { name: "create", projectId: activeProject.id, contentId } : { name: "editor", projectId: activeProject.id, contentId });
+            if (!target) return;
+            const destination = resolveContentOpenDestination(target);
+            setScreen(destination === "planning" ? { name: "create", projectId: activeProject.id, contentId } : { name: "editor", projectId: activeProject.id, contentId });
           }}
           onCreateContent={(automatic) => setScreen({ name: "create", projectId: activeProject.id, automatic })}
           onDeleted={() => { window.location.assign("/"); }}
@@ -234,8 +236,7 @@ function ProjectScreen({ data, onBack, onCreateContent, onDeleted, onOpenContent
   const [nameDraft, setNameDraft] = useState(project.name);
   const [renameState, setRenameState] = useState<"idle" | "saving" | "error" | "saved">("idle");
   const latestContentId = [...contents].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0]?.id;
-  const selectedConnectionIds = project.selectedPublishingAccountIds ?? [];
-  const selectedConnectionIdsKey = selectedConnectionIds.join(",");
+  const selectedConnectionIds = useMemo(() => project.selectedPublishingAccountIds ?? [], [project.selectedPublishingAccountIds]);
 
   useEffect(() => {
     if (!latestContentId || selectedConnectionIds.length === 0) return;
@@ -258,7 +259,7 @@ function ProjectScreen({ data, onBack, onCreateContent, onDeleted, onOpenContent
       });
 
     return () => controller.abort();
-  }, [latestContentId, project.workspaceId, selectedConnectionIdsKey]);
+  }, [latestContentId, project.workspaceId, selectedConnectionIds]);
 
   const saveName = async () => {
     setRenameState("saving");
@@ -281,7 +282,7 @@ function ProjectScreen({ data, onBack, onCreateContent, onDeleted, onOpenContent
       <PublishingTargetSelector data={data} onPersist={onPersist} project={project} workspaceId={data.workspace!.id} />
       <section className="mt-8">
         <h2 className="text-lg font-semibold">콘텐츠</h2>
-        {contents.length === 0 ? <p className="mt-4 rounded-[20px] border border-dashed border-black/10 bg-white p-6 text-sm text-[#77777f]">아직 콘텐츠가 없습니다.</p> : <div className="mt-4 space-y-3">{contents.map((content) => { const resumable = content.planningWorkflow && content.planningWorkflow.status !== "generated" && content.planningWorkflow.status !== "cancelled"; return <button className="flex w-full items-center justify-between rounded-[20px] border border-black/6 bg-white p-5 text-left" key={content.id} onClick={() => onOpenContent(content.id)} type="button"><span><span className="block font-semibold">{content.title}</span><span className="mt-1 block text-xs text-[#92929a]">{resumable ? `Planning · ${planningStatusLabel(content.planningWorkflow!.status)}` : "임시저장"} · {content.updatedAt}</span></span><span className="text-sm font-semibold text-[#d94848]">{resumable ? "이어서 작성 →" : "편집 →"}</span></button>; })}</div>}
+        {contents.length === 0 ? <p className="mt-4 rounded-[20px] border border-dashed border-black/10 bg-white p-6 text-sm text-[#77777f]">아직 콘텐츠가 없습니다.</p> : <div className="mt-4 space-y-3">{contents.map((content) => { const destination = resolveContentOpenDestination(content); const resumable = destination === "planning"; const needsRevision = Boolean(content.document && content.quality?.approved === false); return <button className="flex w-full items-center justify-between rounded-[20px] border border-black/6 bg-white p-5 text-left" key={content.id} onClick={() => onOpenContent(content.id)} type="button"><span><span className="block font-semibold">{content.title}</span><span className="mt-1 block text-xs text-[#92929a]">{resumable ? `Planning · ${planningStatusLabel(content.planningWorkflow!.status)}` : needsRevision ? "품질 미달 · 수정 필요" : "임시저장"} · {content.updatedAt}</span></span><span className="text-sm font-semibold text-[#d94848]">{resumable ? "이어서 작성 →" : content.document ? "계속 수정 →" : "편집 →"}</span></button>; })}</div>}
       </section>
       <section className="mt-8 rounded-[20px] border border-black/6 bg-white p-5"><h2 className="font-semibold">Project settings</h2><p className="mt-2 text-sm text-[#77777f]">Project name: {project.name} · Brand: {brand?.name ?? "None"}</p></section>
       <DangerZone onDeleted={onDeleted} projectId={project.id} scope="project" workspaceId={data.workspace!.id} />
@@ -411,6 +412,7 @@ function screenFromLocation(data: UserData): Screen {
   if (!project) return { name: "home" };
   if (name === "create") {
     const content = contentId ? data.contents.find((item) => item.id === contentId && item.projectId === project.id && item.workspaceId === project.workspaceId) : undefined;
+    if (content?.document) return { name: "editor", projectId, contentId: content.id };
     return contentId && !content ? { name: "project", projectId } : { name: "create", projectId, ...(content ? { contentId: content.id } : {}) };
   }
   if (name === "editor") {

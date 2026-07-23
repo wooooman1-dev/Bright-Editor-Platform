@@ -47,8 +47,8 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
   onRestore: (data: UserData) => void;
 }) {
   const restoredWorkflow = content?.planningWorkflow;
-  const draftContentIdRef = useRef(content?.id ?? createId("content"));
-  const contentIdentity = `${project.id}:${content?.id ?? draftContentIdRef.current}`;
+  const [draftContentId] = useState(() => content?.id ?? createId("content"));
+  const contentIdentity = `${project.id}:${content?.id ?? draftContentId}`;
   const [request, setRequest] = useState(restoredWorkflow?.request ?? content?.naturalLanguageRequest ?? "");
   const [plan, setPlan] = useState<ContentPlanningResult | undefined>(content?.planning);
   const [opportunityId, setOpportunityId] = useState(restoredWorkflow?.selectedOpportunityId ?? content?.planning?.opportunityCandidates?.[0]?.opportunityId ?? "");
@@ -59,7 +59,7 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
   const [notice, setNotice] = useState(restoredNotice(content));
   const [operation, setOperation] = useState<CreationOperation>("idle");
   const [dirtyRequest, setDirtyRequest] = useState(false);
-  const contentId = content?.id ?? draftContentIdRef.current;
+  const contentId = content?.id ?? draftContentId;
   const latestDataRef = useRef(data);
   const activeOperationRef = useRef(restoredWorkflow?.operationId ?? "");
   const hydratedIdentityRef = useRef(contentIdentity);
