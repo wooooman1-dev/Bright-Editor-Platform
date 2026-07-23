@@ -98,7 +98,7 @@ describe("integration infrastructure", () => {
 
   it("lets a complete but shallow first pass reach the bounded final editorial review", () => {
     const strategy = new EditorialGenerationStrategy();
-    const prose = "This is connected article prose with a concrete criterion, an example, a caution, and an action for the reader. ".repeat(3);
+    const prose = "This is connected article prose with a concrete criterion, an example, a caution, and an action for the reader. ".repeat(10);
     const response = { title: "First pass", blocks: [{ type: "paragraph", text: prose }, ...Array.from({ length: 5 }, (_, index) => [{ type: "heading", level: 2, text: `Section ${index + 1}` }, { type: "paragraph", text: prose }]).flat()] };
     expect(strategy.parse(JSON.stringify(response), { contentType: "long-form blog article" as never, keywords: ["guide"], platform: "tistory" as never, projectId: "project-1" }).title).toBe("First pass");
   });
