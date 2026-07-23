@@ -49,7 +49,6 @@ export function analyzeContentOpportunityAlignment(
   const expectedCoverage = opportunity.expectedCoverage.filter((item) => phraseOrTermCoverage(item, allText));
   const titleHasKeyword = titleContainsPrimaryKeyword(document.title, opportunity.primaryKeyword);
   const bodyHasKeyword = phraseOrTermCoverage(opportunity.primaryKeyword, body);
-  const topicKeywordPass = topicTerms.length === 0 || topicKeywordCoverage >= 0.5;
   const headingPass = coreTerms.length === 0 || headingCoreCoverage >= 0.34;
   const bodyPass = bodyHasKeyword || coreTerms.length === 0 || bodyCoreCoverage >= 0.5;
   const intentPass = intentTerms.length === 0 || intentCoverage >= 0.5;
