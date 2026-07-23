@@ -1,7 +1,4 @@
-import { notFound } from "next/navigation";
-
-import { ContentEditor } from "../../../../../../../contents/ContentEditor";
-import { getContentEditorState } from "../../../../../../../contents/content-editor-fixtures";
+import { redirect } from "next/navigation";
 
 type ContentEditorPageProps = {
   params: Promise<{ workspaceId: string; projectId: string; contentId: string }>;
@@ -9,9 +6,11 @@ type ContentEditorPageProps = {
 
 export default async function ContentEditorPage({ params }: ContentEditorPageProps) {
   const { workspaceId, projectId, contentId } = await params;
-  const state = getContentEditorState(workspaceId, projectId, contentId);
+  const query = new URLSearchParams({
+    view: "editor",
+    projectId,
+    contentId,
+  });
 
-  if (!state) notFound();
-
-  return <ContentEditor state={state} />;
+  redirect(`/workspaces/${encodeURIComponent(workspaceId)}?${query.toString()}`);
 }
