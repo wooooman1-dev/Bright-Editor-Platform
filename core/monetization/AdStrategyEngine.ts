@@ -36,7 +36,6 @@ type Candidate = Readonly<{
   anchorBlockId: string;
   sectionHeadingId?: string;
   charactersBefore: number;
-  blockIndex: number;
 }>;
 
 function collectCandidates(document: ContentDocument): readonly Candidate[] {
@@ -59,17 +58,16 @@ function collectCandidates(document: ContentDocument): readonly Candidate[] {
     const previous = blocks[index - 1];
     const next = blocks[index + 1];
     const isDevelopedParagraph = block.text.trim().length >= minimumAnchorParagraphCharacters;
-    const separatesHeadingFromBody = previous?.type === "heading" || next?.type === "heading";
+    const startsSectionBody = previous?.type === "heading";
     const adjacentNonProse = previous?.type === "image" || previous?.type === "button" || previous?.type === "video"
       || next?.type === "image" || next?.type === "button" || next?.type === "video";
 
-    if (!seenFirstHeading || !isDevelopedParagraph || separatesHeadingFromBody || adjacentNonProse) return;
+    if (!seenFirstHeading || !isDevelopedParagraph || startsSectionBody || adjacentNonProse) return;
 
     result.push(Object.freeze({
       anchorBlockId: block.id,
       ...(currentHeadingId ? { sectionHeadingId: currentHeadingId } : {}),
       charactersBefore,
-      blockIndex: index,
     }));
   });
 
