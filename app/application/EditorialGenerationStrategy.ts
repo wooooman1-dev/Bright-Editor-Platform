@@ -2,6 +2,8 @@ import type { ContentDocument } from "../../core/content";
 import type { ContentGenerationStrategy, GenerationInput } from "../../core/ai";
 import { ensureDistinctImagePrompts } from "../../core/media";
 
+const minimumLongFormProseCharacters = 4_800;
+
 export class EditorialGenerationStrategy implements ContentGenerationStrategy {
   createRequest(input: GenerationInput) {
     const opportunity = input.contentOpportunity;
@@ -78,6 +80,7 @@ function parseBlock(value: unknown, index: number): ContentDocument["blocks"][nu
   if (block.type === "button" && typeof block.label === "string" && typeof block.targetUrl === "string") return { id, label: block.label, purpose: normalizePurpose(block.purpose), target: block.target === "_blank" ? "_blank" : "_self", targetUrl: block.targetUrl, ...(typeof block.sourceExternalPostId === "string" && block.sourceExternalPostId.trim() ? { sourceExternalPostId: block.sourceExternalPostId.trim() } : {}), type: "button" };
   throw new Error(`AI returned unsupported block ${index + 1}.`);
 }
+
 function assertCompleteArticle(blocks: ContentDocument["blocks"], input: GenerationInput): void {
   const headings = blocks.filter((block) => block.type === "heading");
   const h2 = headings.filter((block) => block.level === 2);
@@ -94,11 +97,14 @@ function assertCompleteArticle(blocks: ContentDocument["blocks"], input: Generat
   });
   if (headings.some((heading) => heading.level === 1) || headings.length < 3 || paragraphs.length < 5 || proseLength < 800 || outlineOnly || (planningLanguage && proseLength < 1800) || emptySection) throw new Error("AI returned a planning outline instead of a complete canonical article.");
   if (longForm && h2.length < 3) throw new Error("AI returned an invalid long-form section structure.");
+  if (longForm && proseLength < minimumLongFormProseCharacters) throw new Error(`AI returned ${proseLength} non-whitespace prose characters; long-form generation requires at least ${minimumLongFormProseCharacters}.`);
 }
+
 function normalizeLongFormHeadings(blocks: ContentDocument["blocks"], input: GenerationInput): ContentDocument["blocks"] {
   if (!/tistory|blog|article|long-form|장문|guide/i.test(`${input.platform} ${input.contentType}`)) return blocks;
   return blocks;
 }
+
 function ensureEditorialPlacement(blocks: ContentDocument["blocks"], input: GenerationInput): ContentDocument["blocks"] {
   const next = [...blocks];
   const headings = next.reduce<number[]>((indices, block, index) => block.type === "heading" ? [...indices, index] : indices, []);
@@ -109,12 +115,14 @@ function ensureEditorialPlacement(blocks: ContentDocument["blocks"], input: Gene
   }
   return next;
 }
+
 function uniqueId(blocks: ContentDocument["blocks"], base: string): string {
   const ids = new Set(blocks.map((block) => block.id));
   let id = base; let suffix = 2;
   while (ids.has(id)) id = `${base}-${suffix++}`;
   return id;
 }
+
 function normalizeLevel(value: unknown): 1 | 2 | 3 | 4 | 5 | 6 { return typeof value === "number" && value >= 1 && value <= 6 ? value as 1 | 2 | 3 | 4 | 5 | 6 : 2; }
 function normalizePurpose(value: unknown): "cta" | "internal_link" | "monetization" | "related_post" { return value === "internal_link" || value === "monetization" || value === "related_post" ? value : "cta"; }
 function normalizeImagePurpose(value: unknown): "hero" | "comparison" | "checklist" | "infographic" | "summary" | "warning" | "inline" | undefined { return value === "hero" || value === "comparison" || value === "checklist" || value === "infographic" || value === "summary" || value === "warning" || value === "inline" ? value : undefined; }
