@@ -35,7 +35,7 @@ export function normalizeQualityReview(
   const issues = dimensions.flatMap((dimension) => dimension.reasons);
   const actionableTasks = normalizeTasks(value.tasks, dimensions);
   const stale = Boolean(context.currentRevisionId && revisionId !== context.currentRevisionId);
-  const notEvaluated = dimensions.some((dimension) => dimension.status === "blocked");
+  const notEvaluated = dimensions.some((dimension) => dimension.status === "blocked" && dimension.evaluation === "not_evaluated");
   const approved = value.approved === true;
   const approvalType: QualityApprovalType = value.approvalType === "exception" ? "exception" : value.approvalType === "standard" ? "standard" : approved ? "standard" : "none";
   const status: QualityUiStatus = stale ? "stale" : notEvaluated ? "not_evaluated" : approved ? "ready" : "improvement_required";
