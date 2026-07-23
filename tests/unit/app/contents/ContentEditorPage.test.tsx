@@ -1,4 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const { redirectMock } = vi.hoisted(() => ({
+  redirectMock: vi.fn((destination: string) => {
+    throw new Error(`NEXT_REDIRECT:${destination}`);
+  }),
+}));
+
+vi.mock("next/navigation", () => ({ redirect: redirectMock }));
 
 import ContentEditorPage from "../../../../app/workspaces/[workspaceId]/projects/[projectId]/contents/[contentId]/edit/page";
 
@@ -7,34 +15,25 @@ function renderPage(workspaceId: string, projectId: string, contentId: string) {
 }
 
 describe("ContentEditorPage", () => {
-  it("renders a valid Workspace, Project, and Content combination", async () => {
-    const page = await renderPage("bright-studio", "content-operations", "content-workflow-map");
-
-    expect(page.type).toBeDefined();
-    expect(page.props.state.workspace.id).toBe("bright-studio");
-    expect(page.props.state.project.id).toBe("content-operations");
-    expect(page.props.state.project.workspaceId).toBe(page.props.state.workspace.id);
-    expect(page.props.state.content.id).toBe("content-workflow-map");
-    expect(page.props.state.content.projectId).toBe(page.props.state.project.id);
+  beforeEach(() => {
+    redirectMock.mockClear();
   });
 
-  it("uses not-found handling for an unknown Workspace", async () => {
-    await expect(renderPage("missing-workspace", "content-operations", "content-workflow-map")).rejects.toThrow("NEXT_HTTP_ERROR_FALLBACK;404");
+  it("redirects a persisted Content route into the canonical Workspace editor", async () => {
+    await expect(renderPage("workspace-1", "project-1", "content-1")).rejects.toThrow(
+      "NEXT_REDIRECT:/workspaces/workspace-1?view=editor&projectId=project-1&contentId=content-1",
+    );
+
+    expect(redirectMock).toHaveBeenCalledWith(
+      "/workspaces/workspace-1?view=editor&projectId=project-1&contentId=content-1",
+    );
   });
 
-  it("uses not-found handling for an unknown Project", async () => {
-    await expect(renderPage("bright-studio", "missing-project", "content-workflow-map")).rejects.toThrow("NEXT_HTTP_ERROR_FALLBACK;404");
-  });
+  it("encodes route identifiers before redirecting", async () => {
+    await expect(renderPage("workspace / 한글", "project & 1", "content ? 1")).rejects.toThrow("NEXT_REDIRECT:");
 
-  it("uses not-found handling when the Project belongs to another Workspace", async () => {
-    await expect(renderPage("bright-health", "content-operations", "content-workflow-map")).rejects.toThrow("NEXT_HTTP_ERROR_FALLBACK;404");
-  });
-
-  it("uses not-found handling for an unknown Content", async () => {
-    await expect(renderPage("bright-studio", "content-operations", "missing-content")).rejects.toThrow("NEXT_HTTP_ERROR_FALLBACK;404");
-  });
-
-  it("uses not-found handling when Content belongs to another Project", async () => {
-    await expect(renderPage("bright-studio", "editorial-system", "content-workflow-map")).rejects.toThrow("NEXT_HTTP_ERROR_FALLBACK;404");
+    expect(redirectMock).toHaveBeenCalledWith(
+      "/workspaces/workspace%20%2F%20%ED%95%9C%EA%B8%80?view=editor&projectId=project+%26+1&contentId=content+%3F+1",
+    );
   });
 });
