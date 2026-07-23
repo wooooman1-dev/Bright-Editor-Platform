@@ -20,7 +20,7 @@ export type ConfirmedGenerationContract = Readonly<{
   keywords: readonly string[];
 }>;
 
-type ConfirmedGenerationRequest = Readonly<{
+type ConfirmedGenerationRequest = {
   workspaceId: string;
   projectId: string;
   contentId: string;
@@ -32,7 +32,7 @@ type ConfirmedGenerationRequest = Readonly<{
   searchIntent?: unknown;
   secondaryKeywords?: unknown;
   keywords?: unknown;
-}>;
+};
 
 export function resolveConfirmedGenerationOpportunity(
   content: ConfirmedGenerationContent,
@@ -59,6 +59,10 @@ export function resolveConfirmedGenerationOpportunity(
 
     const stored = content.opportunity;
     if (!stored || !isWholeStoredSnapshotRecovery(stored, request)) {
+      // The route still contains a legacy same-identity recovery fallback. Clear
+      // the request fingerprint so a partial field mismatch cannot pass that
+      // fallback and reach the AI provider.
+      request.opportunityFingerprint = undefined;
       throw new Error("선택한 콘텐츠 전략이 요청한 현재 원고와 일치하지 않습니다. 주제와 대표 키워드를 다시 확인해 주세요.");
     }
 
