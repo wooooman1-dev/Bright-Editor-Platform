@@ -84,6 +84,7 @@ describe("durable Content planning workflow", () => {
       workspaceId: "workspace-1", projectId: "project-1", contentId: "content-1", opportunityId: second.opportunityId,
       expectedRevision: 2, now: "2026-07-18T00:03:00.000Z",
     });
+    expect(selected.contents[0].title).toBe(second.selectedTopic);
     const confirmed = createContentFromPlan(selected, {
       id: "content-1", projectId: "project-1", naturalLanguageRequest: "오늘의 건강 글을 골라줘", plan, opportunity: second,
       selectedPublishingAccountIds: [], now: "2026-07-18T00:04:00.000Z",

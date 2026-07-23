@@ -343,6 +343,7 @@ export function selectContentPlanningOpportunity(data: UserData, input: Readonly
     throw new Error("선택한 Content Opportunity가 현재 Planning 후보와 일치하지 않습니다.");
   }
   return updateContent(data, content.id, {
+    title: candidate.selectedTopic,
     planningWorkflow: nextPlanningWorkflow(workflow, input.now, {
       status: "opportunitySelected",
       selectedOpportunityId: candidate.opportunityId,

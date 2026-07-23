@@ -32,12 +32,15 @@ describe("EditorialGenerationStrategy", () => {
     expect(request.instruction).toContain("must not be inserted into the visible article body");
   });
 
-  it("rejects a long-form first generation below 4,800 non-whitespace prose characters", () => {
+  it("allows a structurally complete first generation below 4,800 characters so the quality pipeline can improve it", () => {
     const response = createLongFormResponse(4_799);
 
-    expect(() => new EditorialGenerationStrategy().parse(response, input)).toThrow(
-      "long-form generation requires at least 4800",
-    );
+    const document = new EditorialGenerationStrategy().parse(response, input);
+
+    const proseLength = document.blocks
+      .filter((block) => block.type === "paragraph")
+      .reduce((sum, block) => sum + block.text.replace(/\s/g, "").length, 0);
+    expect(proseLength).toBe(4_799);
   });
 
   it("accepts a complete long-form first generation at the 4,800-character boundary", () => {

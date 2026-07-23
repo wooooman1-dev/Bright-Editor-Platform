@@ -2,8 +2,6 @@ import type { ContentDocument } from "../../core/content";
 import type { ContentGenerationStrategy, GenerationInput } from "../../core/ai";
 import { ensureDistinctImagePrompts } from "../../core/media";
 
-const minimumLongFormProseCharacters = 4_800;
-
 export class EditorialGenerationStrategy implements ContentGenerationStrategy {
   createRequest(input: GenerationInput) {
     const opportunity = input.contentOpportunity;
@@ -97,7 +95,6 @@ function assertCompleteArticle(blocks: ContentDocument["blocks"], input: Generat
   });
   if (headings.some((heading) => heading.level === 1) || headings.length < 3 || paragraphs.length < 5 || proseLength < 800 || outlineOnly || (planningLanguage && proseLength < 1800) || emptySection) throw new Error("AI returned a planning outline instead of a complete canonical article.");
   if (longForm && h2.length < 3) throw new Error("AI returned an invalid long-form section structure.");
-  if (longForm && proseLength < minimumLongFormProseCharacters) throw new Error(`AI returned ${proseLength} non-whitespace prose characters; long-form generation requires at least ${minimumLongFormProseCharacters}.`);
 }
 
 function normalizeLongFormHeadings(blocks: ContentDocument["blocks"], input: GenerationInput): ContentDocument["blocks"] {
