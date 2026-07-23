@@ -58,34 +58,11 @@ export function analyzeContentOpportunityAlignment(
   const expectedPass = opportunity.expectedCoverage.length === 0
     || expectedCoverage.length >= Math.max(1, Math.ceil(opportunity.expectedCoverage.length / 3));
   const titleTopicPass = titleHasKeyword || coreTerms.length === 0 || titleCoreCoverage >= 0.34;
-  const structuralPass = topicKeywordPass && titleTopicPass && headingPass && bodyPass && intentPass && expectedPass;
+  const topicDocumentPass = titleTopicPass && headingPass && bodyPass;
+  const structuralPass = titleTopicPass && headingPass && bodyPass && intentPass && expectedPass;
   const status: OpportunityAlignmentStatus = structuralPass
     ? titleHasKeyword ? "aligned" : "title_only_missing"
     : "mismatch";
-
-  if (process.env.NODE_ENV !== "production") {
-    console.table({
-      contentId: document.id,
-      opportunityId: opportunity.opportunityId,
-      status,
-      topicKeywordPass,
-      titleTopicPass,
-      headingPass,
-      bodyPass,
-      intentPass,
-      expectedPass,
-      secondaryPass,
-      titleHasKeyword,
-      bodyHasKeyword,
-      topicKeywordCoverage: percent(topicKeywordCoverage),
-      titleCoreCoverage: percent(titleCoreCoverage),
-      headingCoreCoverage: percent(headingCoreCoverage),
-      bodyCoreCoverage: percent(bodyCoreCoverage),
-      intentCoverage: percent(intentCoverage),
-      expectedCoverage: `${expectedCoverage.length}/${opportunity.expectedCoverage.length}`,
-      supportedSecondary: `${supportedSecondary.length}/${opportunity.secondaryKeywords.length}`,
-    });
-  }
 
   const signal = (pass: boolean, score: number, evidence: string[], mismatch: string): OpportunityAlignmentSignal => Object.freeze({
     pass,
@@ -94,10 +71,11 @@ export function analyzeContentOpportunityAlignment(
     ...(pass ? {} : { detectedMismatch: mismatch, blockingReason: mismatch }),
     correctionApplied: false,
   });
-  const topicFidelity = signal(topicKeywordPass && bodyPass, Math.min(topicKeywordCoverage, bodyCoreCoverage) * 100, [
+  const topicFidelity = signal(topicDocumentPass, Math.min(titleCoreCoverage, headingCoreCoverage, bodyCoreCoverage) * 100, [
     `선정 주제: ${opportunity.selectedTopic}`,
+    `기획 내부 주제·키워드 중첩률: ${percent(topicKeywordCoverage)}`,
     `본문 핵심어 반영률: ${percent(bodyCoreCoverage)}`,
-  ], "선정 주제와 대표 키워드의 핵심 개념이 본문 중심 내용에 함께 반영되지 않았습니다.");
+  ], "선정 주제의 핵심 개념이 제목·목차·본문에 함께 반영되지 않았습니다.");
   const primaryKeywordAlignment = signal(bodyPass, bodyCoreCoverage * 100, [
     `대표 키워드: ${opportunity.primaryKeyword}`,
     `본문 대표 키워드/핵심어 반영: ${bodyHasKeyword ? "직접 확인" : percent(bodyCoreCoverage)}`,
