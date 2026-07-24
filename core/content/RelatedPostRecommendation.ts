@@ -21,8 +21,8 @@ export function rankRelatedPosts(document: ContentDocument, candidates: readonly
 
 export function placeRecommendedPosts(document: ContentDocument, ranked: readonly PublicPostCandidate[]): ContentDocument {
   const normalized = normalizeMandatoryLinks(document.blocks);
-  const relatedPosts = normalized.filter((block) => validPlacedLink(block, "related_post"));
-  const blocks = normalized.filter((block) => !validPlacedLink(block, "related_post"));
+  const relatedPosts: ContentDocument["blocks"][number][] = normalized.filter((block) => validPlacedLink(block, "related_post"));
+  const blocks: ContentDocument["blocks"][number][] = normalized.filter((block) => !validPlacedLink(block, "related_post"));
   const existingUrls = new Set(normalized.flatMap((block) => block.type === "button" && block.targetUrl ? [normalizeUrl(block.targetUrl)] : []));
   const available = uniqueValidCandidates(ranked).filter((item) => !existingUrls.has(normalizeUrl(item.publishedUrl)));
 
