@@ -3,6 +3,46 @@ import type { QualityApprovalType, QualityCategory, QualityDimensionResult } fro
 const categories: readonly QualityCategory[] = ["searchIntent", "seo", "readability", "structure", "completeness", "usefulness", "htmlQuality", "imageStrategy", "internalLinks", "cta"];
 const scoringCategories = new Set<QualityCategory>(["searchIntent", "seo", "readability", "structure", "completeness", "usefulness", "htmlQuality", "imageStrategy"]);
 const editorialTargets = new Set<QualityCategory>(["searchIntent", "seo", "readability", "completeness"]);
+const evidenceLabels: Readonly<Record<string, string>> = Object.freeze({
+  characters: "본문 글자 수",
+  minimumCharacters: "최소 권장 글자 수",
+  headingCount: "소제목 수",
+  requiredSections: "필수 섹션 수",
+  paragraphCount: "문단 수",
+  shortParagraphs: "짧은 문단 수",
+  repeatedOpenings: "반복되는 문단 도입부",
+  clicheCount: "상투적 표현 수",
+  semanticHeadingOverlapCount: "의미가 겹치는 소제목 수",
+  repeatedCoreAdviceCount: "반복되는 핵심 조언 수",
+  vagueInstructionCount: "모호한 안내 표현 수",
+  concreteCriteriaCount: "구체적인 시간·횟수·단계 기준 수",
+  practicalToolSignals: "체크리스트·기록·단계 안내 수",
+  placeholderDetected: "임시 문구 감지",
+  unsupportedClaimSignal: "근거 없는 주장 감지",
+  fabricatedExperienceRisk: "허위 경험 표현 위험",
+  planningLanguageDetected: "기획·작성 지시 문구 감지",
+  editorialInstructionCount: "편집자용 지시 문구 수",
+  duplicateHeadingCount: "중복 소제목 수",
+  emptyHeadings: "빈 소제목 수",
+  shallowSections: "설명이 얕은 섹션 수",
+  duplicateBlockIds: "중복 블록 ID 수",
+  emptyParagraphs: "빈 문단 수",
+  invalidButtonUrls: "유효하지 않은 링크 수",
+  targetPolicyViolations: "링크 열기 정책 위반 수",
+  keywordOccurrences: "대표 키워드 사용 횟수",
+  imageCount: "이미지 수",
+  buttonCount: "버튼 수",
+  contextualInternalLinkCount: "본문 내부 링크 수",
+  relatedPostCount: "관련 글 수",
+  availableInternalLinkCandidates: "사용 가능한 내부 링크 후보 수",
+});
+const countSignals = new Set([
+  "headingCount", "requiredSections", "paragraphCount", "shortParagraphs", "repeatedOpenings", "clicheCount",
+  "semanticHeadingOverlapCount", "repeatedCoreAdviceCount", "vagueInstructionCount", "concreteCriteriaCount",
+  "practicalToolSignals", "editorialInstructionCount", "duplicateHeadingCount", "emptyHeadings", "shallowSections",
+  "duplicateBlockIds", "emptyParagraphs", "invalidButtonUrls", "targetPolicyViolations", "keywordOccurrences", "imageCount",
+  "buttonCount", "contextualInternalLinkCount", "relatedPostCount", "availableInternalLinkCandidates",
+]);
 
 export type QualityUiStatus = "no_review" | "loading" | "error" | "not_evaluated" | "stale" | "improvement_required" | "ready";
 export type NormalizedQualityReview = Readonly<{
@@ -56,8 +96,22 @@ function normalizeDimension(value: unknown): QualityDimensionResult[] {
     evaluation: value.evaluation as QualityDimensionResult["evaluation"],
     reasons: Object.freeze(strings(value.reasons)),
     tasks: Object.freeze(strings(value.tasks)),
-    evidence: Object.freeze(Array.isArray(value.evidence) ? value.evidence.filter((item): item is QualityDimensionResult["evidence"][number] => isRecord(item) && typeof item.signal === "string" && ["string", "number", "boolean"].includes(typeof item.value)) : []),
+    evidence: Object.freeze(Array.isArray(value.evidence) ? value.evidence.flatMap(normalizeEvidence) : []),
   })];
+}
+
+function normalizeEvidence(value: unknown): QualityDimensionResult["evidence"] {
+  if (!isRecord(value) || typeof value.signal !== "string" || !["string", "number", "boolean"].includes(typeof value.value)) return [];
+  const signal = value.signal;
+  return [Object.freeze({ signal: evidenceLabels[signal] ?? signal, value: formatEvidenceValue(signal, value.value as string | number | boolean) })];
+}
+
+function formatEvidenceValue(signal: string, value: string | number | boolean): string | number | boolean {
+  if (typeof value === "boolean") return value ? "있음" : "없음";
+  if (typeof value !== "number") return value;
+  if (signal === "characters" || signal === "minimumCharacters") return `${value.toLocaleString("ko-KR")}자`;
+  if (countSignals.has(signal)) return `${value.toLocaleString("ko-KR")}개`;
+  return value;
 }
 
 function qualityApprovalTasks(dimensions: readonly QualityDimensionResult[], overallScore: number): Readonly<{ category: QualityCategory; message: string }>[] {
