@@ -1,6 +1,6 @@
 import type { AIProvider } from "../../core/ai";
 import { analyzeLongFormDocument, normalizeContentPlanQualityTarget, restoreProtectedImageAssets, restoreVerifiedEditorialLinks, type ContentDocument, type ContentPlanQualityTarget } from "../../core/content";
-import { contentRevisionId, QualityEngine, type QualityReviewContext } from "../../core/quality";
+import { contentRevisionId, evaluateQualityReviewReadiness, QualityEngine, type QualityReviewContext } from "../../core/quality";
 import { contentOpportunityAIContext, EditorialGenerationStrategy } from "./EditorialGenerationStrategy";
 
 type ParseInput = Parameters<EditorialGenerationStrategy["parse"]>[1];
@@ -106,18 +106,22 @@ export class EditorialQualityPipeline {
         current,
         restoreProtectedImageAssets(current, this.strategy.parse(response, parseInput)),
       ));
+      const parsedQuality = this.qualityEngine.review(parsed, { ...qualityContext, revisionId: contentRevisionId(parsed) });
+      const parsedDiagnostic = analyzeLongFormDocument(parsed, parseInput.contentOpportunity?.qualityTarget ?? parsed.metadata?.qualityTarget);
+      const readiness = evaluateQualityReviewReadiness(parsed, parsedQuality, parsedDiagnostic);
       const linkError = verifiedLinkError(current, parsed);
       const safetyError = manuscriptSafetyError(current, parsed);
-      const shapeError = editorialShapeError(parsed, parseInput);
+      const shapeError = editorialShapeError(parsed, parseInput) ?? (readiness.fatal ? readiness.fatalReasons[0] : undefined);
       if (linkError || safetyError || shapeError) {
-        return {
-          document: parsed,
-          quality: this.qualityEngine.review(parsed, { ...qualityContext, revisionId: contentRevisionId(parsed) }),
-          rejectionReason: linkError ?? safetyError ?? shapeError,
-        };
+        return { document: parsed, quality: parsedQuality, rejectionReason: linkError ?? safetyError ?? shapeError };
       }
       const document = await place(parsed);
-      return { document, quality: this.qualityEngine.review(document, { ...qualityContext, revisionId: contentRevisionId(document) }) };
+      const quality = this.qualityEngine.review(document, { ...qualityContext, revisionId: contentRevisionId(document) });
+      const placedDiagnostic = analyzeLongFormDocument(document, parseInput.contentOpportunity?.qualityTarget ?? document.metadata?.qualityTarget);
+      const placedReadiness = evaluateQualityReviewReadiness(document, quality, placedDiagnostic);
+      return placedReadiness.fatal
+        ? { document, quality, rejectionReason: placedReadiness.fatalReasons[0] }
+        : { document, quality };
     } catch (error) {
       console.error("[editorial-quality] AI revision was not a valid complete ContentDocument; preserving the current manuscript.", { error: error instanceof Error ? error.message : "parse_failed" });
       return { document: current, quality: this.qualityEngine.review(current, qualityContext), rejectionReason: "invalid_content_document" };
@@ -141,7 +145,7 @@ function singlePassFinalReviewInstruction(
   const priorities = qualityPriorities(quality);
   return `${baseInstruction}
 
-This is the second and final AI call. Make only targeted editorial corrections to the current canonical document. Do not broadly rewrite strong sections or expand the manuscript into a new long-form draft. Return the complete publish-ready canonical ContentDocument in this one response. Do not return a review, plan, score, explanation, or partial patch.
+This is the second and final AI call. Make only targeted editorial corrections to the current canonical document. Do not broadly rewrite strong sections or expand the manuscript into a new long-form draft. Return the complete publish-ready canonical ContentDocument in this one response. Do not return a review, plan, score, explanation, or partial patch. Every paragraph.text must be plain text; represent ordered or unordered lists with newline-prefixed \`1.\` or \`-\` items and never return HTML list or paragraph tags.
 Mandatory server approval contract after your edit:
 - standard approval only; exception approval is not publish-ready
 - overallScore >= 95
@@ -271,14 +275,9 @@ function manuscriptSafetyError(current: ContentDocument, candidate: ContentDocum
 }
 function editorialShapeError(document: ContentDocument, parseInput: ParseInput): string | undefined {
   if (!/tistory|blog|article|long-form|장문|guide/i.test(`${parseInput.platform} ${parseInput.contentType}`)) return undefined;
-  const target = parseInput.contentOpportunity?.qualityTarget ?? document.metadata?.qualityTarget;
-  if (!target) {
-    const paragraphs = document.blocks.filter((block) => block.type === "paragraph" && block.text.trim());
-    const h2 = document.blocks.filter((block) => block.type === "heading" && block.level === 2).length;
-    return paragraphs.length === 0 || h2 === 0 ? "editorial_shape_incomplete" : undefined;
-  }
-  const diagnostic = analyzeLongFormDocument(document, target);
-  return diagnostic.violations.length ? `editorial_target_violation:${diagnostic.violations[0]?.code}` : undefined;
+  const paragraphs = document.blocks.filter((block) => block.type === "paragraph" && block.text.trim());
+  const h2 = document.blocks.filter((block) => block.type === "heading" && block.level === 2).length;
+  return paragraphs.length === 0 || h2 === 0 ? "editorial_shape_incomplete" : undefined;
 }
 function unsafeSignals(document: ContentDocument) { const text = document.blocks.flatMap((block) => block.type === "paragraph" ? [block.text] : []).join(" "); return { experience: count(text, /(?:제가|저는|직접 해봤|경험상|사용해 보니)/g), unsupportedClaims: count(text, /(?:\d+(?:\.\d+)?\s*%|\d+\s*명 중|\d+(?:\.\d+)?\s*배|연구에 따르면)/g) }; }
 function requirementCovered(text: string, requirement: string) { const terms = requirement.toLowerCase().replace(/[^0-9a-z가-힣\s]/g, " ").split(/\s+/).filter((term) => term.length >= 2); return terms.length === 0 || terms.filter((term) => text.toLowerCase().includes(term)).length >= Math.max(1, Math.ceil(terms.length * 0.5)); }
