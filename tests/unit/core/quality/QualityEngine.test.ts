@@ -9,17 +9,54 @@ const planning: ContentDocument = { id: "planning", title: "건강 관리 가이
 ] };
 
 function structured(): ContentDocument {
-  const paragraph = "독자가 바로 실행할 수 있도록 원인과 방법을 구체적인 사례로 설명합니다. 매일 기록하고 결과를 비교하면 자신의 상황에 맞는 선택을 할 수 있습니다. ";
-  return { id: "article", title: "건강 관리 실천 방법 완전 가이드", blocks: [
-    { id: "intro", type: "paragraph", text: paragraph.repeat(3) },
-    ...Array.from({ length: 4 }, (_, index) => ([
-      { id: `h${index}`, type: "heading" as const, level: 2 as const, text: `실천 단계 ${index + 1}` },
-      { id: `p${index}`, type: "paragraph" as const, text: paragraph.repeat(8) },
-    ])).flat(),
-    { id: "image", type: "image", source: "/health.png", alt: "건강 관리 단계" },
-    { id: "link", type: "button", label: "관련 건강 기록 보기", targetUrl: "/health-log" },
-    { id: "conclusion", type: "paragraph", text: `지금까지의 핵심은 작은 행동을 기록하고 꾸준히 조정하는 것입니다. ${paragraph.repeat(2)}` },
-  ] };
+  const sections = [
+    {
+      heading: "건강 관리 목표 정하기",
+      text: "건강 관리는 막연한 결심보다 현재 생활에서 바꾸고 싶은 한 가지를 정하는 데서 시작합니다. 수면, 식사, 활동량 중 가장 불편한 항목을 고르고 관찰할 기준을 함께 정합니다. 목표는 생활을 통제하는 규칙이 아니라 변화가 필요한 지점을 확인하는 기준으로 사용합니다. 처음에는 한 항목만 선택해야 결과를 해석하기 쉽습니다.",
+    },
+    {
+      heading: "생활 기록으로 변화 확인하기",
+      text: "기록에는 실행 여부와 몸의 반응을 같은 형식으로 남깁니다. 날짜와 상황을 함께 적으면 특정 행동 뒤에 불편이 반복되는지 확인할 수 있습니다. 하루 결과만으로 판단하지 않고 일정한 조건에서 이어진 흐름을 비교합니다. 기록이 부담스러우면 핵심 항목 두세 가지만 남겨도 충분합니다.",
+    },
+    {
+      heading: "실천 순서와 조정 기준",
+      text: "먼저 가장 쉬운 행동을 정하고 생활 속에서 실행할 시간을 고정합니다. 다음으로 실천 뒤의 변화와 방해 요인을 기록합니다. 계획이 반복해서 지켜지지 않으면 의지 부족으로 단정하지 말고 시간, 장소, 난이도를 조정합니다. 마지막으로 유지 가능한 행동만 남겨 다음 주의 기준으로 사용합니다.",
+    },
+    {
+      heading: "중단하거나 상담이 필요한 경우",
+      text: "건강 관리 과정에서 통증이나 불편이 뚜렷하게 심해지면 해당 행동을 중단합니다. 기존 질환이나 복용 중인 약이 있다면 임의로 치료 계획을 바꾸지 않습니다. 증상이 지속되거나 일상생활을 방해하면 기록을 정리해 의료진에게 보여 주는 것이 판단에 도움이 됩니다. 스스로 진단하기보다 관찰한 사실과 변화 시점을 전달하는 데 집중합니다.",
+    },
+  ];
+  return {
+    id: "article",
+    title: "건강 관리 실천 방법과 점검 기준",
+    metadata: {
+      buttonCount: 1,
+      createdAt: "now",
+      generator: "test",
+      imageCount: 1,
+      language: "ko",
+      readingTime: 4,
+      source: "test",
+      updatedAt: "now",
+      version: 1,
+      videoCount: 0,
+      wordCount: 420,
+      metaDescription: "건강 관리 목표를 정하고 생활 기록으로 변화를 확인하며, 실천 순서와 조정 기준, 상담이 필요한 상황까지 단계별로 안내합니다.",
+      primarySearchIntent: "건강 관리 방법을 찾는 독자가 실천 기준과 다음 행동을 정하도록 돕습니다.",
+      tags: ["건강관리", "생활습관", "건강기록", "실천방법", "건강점검"],
+    },
+    blocks: [
+      { id: "intro", type: "paragraph", text: "건강 관리는 많은 행동을 한꺼번에 늘리는 일이 아니라 현재 상태를 관찰하고 유지 가능한 변화를 선택하는 과정입니다. 이 글에서는 목표 설정, 기록, 실행 순서, 조정 기준을 차례로 설명합니다. 독자는 자신의 생활에 적용할 한 가지 행동과 점검 방법을 정할 수 있습니다." },
+      ...sections.flatMap((section, index) => [
+        { id: `h${index}`, type: "heading" as const, level: 2 as const, text: section.heading },
+        { id: `p${index}`, type: "paragraph" as const, text: section.text },
+      ]),
+      { id: "image", type: "image", source: "/health.png", alt: "건강 관리 목표와 기록 순서를 정리한 안내 이미지" },
+      { id: "link", type: "button", label: "관련 건강 기록 보기", targetUrl: "/health-log" },
+      { id: "conclusion", type: "paragraph", text: "건강 관리의 핵심은 가장 필요한 행동 하나를 선택하고 같은 기준으로 변화를 확인하는 것입니다. 기록에서 반복되는 불편이나 실행 방해 요인을 찾은 뒤 계획을 조정합니다. 증상이 심해지거나 일상에 영향을 주면 무리해서 계속하지 말고 관찰 내용을 바탕으로 전문가와 상의합니다." },
+    ],
+  };
 }
 
 describe("QualityEngine dimension scoring", () => {
@@ -232,5 +269,4 @@ describe("QualityEngine dimension scoring", () => {
     expect(report.dimensions.find((item) => item.category === "internalLinks")?.evaluation).toBe("not_evaluated");
     expect(report.dimensions.find((item) => item.category === "cta")?.evaluation).toBe("not_evaluated");
   });
-
 });
