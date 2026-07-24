@@ -28,6 +28,38 @@ describe("Quality Review UI compatibility normalization", () => {
     expect(normalized.status).toBe("improvement_required");
   });
 
+  it("localizes evidence labels, booleans, and count units for the editor UI", () => {
+    const report = {
+      approved: false,
+      approvalType: "none",
+      overallScore: 91,
+      reviewedRevisionId: "rev-localized",
+      reviewedAt: "2026-07-24T00:00:00.000Z",
+      dimensions: [{
+        category: "completeness",
+        score: 91,
+        status: "needs_improvement",
+        evaluation: "evaluated",
+        reasons: [],
+        tasks: [],
+        evidence: [
+          { signal: "characters", value: 4485 },
+          { signal: "minimumCharacters", value: 4800 },
+          { signal: "vagueInstructionCount", value: 0 },
+          { signal: "placeholderDetected", value: false },
+        ],
+      }],
+      tasks: [],
+    };
+
+    expect(normalizeQualityReview(report).dimensions[0]?.evidence).toEqual([
+      { signal: "본문 글자 수", value: "4,485자" },
+      { signal: "최소 권장 글자 수", value: "4,800자" },
+      { signal: "모호한 안내 표현 수", value: "0개" },
+      { signal: "임시 문구 감지", value: "없음" },
+    ]);
+  });
+
   it("explains why an overall score of 95 is not approved when readability is below both approval thresholds", () => {
     const report = {
       approved: false,
