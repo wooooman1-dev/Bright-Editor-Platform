@@ -91,6 +91,7 @@ export type { ImageBlock, ImageBlockPurpose, ImageBlockSourceType } from "./bloc
 export type { ParagraphBlock } from "./blocks/ParagraphBlock";
 export type { VideoBlock } from "./blocks/VideoBlock";
 export { ContentNormalizer } from "./processors/ContentNormalizer";
+export { normalizeStructuredText, structuredListItems, structuredProseText, structuredTableCount } from "./StructuredText";
 export {
   ContentOptimizer,
   type ContentOptimizerOptions,
