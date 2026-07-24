@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { chromium } from "playwright";
-import { uploadSingleTistoryImage } from "./tistory-media-upload.mjs";
+import { tistoryMediaUploadSelectors, uploadTistoryMediaSequentially } from "./tistory-media-upload.mjs";
 
 const [commandPath] = process.argv.slice(2);
 let browser;
@@ -15,23 +15,16 @@ try {
 
   browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ storageState: command.storageStatePath });
-  const resolved = [];
-
-  for (let index = 0; index < media.length; index += 1) {
-    const item = media[index];
-    const page = await context.newPage();
-    try {
-      await page.goto(`https://${command.blogId}.tistory.com/manage/newpost`, { waitUntil: "domcontentloaded", timeout: 30000 });
-      if (!page.url().startsWith(`https://${command.blogId}.tistory.com/manage`)) {
-        throw safeError("session_expired", "Tistory 로그인 세션이 만료되어 이미지를 업로드하지 못했습니다.");
-      }
-      resolved.push(await uploadSingleTistoryImage(page, item));
-    } catch (error) {
-      throw withMediaEvidence(error, { blockId: item?.blockId, mediaIndex: index, uploadSession: "fresh_editor_page" });
-    } finally {
-      await page.close().catch(() => undefined);
-    }
+  const page = await context.newPage();
+  await page.goto(`https://${command.blogId}.tistory.com/manage/newpost`, { waitUntil: "domcontentloaded", timeout: 30000 });
+  if (!page.url().startsWith(`https://${command.blogId}.tistory.com/manage`)) {
+    throw safeError("session_expired", "Tistory 로그인 세션이 만료되어 이미지를 업로드하지 못했습니다.");
   }
+
+  const resolved = await uploadTistoryMediaSequentially(page, media, async (editorPage, item) => {
+    await removeReusableImageInputs(editorPage);
+    return uploadSingleWithFreshAttachmentControl(editorPage, item);
+  });
 
   let html = String(command.html ?? "");
   for (const item of resolved) html = html.replaceAll(item.placeholderUrl, item.remoteUrl);
@@ -51,6 +44,22 @@ try {
   process.exitCode = 1;
 } finally {
   await browser?.close();
+}
+
+async function uploadSingleWithFreshAttachmentControl(page, item) {
+  const module = await import("./tistory-media-upload.mjs");
+  try {
+    return await module.uploadSingleTistoryImage(page, item);
+  } catch (error) {
+    throw withMediaEvidence(error, { uploadSession: "same_editor_fresh_attachment_control" });
+  }
+}
+
+async function removeReusableImageInputs(page) {
+  for (const frame of page.frames()) {
+    const inputs = frame.locator(tistoryMediaUploadSelectors.existingImageInput);
+    await inputs.evaluateAll((nodes) => nodes.forEach((node) => node.remove())).catch(() => undefined);
+  }
 }
 
 function safeError(diagnosticCode, safeMessage) {
