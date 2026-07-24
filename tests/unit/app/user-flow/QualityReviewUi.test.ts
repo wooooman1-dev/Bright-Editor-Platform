@@ -28,6 +28,33 @@ describe("Quality Review UI compatibility normalization", () => {
     expect(normalized.status).toBe("improvement_required");
   });
 
+  it("explains why an overall score of 95 is not approved when readability is below both approval thresholds", () => {
+    const report = {
+      approved: false,
+      approvalType: "none",
+      overallScore: 95,
+      reviewedRevisionId: "rev-quality",
+      reviewedAt: "2026-07-24T00:00:00.000Z",
+      dimensions: [
+        { category: "searchIntent", score: 100, status: "ready", evaluation: "evaluated", reasons: [], tasks: [], evidence: [] },
+        { category: "seo", score: 100, status: "ready", evaluation: "evaluated", reasons: [], tasks: [], evidence: [] },
+        { category: "readability", score: 88, status: "needs_improvement", evaluation: "evaluated", reasons: ["짧은 문단이 반복됩니다."], tasks: ["문단 흐름을 보완하세요."], evidence: [] },
+        { category: "structure", score: 88, status: "ready", evaluation: "evaluated", reasons: [], tasks: [], evidence: [] },
+        { category: "completeness", score: 100, status: "ready", evaluation: "evaluated", reasons: [], tasks: [], evidence: [] },
+        { category: "usefulness", score: 85, status: "ready", evaluation: "evaluated", reasons: [], tasks: [], evidence: [] },
+        { category: "htmlQuality", score: 100, status: "ready", evaluation: "evaluated", reasons: [], tasks: [], evidence: [] },
+        { category: "imageStrategy", score: 100, status: "ready", evaluation: "evaluated", reasons: [], tasks: [], evidence: [] },
+        { category: "internalLinks", score: 100, status: "ready", evaluation: "not_evaluated", reasons: [], tasks: [], evidence: [] },
+        { category: "cta", score: 100, status: "ready", evaluation: "not_evaluated", reasons: [], tasks: [], evidence: [] },
+      ],
+      tasks: [{ category: "readability", message: "문단 흐름을 보완하세요." }],
+    };
+    const normalized = normalizeQualityReview(report);
+    expect(normalized.status).toBe("improvement_required");
+    expect(normalized.actionableTasks[0]?.message).toContain("전체 95점 이상");
+    expect(normalized.actionableTasks[0]?.message).toContain("가독성 88점(표준 95점 필요, 예외 90점 필요)");
+  });
+
   it("marks a revision mismatch as stale", () => {
     const report = new QualityEngine().review(document, { contentType: "article", platform: "tistory", primaryKeyword: "내용", searchIntent: "내용" });
     expect(normalizeQualityReview(report, { currentRevisionId: "rev-new" }).status).toBe("stale");
@@ -55,5 +82,4 @@ describe("Quality Review UI compatibility normalization", () => {
     };
     expect(normalizeQualityReview(report)).toMatchObject({ status: "ready", approvalType: "exception", overallScore: 92 });
   });
-
 });
