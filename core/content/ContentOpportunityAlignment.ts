@@ -39,7 +39,7 @@ export function analyzeContentOpportunityAlignment(
   const topicTerms = distinctiveTerms(opportunity.selectedTopic);
   const keywordTerms = distinctiveTerms(opportunity.primaryKeyword);
   const coreTerms = [...new Set([...topicTerms, ...keywordTerms])];
-  const topicKeywordCoverage = coverage(topicTerms, opportunity.primaryKeyword);
+  const topicKeywordCoverage = coverage(keywordTerms, opportunity.selectedTopic);
   const headingCoreCoverage = coverage(coreTerms, headings);
   const bodyCoreCoverage = coverage(coreTerms, body);
   const intentTerms = contentIntentTerms(opportunity.searchIntent);
@@ -49,10 +49,10 @@ export function analyzeContentOpportunityAlignment(
   const expectedCoverage = opportunity.expectedCoverage.filter((item) => phraseOrTermCoverage(item, allText));
   const titleHasKeyword = titleContainsPrimaryKeyword(document.title, opportunity.primaryKeyword);
   const bodyHasKeyword = phraseOrTermCoverage(opportunity.primaryKeyword, body);
-  const topicKeywordPass = topicTerms.length === 0 || topicKeywordCoverage >= 0.5;
+  const topicKeywordPass = keywordTerms.length === 0 || topicKeywordCoverage >= 0.6;
   const headingPass = coreTerms.length === 0 || headingCoreCoverage >= 0.34;
-  const bodyPass = bodyHasKeyword || coreTerms.length === 0 || bodyCoreCoverage >= 0.5;
-  const intentPass = intentTerms.length === 0 || intentCoverage >= 0.5;
+  const bodyPass = bodyHasKeyword || coreTerms.length === 0 || bodyCoreCoverage >= 0.5 || (titleHasKeyword && bodyCoreCoverage >= 0.34);
+  const intentPass = intentTerms.length === 0 || intentCoverage >= 0.5 || (titleHasKeyword && intentCoverage >= 0.34);
   const secondaryPass = opportunity.secondaryKeywords.length < 2
     || supportedSecondary.length >= Math.ceil(opportunity.secondaryKeywords.length / 2);
   const expectedPass = opportunity.expectedCoverage.length === 0
@@ -70,10 +70,11 @@ export function analyzeContentOpportunityAlignment(
     ...(pass ? {} : { detectedMismatch: mismatch, blockingReason: mismatch }),
     correctionApplied: false,
   });
-  const topicFidelity = signal(topicKeywordPass && bodyPass, Math.min(topicKeywordCoverage, bodyCoreCoverage) * 100, [
+  const topicFidelity = signal(topicKeywordPass && titleTopicPass && bodyPass, Math.min(topicKeywordCoverage, Math.max(titleCoreCoverage, bodyCoreCoverage)) * 100, [
     `선정 주제: ${opportunity.selectedTopic}`,
+    `대표 키워드의 선정 주제 반영률: ${percent(topicKeywordCoverage)}`,
     `본문 핵심어 반영률: ${percent(bodyCoreCoverage)}`,
-  ], "선정 주제와 대표 키워드의 핵심 개념이 본문 중심 내용에 함께 반영되지 않았습니다.");
+  ], "선정 주제와 대표 키워드의 핵심 개념이 제목과 본문 중심 내용에 함께 반영되지 않았습니다.");
   const primaryKeywordAlignment = signal(bodyPass, bodyCoreCoverage * 100, [
     `대표 키워드: ${opportunity.primaryKeyword}`,
     `본문 대표 키워드/핵심어 반영: ${bodyHasKeyword ? "직접 확인" : percent(bodyCoreCoverage)}`,
