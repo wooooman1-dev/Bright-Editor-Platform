@@ -291,7 +291,7 @@ describe("studio planning endpoint", () => {
     expect(reviewBody.input).toContain("distinct editorial purpose and section context");
   });
 
-  it("preserves the canonical draft and diagnostics while skipping review after a generation gate failure", async () => {
+  it("preserves the canonical draft and diagnostics when generation gate rejects incomplete content", async () => {
     vi.stubEnv("OPENAI_API_KEY", "sk-test-ascii-key");
     const current = await studioStore.get<UserData>("application", "user-data");
     const generating: UserData = {
@@ -347,8 +347,8 @@ describe("studio planning endpoint", () => {
       reachedTarget?: boolean;
     };
     expect(response.status).toBe(200);
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    expect(result.callCounts).toEqual({ generation: 1, review: 0 });
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(result.callCounts).toEqual({ generation: 1, review: 1 });
     expect(result.reachedTarget).toBe(false);
     expect(result.document?.title).toBe("Canonical guide");
     expect(result.diagnostic?.code).toBe("CONTENT_INCOMPLETE_SECTION");
@@ -360,10 +360,10 @@ describe("studio planning endpoint", () => {
     expect(result.data?.contents[0].generationError).toBeUndefined();
     expect(result.data?.contents[0].generationDiagnostic?.code).toBe("CONTENT_INCOMPLETE_SECTION");
     expect(result.data?.contents[0].planningWorkflow).toMatchObject({
-      status: "generated",
-      lastSuccessfulStep: "generation",
+      status: "failed",
+      lastSuccessfulStep: "confirmation",
+      failedStep: "review",
     });
-    expect(result.data?.contents[0].planningWorkflow).not.toHaveProperty("failedStep");
   });
 
   it("restores the confirmed keyword when Final Review returns a title without it", async () => {
