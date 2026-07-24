@@ -5,6 +5,12 @@ import {
   type ContentSectionType,
   type ContentTargetRange,
 } from "./ContentDepthPolicy";
+import {
+  normalizeStructuredText,
+  structuredListItems,
+  structuredProseText,
+  structuredTableCount,
+} from "./StructuredText";
 
 export type InformationSufficiencyStatus = "missing" | "mentioned" | "sufficient";
 
@@ -82,11 +88,11 @@ export function analyzeLongFormDocument(document: ContentDocument, requestedTarg
   const target = requestedTarget ?? document.metadata?.qualityTarget ?? determineContentPlanQualityTarget({ contentType: "article" });
   const boundaries = document.metadata?.longFormStructure;
   const byId = new Map(document.blocks.map((block) => [block.id, block]));
-  const introductionText = boundaries ? textForIds(boundaries.introductionBlockIds, byId) : textBeforeFirstH2(document);
-  const conclusionText = boundaries ? textForIds(boundaries.conclusionBlockIds, byId) : "";
+  const introductionText = normalizeStructuredText(boundaries ? textForIds(boundaries.introductionBlockIds, byId) : textBeforeFirstH2(document));
+  const conclusionText = normalizeStructuredText(boundaries ? textForIds(boundaries.conclusionBlockIds, byId) : "");
   const sectionDetails = boundaries
     ? boundaries.sections.map((section) => {
-      const text = textForIds(section.paragraphBlockIds, byId);
+      const text = normalizeStructuredText(textForIds(section.paragraphBlockIds, byId));
       return Object.freeze({
         text,
         diagnostic: sectionDiagnostic(
@@ -99,9 +105,13 @@ export function analyzeLongFormDocument(document: ContentDocument, requestedTarg
     })
     : inferSections(document, target);
   const sections = sectionDetails.map((item) => item.diagnostic);
-  const paragraphs = document.blocks.filter((block) => block.type === "paragraph").map((block) => block.text);
+  const paragraphs = document.blocks
+    .filter((block) => block.type === "paragraph")
+    .map((block) => normalizeStructuredText(block.text));
   const total = paragraphs.reduce((sum, text) => sum + withoutWhitespace(text), 0);
-  const fullText = document.blocks.flatMap((block) => block.type === "paragraph" || block.type === "heading" ? [block.text] : []).join("\n");
+  const fullText = document.blocks
+    .flatMap((block) => block.type === "paragraph" || block.type === "heading" ? [normalizeStructuredText(block.text)] : [])
+    .join("\n");
   const requiredContentElements = target.requiredContentElements.map((element) => {
     const status = requirementStatus(element, fullText, introductionText, conclusionText, sectionDetails);
     return Object.freeze({ element, status, satisfied: status === "sufficient" });
@@ -163,23 +173,24 @@ export function formatLongFormDiagnostic(diagnostic: LongFormDiagnostic): string
 }
 
 function sectionDiagnostic(heading: string, sectionType: ContentSectionType, text: string, target: ContentPlanQualityTarget): LongFormSectionDiagnostic {
-  const listItemCount = count(text, /(?:^|\n)\s*(?:[-*•]|\d+[.)])\s+\S/gm);
-  const tableCount = count(text, /(?:^|\n)\s*\|.+\|\s*(?:\n|$)/gm) >= 2 ? 1 : 0;
-  const sentenceElements = informationSentenceCount(text);
+  const normalizedText = normalizeStructuredText(text);
+  const listItemCount = structuredListItems(normalizedText).length;
+  const tableCount = structuredTableCount(text);
+  const sentenceElements = informationSentenceCount(structuredProseText(normalizedText));
   const informationElementCount = sentenceElements + listItemCount + tableCount * 3;
   const guidance = target.sectionGuidance[sectionType];
   const structureSatisfied =
     (sectionType === "checklist" ? listItemCount >= guidance.minimumListItems || informationElementCount >= guidance.minimumInformationElements + 1 : true)
-    && (sectionType === "steps" ? listItemCount >= guidance.minimumListItems || orderedActionSignals(text) >= 3 : true)
-    && (sectionType === "comparison" ? tableCount > 0 || comparisonSignals(text) >= 3 : true)
-    && (sectionType === "faq" ? questionAnswerSignals(text) >= 2 : true);
-  const completeness: InformationSufficiencyStatus = !text.trim()
+    && (sectionType === "steps" ? listItemCount >= guidance.minimumListItems || orderedActionSignals(normalizedText) >= 3 : true)
+    && (sectionType === "comparison" ? tableCount > 0 || comparisonSignals(normalizedText) >= 3 : true)
+    && (sectionType === "faq" ? questionAnswerSignals(normalizedText) >= 2 : true);
+  const completeness: InformationSufficiencyStatus = !normalizedText
     ? "missing"
     : informationElementCount >= guidance.minimumInformationElements && structureSatisfied ? "sufficient" : "mentioned";
   return Object.freeze({
     heading,
     sectionType,
-    proseCharacters: withoutWhitespace(text),
+    proseCharacters: withoutWhitespace(normalizedText),
     listItemCount,
     tableCount,
     informationElementCount,
@@ -194,12 +205,17 @@ function inferSections(document: ContentDocument, target: ContentPlanQualityTarg
   let text: string[] = [];
   const flush = () => {
     if (!heading) return;
-    const joined = text.join("\n");
+    const joined = normalizeStructuredText(text.join("\n"));
     result.push(Object.freeze({ text: joined, diagnostic: sectionDiagnostic(heading, inferSectionType(heading), joined, target) }));
   };
   for (const block of document.blocks) {
-    if (block.type === "heading" && block.level === 2) { flush(); heading = block.text; text = []; }
-    else if (heading && block.type === "paragraph") text.push(block.text);
+    if (block.type === "heading" && block.level === 2) {
+      flush();
+      heading = normalizeStructuredText(block.text);
+      text = [];
+    } else if (heading && block.type === "paragraph") {
+      text.push(normalizeStructuredText(block.text));
+    }
   }
   flush();
   return result;
@@ -248,9 +264,13 @@ function requirementSignal(requirement: string): RegExp {
 }
 
 function roleStatus(text: string, minimumElements: number, signal?: RegExp): InformationSufficiencyStatus {
-  if (!text.trim()) return "missing";
-  if (signal && !signal.test(text)) return "mentioned";
-  return informationSentenceCount(text) >= minimumElements ? "sufficient" : "mentioned";
+  const normalizedText = normalizeStructuredText(text);
+  if (!normalizedText) return "missing";
+  if (signal && !signal.test(normalizedText)) return "mentioned";
+  const elements = informationSentenceCount(structuredProseText(normalizedText))
+    + structuredListItems(normalizedText).length
+    + structuredTableCount(text) * 3;
+  return elements >= minimumElements ? "sufficient" : "mentioned";
 }
 
 function termCoverage(requirement: string, text: string): boolean {
@@ -262,8 +282,8 @@ function termCoverage(requirement: string, text: string): boolean {
 }
 
 function semanticTerms(value: string): string[] {
-  const particles = /(?:에게서|으로부터|에서부터|에게|께서|보다|처럼|까지|부터|으로|에서|하고|이며|이고|의|은|는|이|가|을|를|와|과|에|로|도|만)$/u;
-  return value.normalize("NFKC").toLocaleLowerCase("ko-KR")
+  const particles = /(?:에게서|으로부터|에서부터|에게|께서|보다|처럼|까지|부터|으로|에서|하고|이며|이고|와|과|을|를|은|는|이|가|의|에|도|만)$/u;
+  return normalizeStructuredText(value).toLocaleLowerCase("ko-KR")
     .replace(/[^0-9a-z가-힣\s]/gi, " ")
     .split(/\s+/)
     .map((term) => term.replace(particles, ""))
@@ -271,14 +291,18 @@ function semanticTerms(value: string): string[] {
 }
 
 function informationSentenceCount(text: string): number {
-  return text.split(/(?:[.!?。！？]+|\n+)/).filter((item) => item.trim().length >= 12).length;
+  return normalizeStructuredText(text).split(/(?:[.!?。！？]+|\n+)/).filter((item) => item.trim().length >= 12).length;
 }
-function orderedActionSignals(text: string): number { return count(text, /(?:^|\n)\s*\d+[.)]\s+|먼저|다음으로|마지막으로|첫째|둘째|셋째/gm); }
+function orderedActionSignals(text: string): number {
+  const normalized = normalizeStructuredText(text);
+  return count(normalized, /(?:^|\n)\s*\d+[.)]\s+\S/gm)
+    + count(normalized, /먼저|다음(?:으로)?|마지막(?:으로)?|첫째|둘째|셋째/g);
+}
 function comparisonSignals(text: string): number { return count(text, /비교|차이|장점|단점|반면|기준|선택|적합/g); }
 function questionAnswerSignals(text: string): number { return count(text, /\?|질문|답변|Q[:.]|A[:.]/gi); }
 
 function repetitionSignals(paragraphs: readonly string[]): string[] {
-  const normalized = paragraphs.map((item) => item.normalize("NFKC").replace(/\s+/g, "").replace(/[^\p{L}\p{N}]/gu, ""));
+  const normalized = paragraphs.map((item) => normalizeStructuredText(item).replace(/\s+/g, "").replace(/[^\p{L}\p{N}]/gu, ""));
   const warnings: string[] = [];
   for (let left = 0; left < normalized.length; left += 1) {
     if (normalized[left].length < 40) continue;
@@ -287,7 +311,8 @@ function repetitionSignals(paragraphs: readonly string[]): string[] {
         warnings.push(`paragraphs ${left + 1} and ${right + 1} are identical`);
         break;
       }
-      const a = new Set(chunks(normalized[left], 18)), b = new Set(chunks(normalized[right], 18));
+      const a = new Set(chunks(normalized[left], 18));
+      const b = new Set(chunks(normalized[right], 18));
       const overlap = [...a].filter((item) => b.has(item)).length;
       if (a.size && b.size && overlap / Math.min(a.size, b.size) >= 0.8) {
         warnings.push(`paragraphs ${left + 1} and ${right + 1} are substantially duplicated`);
@@ -304,15 +329,20 @@ function chunks(value: string, size: number): string[] {
   return result;
 }
 function textForIds(ids: readonly string[], blocks: ReadonlyMap<string, ContentDocument["blocks"][number]>): string {
-  return ids.flatMap((id) => { const block = blocks.get(id); return block?.type === "paragraph" ? [block.text] : []; }).join("\n");
+  return ids.flatMap((id) => {
+    const block = blocks.get(id);
+    return block?.type === "paragraph" ? [normalizeStructuredText(block.text)] : [];
+  }).join("\n");
 }
 function headingForId(id: string, blocks: ReadonlyMap<string, ContentDocument["blocks"][number]>): string {
   const block = blocks.get(id);
-  return block?.type === "heading" ? block.text : "제목 없음";
+  return block?.type === "heading" ? normalizeStructuredText(block.text) : "제목 없음";
 }
 function textBeforeFirstH2(document: ContentDocument): string {
   const index = document.blocks.findIndex((block) => block.type === "heading" && block.level === 2);
-  return document.blocks.slice(0, index < 0 ? document.blocks.length : index).flatMap((block) => block.type === "paragraph" ? [block.text] : []).join("\n");
+  return document.blocks.slice(0, index < 0 ? document.blocks.length : index)
+    .flatMap((block) => block.type === "paragraph" ? [normalizeStructuredText(block.text)] : [])
+    .join("\n");
 }
 function withoutWhitespace(value: string): number { return value.replace(/\s/g, "").length; }
 function count(value: string, pattern: RegExp): number { return [...value.matchAll(pattern)].length; }
