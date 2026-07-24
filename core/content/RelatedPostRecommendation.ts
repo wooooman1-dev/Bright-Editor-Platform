@@ -20,29 +20,28 @@ export function rankRelatedPosts(document: ContentDocument, candidates: readonly
 }
 
 export function placeRecommendedPosts(document: ContentDocument, ranked: readonly PublicPostCandidate[]): ContentDocument {
-  if (!ranked.length) return document;
-
-  const blocks = normalizeMandatoryLinks(document.blocks);
-  const existingUrls = new Set(blocks.flatMap((block) => block.type === "button" && block.targetUrl ? [normalizeUrl(block.targetUrl)] : []));
+  const normalized = normalizeMandatoryLinks(document.blocks);
+  const relatedPosts = normalized.filter((block) => validPlacedLink(block, "related_post"));
+  const blocks = normalized.filter((block) => !validPlacedLink(block, "related_post"));
+  const existingUrls = new Set(normalized.flatMap((block) => block.type === "button" && block.targetUrl ? [normalizeUrl(block.targetUrl)] : []));
   const available = uniqueValidCandidates(ranked).filter((item) => !existingUrls.has(normalizeUrl(item.publishedUrl)));
 
   if (!blocks.some((block) => validPlacedLink(block, "internal_link")) && available[0]) {
     const headings = blocks.map((block, index) => block.type === "heading" && (block.level === 2 || block.level === 3) ? index : -1).filter((index) => index >= 0);
     const insertAt = (headings[Math.floor(headings.length / 2)] ?? Math.max(0, blocks.length - 1)) + 1;
     const candidate = available.shift()!;
-    blocks.splice(insertAt, 0, { id: uniqueBlockId(blocks, "auto-internal-link"), type: "button", purpose: "internal_link", label: candidate.title, targetUrl: candidate.publishedUrl, target: "_self", sourceExternalPostId: candidate.externalPostId });
+    blocks.splice(insertAt, 0, { id: uniqueBlockId([...blocks, ...relatedPosts], "auto-internal-link"), type: "button", purpose: "internal_link", label: candidate.title, targetUrl: candidate.publishedUrl, target: "_self", sourceExternalPostId: candidate.externalPostId });
   }
 
-  const used = new Set(blocks.flatMap((block) => block.type === "button" && block.targetUrl ? [normalizeUrl(block.targetUrl)] : []));
-  const existingRelatedUrls = new Set(blocks.flatMap((block) => validPlacedLink(block, "related_post") ? [normalizeUrl(block.targetUrl)] : []));
-  const missingRelatedPosts = Math.max(0, 3 - existingRelatedUrls.size);
+  const used = new Set([...blocks, ...relatedPosts].flatMap((block) => block.type === "button" && block.targetUrl ? [normalizeUrl(block.targetUrl)] : []));
+  const missingRelatedPosts = Math.max(0, 3 - relatedPosts.length);
 
   for (const item of available.filter((candidate) => !used.has(normalizeUrl(candidate.publishedUrl))).slice(0, missingRelatedPosts)) {
-    blocks.push({ id: uniqueBlockId(blocks, "auto-related-post"), type: "button", purpose: "related_post", label: item.title, targetUrl: item.publishedUrl, target: "_self", sourceExternalPostId: item.externalPostId });
+    relatedPosts.push({ id: uniqueBlockId([...blocks, ...relatedPosts], "auto-related-post"), type: "button", purpose: "related_post", label: item.title, targetUrl: item.publishedUrl, target: "_self", sourceExternalPostId: item.externalPostId });
     used.add(normalizeUrl(item.publishedUrl));
   }
 
-  return { ...document, blocks };
+  return { ...document, blocks: [...blocks, ...relatedPosts] };
 }
 
 function normalizeMandatoryLinks(blocks: ContentDocument["blocks"]): ContentDocument["blocks"][number][] {
