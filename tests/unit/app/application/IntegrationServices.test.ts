@@ -52,36 +52,37 @@ describe("integration infrastructure", () => {
     await new OpenAIProvider("sk-test", "gpt-5-mini").generate({ instruction: "generate", metadata: { task: "content-generation", contentType: "long-form blog article", platform: "tistory" } });
     const generationBody = JSON.parse(new TextDecoder().decode(fetchSpy.mock.calls[1]?.[1]?.body as Uint8Array));
     expect(generationBody).toMatchObject({
-      max_output_tokens: 12_000,
+      max_output_tokens: 11_000,
       text: {
         format: {
-          name: "structured_long_form_generation",
+          name: "structured_standard_generation",
           strict: true,
           schema: {
             required: expect.arrayContaining(["tags", "introduction", "sections", "conclusion"]),
             properties: {
               introduction: {
-                minItems: 5,
-                maxItems: 5,
-                items: { minLength: 100 },
+                minItems: 1,
+                maxItems: 8,
+                items: { type: "string" },
               },
               sections: {
-                minItems: 5,
-                maxItems: 6,
+                minItems: 1,
+                maxItems: 12,
                 items: {
+                  required: expect.arrayContaining(["sectionType"]),
                   properties: {
                     paragraphs: {
-                      minItems: 8,
-                      maxItems: 8,
-                      items: { minLength: 125 },
+                      minItems: 1,
+                      maxItems: 12,
+                      items: { type: "string" },
                     },
                   },
                 },
               },
               conclusion: {
-                minItems: 5,
-                maxItems: 5,
-                items: { minLength: 100 },
+                minItems: 1,
+                maxItems: 8,
+                items: { type: "string" },
               },
             },
           },
@@ -110,6 +111,19 @@ describe("integration infrastructure", () => {
       instruction: "generate",
       metadata: { task: "content-generation" },
     })).rejects.toThrow("max_output_tokens");
+    fetchSpy.mockRestore();
+  });
+
+  it("aborts the underlying Responses API request at the configured timeout without retrying", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+    }));
+    await expect(new OpenAIProvider("sk-test", "gpt-5.6-terra", 5).generate({
+      instruction: "generate once",
+      metadata: { task: "content-generation" },
+    })).rejects.toThrow("timed out after 5ms");
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    expect(fetchSpy.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
     fetchSpy.mockRestore();
   });
 

@@ -1,7 +1,7 @@
 import type { AIProvider } from "../../core/ai";
-import { analyzeLongFormDocument, longFormSafetyTarget, restoreProtectedImageAssets, type ContentDocument } from "../../core/content";
+import { analyzeLongFormDocument, normalizeContentPlanQualityTarget, restoreProtectedImageAssets, restoreVerifiedEditorialLinks, type ContentDocument, type ContentPlanQualityTarget } from "../../core/content";
 import { contentRevisionId, QualityEngine, type QualityReviewContext } from "../../core/quality";
-import { EditorialGenerationStrategy } from "./EditorialGenerationStrategy";
+import { contentOpportunityAIContext, EditorialGenerationStrategy } from "./EditorialGenerationStrategy";
 
 type ParseInput = Parameters<EditorialGenerationStrategy["parse"]>[1];
 type QualityReport = ReturnType<QualityEngine["review"]>;
@@ -18,8 +18,21 @@ export type EditorialQualityPipelineResult = Readonly<{
   finalReviewQuality: QualityReport;
   quality: QualityReport;
   qualityHistory: readonly QualityReport[];
+  providerDiagnostics?: import("../../core/ai").AIResponse["diagnostics"];
   reachedTarget: boolean;
 }>;
+
+export function contentDocumentAIContext(document: ContentDocument): ContentDocument {
+  if (!document.metadata) return document;
+  const excluded = new Set(["qualityTarget", "generationDiagnostic", "reviewDiagnostic"]);
+  const metadata = Object.freeze(Object.fromEntries(
+    Object.entries(document.metadata).filter(([key]) => !excluded.has(key)),
+  )) as NonNullable<ContentDocument["metadata"]>;
+  return Object.freeze({
+    ...document,
+    metadata,
+  });
+}
 
 export class EditorialQualityPipeline {
   constructor(
@@ -76,6 +89,7 @@ export class EditorialQualityPipeline {
       finalReviewQuality,
       quality: best.quality,
       qualityHistory: Object.freeze([generationQuality, finalReviewQuality]),
+      ...(finalResponse.diagnostics ? { providerDiagnostics: finalResponse.diagnostics } : {}),
       reachedTarget: meetsStandardApprovalTarget(best.document, best.quality),
     });
   }
@@ -88,7 +102,10 @@ export class EditorialQualityPipeline {
     qualityContext: QualityReviewContext,
   ): Promise<{ document: ContentDocument; quality: QualityReport; rejectionReason?: string }> {
     try {
-      const parsed = restoreProtectedImageAssets(current, this.strategy.parse(response, parseInput));
+      const parsed = preserveReviewMetadata(current, restoreVerifiedEditorialLinks(
+        current,
+        restoreProtectedImageAssets(current, this.strategy.parse(response, parseInput)),
+      ));
       const linkError = verifiedLinkError(current, parsed);
       const safetyError = manuscriptSafetyError(current, parsed);
       const shapeError = editorialShapeError(parsed, parseInput);
@@ -115,12 +132,16 @@ function singlePassFinalReviewInstruction(
   requiredInformation: readonly string[],
   opportunity: ParseInput["contentOpportunity"],
 ): string {
-  const diagnostics = manuscriptDiagnostics(document, requiredInformation);
-  const safeTargetGap = Math.max(0, 5_500 - diagnostics.proseCharactersWithoutSpaces);
-  const generationTargetGap = Math.max(0, 6_000 - diagnostics.proseCharactersWithoutSpaces);
+  const opportunityContext = opportunity ? contentOpportunityAIContext(opportunity) : undefined;
+  const target = normalizeContentPlanQualityTarget(
+    opportunityContext?.qualityTarget ?? document.metadata?.qualityTarget,
+    { contentType: "article" },
+  );
+  const diagnostics = manuscriptDiagnostics(document, requiredInformation, target);
+  const priorities = qualityPriorities(quality);
   return `${baseInstruction}
 
-This is the second and final AI call. Return the complete publish-ready canonical ContentDocument in this one response. Do not return a review, plan, score, explanation, or partial patch.
+This is the second and final AI call. Make only targeted editorial corrections to the current canonical document. Do not broadly rewrite strong sections or expand the manuscript into a new long-form draft. Return the complete publish-ready canonical ContentDocument in this one response. Do not return a review, plan, score, explanation, or partial patch.
 Mandatory server approval contract after your edit:
 - standard approval only; exception approval is not publish-ready
 - overallScore >= 95
@@ -131,51 +152,73 @@ Mandatory server approval contract after your edit:
 - every other scored quality dimension >= 80
 - usefulness >= 90
 - no blocked finding and no Content Opportunity mismatch
-- final body >= 5,500 non-whitespace prose characters, with a preferred target of 6,000–6,500
-- five to six developed H2 sections and no shallow H2
-- preserve the current H2 count and paragraph boundaries; do not merge or delete developed paragraphs
-- with six H2 sections, every H2 must contain about 800–900 non-whitespace prose characters; with five, every H2 must contain about 920–1,000
-- no final H2 may be shorter than its current measured prose count
-- introduction and conclusion must each contain about 400–500 non-whitespace prose characters; place the conclusion after the last H2 as one developed paragraph so its boundary remains unambiguous
+- preserve contentDepth ${target.contentDepth} and the same Planning information contract: ${JSON.stringify(target)}
+- preserve every current H2 and its editorial role unless removing a demonstrably duplicate section
+- preserve every required content element: ${target.requiredContentElements.join(" | ")}
 - repeated core advice = 0
-- at least three useful observable criteria, supported time/sequence conditions, decision rules, or concrete examples without invented medical thresholds
-Current prose length is ${diagnostics.proseCharactersWithoutSpaces} non-whitespace characters. Add at least ${safeTargetGap} useful characters to reach the safety target and preferably ${generationTargetGap} useful characters to reach the generation target. Do not create extra H2 sections merely to add length; deepen the existing sections with new information.
-The final manuscript must never be shorter than the current ${diagnostics.proseCharactersWithoutSpaces}-character manuscript. Removing repetition means replacing it in the same section with distinct useful information, not shortening the article. Preserve every current H2 and keep each final H2 at or above the corresponding measured count in headingCharacterCounts. Before returning JSON, recount the final introduction, every H2, the conclusion, and the complete prose without whitespace; expand any deficient boundary in this same response.
+  Work from the explicit priority list below. Correct blocked and below-threshold dimensions first, using their reasons, tasks, and evidence. Do not rewrite or expand a dimension that already meets its threshold unless a priority correction requires a small consistency edit. Judge every required element as missing, merely mentioned, or sufficiently explained. Only sufficient information counts as complete. Add only a small missing fact, criterion, example, caution, or next action when needed. Remove repetition and verbose explanation. When repeatedCoreAdviceCount is nonzero, keep the strongest occurrence in its owning H2 and delete or replace later repetitions with genuinely new section-specific information. When practicalToolSignals are insufficient, convert existing generic advice into a usable checklist, ordered decision path, comparison criteria, or worked application instead of appending general prose. A comparison may use a table, criteria, and lists instead of prose when that is clearer. When two candidates have equal quality, prefer the more concise result. Stop editing when the search intent and reader problem are fully resolved. This is not another AI call.
 Reader usefulness is a mandatory final-edit contract. Do not respond to a low usefulness score by merely adding sentences, rephrasing the same point, or filling length with general advice. Use the Quality report, manuscript diagnostics, required information, confirmed search intent, outline, H2 headings, and current section structure to identify which H2 fails to fulfill its own heading and editorial purpose, which H2 duplicates another section, which section lacks the concrete information appropriate to its purpose, and whether the conclusion lacks a useful next step. For every deficient section: identify the section purpose implied by the confirmed search intent, outline, and H2 heading; identify the information currently missing; add only the section-appropriate value such as a core concept, mechanism, distinguishing criterion, situation-specific difference, selection criterion, observable check, step sequence, applicability, exception, common mistake, or next action; remove or merge duplicate prose; and replace abstract encouragement with concrete explanation. Do not force methods, examples, cautions, or checklists into sections that do not need them. Every H2 must provide distinct new information, no H2 may consist only of generalities, and the conclusion must help the reader make a next decision or action rather than simply repeat the article. Preserve all already strong sections and do not damage approved keyword placement, links, images, or structure. Before returning JSON, verify for each H2: fulfillment of its heading and editorial purpose, the new information, the section-appropriate concrete value, and its distinction from every other section. If any H2 fails that check, revise it before returning the manuscript.
 Evidence integrity is a mandatory final-edit contract. Do not preserve or add any unsupported research, survey, statistic, percentage, probability, ranking, market-volume, treatment-effect, expert-consensus, or causal claim unless the current canonical document or supplied editorial context contains the exact approved evidence and source. Do not preserve or add fabricated first-person experience, product-use experience, treatment experience, or testimonial language unless the user explicitly supplied it as verified source material. When the Quality report or diagnostics signals unsupportedClaimSignal, fabricatedExperienceRisk, an unsupported evidence claim, or a blocked usefulness finding, remove the offending sentence or rewrite it as accurate general guidance, observable criteria, conditional wording, or a statement that individual results may differ. Never solve this by inventing a citation, source, number, or personal story. Before returning JSON, scan the full manuscript and ensure no such claim remains; a manuscript containing even one is not complete and must not be returned.
-The local scorer removes whitespace before measuring completeness. The complete body must contain at least 5,500 non-whitespace prose characters and should target 6,000–6,500, while the hard server rejection floor remains 4,800. Organize H2 sections according to the topic and confirmed search intent, not a fixed count. Every section must fulfill its own editorial purpose with sufficient depth and developed prose. Add methods, examples, comparisons, cautions, exceptions, or alternatives only where the section and reader intent genuinely require them; do not force the same checklist into every H2. Expand every shallow or incomplete section identified by diagnostics until it fully fulfills its H2 heading and editorial purpose. Do not use list-only filler to reach the target. Keyword placement is mandatory: preserve the exact primary keyword in the title, introduction, at least one relevant heading, distributed body prose, conclusion or summary, meta description, and a relevant image ALT; place every confirmed secondary keyword naturally in the section that actually explains it. Do not cluster keywords in one paragraph, omit them, or stuff them unnaturally. Preserve all verified links and attached image assets exactly. Preserve and fulfill the immutable Content Opportunity: ${JSON.stringify(opportunity ?? null)}.
-Current Rule Quality report: ${JSON.stringify(quality)}
-Manuscript diagnostics: ${JSON.stringify(diagnostics)}
+  Preserve the exact primary keyword naturally in the title, introduction, a relevant heading, distributed body prose, conclusion or summary, meta description, and a relevant image ALT; preserve every confirmed secondary keyword in the section that explains it. Preserve all verified links, tags, related posts, attached image assets and prompts, and longFormStructure metadata. Never create a URL that is not already verified and supplied. Preserve and fulfill the immutable Content Opportunity: ${JSON.stringify(opportunityContext ?? null)}.
+  Current Rule Quality report: ${JSON.stringify(quality)}
+  Priority corrections: ${JSON.stringify(priorities)}
+  Manuscript diagnostics: ${JSON.stringify(diagnostics)}
 Required information: ${JSON.stringify(requiredInformation)}
-Current canonical document: ${JSON.stringify(document)}`;
+  Current canonical document: ${JSON.stringify(contentDocumentAIContext(document))}`;
 }
 
-function manuscriptDiagnostics(document: ContentDocument, requiredInformation: readonly string[]) {
+function qualityPriorities(quality: QualityReport) {
+  const minimums: Readonly<Record<string, number>> = {
+    searchIntent: 95,
+    seo: 95,
+    readability: 95,
+    completeness: 95,
+    usefulness: 90,
+  };
+  const dimensions = quality.dimensions
+    .filter((dimension) => dimension.status === "blocked" || dimension.score < (minimums[dimension.category] ?? 80))
+    .map((dimension) => ({
+      category: dimension.category,
+      score: dimension.score,
+      requiredScore: minimums[dimension.category] ?? 80,
+      status: dimension.status,
+      reasons: dimension.reasons,
+      evidence: dimension.evidence,
+    }));
+  return Object.freeze({
+    dimensions: Object.freeze(dimensions),
+    tasks: Object.freeze(quality.tasks),
+  });
+}
+
+function manuscriptDiagnostics(document: ContentDocument, requiredInformation: readonly string[], target: ContentPlanQualityTarget) {
   const text = document.blocks.flatMap((block) => block.type === "paragraph" || block.type === "heading" ? [block.text] : []).join("\n");
-  const longForm = analyzeLongFormDocument(document);
+  const longForm = analyzeLongFormDocument(document, target);
   const sections = longForm.sections.map((section) => ({
     heading: section.heading,
-    characters: section.proseCharacters,
+    sectionType: section.sectionType,
+    completeness: section.completeness,
+    informationElementCount: section.informationElementCount,
+    listItemCount: section.listItemCount,
+    tableCount: section.tableCount,
   }));
-  const shallowParagraphs = document.blocks.flatMap((block, index) => block.type === "paragraph" && (block.text.length < 90 || sentenceCount(block.text) < 2) ? [{ blockIndex: index, characters: block.text.length, excerpt: block.text.slice(0, 100) }] : []);
   return {
-    headingCharacterCounts: sections,
-    insufficientHeadings: sections.filter((section) => section.characters < 450),
+    sections,
+    incompleteSections: longForm.violations.filter((item) => item.code === "CONTENT_INCOMPLETE_SECTION"),
+    requiredContentElements: longForm.requiredContentElements,
+    repetitionWarnings: longForm.repetitionWarnings,
     missingRequiredInformation: requiredInformation.filter((item) => !requirementCovered(text, item)),
-    introductionCharacters: longForm.introductionCharacters,
-    proseCharacters: document.blocks.filter((block) => block.type === "paragraph").reduce((sum, block) => sum + block.text.length, 0),
-    proseCharactersWithoutSpaces: longForm.totalProseCharacters,
     paragraphCount: document.blocks.filter((block) => block.type === "paragraph").length,
-    conclusionCharacters: longForm.conclusionCharacters,
-    repeatedOrShallowParagraphs: shallowParagraphs,
     linkState: document.blocks.flatMap((block) => block.type === "button" && (block.purpose === "internal_link" || block.purpose === "related_post") ? [{ label: block.label, purpose: block.purpose, target: block.target, url: block.targetUrl }] : []),
   };
 }
 
 function meetsStandardApprovalTarget(document: ContentDocument, report: QualityReport): boolean {
   if (!report.approved || report.approvalType !== "standard") return false;
-  const longForm = analyzeLongFormDocument(document);
-  if (longForm.totalProseCharacters < longFormSafetyTarget || longForm.violations.length) return false;
+  if (document.metadata?.qualityTarget) {
+    const diagnostic = analyzeLongFormDocument(document, document.metadata.qualityTarget);
+    if (diagnostic.violations.length) return false;
+  }
   if (report.overallScore < 95) return false;
   if (report.findings.some((finding) => finding.severity === "error")) return false;
   if (report.dimensions.some((dimension) => dimension.status === "blocked")) return false;
@@ -192,11 +235,18 @@ function meetsStandardApprovalTarget(document: ContentDocument, report: QualityR
 }
 
 function betterThan(candidateDocument: ContentDocument, candidate: QualityReport, bestDocument: ContentDocument, best: QualityReport): boolean {
-  if (verifiedLinkError(bestDocument, candidateDocument) || manuscriptSafetyError(bestDocument, candidateDocument)) return false;
-  if (candidate.approved) return true;
-  if (best.approved) return false;
+  if (verifiedLinkError(bestDocument, candidateDocument) || manuscriptSafetyError(bestDocument, candidateDocument) || detectEditorialReviewRegression(bestDocument, candidateDocument)) return false;
+  const candidateStandard = candidate.approved && candidate.approvalType === "standard";
+  const bestStandard = best.approved && best.approvalType === "standard";
+  if (candidateStandard && !bestStandard) return true;
+  if (bestStandard && !candidateStandard) return false;
+  if (candidate.approved && !best.approved) return true;
+  if (best.approved && !candidate.approved) return false;
   const candidateVector = qualityVector(candidate), bestVector = qualityVector(best);
-  return candidateVector.some((value, index) => value !== bestVector[index] && value > bestVector[index] && candidateVector.slice(0, index).every((prior, priorIndex) => prior === bestVector[priorIndex]));
+  const improved = candidateVector.some((value, index) => value !== bestVector[index] && value > bestVector[index] && candidateVector.slice(0, index).every((prior, priorIndex) => prior === bestVector[priorIndex]));
+  if (improved) return true;
+  return candidateVector.every((value, index) => value === bestVector[index])
+    && proseTelemetry(candidateDocument) < proseTelemetry(bestDocument);
 }
 
 function qualityVector(report: QualityReport) {
@@ -221,11 +271,52 @@ function manuscriptSafetyError(current: ContentDocument, candidate: ContentDocum
 }
 function editorialShapeError(document: ContentDocument, parseInput: ParseInput): string | undefined {
   if (!/tistory|blog|article|long-form|장문|guide/i.test(`${parseInput.platform} ${parseInput.contentType}`)) return undefined;
-  const charactersWithoutSpaces = document.blocks.filter((block) => block.type === "paragraph").reduce((sum, block) => sum + block.text.replace(/\s/g, "").length, 0);
-  const h2 = document.blocks.filter((block) => block.type === "heading" && block.level === 2).length;
-  return charactersWithoutSpaces < longFormSafetyTarget || h2 < 5 || h2 > 6 ? "editorial_length_or_h2_out_of_range" : undefined;
+  const target = parseInput.contentOpportunity?.qualityTarget ?? document.metadata?.qualityTarget;
+  if (!target) {
+    const paragraphs = document.blocks.filter((block) => block.type === "paragraph" && block.text.trim());
+    const h2 = document.blocks.filter((block) => block.type === "heading" && block.level === 2).length;
+    return paragraphs.length === 0 || h2 === 0 ? "editorial_shape_incomplete" : undefined;
+  }
+  const diagnostic = analyzeLongFormDocument(document, target);
+  return diagnostic.violations.length ? `editorial_target_violation:${diagnostic.violations[0]?.code}` : undefined;
 }
 function unsafeSignals(document: ContentDocument) { const text = document.blocks.flatMap((block) => block.type === "paragraph" ? [block.text] : []).join(" "); return { experience: count(text, /(?:제가|저는|직접 해봤|경험상|사용해 보니)/g), unsupportedClaims: count(text, /(?:\d+(?:\.\d+)?\s*%|\d+\s*명 중|\d+(?:\.\d+)?\s*배|연구에 따르면)/g) }; }
 function requirementCovered(text: string, requirement: string) { const terms = requirement.toLowerCase().replace(/[^0-9a-z가-힣\s]/g, " ").split(/\s+/).filter((term) => term.length >= 2); return terms.length === 0 || terms.filter((term) => text.toLowerCase().includes(term)).length >= Math.max(1, Math.ceil(terms.length * 0.5)); }
-function sentenceCount(value: string) { return value.split(/(?:[.!?。！？]+|습니다|합니다|됩니다|있습니다|없습니다|입니다|세요)\s*/).filter((item) => item.trim()).length; }
 function count(value: string, pattern: RegExp) { return [...value.matchAll(pattern)].length; }
+
+function preserveReviewMetadata(current: ContentDocument, candidate: ContentDocument): ContentDocument {
+  const baseMetadata = candidate.metadata ?? current.metadata;
+  if (!baseMetadata) return candidate;
+  const metadata = {
+    ...baseMetadata,
+    qualityTarget: current.metadata?.qualityTarget ?? candidate.metadata?.qualityTarget,
+    longFormStructure: candidate.metadata?.longFormStructure ?? current.metadata?.longFormStructure,
+    ...(candidate.metadata?.tags?.length ? { tags: candidate.metadata.tags } : current.metadata?.tags?.length ? { tags: current.metadata.tags } : {}),
+    generationDiagnostic: current.metadata?.generationDiagnostic,
+  };
+  const diagnostic = analyzeLongFormDocument({ ...candidate, metadata }, metadata.qualityTarget);
+  return Object.freeze({ ...candidate, metadata: Object.freeze({ ...metadata, reviewDiagnostic: diagnostic }) });
+}
+
+export function detectEditorialReviewRegression(current: ContentDocument, candidate: ContentDocument): string | undefined {
+  const target = current.metadata?.qualityTarget ?? candidate.metadata?.qualityTarget;
+  const before = analyzeLongFormDocument(current, target);
+  const after = analyzeLongFormDocument(candidate, target);
+  const beforeHeadings = before.sections.map((item) => item.heading.trim());
+  const afterHeadings = after.sections.map((item) => item.heading.trim());
+  if (JSON.stringify(beforeHeadings) !== JSON.stringify(afterHeadings)) return "h2_structure_changed";
+  if (!target) return undefined;
+  if (before.requiredContentElements.some((item) => item.satisfied && !after.requiredContentElements.find((next) => next.element === item.element)?.satisfied)) return "required_content_element_removed";
+  if (before.sections.some((item, index) =>
+    item.completeness === "sufficient" && after.sections[index]?.completeness !== "sufficient")) {
+    return "section_completeness_regressed";
+  }
+  const beforeInformation = before.sections.reduce((sum, item) => sum + item.informationElementCount, 0);
+  const afterInformation = after.sections.reduce((sum, item) => sum + item.informationElementCount, 0);
+  if (afterInformation < beforeInformation * 0.7) return "information_elements_regressed";
+  return undefined;
+}
+
+function proseTelemetry(document: ContentDocument): number {
+  return document.blocks.reduce((sum, block) => block.type === "paragraph" ? sum + block.text.replace(/\s/g, "").length : sum, 0);
+}

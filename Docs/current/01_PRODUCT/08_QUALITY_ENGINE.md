@@ -12,7 +12,7 @@ Quality evaluation is not an optional feature.
 
 It is the final safeguard that protects the quality, consistency, and credibility of every piece of content produced by Bright Studio.
 
-The Quality Engine continuously reviews AI-generated content, recommends improvements, and automatically refines content until the required quality target is achieved.
+The Quality Engine validates the generated manuscript, supplies its findings to one final Quality Review, and preserves the measured result without automatic retry loops.
 
 ---
 
@@ -25,6 +25,14 @@ The objective is not to produce more content.
 The objective is to produce content that best satisfies the reader's intent.
 
 Every recommendation made by the Quality Engine should improve the reader experience.
+
+Content depth is planned per confirmed Content Opportunity as an information contract, not an article-length contract.
+
+New Planning supports `standard`, `deep`, and `comparison`. Legacy `quick` remains readable and uses the standard information policy. Planning stores core questions, required content elements, decision criteria, examples, warnings and exceptions, actionable next steps, structural needs, scope boundaries, topic complexity, and reader problem. Generation, final review, deterministic diagnostics, and publishing readiness use that same saved target.
+
+Required information is classified as `missing`, `mentioned`, or `sufficient`; only sufficient explanation counts as fulfilled. A concise manuscript may pass when it fully resolves search intent and the reader problem. A long manuscript still fails when it repeats advice, omits required information, contains incomplete sections, or drifts from the confirmed Opportunity.
+
+Section completeness is evaluated by role. Explanation sections require developed prose; checklist and steps sections may use dense items; comparisons may use tables and decision criteria; warnings require risk signals and next actions; FAQ, summary, and case-example sections use their own completion rules.
 
 ---
 
@@ -42,15 +50,15 @@ Content Processing
 
 ↓
 
-Quality Review
+Rule Validation
 
 ↓
 
-Automatic Improvements
+One Final Quality Review
 
 ↓
 
-Quality Re-evaluation
+Final Rule Validation
 
 ↓
 

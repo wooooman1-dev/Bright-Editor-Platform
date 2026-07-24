@@ -11,6 +11,8 @@ export type AIResponse = Readonly<{
     status?: string;
     incompleteReason?: string;
     outputTokens?: number;
+    requestTimeoutMs?: number;
+    elapsedMs?: number;
   }>;
 }>;
 

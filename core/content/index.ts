@@ -4,9 +4,26 @@ export {
   type ContentBlockType,
 } from "./ContentBlockType";
 export type { ContentDocument } from "./ContentDocument";
+export {
+  contentDepths,
+  contentSectionTypes,
+  determineContentPlanQualityTarget,
+  effectiveContentDepth,
+  normalizeContentPlanQualityTarget,
+  type ContentDepth,
+  type ContentDepthPolicyInput,
+  type ContentPlanQualityTarget,
+  type ContentSectionType,
+  type ContentTargetRange,
+  type LegacySectionLengthGuidance,
+  type PlannedContentDepth,
+  type SectionCompletenessGuidance,
+  type SectionLengthGuidance,
+} from "./ContentDepthPolicy";
 export { createContentOutline, type ContentOutlineEntry } from "./ContentOutline";
 export {
   assertConfirmedContentOpportunity,
+  applyContentDepthPolicy,
   confirmContentOpportunity,
   contentOpportunityKeywords,
   createContentOpportunityCandidate,
@@ -36,9 +53,6 @@ export {
   assertLongFormSafetyTarget,
   formatLongFormDiagnostic,
   LongFormValidationError,
-  longFormHardFloor,
-  longFormSafetyTarget,
-  longFormSectionFloor,
   requiresLongFormValidation,
   type LongFormDiagnostic,
   type LongFormSectionDiagnostic,

@@ -1,5 +1,11 @@
 import { normalizeSeoKeyword } from "./SeoKeywordPlacement";
 import type { EvidenceFreshness, EvidenceType, OpportunityEvidenceStatus, OpportunityRecommendationType } from "../intelligence";
+import {
+  determineContentPlanQualityTarget,
+  normalizeContentPlanQualityTarget,
+  type ContentDepthPolicyInput,
+  type ContentPlanQualityTarget,
+} from "./ContentDepthPolicy";
 
 export type ContentOpportunitySelectionMode = "automatic" | "userSpecified";
 export type OpportunityEvidenceSource = "verified" | "estimated" | "inferred" | "unknown";
@@ -28,9 +34,12 @@ export type ContentOpportunityCandidate = Readonly<{
   selectedTopic: string;
   primaryKeyword: string;
   secondaryKeywords: readonly string[];
+  /** Provider-returned label or phrase retained for diagnostics; never used as a literal alignment term. */
+  providerSearchIntent: string;
   searchIntent: string;
   audience: string;
   contentType: string;
+  qualityTarget: ContentPlanQualityTarget;
   contentAngle: string;
   readerProblem: string;
   expectedCoverage: readonly string[];
@@ -54,16 +63,47 @@ export type ConfirmedContentOpportunity = ContentOpportunityCandidate & Readonly
   confirmedAt: string;
 }>;
 
-export type ContentOpportunityDraft = Omit<ContentOpportunityCandidate, "opportunityId" | "version" | "fingerprint" | "recommendationType" | "evidenceIds" | "marketEvidenceStatus" | "internalGrowthEvidenceStatus" | "freshness" | "limitations" | "classificationVersion"> & Partial<Pick<ContentOpportunityCandidate, "recommendationType" | "evidenceIds" | "marketEvidenceStatus" | "internalGrowthEvidenceStatus" | "freshness" | "limitations" | "classificationVersion">>;
+export type ContentOpportunityDraft = Omit<ContentOpportunityCandidate, "opportunityId" | "version" | "fingerprint" | "qualityTarget" | "recommendationType" | "evidenceIds" | "marketEvidenceStatus" | "internalGrowthEvidenceStatus" | "freshness" | "limitations" | "classificationVersion" | "providerSearchIntent"> & Partial<Pick<ContentOpportunityCandidate, "qualityTarget" | "recommendationType" | "evidenceIds" | "marketEvidenceStatus" | "internalGrowthEvidenceStatus" | "freshness" | "limitations" | "classificationVersion" | "providerSearchIntent">>;
 
 export function createContentOpportunityCandidate(input: ContentOpportunityDraft): ContentOpportunityCandidate {
   const value = canonicalOpportunityValue(input);
   const fingerprint = fingerprintValue(value);
   return Object.freeze({
     ...value,
+    providerSearchIntent: required(input.providerSearchIntent ?? input.searchIntent, "providerSearchIntent"),
     opportunityId: `opportunity-${fingerprint.slice(3)}`,
     version: 1,
     fingerprint,
+  });
+}
+
+export function applyContentDepthPolicy(
+  candidate: ContentOpportunityCandidate,
+  context: Pick<ContentDepthPolicyInput, "projectStrategy" | "domain"> = {},
+): ContentOpportunityCandidate {
+  const planned = candidate.qualityTarget;
+  return createContentOpportunityCandidate({
+    ...candidate,
+    qualityTarget: determineContentPlanQualityTarget({
+      searchIntent: candidate.searchIntent,
+      contentType: candidate.contentType,
+      readerProblem: candidate.readerProblem,
+      audience: candidate.audience,
+      selectedTopic: candidate.selectedTopic,
+      expectedCoverage: candidate.expectedCoverage,
+      coreQuestions: planned.coreQuestions,
+      requiredContentElements: planned.requiredContentElements,
+      decisionCriteria: planned.decisionCriteria,
+      examplesNeeded: planned.examplesNeeded,
+      warningsOrExceptions: planned.warningsOrExceptions,
+      actionableNextSteps: planned.actionableNextSteps,
+      comparisonNeeds: planned.comparisonNeeds,
+      tableNeeds: planned.tableNeeds,
+      checklistNeeds: planned.checklistNeeds,
+      scopeBoundaries: planned.scopeBoundaries,
+      topicComplexity: planned.topicComplexity,
+      ...context,
+    }),
   });
 }
 
@@ -75,7 +115,8 @@ export function confirmContentOpportunity(
     throw new Error("선택한 콘텐츠 전략이 현재 프로젝트와 일치하지 않습니다.");
   }
   const verified = createContentOpportunityCandidate(candidate);
-  if (verified.fingerprint !== candidate.fingerprint || verified.opportunityId !== candidate.opportunityId) {
+  if ((verified.fingerprint !== candidate.fingerprint || verified.opportunityId !== candidate.opportunityId)
+    && !hasSelfConsistentLegacyFingerprint(candidate)) {
     throw new Error("선택한 콘텐츠 전략의 fingerprint가 유효하지 않습니다. 다시 분석해 주세요.");
   }
   return Object.freeze({
@@ -104,19 +145,21 @@ export function assertConfirmedContentOpportunity(
   if (!value) throw new Error("콘텐츠 기회를 먼저 선택해 주세요.");
   const verified = createContentOpportunityCandidate(value);
   const requestedVersion = Number(expected.opportunityVersion);
-  const mismatch = value.workspaceId !== expected.workspaceId
-    || value.projectId !== expected.projectId
-    || value.contentId !== expected.contentId
-    || value.opportunityId !== String(expected.opportunityId ?? "")
-    || value.version !== requestedVersion
-    || value.fingerprint !== String(expected.opportunityFingerprint ?? "")
-    || value.fingerprint !== verified.fingerprint
-    || !sameText(value.primaryKeyword, expected.primaryKeyword)
-    || !sameText(value.selectedTopic, expected.selectedTopic)
-    || !sameText(value.searchIntent, expected.searchIntent)
-    || !sameList(value.secondaryKeywords, expected.secondaryKeywords);
-  if (mismatch) {
-    throw new Error("선택한 콘텐츠 전략이 현재 원고와 일치하지 않습니다. 주제와 대표 키워드를 다시 확인해 주세요.");
+  const mismatches = [
+    value.workspaceId !== expected.workspaceId ? "workspaceId" : undefined,
+    value.projectId !== expected.projectId ? "projectId" : undefined,
+    value.contentId !== expected.contentId ? "contentId" : undefined,
+    value.opportunityId !== String(expected.opportunityId ?? "") ? "opportunityId" : undefined,
+    value.version !== requestedVersion ? "version" : undefined,
+    value.fingerprint !== String(expected.opportunityFingerprint ?? "") ? "fingerprint" : undefined,
+    value.fingerprint !== verified.fingerprint && !hasSelfConsistentLegacyFingerprint(value) ? "verifiedFingerprint" : undefined,
+    !sameText(value.primaryKeyword, expected.primaryKeyword) ? "primaryKeyword" : undefined,
+    !sameText(value.selectedTopic, expected.selectedTopic) ? "selectedTopic" : undefined,
+    !sameText(value.searchIntent, expected.searchIntent) ? "searchIntent" : undefined,
+    !sameList(value.secondaryKeywords, expected.secondaryKeywords) ? "secondaryKeywords" : undefined,
+  ].filter((item): item is string => Boolean(item));
+  if (mismatches.length) {
+    throw new Error(`선택한 콘텐츠 전략이 현재 원고와 일치하지 않습니다. 주제와 대표 키워드를 다시 확인해 주세요. 불일치 필드: ${mismatches.join(", ")}. fingerprint ${value.fingerprint}, verified ${verified.fingerprint}.`);
   }
   return value;
 }
@@ -132,7 +175,8 @@ export function contentOpportunityKeywords(opportunity: ContentOpportunityCandid
 export function hasCurrentContentOpportunityFingerprint(opportunity: ContentOpportunityCandidate): boolean {
   try {
     const verified = createContentOpportunityCandidate(opportunity);
-    return verified.fingerprint === opportunity.fingerprint && verified.opportunityId === opportunity.opportunityId && opportunity.version === 1;
+    return (verified.fingerprint === opportunity.fingerprint && verified.opportunityId === opportunity.opportunityId && opportunity.version === 1)
+      || hasSelfConsistentLegacyFingerprint(opportunity);
   } catch {
     return false;
   }
@@ -176,18 +220,32 @@ function canonicalOpportunityValue(input: ContentOpportunityDraft | ContentOppor
   if (!topicAndKeywordCoherent(selectedTopic, primaryKeyword)) {
     throw new Error("Content Opportunity의 선정 주제와 대표 키워드가 같은 검색 의도에 속하지 않습니다.");
   }
+  const readerProblem = required(input.readerProblem, "readerProblem");
+  const contentType = required(input.contentType, "contentType");
+  const searchIntent = normalizeSearchIntent(required(input.searchIntent, "searchIntent"), readerProblem);
+  const audience = required(input.audience, "audience");
+  const expectedCoverage = cleanList(input.expectedCoverage);
+  const qualityTarget = normalizeContentPlanQualityTarget(input.qualityTarget, {
+    searchIntent,
+    contentType,
+    readerProblem,
+    audience,
+    selectedTopic,
+    expectedCoverage,
+  });
   return Object.freeze({
     sourceRequest: required(input.sourceRequest, "sourceRequest"),
     selectionMode: input.selectionMode === "userSpecified" ? "userSpecified" as const : "automatic" as const,
     selectedTopic,
     primaryKeyword,
     secondaryKeywords: cleanList(input.secondaryKeywords),
-    searchIntent: required(input.searchIntent, "searchIntent"),
-    audience: required(input.audience, "audience"),
-    contentType: required(input.contentType, "contentType"),
+    searchIntent,
+    audience,
+    contentType,
+    qualityTarget,
     contentAngle: required(input.contentAngle, "contentAngle"),
-    readerProblem: required(input.readerProblem, "readerProblem"),
-    expectedCoverage: cleanList(input.expectedCoverage),
+    readerProblem,
+    expectedCoverage,
     selectionRationale: required(input.selectionRationale, "selectionRationale"),
     opportunityEvidence: Object.freeze(evidence),
     recommendationType: input.recommendationType === "comprehensive" || input.recommendationType === "marketOpportunity" ? input.recommendationType : "blogGrowth" as const,
@@ -210,6 +268,37 @@ function topicAndKeywordCoherent(topic: string, keyword: string): boolean {
   const keywordTerms = terms(keyword);
   if (!topicTerms.length || !keywordTerms.length) return normalizeSeoKeyword(topic).includes(normalizeSeoKeyword(keyword)) || normalizeSeoKeyword(keyword).includes(normalizeSeoKeyword(topic));
   return topicTerms.some((left) => keywordTerms.some((right) => left.includes(right) || right.includes(left)));
+}
+
+function hasSelfConsistentLegacyFingerprint(opportunity: ContentOpportunityCandidate): boolean {
+  const target = opportunity.qualityTarget as ContentPlanQualityTarget & Record<string, unknown>;
+  const legacy = target.contentDepth === "quick"
+    || "targetLengthRange" in target
+    || "targetSectionCount" in target
+    || "safetyFloor" in target
+    || "sectionLengthGuidance" in target
+    || !("coreQuestions" in target);
+  return legacy
+    && opportunity.version === 1
+    && /^fp-[0-9a-f]{8}$/.test(opportunity.fingerprint)
+    && opportunity.opportunityId === `opportunity-${opportunity.fingerprint.slice(3)}`;
+}
+
+function normalizeSearchIntent(value: string, readerProblem: string): string {
+  const normalized = value.normalize("NFKC").toLocaleLowerCase("en-US").replace(/[\s_-]+/g, " ").trim();
+  const genericIntent = ({
+    informational: "정보 탐색",
+    information: "정보 탐색",
+    transactional: "실행·전환",
+    commercial: "비교·선택",
+    navigational: "특정 정보 탐색",
+    comparison: "비교·선택",
+  } as const)[normalized];
+  if (genericIntent) return `${genericIntent}: ${readerProblem}`;
+  if (/^(?:정보형|정보성|정보\s*탐색)(?:\s*[·/+,&]\s*(?:실행형|실행성))?$/u.test(normalized)) {
+    return `정보 탐색 및 실행 준비: ${readerProblem}`;
+  }
+  return value;
 }
 
 function fingerprintValue(value: ReturnType<typeof canonicalOpportunityValue>): string {

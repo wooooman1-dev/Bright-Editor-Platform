@@ -1,14 +1,58 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { ContentPlanningStrategy, createManualPlanningResult, filterPlanningPlatforms, parsePlanningResult } from "../../../../app/application/ContentPlanningStrategy";
+import { ContentPlanningStrategy, createManualPlanningResult, filterPlanningPlatforms, parsePlanningResult, projectStrategyAIContext } from "../../../../app/application/ContentPlanningStrategy";
 
 const result = { interpretedIntent: "혈당 관리 글", domain: "health", targetAudience: "50대", contentGoal: "실천 안내", recommendedPrimaryKeyword: "50대 혈당 관리", keywordCandidates: ["50대 혈당 관리", "식후 걷기"], searchIntent: "informational", recommendedContentType: "guide", recommendedPlatforms: ["tistory"], suggestedTitleAngles: ["50대 혈당 관리 가이드"], relatedKeywords: ["식후 혈당"], contentCluster: ["운동", "식단"], recommendationReason: "요청과 독자에 적합", confidence: 0.86, estimateDisclosure: "AI estimate" };
 
 describe("natural-language content planning", () => {
+  it("projects only current AI strategy fields without mutating legacy stored data", () => {
+    const strategy = {
+      primaryTopic: "건강정보",
+      subtopics: ["검사 해석"],
+      excludedTopics: ["치료 단정"],
+      defaultContentType: "심층 건강 가이드",
+      defaultPlatform: "tistory",
+      targetLength: "4,500~6,000자",
+      targetAudience: "건강검진 결과를 받은 일반 성인",
+      tone: "친절하고 신뢰할 수 있는 설명",
+      internalLinkPolicy: "검증된 공개 글만 사용",
+      relatedPostPolicy: "관련 글 최대 3개",
+      ctaPolicy: "필요한 경우만 사용",
+      imageStrategy: "설명 목적 이미지",
+      seoPolicy: "Helpful · Reliable · People-first",
+      defaultPublishingAccountId: "connection-secret-boundary",
+      defaultTistoryCategory: { publishingAccountId: "connection-secret-boundary", id: "1038988", name: "건강정보" },
+    } as const;
+    const before = JSON.stringify(strategy);
+    const context = projectStrategyAIContext(strategy);
+    const serialized = JSON.stringify(context);
+
+    expect(serialized).not.toContain("targetLength");
+    expect(serialized).not.toContain("4,500~6,000자");
+    expect(serialized).not.toContain("defaultPublishingAccountId");
+    expect(serialized).not.toContain("publishingAccountId");
+    expect(context).toMatchObject({
+      primaryTopic: "건강정보",
+      targetAudience: "건강검진 결과를 받은 일반 성인",
+      tone: "친절하고 신뢰할 수 있는 설명",
+      seoPolicy: "Helpful · Reliable · People-first",
+      category: { id: "1038988", name: "건강정보" },
+    });
+    expect(JSON.stringify(strategy)).toBe(before);
+    expect(strategy.targetLength).toBe("4,500~6,000자");
+  });
+
   it("uses exactly one provider request and returns structured recommendations", async () => {
     const provider = { generate: vi.fn().mockResolvedValue({ content: JSON.stringify(result), model: "test" }) };
     const plan = await new ContentPlanningStrategy(provider).analyze("50대를 위한 혈당 관리 글을 만들고 싶어");
     expect(provider.generate).toHaveBeenCalledOnce();
+    const instruction = provider.generate.mock.calls[0]?.[0].instruction as string;
+    expect(instruction).toContain("contentDepth must be standard, deep, or comparison; never return quick");
+    expect(instruction).toContain("requiredContentElements");
+    expect(instruction).toContain("preserve all of the keyword's core concepts");
+    expect(instruction).toContain("not only a classification label");
+    expect(instruction).toContain("missing/mentioned/sufficient");
+    expect(instruction).not.toContain("targetLengthRange");
     expect(plan.recommendedPrimaryKeyword).toBe("50대 혈당 관리");
     expect(plan.estimateDisclosure).toContain("not measured");
   });
@@ -32,6 +76,9 @@ describe("natural-language content planning", () => {
     }), model: "test" }) };
     const plan = await new ContentPlanningStrategy(provider).analyze("아직 작성하지 않은 건강 주제를 골라줘", ["tistory"], { projectId: "project-1", selectionMode: "automatic" });
     expect(plan.opportunityCandidates).toHaveLength(2);
+    expect(plan.qualityTarget?.contentDepth).toBe("deep");
+    expect(plan.opportunityCandidates?.[0].qualityTarget).not.toHaveProperty("targetLengthRange");
+    expect(plan.opportunityCandidates?.[0].qualityTarget.requiredContentElements).not.toHaveLength(0);
     expect(plan.opportunityCandidates?.[1]).toMatchObject({ selectedTopic: "만성 염증 관리", primaryKeyword: "만성 염증 관리 방법", searchIntent: "만성 염증 관리 탐색", secondaryKeywords: ["CRP", "항염 식단"] });
     expect(plan.selectionMode).toBe("automatic");
     expect(provider.generate).toHaveBeenCalledOnce();
@@ -63,4 +110,5 @@ describe("natural-language content planning", () => {
     expect(() => parsePlanningResult(JSON.stringify(mixed), { projectId: "project-1", selectionMode: "userSpecified", sourceRequest: "만성 염증 관리 글을 작성해 줘" }))
       .toThrow("complete Content Opportunity");
   });
+
 });

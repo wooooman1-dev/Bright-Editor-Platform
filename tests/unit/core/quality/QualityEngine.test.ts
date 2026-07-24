@@ -141,7 +141,7 @@ describe("QualityEngine dimension scoring", () => {
     expect(report.tasks.some((task) => task.message.includes("외부 시장 Evidence"))).toBe(true);
   });
 
-  it("can approve a complete article without uploaded images or an unnecessary CTA", () => {
+  it("does not let optional images or CTA hide repetitive low-density padding", () => {
     const base = structured();
     const filler = "독자가 실천할 수 있는 기준과 확인 순서를 구체적으로 설명합니다. 결과를 기록하고 비교하면 상황에 맞게 방법을 조정할 수 있습니다. ";
     const rawBlocks: ContentDocument["blocks"] = [
@@ -154,8 +154,8 @@ describe("QualityEngine dimension scoring", () => {
     const blocks = rawBlocks.map((block, index) => block.type === "paragraph" ? { ...block, text: `${index + 1}번째 문단은 서로 다른 관점에서 설명합니다. ${block.text}` } : block);
     const document: ContentDocument = { ...base, metadata: { buttonCount: 4, createdAt: "now", generator: "test", imageCount: 1, language: "ko", readingTime: 5, source: "test", updatedAt: "now", version: 1, videoCount: 0, wordCount: 1000, metaDescription: "건강 관리 방법을 생활 속에서 실천할 수 있도록 준비 단계와 확인 기준, 흔한 실수, 상황별 조정 방법을 구체적으로 안내합니다.", primarySearchIntent: "건강 관리 방법을 찾는 독자에게 실천 기준을 제공합니다." }, blocks };
     const report = new QualityEngine().review(document, { contentType: "long-form blog article", platform: "tistory", primaryKeyword: "건강 관리", searchIntent: "건강 관리 방법" });
-    expect(report.overallScore).toBeGreaterThanOrEqual(95);
-    expect(report.approved).toBe(true);
+    expect(report.overallScore).toBeLessThan(95);
+    expect(report.approved).toBe(false);
     expect(report.reviewedRevisionId).toBe(contentRevisionId(document));
     expect(report.dimensions.find((item) => item.category === "imageStrategy")?.evidence).toContainEqual({ signal: "uploadedImageBlocks", value: 0 });
     expect(report.dimensions.find((item) => item.category === "cta")).toMatchObject({ evaluation: "not_evaluated", status: "ready" });
@@ -201,7 +201,7 @@ describe("QualityEngine dimension scoring", () => {
     ] };
     const report = new QualityEngine().review(document, { contentType: "article", platform: "tistory", primaryKeyword: "가정혈압 측정 방법", searchIntent: "집에서 혈압 재는 법" });
     expect(report.dimensions.find((item) => item.category === "structure")?.reasons.join(" ")).toMatch(/겹치는|반복|편집자용/);
-    expect(report.dimensions.find((item) => item.category === "completeness")?.reasons.join(" ")).toContain("구체적인 시간·횟수·순서");
+    expect(report.dimensions.find((item) => item.category === "completeness")?.reasons.join(" ")).toContain("필수 정보 요소가 누락");
     expect(report.dimensions.find((item) => item.category === "usefulness")?.reasons.join(" ")).toContain("실용 도구");
   });
 

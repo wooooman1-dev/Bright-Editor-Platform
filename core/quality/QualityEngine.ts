@@ -7,14 +7,14 @@ import {
   normalizeSeoKeyword,
   titleContainsPrimaryKeyword,
   deriveContentTags,
-  longFormSafetyTarget,
   requiresLongFormValidation,
+  type ContentPlanQualityTarget,
   type ConfirmedContentOpportunity,
   type ContentDocument,
   type ContentOpportunityQualityReview,
 } from "../content";
 import { analyzeImagePrompts, type ImagePromptIssue } from "../media";
-import { contentLengthProfile, qualityDimensionWeights } from "./QualityScoringPolicy";
+import { qualityDimensionWeights } from "./QualityScoringPolicy";
 
 export type QualityCategory = "searchIntent" | "seo" | "readability" | "structure" | "completeness" | "usefulness" | "htmlQuality" | "imageStrategy" | "internalLinks" | "cta";
 export type QualityDimensionStatus = "ready" | "needs_improvement" | "blocked";
@@ -29,7 +29,7 @@ export type QualityDimensionResult = Readonly<{
   evidence: readonly QualityEvidence[];
 }>;
 export type QualityFinding = Readonly<{ category: QualityCategory; message: string; severity: "error" | "warning" | "info" }>;
-export type QualityReviewContext = Readonly<{ contentType?: string; platform?: string; primaryKeyword?: string; searchIntent?: string; categoryName?: string; availableInternalLinkCandidates?: number; internalLinkCatalogStatus?: "evaluated" | "category_missing" | "catalog_unavailable"; opportunity?: ConfirmedContentOpportunity; revisionId?: string; reviewedAt?: string }>;
+export type QualityReviewContext = Readonly<{ contentType?: string; platform?: string; primaryKeyword?: string; searchIntent?: string; categoryName?: string; availableInternalLinkCandidates?: number; internalLinkCatalogStatus?: "evaluated" | "category_missing" | "catalog_unavailable"; qualityTarget?: ContentPlanQualityTarget; opportunity?: ConfirmedContentOpportunity; revisionId?: string; reviewedAt?: string }>;
 export type QualityApprovalType = "standard" | "exception" | "none";
 export type QualityReport = Readonly<{
   approved: boolean;
@@ -79,10 +79,11 @@ export class QualityEngine {
     const overallScore = Math.round(dimensions.reduce((sum, item) => sum + item.score * qualityDimensionWeights[item.category], 0) / scoringWeight);
     const blocked = dimensions.some((item) => item.status === "blocked");
     const opportunityReview = signals.opportunityAlignment?.review;
+    const contentTargetBlocked = signals.hasExplicitQualityTarget && signals.contentDiagnostic.violations.length > 0;
     const opportunityBlocked = opportunityReview ? !opportunityReview.pass : false;
     const evidenceClaimTasks = signals.unsupportedEvidenceClaims.map((message) => ({ category: "searchIntent" as const, message, status: "blocked" as const }));
     const editorialTargets = new Set<QualityCategory>(["searchIntent", "seo", "readability", "completeness"]);
-    const integrityPassed = !blocked && !opportunityBlocked && evidenceClaimTasks.length === 0;
+    const integrityPassed = !blocked && !opportunityBlocked && !contentTargetBlocked && evidenceClaimTasks.length === 0;
     const { approved, approvalType } = resolveQualityApproval(overallScore, dimensions, integrityPassed, editorialTargets);
     const opportunityTasks = opportunityReview ? opportunitySignals(opportunityReview)
       .filter((item) => !item.signal.pass)
@@ -91,17 +92,18 @@ export class QualityEngine {
       ...dimensions.flatMap((item) => item.reasons.map((message) => ({ category: item.category, message, severity: item.status === "blocked" ? "error" as const : "warning" as const }))),
       ...opportunityTasks.map((item) => ({ category: item.category, message: item.message, severity: "error" as const })),
       ...evidenceClaimTasks.map((item) => ({ category: item.category, message: item.message, severity: "error" as const })),
+      ...(signals.hasExplicitQualityTarget ? signals.contentDiagnostic.violations.map((item) => ({ category: "completeness" as const, message: `${item.code}${item.heading ? `: ${item.heading}` : item.requiredElement ? `: ${item.requiredElement}` : ""}`, severity: "error" as const })) : []),
     ];
     return Object.freeze({
       approved,
       approvalType,
-      approvalState: approved ? "approved" : blocked || opportunityBlocked || evidenceClaimTasks.length ? "blocked" : "improvement_required",
+      approvalState: approved ? "approved" : blocked || opportunityBlocked || contentTargetBlocked || evidenceClaimTasks.length ? "blocked" : "improvement_required",
       findings: Object.freeze(findings),
       overallScore,
       ...(opportunityReview ? { opportunityReview } : {}),
       reviews: Object.freeze(dimensions),
       dimensions: Object.freeze(dimensions),
-      tasks: Object.freeze([...dimensions.flatMap((item) => item.tasks.map((message) => ({ category: item.category, message, status: item.status === "blocked" ? "blocked" as const : "action_required" as const }))), ...opportunityTasks, ...evidenceClaimTasks]),
+      tasks: Object.freeze([...dimensions.flatMap((item) => item.tasks.map((message) => ({ category: item.category, message, status: item.status === "blocked" ? "blocked" as const : "action_required" as const }))), ...opportunityTasks, ...evidenceClaimTasks, ...(signals.hasExplicitQualityTarget ? signals.contentDiagnostic.violations.map((item) => ({ category: "completeness" as const, message: `${item.code}${item.heading ? `: ${item.heading}` : item.requiredElement ? `: ${item.requiredElement}` : ""}`, status: "blocked" as const })) : [])]),
       reviewedAt: context.reviewedAt ?? new Date().toISOString(),
       reviewedRevisionId: context.revisionId ?? contentRevisionId(document),
       weights: qualityDimensionWeights,
@@ -114,8 +116,8 @@ export class PublishingGate {
     if (currentRevisionId && report.reviewedRevisionId !== currentRevisionId) throw new Error("Publishing blocked: Quality Review is stale for the current content revision.");
     if (!isStandardQualityApproved(report)) throw new Error(`Publishing blocked: standard quality approval is required; score ${report.overallScore}, approval ${report.approvalType ?? "none"}.`);
     if (document && requiresLongFormValidation(document)) {
-      const diagnostic = analyzeLongFormDocument(document);
-      if (diagnostic.totalProseCharacters < longFormSafetyTarget || diagnostic.violations.length) throw new Error(`Publishing blocked: long-form safety target requires ${longFormSafetyTarget} prose characters and valid H2 sections.`);
+      const diagnostic = analyzeLongFormDocument(document, document.metadata?.qualityTarget);
+      if (diagnostic.violations.length) throw new Error(`Publishing blocked: content does not satisfy its ${document.metadata?.qualityTarget?.contentDepth ?? "planned"} quality target (${diagnostic.violations[0]?.code}).`);
     }
   }
 }
@@ -144,15 +146,18 @@ function measure(document: ContentDocument, context: QualityReviewContext) {
   const duplicateHeadingCount = headingNames.length - new Set(headingNames).size;
   const keyword = normalizeSeoKeyword(context.primaryKeyword ?? "").toLocaleLowerCase("ko-KR");
   const keywordOccurrences = keyword ? normalized.split(keyword).length - 1 : 0;
-  const profile = contentLengthProfile(context.contentType, context.platform);
+  const qualityTarget = context.qualityTarget ?? context.opportunity?.qualityTarget ?? document.metadata?.qualityTarget;
+  const hasExplicitQualityTarget = Boolean(qualityTarget);
+  const contentDiagnostic = analyzeLongFormDocument(document, qualityTarget);
   const paragraphSentenceCounts = paragraphs.map((item) => sentenceCount(item.text));
-  const shortParagraphs = paragraphs.filter((item, index) => item.text.trim().length < 70 || paragraphSentenceCounts[index] < 2).length;
+  const singleSentenceParagraphs = paragraphs.filter((_, index) => paragraphSentenceCounts[index] < 2).length;
+  const excessiveSentenceParagraphs = paragraphs.filter((_, index) => paragraphSentenceCounts[index] > 6).length;
   const openings = paragraphs.map((item) => item.text.trim().slice(0, 18)).filter((value) => value.length >= 8);
   const repeatedOpenings = openings.length - new Set(openings).size;
   const clicheCount = matches(text, /(?:알아보겠습니다|살펴보겠습니다|중요합니다|도움이 됩니다|필수적입니다)/g);
   const experienceClaim = /(?:제가|나는|저는|직접)\s*.{0,24}(?:경험했|겪었|사용했|먹어봤|해봤)/i.test(text);
-  const sections = sectionDepth(document);
-  const shallowSections = sections.filter((section) => section.characters < 350).length;
+  const sections = contentDiagnostic.sections.map((section) => ({ heading: section.heading, characters: section.proseCharacters }));
+  const shallowSections = contentDiagnostic.violations.filter((item) => item.code === "CONTENT_INCOMPLETE_SECTION").length;
   const metaDescription = document.metadata?.metaDescription?.trim() ?? "";
   const titleLength = document.title.trim().length;
   const titleColonCount = matches(document.title, /:/g);
@@ -165,10 +170,10 @@ function measure(document: ContentDocument, context: QualityReviewContext) {
   const editorialInstructionCount = matches(text, /(?:내부 링크를 연결하기 좋습니다|이 지점에서 .* 연결|편집자용|작성자 메모|초안 지시|여기에 .* 추가)/g);
   const practicalToolSignals = matches(text, /(?:체크리스트|기록표|예시|순서|단계|먼저|다음으로|마지막으로|한눈에|표로 정리|행동 흐름)/g);
   const vagueInstructionCount = matches(text, /(?:일정 기간|잠시|필요한 경우|상황에 따라|적절한 때|충분히 쉬고|며칠간)/g);
-  const concreteCriteriaCount = matches(text, /(?:\d+\s*(?:분|초|시간|일|회|번)|첫째|둘째|셋째|1단계|2단계|3단계)/g);
+  const concreteCriteriaCount = matches(text, /(?:\d+\s*(?:분|초|시간|일|회|번)|첫째|둘째|셋째|1단계|2단계|3단계|먼저|다음(?:으로)?|마지막(?:으로)?|통증|증상|조건|상태|불편|중단|확인)/g);
   const semanticHeadingOverlapCount = countSemanticHeadingOverlap(headingNames);
   const repeatedCoreAdviceCount = countRepeatedCoreAdvice(paragraphs.map((item) => item.text));
-  return { document, context, text, metrics, paragraphs, headings, buttons, images, imagePromptAnalysis, opportunityAlignment, unsupportedEvidenceClaims, planning: planningPattern.test(text), placeholders: placeholderPattern.test(text), duplicateHeadingCount, emptyHeadings: headings.filter((item) => !item.text.trim()).length, keyword, keywordOccurrences, profile, shortParagraphs, repeatedOpenings, clicheCount, experienceClaim, sections, shallowSections, metaDescription, titleLength, titleColonCount, titleListSeparatorCount, tistoryTags, duplicateBlockIds, emptyParagraphs, invalidButtonUrls, targetPolicyViolations, editorialInstructionCount, practicalToolSignals, vagueInstructionCount, concreteCriteriaCount, semanticHeadingOverlapCount, repeatedCoreAdviceCount };
+  return { document, context, text, metrics, paragraphs, headings, buttons, images, imagePromptAnalysis, opportunityAlignment, unsupportedEvidenceClaims, contentDiagnostic, hasExplicitQualityTarget, planning: planningPattern.test(text), placeholders: placeholderPattern.test(text), duplicateHeadingCount, emptyHeadings: headings.filter((item) => !item.text.trim()).length, keyword, keywordOccurrences, singleSentenceParagraphs, excessiveSentenceParagraphs, repeatedOpenings, clicheCount, experienceClaim, sections, shallowSections, metaDescription, titleLength, titleColonCount, titleListSeparatorCount, tistoryTags, duplicateBlockIds, emptyParagraphs, invalidButtonUrls, targetPolicyViolations, editorialInstructionCount, practicalToolSignals, vagueInstructionCount, concreteCriteriaCount, semanticHeadingOverlapCount, repeatedCoreAdviceCount };
 }
 
 function detectUnsupportedEvidenceClaims(text: string, opportunity: ConfirmedContentOpportunity): readonly string[] {
@@ -188,14 +193,30 @@ function evaluate(s: Signals): QualityDimensionResult[] {
   const ctaButtons = s.buttons.filter((item) => (item.purpose === "cta" || (!item.purpose && !item.targetUrl.startsWith("/"))) && Boolean(item.targetUrl.trim()));
   const externalClaims = /(?:\d+(?:\.\d+)?%|연구에 따르면|통계에 따르면|according to (?:research|a study))/i.test(s.text);
   const hasCitation = /https?:\/\/|출처|참고문헌|source:/i.test(s.text);
-  const lengthRatio = Math.min(1, s.metrics.charactersWithoutSpaces / s.profile.targetCharacters);
-  const depthScore = clamp(Math.round(lengthRatio * 65 + Math.min(35, s.paragraphs.length * 4)));
+  const requiredMissing = s.contentDiagnostic.requiredContentElements.filter((item) => item.status === "missing").length;
+  const requiredMentioned = s.contentDiagnostic.requiredContentElements.filter((item) => item.status === "mentioned").length;
+  const requiredSufficient = s.contentDiagnostic.requiredContentElements.filter((item) => item.status === "sufficient").length;
+  const incompleteSections = s.contentDiagnostic.sections.filter((item) => item.completeness !== "sufficient").length;
+  const informationSufficiencyScore = clamp(
+    100
+    - requiredMissing * 30
+    - requiredMentioned * 15
+    - incompleteSections * 12
+    - (s.planning ? 45 : 0)
+    - (s.vagueInstructionCount > s.concreteCriteriaCount ? 12 : 0),
+  );
   const keywordDensity = s.keyword && s.metrics.wordUnits ? s.keywordOccurrences / s.metrics.wordUnits : 0;
   const invalidHeadingOrder = s.headings.some((heading, index) => index > 0 && heading.level > s.headings[index - 1].level + 1);
   const intentTerms = contentIntentTerms(s.context.searchIntent ?? "");
   const reflectedIntentTerms = intentTerms.filter((term) => s.text.toLowerCase().includes(term)).length;
   const intentMetadata = Boolean(s.document.metadata?.primarySearchIntent?.trim());
-  const measuredSearchIntentScore = !s.context.searchIntent ? 0 : intentMetadata && intro.length >= 80 && depthScore >= 85 ? 100 : reflectedIntentTerms >= Math.min(3, intentTerms.length) && intro.length >= 80 ? 95 : 68;
+  const measuredSearchIntentScore = !s.context.searchIntent
+    ? 0
+    : intentMetadata && intro.length > 0 && requiredMissing === 0
+      ? 100
+      : reflectedIntentTerms >= Math.min(3, intentTerms.length) && intro.length > 0
+        ? 95
+        : 68;
   const searchIntentFulfilled = s.opportunityAlignment?.review.searchIntentFulfillment.pass ?? true;
   const searchIntentScore = searchIntentFulfilled ? Math.max(measuredSearchIntentScore, s.opportunityAlignment ? 95 : 0) : 0;
   const imageStrategyComplete = s.images.length > 0 && s.images.every((item) => item.alt.trim().length >= 4);
@@ -238,7 +259,7 @@ function evaluate(s: Signals): QualityDimensionResult[] {
         ? ["확정 검색 의도의 핵심 질문과 실행 목표가 도입부·주요 섹션·결론에 드러나도록 원고를 보완하세요."]
         : ["콘텐츠 기획의 검색 의도를 저장한 뒤 다시 검토하세요."],
       [{ signal: "confirmedSearchIntent", value: s.context.searchIntent ?? false }, { signal: "reflectedIntentTerms", value: reflectedIntentTerms }, { signal: "intentMetadata", value: intentMetadata }, { signal: "searchIntentFulfilled", value: s.opportunityAlignment?.review.searchIntentFulfillment.pass ?? "not_evaluated" }, { signal: "contentOpportunityConsistent", value: s.opportunityAlignment?.review.pass ?? "not_evaluated" }],
-      s.context.searchIntent ? !searchIntentFulfilled ? "blocked" : "evaluated" : "blocked"),
+      s.context.searchIntent ? !searchIntentFulfilled ? "blocked" : "evaluated" : "not_evaluated"),
     dimension("seo", clamp(seoBase - titlePenalty),
       [
         ...(keywordRepeated ? ["핵심 키워드가 지나치게 반복됩니다."] : []),
@@ -252,14 +273,14 @@ function evaluate(s: Signals): QualityDimensionResult[] {
       ],
       ["제목을 68자 이내, 콜론 1개 이하의 자연스러운 문장으로 줄이고 제목·메타디스크립션·본문에 핵심 키워드를 자연스럽게 배치하세요."],
       [{ signal: "keywordOccurrences", value: s.keywordOccurrences }, { signal: "keywordDensity", value: Number(keywordDensity.toFixed(3)) }, { signal: "metaDescriptionLength", value: s.metaDescription.length }, { signal: "titleLength", value: s.titleLength }, { signal: "titleColonCount", value: s.titleColonCount }, { signal: "titleListSeparatorCount", value: s.titleListSeparatorCount }, { signal: "tistoryTagCount", value: s.tistoryTags.length }, { signal: "tistoryTags", value: s.tistoryTags.join(", ") || false }]),
-    dimension("readability", clamp(100 - (s.paragraphs.some((item) => item.text.length > 500) ? 15 : 0) - Math.min(30, s.shortParagraphs * 3) - Math.min(15, s.repeatedOpenings * 5) - Math.min(20, s.clicheCount * 4)),
-      [...(s.paragraphs.some((item) => item.text.length > 500) ? ["지나치게 긴 문단이 있어 읽기 어렵습니다."] : []), ...(s.shortParagraphs > Math.max(2, Math.floor(s.paragraphs.length * 0.25)) ? ["짧은 한 문장 문단이 반복되어 흐름이 끊깁니다."] : []), ...(s.clicheCount ? ["상투적인 AI 표현이 반복됩니다."] : [])], ["문단을 2~5개의 연결된 문장으로 구성하고 반복되는 도입 표현을 제거하세요."], [{ signal: "paragraphCount", value: s.metrics.paragraphCount }, { signal: "shortParagraphs", value: s.shortParagraphs }, { signal: "repeatedOpenings", value: s.repeatedOpenings }, { signal: "clicheCount", value: s.clicheCount }]),
-    dimension("structure", clamp(100 - (intro.length < 100 ? 20 : 0) - (s.headings.length < s.profile.minimumSections ? 25 : 0) - s.duplicateHeadingCount * 15 - s.emptyHeadings * 20 - (invalidHeadingOrder ? 20 : 0) - Math.min(30, s.shallowSections * 10) - Math.min(20, s.semanticHeadingOverlapCount * 8) - Math.min(12, s.repeatedCoreAdviceCount * 3) - Math.min(20, s.editorialInstructionCount * 20)),
-      [...(intro.length < 100 ? ["게시글 도입부가 없거나 너무 짧습니다."] : []), ...(s.headings.length < s.profile.minimumSections ? ["콘텐츠 유형에 필요한 구조화된 섹션이 부족합니다."] : []), ...(s.duplicateHeadingCount || s.emptyHeadings ? ["비어 있거나 중복된 제목이 있습니다."] : []), ...(s.shallowSections ? ["설명이 얕은 주요 섹션이 있습니다."] : []), ...(s.semanticHeadingOverlapCount ? ["역할과 의미가 겹치는 소제목이 있어 구조가 반복됩니다."] : []), ...(s.repeatedCoreAdviceCount ? ["같은 핵심 조언이 여러 섹션에서 반복됩니다."] : []), ...(s.editorialInstructionCount ? ["독자용 본문에 편집자용 내부 링크·작성 지시 문장이 남아 있습니다."] : [])], ["중복되는 섹션을 통합하고 각 H2가 서로 다른 독자 질문과 행동 목표를 담당하도록 수정하세요."], [{ signal: "headingCount", value: s.metrics.headingCount }, { signal: "requiredSections", value: s.profile.minimumSections }, { signal: "semanticHeadingOverlapCount", value: s.semanticHeadingOverlapCount }, { signal: "repeatedCoreAdviceCount", value: s.repeatedCoreAdviceCount }, { signal: "editorialInstructionCount", value: s.editorialInstructionCount }]),
-    dimension("completeness", clamp(depthScore - (s.planning ? 45 : 0) - (intro.length < 80 ? 10 : 0) - (conclusion.length < 100 ? 15 : 0) - (s.vagueInstructionCount > s.concreteCriteriaCount ? 12 : 0)),
-      [...(s.planning ? ["완성된 글이 아니라 작성 계획이나 지시문이 본문에 포함되어 있습니다."] : []), ...(s.metrics.charactersWithoutSpaces < s.profile.minimumCharacters ? ["선택한 콘텐츠 유형에 비해 본문 설명이 부족합니다."] : []), ...(conclusion.length < 100 ? ["핵심 내용을 정리하는 결론이 부족합니다."] : []), ...(s.vagueInstructionCount > s.concreteCriteriaCount ? ["‘잠시’, ‘일정 기간’, ‘필요한 경우’ 같은 표현에 비해 구체적인 시간·횟수·순서 기준이 부족합니다."] : [])], ["모호한 표현을 독자가 적용할 수 있는 시간·횟수·순서·조건 또는 예시로 바꾸세요."], [{ signal: "characters", value: s.metrics.charactersWithoutSpaces }, { signal: "minimumCharacters", value: s.profile.minimumCharacters }, { signal: "planningLanguageDetected", value: s.planning }, { signal: "vagueInstructionCount", value: s.vagueInstructionCount }, { signal: "concreteCriteriaCount", value: s.concreteCriteriaCount }]),
-    dimension("usefulness", clamp(depthScore - (s.placeholders ? 40 : 0) - (externalClaims && !hasCitation ? 10 : 0) - (s.experienceClaim ? 20 : 0) - (s.practicalToolSignals < 3 ? 15 : 0) - Math.min(15, s.repeatedCoreAdviceCount * 3)),
-      [...(s.placeholders ? ["placeholder 또는 작성 지시 문구가 남아 있습니다."] : []), ...(externalClaims && !hasCitation ? ["수치나 연구 주장을 뒷받침하는 출처를 확인할 수 없습니다."] : []), ...(s.experienceClaim ? ["사용자가 제공하지 않은 개인 경험처럼 보이는 표현이 있습니다."] : []), ...(s.practicalToolSignals < 3 ? ["체크리스트·기록 예시·단계별 행동 흐름처럼 바로 사용할 수 있는 실용 도구가 부족합니다."] : []), ...(s.repeatedCoreAdviceCount ? ["같은 조언이 반복되어 새로운 정보 밀도가 낮아집니다."] : [])], ["독자가 바로 사용할 수 있는 체크리스트, 기록 예시, 단계별 판단 순서와 다음 행동을 추가하세요."], [{ signal: "placeholderDetected", value: s.placeholders }, { signal: "unsupportedClaimSignal", value: externalClaims && !hasCitation }, { signal: "fabricatedExperienceRisk", value: s.experienceClaim }, { signal: "practicalToolSignals", value: s.practicalToolSignals }, { signal: "repeatedCoreAdviceCount", value: s.repeatedCoreAdviceCount }], externalClaims && !hasCitation || s.experienceClaim ? "blocked" : "evaluated"),
+    dimension("readability", clamp(100 - Math.min(24, s.excessiveSentenceParagraphs * 8) - Math.min(18, s.singleSentenceParagraphs * 2) - Math.min(15, s.repeatedOpenings * 5) - Math.min(20, s.clicheCount * 4)),
+      [...(s.excessiveSentenceParagraphs ? ["한 문단에 너무 많은 문장이 이어져 읽기 어렵습니다."] : []), ...(s.singleSentenceParagraphs > Math.max(2, Math.floor(s.paragraphs.length * 0.4)) ? ["한 문장 문단이 반복되어 흐름이 끊깁니다."] : []), ...(s.clicheCount ? ["상투적인 AI 표현이 반복됩니다."] : [])], ["문단마다 하나의 논점을 명확히 설명하고 반복되는 도입 표현을 제거하세요."], [{ signal: "paragraphCount", value: s.metrics.paragraphCount }, { signal: "singleSentenceParagraphs", value: s.singleSentenceParagraphs }, { signal: "excessiveSentenceParagraphs", value: s.excessiveSentenceParagraphs }, { signal: "repeatedOpenings", value: s.repeatedOpenings }, { signal: "clicheCount", value: s.clicheCount }]),
+    dimension("structure", clamp(100 - (!intro ? 25 : 0) - (!conclusion ? 20 : 0) - (!s.headings.length ? 25 : 0) - s.duplicateHeadingCount * 15 - s.emptyHeadings * 20 - (invalidHeadingOrder ? 20 : 0) - Math.min(30, s.shallowSections * 10) - Math.min(20, s.semanticHeadingOverlapCount * 8) - Math.min(12, s.repeatedCoreAdviceCount * 3) - Math.min(20, s.editorialInstructionCount * 20)),
+      [...(!intro ? ["게시글 도입부가 없습니다."] : []), ...(!conclusion ? ["핵심을 정리하고 다음 행동을 안내하는 결론이 없습니다."] : []), ...(!s.headings.length ? ["독자의 질문을 구분하는 구조화된 섹션이 없습니다."] : []), ...(s.duplicateHeadingCount || s.emptyHeadings ? ["비어 있거나 중복된 제목이 있습니다."] : []), ...(s.shallowSections ? ["역할을 완결하지 못한 주요 섹션이 있습니다."] : []), ...(s.semanticHeadingOverlapCount ? ["역할과 의미가 겹치는 소제목이 있어 구조가 반복됩니다."] : []), ...(s.repeatedCoreAdviceCount ? ["같은 핵심 조언이 여러 섹션에서 반복됩니다."] : []), ...(s.editorialInstructionCount ? ["독자용 본문에 편집자용 내부 링크·작성 지시 문장이 남아 있습니다."] : [])], ["각 H2가 서로 다른 독자 질문과 행동 목표를 담당하도록 구성하고, 빈 섹션과 중복 섹션을 정리하세요."], [{ signal: "headingCount", value: s.metrics.headingCount }, { signal: "sufficientSections", value: s.contentDiagnostic.sections.filter((item) => item.completeness === "sufficient").length }, { signal: "incompleteSections", value: incompleteSections }, { signal: "semanticHeadingOverlapCount", value: s.semanticHeadingOverlapCount }, { signal: "repeatedCoreAdviceCount", value: s.repeatedCoreAdviceCount }, { signal: "editorialInstructionCount", value: s.editorialInstructionCount }]),
+    dimension("completeness", informationSufficiencyScore,
+      [...(s.planning ? ["완성된 글이 아니라 작성 계획이나 지시문이 본문에 포함되어 있습니다."] : []), ...(requiredMissing ? ["필수 정보 요소가 누락되었습니다."] : []), ...(requiredMentioned ? ["필수 정보 요소가 형식적으로만 언급되어 독자가 이해하거나 적용하기 어렵습니다."] : []), ...(incompleteSections ? ["역할에 필요한 설명·판단 기준·예시가 부족한 섹션이 있습니다."] : []), ...(s.vagueInstructionCount > s.concreteCriteriaCount ? ["‘잠시’, ‘일정 기간’, ‘필요한 경우’ 같은 표현에 비해 적용 가능한 조건·순서·예시가 부족합니다."] : [])], ["누락되거나 언급에 그친 필수 정보를 독자가 이해하고 적용할 수 있도록 판단 기준, 예시, 주의사항, 다음 행동으로 보완하세요."], [{ signal: "requiredElementsMissing", value: requiredMissing }, { signal: "requiredElementsMentioned", value: requiredMentioned }, { signal: "requiredElementsSufficient", value: requiredSufficient }, { signal: "incompleteSections", value: incompleteSections }, { signal: "planningLanguageDetected", value: s.planning }, { signal: "vagueInstructionCount", value: s.vagueInstructionCount }, { signal: "concreteCriteriaCount", value: s.concreteCriteriaCount }]),
+    dimension("usefulness", clamp(informationSufficiencyScore - (s.placeholders ? 40 : 0) - (externalClaims && !hasCitation ? 10 : 0) - (s.experienceClaim ? 20 : 0) - (s.practicalToolSignals < 1 ? 15 : 0) - Math.min(15, s.repeatedCoreAdviceCount * 3)),
+      [...(s.placeholders ? ["placeholder 또는 작성 지시 문구가 남아 있습니다."] : []), ...(externalClaims && !hasCitation ? ["수치나 연구 주장을 뒷받침하는 출처를 확인할 수 없습니다."] : []), ...(s.experienceClaim ? ["사용자가 제공하지 않은 개인 경험처럼 보이는 표현이 있습니다."] : []), ...(s.practicalToolSignals < 1 ? ["체크리스트·기록 예시·단계별 행동 흐름처럼 바로 사용할 수 있는 실용 도구가 부족합니다."] : []), ...(s.repeatedCoreAdviceCount ? ["같은 조언이 반복되어 새로운 정보 밀도가 낮아집니다."] : [])], ["독자가 바로 사용할 수 있는 체크리스트, 기록 예시, 단계별 판단 순서와 다음 행동을 추가하세요."], [{ signal: "placeholderDetected", value: s.placeholders }, { signal: "unsupportedClaimSignal", value: externalClaims && !hasCitation }, { signal: "fabricatedExperienceRisk", value: s.experienceClaim }, { signal: "practicalToolSignals", value: s.practicalToolSignals }, { signal: "repeatedCoreAdviceCount", value: s.repeatedCoreAdviceCount }], externalClaims && !hasCitation || s.experienceClaim ? "blocked" : "evaluated"),
     dimension("htmlQuality", clamp(100 - s.emptyHeadings * 30 - s.emptyParagraphs * 20 - s.duplicateHeadingCount * 15 - s.duplicateBlockIds * 30 - s.invalidButtonUrls * 25 - s.targetPolicyViolations * 15 - (invalidHeadingOrder ? 25 : 0) - (s.document.blocks.length ? 0 : 100)),
       [...(!s.document.blocks.length ? ["렌더링할 canonical block이 없습니다."] : []), ...(invalidHeadingOrder ? ["제목 단계가 건너뛰어 HTML 문서 구조가 올바르지 않습니다."] : []), ...(s.emptyParagraphs ? ["빈 문단 블록이 남아 있습니다."] : []), ...(s.duplicateBlockIds ? ["중복된 block id가 있어 목차·앵커 렌더링 충돌 위험이 있습니다."] : []), ...(s.invalidButtonUrls ? ["유효하지 않은 버튼 또는 링크 URL이 있습니다."] : []), ...(s.targetPolicyViolations ? ["내부·외부 링크의 target 정책이 올바르지 않습니다."] : [])], ["빈 블록, 중복 ID, 잘못된 URL과 링크 target 정책을 수정하고 제목 단계를 순서대로 정리하세요."], [{ signal: "blockCount", value: s.document.blocks.length }, { signal: "headingHierarchyValid", value: !invalidHeadingOrder }, { signal: "emptyParagraphs", value: s.emptyParagraphs }, { signal: "duplicateBlockIds", value: s.duplicateBlockIds }, { signal: "invalidButtonUrls", value: s.invalidButtonUrls }, { signal: "targetPolicyViolations", value: s.targetPolicyViolations }]),
     dimension("imageStrategy", imageStrategyScore,
@@ -316,11 +337,19 @@ function opportunitySignals(review: ContentOpportunityQualityReview) {
   ] as const;
 }
 
-function dimension(category: QualityCategory, score: number, reasons: string[], tasks: string[], evidence: QualityEvidence[], evaluation: "evaluated" | "blocked" | "optional" = "evaluated"): QualityDimensionResult {
+function dimension(category: QualityCategory, score: number, reasons: string[], tasks: string[], evidence: QualityEvidence[], evaluation: "evaluated" | "blocked" | "optional" | "not_evaluated" = "evaluated"): QualityDimensionResult {
   const normalized = clamp(Math.round(score));
-  const status: QualityDimensionStatus = evaluation === "blocked" ? "blocked" : normalized >= 85 ? "ready" : "needs_improvement";
+  const status: QualityDimensionStatus = evaluation === "blocked" || evaluation === "not_evaluated" ? "blocked" : normalized >= 85 ? "ready" : "needs_improvement";
   const normalizedReasons = reasons.length ? reasons : [normalized === 100 ? "모든 정의된 검사 기준을 통과했습니다." : normalized >= 85 ? "핵심 기준은 충족했지만 최고점 기준까지는 추가 개선 여지가 있습니다." : "현재 측정값이 게시 준비 기준에 미치지 못합니다."];
-  return Object.freeze({ category, score: evaluation === "blocked" ? 0 : normalized, status, evaluation: evaluation === "evaluated" ? "evaluated" : "not_evaluated", reasons: Object.freeze(normalizedReasons), tasks: Object.freeze(normalized < 100 ? tasks : []), evidence: Object.freeze(evidence) });
+  return Object.freeze({
+    category,
+    score: evaluation === "not_evaluated" ? 0 : normalized,
+    status,
+    evaluation: evaluation === "optional" || evaluation === "not_evaluated" ? "not_evaluated" : "evaluated",
+    reasons: Object.freeze(normalizedReasons),
+    tasks: Object.freeze(normalized < 100 ? tasks : []),
+    evidence: Object.freeze(evidence),
+  });
 }
 
 function isValidButtonUrl(value: string): boolean {
@@ -363,12 +392,3 @@ function sentenceCount(value: string) {
     .filter(Boolean).length;
 }
 function matches(value: string, pattern: RegExp) { return [...value.matchAll(pattern)].length; }
-function sectionDepth(document: ContentDocument) {
-  const sections: { heading: string; characters: number }[] = [];
-  let current: { heading: string; characters: number } | undefined;
-  for (const block of document.blocks) {
-    if (block.type === "heading" && block.level === 2) { current = { heading: block.text, characters: 0 }; sections.push(current); }
-    else if (current && block.type === "paragraph") current.characters += block.text.replace(/\s/g, "").length;
-  }
-  return sections;
-}

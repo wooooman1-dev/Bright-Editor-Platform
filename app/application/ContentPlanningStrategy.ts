@@ -1,14 +1,38 @@
 import type { AIProvider } from "../../core/ai";
 import {
   createContentOpportunityCandidate,
+  determineContentPlanQualityTarget,
   type ContentOpportunityCandidate,
   type ContentOpportunitySelectionMode,
   type OpportunityEvidenceSource,
 } from "../../core/content";
-import type { ContentPlanningResult, WorkspacePlatform } from "../user-flow/user-data";
+import type { ContentPlanningResult, ProjectContentStrategy, WorkspacePlatform } from "../user-flow/user-data";
 import type { OpportunityEvidenceRecord } from "../../core/intelligence";
 
 const DISCLOSURE = "Keyword competition and opportunity are AI estimates, not measured search-volume, CPC, or competition data.";
+
+export function projectStrategyAIContext(strategy: ProjectContentStrategy) {
+  return Object.freeze({
+    primaryTopic: strategy.primaryTopic,
+    subtopics: Object.freeze([...strategy.subtopics]),
+    excludedTopics: Object.freeze([...strategy.excludedTopics]),
+    defaultContentType: strategy.defaultContentType,
+    defaultPlatform: strategy.defaultPlatform,
+    targetAudience: strategy.targetAudience,
+    tone: strategy.tone,
+    internalLinkPolicy: strategy.internalLinkPolicy,
+    relatedPostPolicy: strategy.relatedPostPolicy,
+    ctaPolicy: strategy.ctaPolicy,
+    imageStrategy: strategy.imageStrategy,
+    seoPolicy: strategy.seoPolicy,
+    ...(strategy.defaultTistoryCategory ? {
+      category: Object.freeze({
+        id: strategy.defaultTistoryCategory.id,
+        name: strategy.defaultTistoryCategory.name,
+      }),
+    } : {}),
+  });
+}
 
 export type ContentPlanningContext = Readonly<{
   projectId: string;
@@ -40,7 +64,8 @@ Existing content to avoid duplicating: ${(context.existingContent ?? []).join(" 
 Server-verified Evidence bundle (read-only; never invent, alter, or add IDs/providers/metrics): ${JSON.stringify((context.evidenceBundle ?? []).map((value) => ({ evidenceId: value.evidenceId, provider: value.provider, evidenceType: value.evidenceType, metric: value.metric, keyword: value.keyword, topic: value.topic, pageUrl: value.pageUrl, periodStart: value.periodStart, periodEnd: value.periodEnd, freshness: value.freshness, verified: value.verified, value: value.value, unit: value.unit, relativeValue: value.relativeValue, changeRate: value.changeRate, limitations: value.limitations })))}
 Enabled publishing platforms: ${enabledPlatforms ? (enabledPlatforms.join(", ") || "none") : "not restricted"}. ${enabledPlatforms ? "Recommend platforms only from this list." : ""}
 Only the supplied server Evidence is factual. Do not invent monthly volume, CPC, competition scores, rankings, provider names, or popularity. NAVER/Trends ratios are relative, Search Console impressions are site impressions, GA4 is engagement, and AdSense scope must not be narrowed. Opportunity Evidence will be attached and classified by the server after your response; do not create Evidence IDs.
-Return JSON only with top-level interpretedIntent, domain, targetAudience, contentGoal, recommendedPlatforms, suggestedTitleAngles, contentCluster, recommendationReason, confidence, estimateDisclosure, and opportunityCandidates. Each opportunity candidate must be one atomic plan containing selectedTopic, primaryKeyword, secondaryKeywords, searchIntent, audience, contentType, contentAngle, readerProblem, expectedCoverage, selectionRationale, opportunityEvidence [{source,summary}], confidence, and cautions. Topic, keyword, intent, coverage, and supporting keywords in each candidate must describe one search task.`,
+  Return JSON only with top-level interpretedIntent, domain, targetAudience, contentGoal, recommendedPlatforms, suggestedTitleAngles, contentCluster, recommendationReason, confidence, estimateDisclosure, and opportunityCandidates. Each opportunity candidate must be one atomic plan containing selectedTopic, primaryKeyword, secondaryKeywords, searchIntent, audience, contentType, contentAngle, readerProblem, expectedCoverage, coreQuestions, requiredContentElements, decisionCriteria, examplesNeeded, warningsOrExceptions, actionableNextSteps, comparisonNeeds, tableNeeds, checklistNeeds, scopeBoundaries, topicComplexity, contentDepth, selectionRationale, opportunityEvidence [{source,summary}], confidence, and cautions. contentDepth must be standard, deep, or comparison; never return quick. Do not return any prose-length or section-length targets.
+  Build each candidate as a coherent information contract before returning it. The selectedTopic should naturally contain the primaryKeyword phrase when that reads well; otherwise it must preserve all of the keyword's core concepts without switching to an adjacent search task. searchIntent must state the concrete question or task the reader wants resolved, not only a classification label such as informational, transactional, commercial, or navigational. readerProblem must describe the reader's decision or action obstacle. Make coreQuestions directly answerable, make requiredContentElements concrete enough to judge as missing/mentioned/sufficient, and keep expectedCoverage items mutually distinct. decisionCriteria, examplesNeeded, warningsOrExceptions, and actionableNextSteps must each add a non-duplicative editorial role. Required elements identify information the reader needs, not merely words that should appear. Topic, keyword, intent, coverage, and supporting keywords in each candidate must describe one search task.`,
       metadata: { task: "content-planning" },
     });
     const plan = parsePlanningResult(response.content, { ...context, sourceRequest: request });
@@ -162,6 +187,26 @@ function parseOpportunityCandidates(
         contentAngle: text(value.contentAngle, "opportunity.contentAngle"),
         readerProblem: text(value.readerProblem, "opportunity.readerProblem"),
         expectedCoverage: list(value.expectedCoverage),
+        qualityTarget: determineContentPlanQualityTarget({
+          searchIntent: text(value.searchIntent, "opportunity.searchIntent"),
+          contentType: text(value.contentType, "opportunity.contentType"),
+          readerProblem: text(value.readerProblem, "opportunity.readerProblem"),
+          audience: text(value.audience, "opportunity.audience"),
+          selectedTopic: text(value.selectedTopic, "opportunity.selectedTopic"),
+          expectedCoverage: list(value.expectedCoverage),
+          coreQuestions: list(value.coreQuestions),
+          requiredContentElements: list(value.requiredContentElements),
+          decisionCriteria: list(value.decisionCriteria),
+          examplesNeeded: list(value.examplesNeeded),
+          warningsOrExceptions: list(value.warningsOrExceptions),
+          actionableNextSteps: list(value.actionableNextSteps),
+          comparisonNeeds: list(value.comparisonNeeds),
+          tableNeeds: value.tableNeeds === true,
+          checklistNeeds: value.checklistNeeds === true,
+          scopeBoundaries: list(value.scopeBoundaries),
+          topicComplexity: normalizeTopicComplexity(value.topicComplexity),
+          projectStrategy: typeof value.contentDepth === "string" ? value.contentDepth : undefined,
+        }),
         selectionRationale: honestClaim(text(value.selectionRationale, "opportunity.selectionRationale"), context.hasVerifiedKeywordData),
         opportunityEvidence: evidence(value.opportunityEvidence, context.hasVerifiedKeywordData),
         confidence: confidence(value.confidence),
@@ -200,6 +245,7 @@ function fromCandidates(
     relatedKeywords: recommended.secondaryKeywords,
     selectionMode,
     opportunityCandidates: Object.freeze(candidates),
+    qualityTarget: recommended.qualityTarget,
   });
 }
 
@@ -244,6 +290,9 @@ function list(value: unknown, fallback: readonly string[] = []): readonly string
   return Object.freeze(values.length ? [...new Set(values)] : [...fallback]);
 }
 function confidence(value: unknown): number { return typeof value === "number" ? Math.max(0, Math.min(1, value)) : 0; }
+function normalizeTopicComplexity(value: unknown): "low" | "moderate" | "high" | undefined {
+  return value === "low" || value === "moderate" || value === "high" ? value : undefined;
+}
 function disclosure(value: unknown): string { return typeof value === "string" && value.trim() ? `${value.trim()} ${DISCLOSURE}` : DISCLOSURE; }
 function first(values: readonly string[]): string | undefined { return values[0]?.trim() || undefined; }
 function stripFence(value: string): string { return value.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, ""); }

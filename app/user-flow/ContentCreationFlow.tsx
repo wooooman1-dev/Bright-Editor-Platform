@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { detectContentOpportunitySelectionMode, type ContentOpportunityCandidate } from "../../core/content";
 import { PageContainer } from "../shared/ui/PageContainer";
 import { completeConfirmedGeneration } from "./confirmed-generation";
-import { generatedDocumentReady, GenerationCompletionError, type GenerationCompletionResult } from "./generation-result";
+import { generatedDocumentEditable, generatedDocumentReady, GenerationCompletionError, type GenerationCompletionResult } from "./generation-result";
 import { PrimaryKeywordConfirmation } from "./PrimaryKeywordConfirmation";
 import {
   createContentFromPlan,
@@ -326,7 +326,7 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
       activeOperationRef.current = generationOperationId;
       latestDataRef.current = next;
       await onPersist(next);
-      setNotice("원고를 생성하고 최종 품질 검토·편집을 진행하고 있습니다. 승인 기준을 통과한 원고만 표시됩니다.");
+      setNotice("원고를 생성하고 최종 품질 검토·편집을 진행하고 있습니다. 품질 미달 원고도 진단과 함께 편집기에 보존됩니다.");
       const response = await fetch("/api/studio", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -362,7 +362,8 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
       }
       if (!generatedDocumentReady(result)) {
         if (result.qualityTargetBlocked || result.reachedTarget === false || result.quality?.approved === false) {
-          setNotice(result.error ?? "원고가 자동 품질 승인 기준에 도달하지 못했습니다. 동일 기획으로 다시 생성해 주세요.");
+          setNotice(`${result.error ?? "원고가 자동 품질 승인 기준에 도달하지 못했습니다."} 편집기에서 수정한 뒤 다시 검토할 수 있습니다.`);
+          if (generatedDocumentEditable(result)) onOpenEditor(contentId);
           return;
         }
         throw new GenerationCompletionError(result.error ?? "Generation failed.", result.diagnostic);

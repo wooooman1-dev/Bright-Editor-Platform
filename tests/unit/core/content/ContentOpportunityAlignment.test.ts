@@ -19,6 +19,46 @@ const opportunity = confirmContentOpportunity(createContentOpportunityCandidate(
 }), { workspaceId: "workspace-1", projectId: "project-1", contentId: "content-1", confirmedAt: "now" });
 
 describe("Content Opportunity manuscript alignment", () => {
+  it("turns a generic provider intent label into a reader-problem-specific canonical intent", () => {
+    const generic = createContentOpportunityCandidate({
+      sourceRequest: "건강 기록 체크리스트", selectionMode: "automatic", selectedTopic: "매일 건강 기록 체크리스트", primaryKeyword: "건강 기록 체크리스트",
+      secondaryKeywords: [], searchIntent: "informational", audience: "일반 성인", contentType: "checklist", contentAngle: "간단 사용법",
+      readerProblem: "물 마신 시간과 산책 여부를 빠르게 기록하는 방법이 필요하다", expectedCoverage: ["물 마시기", "산책 기록"],
+      selectionRationale: "간단한 실행 안내", opportunityEvidence: [{ source: "unknown", summary: "내부 기획" }], confidence: 0.8, cautions: [], projectId: "project-1",
+    });
+    expect(generic.searchIntent).toBe("정보 탐색: 물 마신 시간과 산책 여부를 빠르게 기록하는 방법이 필요하다");
+    expect(generic.providerSearchIntent).toBe("informational");
+
+    const koreanLabel = createContentOpportunityCandidate({
+      ...generic,
+      searchIntent: "정보형·실행형",
+      providerSearchIntent: undefined,
+    });
+    expect(koreanLabel.providerSearchIntent).toBe("정보형·실행형");
+    expect(koreanLabel.searchIntent).toBe(`정보 탐색 및 실행 준비: ${generic.readerProblem}`);
+  });
+
+  it("treats 기록지 작성법 and 건강 기록 노트 as the same search task", () => {
+    const sleep = confirmContentOpportunity(createContentOpportunityCandidate({
+      sourceRequest: "수면 기록 방법", selectionMode: "automatic",
+      selectedTopic: "수면 시간을 건강 기록 노트에 간단히 적는 방법",
+      primaryKeyword: "수면 기록지 작성법",
+      secondaryKeywords: ["수면 시간 기록"], searchIntent: "정보형·실행형",
+      audience: "일반 성인", contentType: "checklist", contentAngle: "간단 기록법",
+      readerProblem: "수면 시간을 꾸준히 기록하는 간단한 방법이 필요하다",
+      expectedCoverage: ["수면 시간", "기록 항목"], selectionRationale: "실행 안내",
+      opportunityEvidence: [{ source: "unknown", summary: "AI 기획" }], confidence: 0.8, cautions: [], projectId: "project-1",
+    }), { workspaceId: "workspace-1", projectId: "project-1", contentId: "sleep", confirmedAt: "now" });
+    const article = document("수면 기록지 작성법: 건강 기록 노트에 수면 시간 적기", [
+      ["수면 시간을 기록할 항목", "수면 기록지에 잠든 시간과 일어난 시간, 중간에 깬 횟수를 건강 기록 노트에 적습니다."],
+      ["건강 기록 노트를 이어 쓰는 방법", "매일 같은 시간에 수면 시간 기록을 확인하고 일주일 단위로 수면 패턴을 비교합니다."],
+      ["수면 기록을 점검할 때 주의할 점", "하루 결과만으로 판단하지 말고 지속되는 불편은 의료진과 상담합니다."],
+    ]);
+    const alignment = analyzeContentOpportunityAlignment(article, sleep);
+    expect(alignment.review.topicFidelity.pass).toBe(true);
+    expect(alignment.review.contentOpportunityConsistency.pass).toBe(true);
+  });
+
   it("corrects a semantically aligned title that only omitted the exact keyword", () => {
     const original = document("음식과 생활습관으로 장을 건강하게 지키는 실천 가이드", [
       ["장내 환경을 이해하는 기준", "장 건강은 장내 환경과 식이섬유 섭취를 함께 살펴야 합니다. 유산균 선택과 생활습관을 실천하는 방법을 설명합니다."],

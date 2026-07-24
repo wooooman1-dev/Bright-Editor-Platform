@@ -159,8 +159,8 @@ function coverage(terms: readonly string[], value: string): number {
 }
 
 function distinctiveTerms(value: string): string[] {
-  const ignored = new Set(["가이드", "관리", "방법", "정보", "글", "콘텐츠", "위한", "대한", "관련", "사용자", "독자", "탐색", "의도", "알기", "이해", "실천"]);
-  return [...new Set(normalize(value).split(/\s+/).map(koreanStem).filter((term) => term && !ignored.has(term)))];
+  const ignored = new Set(["가이드", "관리", "방법", "작성법", "정보", "글", "콘텐츠", "위한", "대한", "관련", "사용자", "독자", "탐색", "의도", "알기", "이해", "실천"]);
+  return [...new Set(normalize(value).split(/\s+/).map(koreanStem).map(alignmentTerm).filter((term) => term && !ignored.has(term)))];
 }
 
 export function contentIntentTerms(value: string): string[] {
@@ -168,6 +168,7 @@ export function contentIntentTerms(value: string): string[] {
     "가이드", "관리", "방법", "정보", "정보형", "정보성", "실행형", "실행성", "비교형", "구매형", "상업형", "탐색형",
     "글", "콘텐츠", "위한", "대한", "관련", "사용자", "독자", "탐색", "의도", "알기", "알고", "이해", "실천",
     "어떤", "어떻게", "직접", "원하는", "찾는", "찾고", "확인", "확인할",
+    "informational", "information", "transactional", "commercial", "navigational", "comparison",
   ]);
   return [...new Set(normalize(value).split(/\s+/)
     .filter((term) => term && !ignored.has(term))
@@ -198,6 +199,10 @@ function koreanStem(value: string): string {
 
 function normalize(value: string): string {
   return value.normalize("NFKC").toLocaleLowerCase("ko-KR").replace(/[^0-9a-z가-힣\s]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function alignmentTerm(value: string): string {
+  return /^(?:기록지|기록장|일지|노트)$/u.test(value) ? "기록" : value;
 }
 
 function percent(value: number): string { return `${Math.round(value * 100)}%`; }

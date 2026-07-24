@@ -78,7 +78,7 @@ export function normalizeQualityReview(
   const stale = Boolean(context.currentRevisionId && revisionId !== context.currentRevisionId);
   const notEvaluated = dimensions.some((dimension) => dimension.status === "blocked" && dimension.evaluation === "not_evaluated");
   const approved = value.approved === true;
-  const approvalType: QualityApprovalType = value.approvalType === "exception" ? "exception" : value.approvalType === "standard" ? "standard" : approved ? "standard" : "none";
+  const approvalType: QualityApprovalType = value.approvalType === "exception" ? "exception" : value.approvalType === "standard" ? "standard" : "none";
   const standardApproved = approved && approvalType === "standard";
   const status: QualityUiStatus = stale ? "stale" : notEvaluated ? "not_evaluated" : standardApproved ? "ready" : "improvement_required";
   const approvalTasks = standardApproved || stale || notEvaluated ? [] : qualityApprovalTasks(dimensions, overallScore);

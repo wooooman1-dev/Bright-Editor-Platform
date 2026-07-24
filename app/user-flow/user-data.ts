@@ -6,6 +6,7 @@ import {
   type ContentDocument,
   type ContentOpportunityCandidate,
   type ContentOpportunitySelectionMode,
+  type ContentPlanQualityTarget,
   type LongFormDiagnostic,
 } from "../../core/content";
 import type { QualityReport } from "../../core/quality";
@@ -47,7 +48,9 @@ export type UserProject = Readonly<{
 }>;
 export type ProjectContentStrategy = Readonly<{
   primaryTopic: string; subtopics: readonly string[]; excludedTopics: readonly string[];
-  defaultContentType: string; defaultPlatform: string; targetLength: string; targetAudience: string; tone: string;
+  defaultContentType: string; defaultPlatform: string; targetAudience: string; tone: string;
+  /** Legacy Project strategy field. Read for compatibility but not used by Planning or Quality. */
+  targetLength?: string;
   internalLinkPolicy: string; relatedPostPolicy: string; ctaPolicy: string; imageStrategy: string; seoPolicy: string;
   defaultPublishingAccountId?: string;
   defaultTistoryCategory?: Readonly<{ publishingAccountId: string; id: string | null; name: string | null }>;
@@ -61,6 +64,7 @@ export type ContentPlanningResult = Readonly<{
   recommendedPrimaryKeyword: string;
   keywordCandidates: readonly string[];
   searchIntent: string;
+  providerSearchIntent?: string;
   recommendedContentType: string;
   recommendedPlatforms: readonly string[];
   suggestedTitleAngles: readonly string[];
@@ -71,6 +75,7 @@ export type ContentPlanningResult = Readonly<{
   estimateDisclosure: string;
   selectionMode?: ContentOpportunitySelectionMode;
   opportunityCandidates?: readonly ContentOpportunityCandidate[];
+  qualityTarget?: ContentPlanQualityTarget;
 }>;
 
 export type ContentPlanningWorkflowStatus =
@@ -84,7 +89,7 @@ export type ContentPlanningWorkflowStatus =
   | "failed"
   | "cancelled";
 
-export type ContentPlanningWorkflowStep = "request" | "planning" | "selection" | "confirmation" | "generation";
+export type ContentPlanningWorkflowStep = "request" | "planning" | "selection" | "confirmation" | "generation" | "review";
 
 export type ContentPlanningWorkflow = Readonly<{
   status: ContentPlanningWorkflowStatus;
@@ -94,6 +99,7 @@ export type ContentPlanningWorkflow = Readonly<{
   selectedOpportunityId?: string;
   error?: string;
   retryFrom?: ContentPlanningWorkflowStep;
+  failedStep?: ContentPlanningWorkflowStep;
   lastSuccessfulStep?: ContentPlanningWorkflowStep;
   revision: number;
   createdAt: string;
@@ -120,6 +126,7 @@ export type UserContent = Readonly<{
   primaryKeyword?: string;
   relatedKeywords?: readonly string[];
   searchIntent?: string;
+  providerSearchIntent?: string;
   targetAudience?: string;
   contentGoal?: string;
   contentType?: string;
@@ -136,7 +143,10 @@ export type UserContent = Readonly<{
   platform?: string;
   publishedUrl?: string;
   generationError?: string;
+  reviewError?: string;
   generationDiagnostic?: LongFormDiagnostic;
+  reviewDiagnostic?: LongFormDiagnostic;
+  qualityTarget?: ContentPlanQualityTarget;
   finalConfirmationAt?: string;
   publishingPreparation?: Readonly<{
     tistory?: Readonly<{
@@ -279,8 +289,9 @@ export function startContentPlanning(data: UserData, input: Readonly<{
     relatedKeywords: undefined,
     searchIntent: undefined,
     targetAudience: undefined,
-    contentGoal: undefined,
-    contentType: undefined,
+      contentGoal: undefined,
+      contentType: undefined,
+      qualityTarget: undefined,
     quality: undefined,
     generationError: undefined,
     title: existing?.planning?.opportunityCandidates?.[0]?.selectedTopic ?? request.slice(0, 80),
@@ -362,7 +373,7 @@ export function failContentPlanning(data: UserData, input: Readonly<{
   contentId: string;
   operationId: string;
   error: string;
-  retryFrom: "planning" | "generation";
+  retryFrom: "planning" | "generation" | "review";
   diagnostic?: LongFormDiagnostic;
   now: string;
 }>): UserData {
@@ -376,9 +387,11 @@ export function failContentPlanning(data: UserData, input: Readonly<{
           status: "failed",
           error: normalizedError,
           retryFrom: input.retryFrom,
+          failedStep: input.retryFrom,
           ...(input.diagnostic ? { longFormDiagnostic: input.diagnostic } : {}),
         }),
         generationError: input.retryFrom === "generation" ? input.error : content.generationError,
+        reviewError: input.retryFrom === "review" ? input.error : content.reviewError,
         generationDiagnostic: input.retryFrom === "generation" ? input.diagnostic : content.generationDiagnostic,
         updatedAt: input.now,
       };
@@ -406,6 +419,7 @@ export function startContentGeneration(data: UserData, input: Readonly<{
       lastSuccessfulStep: "confirmation",
     }),
     generationError: undefined,
+    reviewError: undefined,
     generationDiagnostic: undefined,
     updatedAt: input.now,
   });
@@ -457,7 +471,9 @@ export function createContentFromPlan(data: UserData, input: Readonly<{
       })
       : undefined,
     primaryKeyword: opportunity.primaryKeyword, relatedKeywords: opportunity.secondaryKeywords, searchIntent: opportunity.searchIntent,
+    providerSearchIntent: opportunity.providerSearchIntent,
     targetAudience: opportunity.audience, contentGoal: opportunity.contentAngle, contentType: opportunity.contentType,
+    qualityTarget: opportunity.qualityTarget,
     selectedPublishingAccountIds: [...new Set(input.selectedPublishingAccountIds)],
     ...(input.selectedPublishingAccountIds.length === 1 ? { publishingAccountId: input.selectedPublishingAccountIds[0], platform: "tistory" } : {}),
     title: opportunity.selectedTopic,
@@ -501,6 +517,7 @@ function nextPlanningWorkflow(
   if (update.status !== "failed") {
     delete next.error;
     delete next.retryFrom;
+    delete next.failedStep;
   }
   return Object.freeze(next);
 }
@@ -557,7 +574,7 @@ export function renameProject(data: UserData, projectId: string, name: string, n
   return { ...data, projects };
 }
 export function resolveProjectStrategy(project: UserProject): ProjectContentStrategy { return project.strategy ?? defaultProjectStrategy(project.name, project.description); }
-function defaultProjectStrategy(name: string, description: string): ProjectContentStrategy { return { primaryTopic: name, subtopics: description ? [description] : [], excludedTopics: [], defaultContentType: "Google SEO 장문 블로그", defaultPlatform: "tistory", targetLength: "4,500~6,000자", targetAudience: "주제에 관심 있는 일반 독자", tone: "친절하고 신뢰할 수 있는 설명", internalLinkPolicy: "본문 중간 실제 공개 글 1개 자동 배치", relatedPostPolicy: "문서 마지막 실제 공개 글 최대 3개 자동 배치", ctaPolicy: "필요한 경우 최대 1~2개", imageStrategy: "주요 섹션에 설명적인 ALT가 있는 이미지 placeholder", seoPolicy: "Helpful · Reliable · People-first" }; }
+function defaultProjectStrategy(name: string, description: string): ProjectContentStrategy { return { primaryTopic: name, subtopics: description ? [description] : [], excludedTopics: [], defaultContentType: "Google SEO 정보 콘텐츠", defaultPlatform: "tistory", targetAudience: "주제에 관심 있는 일반 독자", tone: "친절하고 신뢰할 수 있는 설명", internalLinkPolicy: "본문 중간 실제 공개 글 1개 자동 배치", relatedPostPolicy: "문서 마지막 실제 공개 글 최대 3개 자동 배치", ctaPolicy: "필요한 경우 최대 1~2개", imageStrategy: "주요 섹션에 설명적인 ALT가 있는 이미지 placeholder", seoPolicy: "Helpful · Reliable · People-first" }; }
 
 export function updateProjectTargets(data: UserData, projectId: string, accountIds: readonly string[], now: string): UserData {
   return { ...data, projects: data.projects.map((project) => project.id === projectId ? { ...project, selectedPublishingAccountIds: [...new Set(accountIds)], updatedAt: now } : project) };

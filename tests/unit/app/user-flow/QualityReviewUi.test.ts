@@ -114,4 +114,16 @@ describe("Quality Review UI compatibility normalization", () => {
     };
     expect(normalizeQualityReview(report)).toMatchObject({ status: "improvement_required", approvalType: "exception", overallScore: 92 });
   });
+
+  it("does not infer standard approval when approvalType is missing", () => {
+    const report = {
+      approved: true,
+      overallScore: 100,
+      reviewedRevisionId: "rev-missing-approval-type",
+      reviewedAt: "2026-07-24T00:00:00.000Z",
+      dimensions: [{ category: "searchIntent", score: 100, status: "ready", evaluation: "evaluated", reasons: [], tasks: [], evidence: [] }],
+      tasks: [],
+    };
+    expect(normalizeQualityReview(report)).toMatchObject({ status: "improvement_required", approvalType: "none" });
+  });
 });

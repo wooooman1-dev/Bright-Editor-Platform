@@ -169,6 +169,29 @@ describe("mergeUserDataSnapshot", () => {
     expect(merged.planningWorkflow).toMatchObject({ status: "failed", error: "provider timeout", retryFrom: "planning", revision: 3 });
   });
 
+  it("does not revalidate an unchanged legacy confirmed Opportunity while saving another Content", () => {
+    const valid = confirmContentOpportunity(createContentOpportunityCandidate({
+      sourceRequest: "기존 건강 글", selectionMode: "automatic", selectedTopic: "기존 건강 관리", primaryKeyword: "기존 건강 관리 방법",
+      secondaryKeywords: [], searchIntent: "기존 건강 정보 탐색", audience: "성인", contentType: "guide", contentAngle: "실천 안내",
+      readerProblem: "관리 기준 부족", expectedCoverage: [], selectionRationale: "기존 후보", opportunityEvidence: [{ source: "unknown", summary: "기존 근거" }],
+      confidence: 0.7, cautions: [], projectId: "project-1",
+    }), { workspaceId: "workspace-1", projectId: "project-1", contentId: "legacy-content", confirmedAt: "2026-07-18T00:00:00.000Z" });
+    const legacy = { ...valid, fingerprint: "fp-before-dynamic-target" };
+    const current = snapshot({ contents: [
+      { ...snapshot().contents[0], id: "legacy-content", opportunity: legacy as never, primaryKeyword: legacy.primaryKeyword, relatedKeywords: legacy.secondaryKeywords, searchIntent: legacy.searchIntent },
+      { ...snapshot().contents[0], id: "new-content", title: "새 콘텐츠" },
+    ] });
+    const incoming = snapshot({ contents: [
+      current.contents[0],
+      { ...current.contents[1], title: "확정된 새 콘텐츠", updatedAt: "2026-07-18T00:01:00.000Z" },
+    ] });
+
+    const merged = mergeUserDataSnapshot(current, incoming);
+
+    expect(merged.contents.find((item) => item.id === "legacy-content")).toBe(current.contents[0]);
+    expect(merged.contents.find((item) => item.id === "new-content")?.title).toBe("확정된 새 콘텐츠");
+  });
+
   it("accepts the first valid snapshot when no server state exists", () => {
     const incoming = snapshot({ mediaMetadata: [mediaAsset] });
     expect(mergeUserDataSnapshot(undefined, incoming)).toBe(incoming);

@@ -21,6 +21,7 @@ function report(overallScore: number, approved: boolean, scores: Partial<Record<
   }));
   return {
     approved,
+    approvalType: approved ? "standard" : "none",
     approvalState: approved ? "approved" : "improvement_required",
     findings: [],
     overallScore,

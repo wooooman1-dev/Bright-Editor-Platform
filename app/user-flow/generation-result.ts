@@ -28,3 +28,8 @@ export function generatedDocumentReady(result: GenerationCompletionResult): bool
     && result.qualityTargetBlocked !== true,
   );
 }
+
+/** A structurally valid generated manuscript remains editable even when quality approval is pending. */
+export function generatedDocumentEditable(result: GenerationCompletionResult): boolean {
+  return Boolean(result.document);
+}

@@ -39,6 +39,7 @@ export function PrimaryKeywordConfirmation({
           const secondaryKeywords = stringArray(candidate.secondaryKeywords);
           const limitations = stringArray(candidate.limitations);
           const evidence = Array.isArray(candidate.opportunityEvidence) ? candidate.opportunityEvidence : [];
+          const target = candidate.qualityTarget;
           return (
             <label className={`block cursor-pointer rounded-xl border px-4 py-4 text-sm ${selected ? "border-[#ff6b6b] bg-[#fff7f7]" : "border-black/8"}`} key={candidate.opportunityId}>
               <span className="flex items-start gap-3">
@@ -49,6 +50,15 @@ export function PrimaryKeywordConfirmation({
                   <span className="mt-1 block"><span className="font-semibold text-[#66666f]">검색 의도</span> · {candidate.searchIntent}</span>
                   <span className="mt-1 block"><span className="font-semibold text-[#66666f]">주요 내용</span> · {expectedCoverage.join(", ") || secondaryKeywords.join(", ") || "후보 확정 후 원고에서 구체화"}</span>
                   <span className="mt-1 block"><span className="font-semibold text-[#66666f]">추천 이유</span> · {candidate.selectionRationale}</span>
+                  {target ? (
+                    <span className="mt-2 block rounded-lg bg-white/80 px-3 py-2 text-xs leading-5 text-[#66666f]">
+                      <span className="font-semibold text-[#34343a]">콘텐츠 깊이 · {contentDepthLabel(target.contentDepth)}</span>
+                      <span className="block">주제 복잡도 · {target.topicComplexity} · 독자 문제 · {target.readerProblem}</span>
+                      <span className="block">핵심 질문 · {target.coreQuestions.join(", ")}</span>
+                      <span className="block">필수 요소 · {target.requiredContentElements.join(", ")}</span>
+                      <span className="block">판단 기준 · {target.decisionCriteria.join(", ")}</span>
+                    </span>
+                  ) : null}
                   <span className="mt-2 block text-xs text-[#77777f]">근거 · {[...new Set(evidence.map((item) => item.evidenceType ? evidenceTypeLabel(item.evidenceType) : opportunityEvidenceLabel(item.source)))].join(", ")}</span>
                   <span className="mt-1 block text-xs text-[#77777f]">데이터 출처 · {[...new Set(evidence.map((item) => item.provider).filter(Boolean))].join(", ") || "외부 데이터 없음"}</span>
                   <span className="mt-1 block text-xs text-[#77777f]">데이터 기간 · {[...new Set(evidence.map((item) => item.periodStart || item.periodEnd ? `${item.periodStart ?? "?"}~${item.periodEnd ?? "?"}` : "내부 현재 상태"))].join(", ")}</span>
@@ -95,6 +105,7 @@ export function PrimaryKeywordConfirmation({
 function stringArray(value: unknown): string[] { return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0) : []; }
 
 function recommendationTypeLabel(value: ContentOpportunityCandidate["recommendationType"]) { return value === "comprehensive" ? "종합 추천" : value === "marketOpportunity" ? "시장 기회 추천" : "블로그 성장 추천"; }
+function contentDepthLabel(value: NonNullable<ContentOpportunityCandidate["qualityTarget"]>["contentDepth"]) { return ({ quick: "standard · 기존 quick 호환", standard: "standard · 핵심 문제 해결", deep: "deep · 복잡한 판단과 예외", comparison: "comparison · 선택 기준 비교" } as const)[value]; }
 function freshnessLabel(value: ContentOpportunityCandidate["freshness"]) { return value === "fresh" ? "최신" : value === "aging" ? "갱신 권장" : value === "stale" ? "오래됨" : "확인 불가"; }
 function evidenceTypeLabel(value: NonNullable<ContentOpportunityCandidate["opportunityEvidence"][number]["evidenceType"]>) { return ({ contentGap: "콘텐츠 공백", internalLinkOpportunity: "내부 링크 기회", clusterOpportunity: "콘텐츠 클러스터", searchPerformance: "검색 성과", searchDemand: "검색 수요", relativeTrend: "상대 검색 추세", risingTrend: "상승 추세", keywordCompetition: "광고 경쟁", commercialIntent: "상업 의도", pageEngagement: "페이지 참여", revenuePerformance: "수익 성과", editorialInference: "편집 추론" } as Record<string, string>)[value] ?? value; }
 

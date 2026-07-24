@@ -334,7 +334,7 @@ Reader Problems
 Search Intent Strategy
 Tone and Voice
 Content Type
-Target Length
+Information Sufficiency Policy
 SEO Strategy
 Image Strategy
 CTA Strategy

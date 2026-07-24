@@ -1,4 +1,10 @@
 import type { AIProvider, AIRequest, AIResponse } from "../../core/ai";
+import {
+  contentSectionTypes,
+  determineContentPlanQualityTarget,
+  normalizeContentPlanQualityTarget,
+  type ContentPlanQualityTarget,
+} from "../../core/content";
 import { openAIGenerationModel } from "./OpenAIModelPolicy";
 
 export class AIConfigurationError extends Error {
@@ -12,7 +18,7 @@ export class OpenAIProvider implements AIProvider {
   constructor(
     private readonly apiKey = process.env.OPENAI_API_KEY,
     private readonly model = openAIGenerationModel(),
-    private readonly timeoutMs = readTimeout(process.env.OPENAI_REQUEST_TIMEOUT_MS, 120_000),
+    private readonly timeoutMs = readTimeout(process.env.OPENAI_REQUEST_TIMEOUT_MS, 600_000),
   ) {}
 
   async generate(request: AIRequest): Promise<AIResponse> {
@@ -28,6 +34,7 @@ export class OpenAIProvider implements AIProvider {
     }));
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    const startedAt = Date.now();
     let response: Response;
     try {
       response = await fetch("https://api.openai.com/v1/responses", {
@@ -49,6 +56,8 @@ export class OpenAIProvider implements AIProvider {
       ...(responseBody.status ? { status: responseBody.status } : {}),
       ...(responseBody.incomplete_details?.reason ? { incompleteReason: responseBody.incomplete_details.reason } : {}),
       ...(typeof responseBody.usage?.output_tokens === "number" ? { outputTokens: responseBody.usage.output_tokens } : {}),
+      requestTimeoutMs: this.timeoutMs,
+      elapsedMs: Date.now() - startedAt,
     });
     console.info("[openai-response]", { ...diagnostics, model: responseBody.model ?? this.model });
     if (responseBody.status === "incomplete") throw new Error(`OpenAI response was incomplete${responseBody.incomplete_details?.reason ? `: ${responseBody.incomplete_details.reason}` : "."}`);
@@ -68,15 +77,19 @@ function readTimeout(value: string | undefined, fallback: number): number {
 }
 
 function editorialOutputPolicy(metadata?: Readonly<Record<string, string>>) {
-  if (metadata?.task === "content-generation") return { maxOutputTokens: 12_000, verbosity: "medium" as const, format: structuredGenerationFormat };
+  if (metadata?.task === "content-generation") {
+    const target = parseQualityTarget(metadata.qualityTarget);
+    return { maxOutputTokens: outputTokenBudget(target), verbosity: "medium" as const, format: structuredGenerationFormat(target) };
+  }
   if (metadata?.task === "quality-final-edit" || metadata?.task === "quality-auto-improvement") return { maxOutputTokens: 12_000, verbosity: "high" as const, format: editorialDocumentFormat };
   if (/tistory|blog|article|long-form|guide|아티클|장문/i.test(`${metadata?.platform ?? ""} ${metadata?.contentType ?? ""}`)) return { maxOutputTokens: 12_000, verbosity: "medium" as const, format: editorialDocumentFormat };
   return undefined;
 }
 
-const structuredGenerationFormat = {
+export function structuredGenerationFormat(target: ContentPlanQualityTarget = determineContentPlanQualityTarget({ contentType: "article" })) {
+  return {
   type: "json_schema",
-  name: "structured_long_form_generation",
+  name: `structured_${target.contentDepth}_generation`,
   strict: true,
   schema: {
     type: "object",
@@ -90,17 +103,18 @@ const structuredGenerationFormat = {
       secondaryKeywords: { type: "array", items: { type: "string" } },
       relatedTerms: { type: "array", items: { type: "string" } },
       tags: { type: "array", items: { type: "string" } },
-      introduction: { type: "array", minItems: 5, maxItems: 5, items: { type: "string", minLength: 100 } },
-      sections: { type: "array", minItems: 5, maxItems: 6, items: {
+      introduction: { type: "array", minItems: 1, maxItems: 8, items: { type: "string" } },
+      sections: { type: "array", minItems: 1, maxItems: 12, items: {
         type: "object",
         additionalProperties: false,
-        required: ["heading", "paragraphs"],
+        required: ["heading", "sectionType", "paragraphs"],
         properties: {
           heading: { type: "string" },
-          paragraphs: { type: "array", minItems: 8, maxItems: 8, items: { type: "string", minLength: 125 } },
+          sectionType: { type: "string", enum: contentSectionTypes },
+          paragraphs: { type: "array", minItems: 1, maxItems: 12, items: { type: "string" } },
         },
       } },
-      conclusion: { type: "array", minItems: 5, maxItems: 5, items: { type: "string", minLength: 100 } },
+      conclusion: { type: "array", minItems: 1, maxItems: 8, items: { type: "string" } },
       images: { type: "array", items: {
         type: "object",
         additionalProperties: false,
@@ -126,7 +140,21 @@ const structuredGenerationFormat = {
       } },
     },
   },
-} as const;
+  } as const;
+}
+
+function parseQualityTarget(raw: string | undefined): ContentPlanQualityTarget {
+  if (!raw) return determineContentPlanQualityTarget({ contentType: "article" });
+  try {
+    return normalizeContentPlanQualityTarget(JSON.parse(raw) as ContentPlanQualityTarget, { contentType: "article" });
+  } catch {
+    return determineContentPlanQualityTarget({ contentType: "article" });
+  }
+}
+
+function outputTokenBudget(target: ContentPlanQualityTarget): number {
+  return target.contentDepth === "deep" || target.contentDepth === "comparison" ? 14_000 : 11_000;
+}
 
 const editorialDocumentFormat = {
   type: "json_schema",
