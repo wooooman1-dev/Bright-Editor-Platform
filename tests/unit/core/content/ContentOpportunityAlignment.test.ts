@@ -54,6 +54,38 @@ describe("Content Opportunity manuscript alignment", () => {
     expect(report.tasks.some((task) => task.message.includes("보조 키워드"))).toBe(true);
   });
 
+  it("does not treat a confirmed fatigue manuscript as a cross-topic drift when title, headings, and body follow the selected opportunity", () => {
+    const fatigueOpportunity = confirmContentOpportunity(createContentOpportunityCandidate({
+      sourceRequest: "피로가 계속될 때", selectionMode: "automatic",
+      selectedTopic: "피로가 계속될 때 생활습관 점검과 진료 필요 신호", primaryKeyword: "피로가 계속될 때",
+      secondaryKeywords: ["피로 생활습관", "피로 병원 진료", "수면 부족 피로"],
+      searchIntent: "문제 해결형 정보 탐색: 충분히 쉬어도 피로가 지속될 때 생활습관에서 점검할 부분과 진료를 고려할 상황을 알고 싶다.",
+      audience: "피로가 지속되는 성인", contentType: "guide", contentAngle: "생활습관 점검과 진료 필요 신호",
+      readerProblem: "피로 원인과 병원 방문 기준을 구분하기 어렵다",
+      expectedCoverage: ["수면", "생활습관", "피로 기록", "진료 필요 신호"], selectionRationale: "선택한 추천 주제",
+      opportunityEvidence: [{ source: "unknown", summary: "내부 기획" }], confidence: 0.8, cautions: [], projectId: "project-1",
+    }), { workspaceId: "workspace-1", projectId: "project-1", contentId: "content-fatigue", confirmedAt: "now" });
+    const article: ContentDocument = {
+      id: "content-fatigue",
+      title: "피로가 계속될 때: 생활습관 점검부터 병원 진료가 필요한 신호까지",
+      metadata: { buttonCount: 0, createdAt: "now", generator: "test", imageCount: 0, language: "ko", readingTime: 5, source: "test", updatedAt: "now", version: 1, videoCount: 0, wordCount: 900, primarySearchIntent: fatigueOpportunity.searchIntent, metaDescription: "피로가 계속될 때 수면과 생활습관을 점검하고 진료가 필요한 신호를 구분하는 방법을 설명합니다." },
+      blocks: [
+        { id: "intro", type: "paragraph", text: "충분히 쉬었는데도 피로가 지속되면 단순히 잠이 부족한지, 생활 리듬이 흐트러졌는지, 다른 신호가 함께 있는지 차례로 살펴야 합니다." },
+        { id: "h1", type: "heading", level: 2, text: "먼저 점검할 수면과 생활습관" },
+        { id: "p1", type: "paragraph", text: "취침 시간과 기상 시간, 카페인 섭취, 활동량을 기록하면 반복되는 피로 원인을 찾는 데 도움이 됩니다. 수면의 질과 낮 동안의 졸림도 함께 확인합니다." },
+        { id: "h2", type: "heading", level: 2, text: "피로 기록으로 확인할 변화" },
+        { id: "p2", type: "paragraph", text: "피로가 심해지는 시간과 동반 증상을 적어 두면 생활습관 조정 후 변화를 비교하기 쉽습니다." },
+        { id: "h3", type: "heading", level: 2, text: "병원 진료를 고려해야 하는 신호" },
+        { id: "p3", type: "paragraph", text: "코골이와 호흡 이상, 참기 어려운 주간 졸림, 지속되는 불면, 흉통이나 호흡 곤란이 있으면 의료진과 상담해야 합니다." },
+      ],
+    };
+    const alignment = analyzeContentOpportunityAlignment(article, fatigueOpportunity);
+    expect(alignment.status).toBe("aligned");
+    expect(alignment.review.topicFidelity.pass).toBe(true);
+    expect(alignment.review.contentOpportunityConsistency.pass).toBe(true);
+    expect(alignment.review.crossTopicDrift.pass).toBe(true);
+  });
+
   it("understands descriptive Korean execution intent without requiring its framing words in the manuscript", () => {
     const exerciseOpportunity = confirmContentOpportunity(createContentOpportunityCandidate({
       sourceRequest: "집에서 하는 근력운동 초보자 가이드", selectionMode: "automatic",
