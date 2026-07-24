@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { chromium } from "playwright";
-import { tistoryMediaUploadSelectors, uploadTistoryMediaSequentially } from "./tistory-media-upload.mjs";
+import { tistoryMediaUploadSelectors, uploadSingleTistoryImage, uploadTistoryMediaSequentially } from "./tistory-media-upload.mjs";
 
 const [commandPath] = process.argv.slice(2);
 let browser;
@@ -23,7 +23,11 @@ try {
 
   const resolved = await uploadTistoryMediaSequentially(page, media, async (editorPage, item) => {
     await removeReusableImageInputs(editorPage);
-    return uploadSingleWithFreshAttachmentControl(editorPage, item);
+    try {
+      return await uploadSingleTistoryImage(editorPage, item);
+    } catch (error) {
+      throw withMediaEvidence(error, { uploadSession: "same_editor_fresh_attachment_control" });
+    }
   });
 
   let html = String(command.html ?? "");
@@ -44,15 +48,6 @@ try {
   process.exitCode = 1;
 } finally {
   await browser?.close();
-}
-
-async function uploadSingleWithFreshAttachmentControl(page, item) {
-  const module = await import("./tistory-media-upload.mjs");
-  try {
-    return await module.uploadSingleTistoryImage(page, item);
-  } catch (error) {
-    throw withMediaEvidence(error, { uploadSession: "same_editor_fresh_attachment_control" });
-  }
 }
 
 async function removeReusableImageInputs(page) {
