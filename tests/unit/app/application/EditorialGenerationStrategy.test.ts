@@ -13,12 +13,18 @@ describe("EditorialGenerationStrategy", () => {
   it("enforces the complete long-form generation contract without a maximum length", () => {
     const request = new EditorialGenerationStrategy().createRequest(input);
 
-    expect(request.instruction).toContain("at least 4,800 non-whitespace Korean characters");
-    expect(request.instruction).toContain("there is no maximum character limit");
+    expect(request.instruction).toContain("server approval floor remains 4,800");
+    expect(request.instruction).toContain("generation target is 6,000–6,500");
+    expect(request.instruction).toContain("pre-return safety target is at least 5,500");
+    expect(request.instruction).toContain("400–500-character introduction");
+    expect(request.instruction).toContain("750–950 non-whitespace prose characters each");
+    expect(request.instruction).toContain("400–500-character conclusion");
     expect(request.instruction).toContain("use five or six developed H2 sections by default");
     expect(request.instruction).toContain("never create eight or more");
     expect(request.instruction).toContain("at least 450 non-whitespace Korean prose characters");
     expect(request.instruction).toContain("Do not add sections merely to reach the length target");
+    expect(request.instruction).toContain("repeated core advice is zero");
+    expect(request.instruction).toContain("at least three useful observable criteria");
     expect(request.instruction).toContain("Consolidate repeated advice into the single section where it belongs");
     expect(request.instruction).toContain("Keyword placement is a mandatory completion contract");
     expect(request.instruction).toContain("every confirmed secondary keyword naturally");
