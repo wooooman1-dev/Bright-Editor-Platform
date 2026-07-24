@@ -7,6 +7,7 @@ import type { AIProvider, AIRequest } from "../../../../core/ai";
 type TestQualityReport = {
   overallScore: number;
   approved: boolean;
+  approvalType: "standard" | "exception" | "none";
   reviewedAt: string;
   revisionId: string;
   dimensions: Array<{ category: string; score: number; status: string; reasons: string[]; evidence: never[] }>;
@@ -31,7 +32,7 @@ function rawDocument(title = "초기 원고") {
   };
 }
 
-function report(overallScore: number, approved: boolean, readability = approved ? 96 : 88): TestQualityReport {
+function report(overallScore: number, approved: boolean, readability = approved ? 96 : 88, approvalType: TestQualityReport["approvalType"] = approved ? "standard" : "none"): TestQualityReport {
   const scores = {
     searchIntent: approved ? 97 : 90,
     seo: approved ? 98 : 92,
@@ -47,6 +48,7 @@ function report(overallScore: number, approved: boolean, readability = approved 
   return {
     overallScore,
     approved,
+    approvalType,
     reviewedAt: "2026-07-19T00:00:00.000Z",
     revisionId: "rev-test",
     dimensions: Object.entries(scores).map(([category, score]) => ({ category, score, status: "passed", reasons: [], evidence: [] })),
@@ -80,7 +82,7 @@ describe("EditorialQualityPipeline", () => {
     expect(result.document.title).toBe("승인 원고");
   });
 
-  it("accepts a server-approved candidate even when a non-blocking score is lower", async () => {
+  it("accepts a standard-approved candidate even when a non-blocking score is lower", async () => {
     const initial = new EditorialGenerationStrategy().parse(JSON.stringify(rawDocument()), parseInput());
     const generate = vi.fn(async () => ({ content: JSON.stringify(rawDocument("최종 승인")), model: "review" }));
     const reviews = [report(94, false, 99), report(95, true, 95)];
@@ -90,10 +92,10 @@ describe("EditorialQualityPipeline", () => {
     expect(result.document.title).toBe("최종 승인");
   });
 
-  it("exception-approves an integrity-safe candidate when overall is at least 90 and required dimensions are at least 90", async () => {
+  it("does not treat exception approval as publish-ready", async () => {
     const initial = new EditorialGenerationStrategy().parse(JSON.stringify(rawDocument()), parseInput());
     const generate = vi.fn(async () => ({ content: JSON.stringify(rawDocument("예외 승인 원고")), model: "review" }));
-    const exceptionReport = report(96, false);
+    const exceptionReport = report(96, true, 95, "exception");
     exceptionReport.dimensions = exceptionReport.dimensions.map((dimension) =>
       dimension.category === "completeness" ? { ...dimension, score: 93 } :
       dimension.category === "readability" ? { ...dimension, score: 95 } :
@@ -110,8 +112,8 @@ describe("EditorialQualityPipeline", () => {
       qualityContext: {},
     });
 
-    expect(result.reachedTarget).toBe(true);
-    expect(result.quality.approved).toBe(false);
+    expect(result.reachedTarget).toBe(false);
+    expect(result.quality.approvalType).toBe("exception");
     expect(result.document.title).toBe("예외 승인 원고");
   });
 
@@ -132,12 +134,16 @@ describe("EditorialQualityPipeline", () => {
     const qualityEngine = { review: vi.fn(() => report(96, true)) };
     await new EditorialQualityPipeline({ generate } as AIProvider, undefined, qualityEngine as never).run({ document: initial, finalReviewInstruction: () => "base instruction", parseInput: parseInput(), qualityContext: {}, requiredInformation: ["실행 예시"] });
     expect(instruction).toContain("second and final AI call");
+    expect(instruction).toContain("standard approval only");
     expect(instruction).toContain("overallScore >= 95");
     expect(instruction).toContain("readability >= 95");
     expect(instruction).toContain("usefulness >= 90");
+    expect(instruction).toContain("final body >= 5,500");
+    expect(instruction).toContain("preferred target of 6,000–6,500");
+    expect(instruction).toContain("repeated core advice = 0");
+    expect(instruction).toContain("at least three useful observable criteria");
+    expect(instruction).toContain("Current prose length is");
     expect(instruction).toContain("Manuscript diagnostics");
-    expect(instruction).toContain("at least 4,800 non-whitespace prose characters");
-    expect(instruction).toContain("no maximum character limit");
     expect(instruction).toContain("according to the topic and confirmed search intent");
     expect(instruction).toContain("only where the section and reader intent genuinely require them");
     expect(instruction).toContain("Keyword placement is mandatory");
