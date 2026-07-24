@@ -2,7 +2,8 @@ import { access } from "node:fs/promises";
 import path from "node:path";
 
 import type { PlatformConnection } from "../../../core/connections";
-import { contentRevisionId, QualityEngine } from "../../../core/quality";
+import { analyzeLongFormDocument, longFormSafetyTarget, requiresLongFormValidation } from "../../../core/content";
+import { contentRevisionId, isStandardQualityApproved, QualityEngine } from "../../../core/quality";
 import { PublishingPermissionGate } from "../../../core/publishing";
 import { isPlatformEnabled, resolveWorkspaceSettings } from "../settings/WorkspaceSettingsService";
 import { resolveProjectStrategy, type UserContent, type UserData, type UserProject } from "../../user-flow/user-data";
@@ -87,7 +88,14 @@ export async function calculateTistoryReadiness(input: Readonly<{
   const categoryStored = Boolean(connection && preparation && preparation.publishingAccountId === connection.id);
   const currentRevision = content.document ? contentRevisionId(content.document) : undefined;
   const currentRuleQuality = content.document ? new QualityEngine().review(content.document, { contentType: content.contentType, platform: content.platform ?? "tistory", primaryKeyword: content.primaryKeyword, searchIntent: content.searchIntent, revisionId: currentRevision }) : undefined;
-  const qualityPassed = Boolean(content.quality?.approved && currentRuleQuality?.approved && currentRevision && content.quality.reviewedRevisionId === currentRevision);
+  const longFormReady = content.document && requiresLongFormValidation(content.document) ? analyzeLongFormDocument(content.document) : undefined;
+  const longFormPassed = !content.document || !requiresLongFormValidation(content.document)
+    || Boolean(longFormReady && longFormReady.totalProseCharacters >= longFormSafetyTarget && longFormReady.violations.length === 0);
+  const qualityPassed = Boolean(isStandardQualityApproved(content.quality)
+    && isStandardQualityApproved(currentRuleQuality)
+    && longFormPassed
+    && currentRevision
+    && content.quality?.reviewedRevisionId === currentRevision);
   const localImageCount = content.document?.blocks.filter((block) => block.type === "image" && /^\/api\/media\//i.test(block.source)).length ?? 0;
   let permissionPassed = false;
   let mediaPermissionPassed = localImageCount === 0;

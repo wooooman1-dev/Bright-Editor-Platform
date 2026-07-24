@@ -49,12 +49,67 @@ describe("integration infrastructure", () => {
     await new OpenAIProvider("sk-test", "gpt-5-mini").generate({ instruction: "write", metadata: { contentType: "long-form blog article", platform: "tistory" } });
     const body = JSON.parse(new TextDecoder().decode(fetchSpy.mock.calls[0]?.[1]?.body as Uint8Array));
     expect(body).toMatchObject({ max_output_tokens: 12_000, text: { format: { type: "json_schema", name: "canonical_content_document", schema: { required: ["title", "blocks"] } }, verbosity: "medium" } });
+    await new OpenAIProvider("sk-test", "gpt-5-mini").generate({ instruction: "generate", metadata: { task: "content-generation", contentType: "long-form blog article", platform: "tistory" } });
+    const generationBody = JSON.parse(new TextDecoder().decode(fetchSpy.mock.calls[1]?.[1]?.body as Uint8Array));
+    expect(generationBody).toMatchObject({
+      max_output_tokens: 12_000,
+      text: {
+        format: {
+          name: "structured_long_form_generation",
+          strict: true,
+          schema: {
+            required: expect.arrayContaining(["tags", "introduction", "sections", "conclusion"]),
+            properties: {
+              introduction: {
+                minItems: 5,
+                maxItems: 5,
+                items: { minLength: 100 },
+              },
+              sections: {
+                minItems: 5,
+                maxItems: 6,
+                items: {
+                  properties: {
+                    paragraphs: {
+                      minItems: 8,
+                      maxItems: 8,
+                      items: { minLength: 125 },
+                    },
+                  },
+                },
+              },
+              conclusion: {
+                minItems: 5,
+                maxItems: 5,
+                items: { minLength: 100 },
+              },
+            },
+          },
+        },
+      },
+    });
     await new OpenAIProvider("sk-test", "gpt-5-mini").generate({ instruction: "edit", metadata: { task: "quality-final-edit" } });
-    const finalBody = JSON.parse(new TextDecoder().decode(fetchSpy.mock.calls[1]?.[1]?.body as Uint8Array));
+    const finalBody = JSON.parse(new TextDecoder().decode(fetchSpy.mock.calls[2]?.[1]?.body as Uint8Array));
     expect(finalBody).toMatchObject({ max_output_tokens: 12_000, text: { format: { type: "json_schema", name: "canonical_content_document", schema: { required: ["title", "blocks"] } }, verbosity: "high" } });
     await new OpenAIProvider("sk-test", "gpt-5-mini").generate({ instruction: "improve", metadata: { task: "quality-auto-improvement" } });
-    const improvementBody = JSON.parse(new TextDecoder().decode(fetchSpy.mock.calls[2]?.[1]?.body as Uint8Array));
+    const improvementBody = JSON.parse(new TextDecoder().decode(fetchSpy.mock.calls[3]?.[1]?.body as Uint8Array));
     expect(improvementBody).toMatchObject({ max_output_tokens: 12_000, text: { verbosity: "high" } });
+    fetchSpy.mockRestore();
+  });
+
+  it("reports an incomplete Responses API result before parsing partial output", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      id: "resp-test",
+      model: "gpt-5.6-terra",
+      status: "incomplete",
+      incomplete_details: { reason: "max_output_tokens" },
+      usage: { output_tokens: 12_000 },
+      output_text: "{}",
+    }), { status: 200 }));
+    await expect(new OpenAIProvider("sk-test", "gpt-5.6-terra").generate({
+      instruction: "generate",
+      metadata: { task: "content-generation" },
+    })).rejects.toThrow("max_output_tokens");
     fetchSpy.mockRestore();
   });
 

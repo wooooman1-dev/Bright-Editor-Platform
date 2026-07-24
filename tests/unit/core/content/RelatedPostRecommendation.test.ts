@@ -85,8 +85,10 @@ describe("placeRecommendedPosts", () => {
     };
     const placed = placeRecommendedPosts(existing, [post("related-two", "새 관련 글", "https://blog.tistory.com/entry/related-two", "건강정보")]);
     expect(placed.blocks.map((block) => block.id)).toEqual(["intro", "context", "last-heading", "conclusion", "related-one", "auto-related-post"]);
-    expect(placed.blocks.at(-2)?.type === "button" && placed.blocks.at(-2)?.purpose).toBe("related_post");
-    expect(placed.blocks.at(-1)?.type === "button" && placed.blocks.at(-1)?.purpose).toBe("related_post");
+    const previous = placed.blocks.at(-2);
+    const last = placed.blocks.at(-1);
+    expect(previous?.type === "button" && previous.purpose).toBe("related_post");
+    expect(last?.type === "button" && last.purpose).toBe("related_post");
   });
 
   it("uses only the available candidates when fewer than four exist", () => {

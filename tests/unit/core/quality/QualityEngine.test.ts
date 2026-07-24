@@ -180,6 +180,11 @@ describe("QualityEngine dimension scoring", () => {
     expect(resolveQualityApproval(92, dimensions.map((item) => item.category === "seo" ? { ...item, score: 89 } : item), true)).toEqual({ approved: false, approvalType: "none" });
   });
 
+  it("never treats exception approval as publishing ready", () => {
+    const report = new QualityEngine().review(structured(), { contentType: "article", platform: "tistory", primaryKeyword: "건강 관리", searchIntent: "건강 관리 방법" });
+    expect(() => new PublishingGate().assertReady({ ...report, approved: true, approvalType: "exception" })).toThrow("standard quality approval is required");
+  });
+
   it("always exposes a reason for every dimension score", () => {
     const report = new QualityEngine().review(structured(), { contentType: "article", platform: "tistory", primaryKeyword: "건강 관리", searchIntent: "건강 관리 방법" });
     expect(report.dimensions.every((dimension) => dimension.reasons.length > 0)).toBe(true);

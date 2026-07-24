@@ -79,8 +79,9 @@ export function normalizeQualityReview(
   const notEvaluated = dimensions.some((dimension) => dimension.status === "blocked" && dimension.evaluation === "not_evaluated");
   const approved = value.approved === true;
   const approvalType: QualityApprovalType = value.approvalType === "exception" ? "exception" : value.approvalType === "standard" ? "standard" : approved ? "standard" : "none";
-  const status: QualityUiStatus = stale ? "stale" : notEvaluated ? "not_evaluated" : approved ? "ready" : "improvement_required";
-  const approvalTasks = approved || stale || notEvaluated ? [] : qualityApprovalTasks(dimensions, overallScore);
+  const standardApproved = approved && approvalType === "standard";
+  const status: QualityUiStatus = stale ? "stale" : notEvaluated ? "not_evaluated" : standardApproved ? "ready" : "improvement_required";
+  const approvalTasks = standardApproved || stale || notEvaluated ? [] : qualityApprovalTasks(dimensions, overallScore);
   const actionableTasks = [...approvalTasks, ...normalizeTasks(value.tasks, dimensions)];
   return Object.freeze({ dimensions: Object.freeze(dimensions), overallScore, approvalType, status, revisionId, reviewedAt, issues: Object.freeze(issues), actionableTasks: Object.freeze(actionableTasks) });
 }

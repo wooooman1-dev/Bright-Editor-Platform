@@ -30,6 +30,20 @@ export {
   type OpportunityAlignmentStatus,
 } from "./ContentOpportunityAlignment";
 export { calculateContentMetrics, canonicalDocumentText } from "./ContentMetrics";
+export {
+  analyzeLongFormDocument,
+  assertLongFormDocument,
+  assertLongFormSafetyTarget,
+  formatLongFormDiagnostic,
+  LongFormValidationError,
+  longFormHardFloor,
+  longFormSafetyTarget,
+  longFormSectionFloor,
+  requiresLongFormValidation,
+  type LongFormDiagnostic,
+  type LongFormSectionDiagnostic,
+  type LongFormViolationCode,
+} from "./LongFormDiagnostics";
 export { deriveContentTags } from "./ContentTags";
 export { placeRecommendedPosts, rankRelatedPosts, type PublicPostCandidate } from "./RelatedPostRecommendation";
 export { restoreProtectedImageAssets } from "./ProtectedImageAssets";

@@ -112,7 +112,7 @@ export function EditorWorkspace({ content, data, project, onBack, onPersist }: {
       const next = latestData(); await onPersist(next);
       const result = await api("/api/studio", { action: "improve-quality", input: { workspaceId: project.workspaceId, contentId: content.id } }) as { document?: ContentDocument; basedOnRevisionId?: string; baselineQuality?: QualityReport; quality?: QualityReport; improvement?: Readonly<{ accepted: boolean; reasons: readonly string[] }>; applied?: boolean; data?: UserData; error?: string };
       if (!result.document || !result.baselineQuality || !result.quality || !result.improvement) throw new Error(result.error ?? "AI 개선안을 만들지 못했습니다.");
-      if (result.applied && result.data && result.quality.approved) {
+      if (result.applied && result.data && result.quality.approved && result.quality.approvalType === "standard") {
         await onPersist(result.data); setDocumentDraft(result.document); setTitle(result.document.title); setQualityReport(result.quality); setPreviewHtml(""); setImprovementFeedback({ tone: "success", message: "AI가 한 번의 품질 편집으로 승인 원고를 만들고 새 Revision에 자동 적용했습니다." }); setNotice("AI 품질 편집이 승인 기준을 통과해 자동 적용되었습니다.");
         return;
       }

@@ -12,6 +12,7 @@ export type GenerationInput = Readonly<{
   keywords: readonly string[];
   platform: PlatformId;
   projectId: string;
+  structuredLongFormOutput?: boolean;
 }>;
 
 export type GenerationResult = Readonly<{
@@ -55,7 +56,11 @@ export class AIWorkflow {
       const request = this.strategy.createRequest(input);
       const response = await this.provider.generate({
         ...request,
-        metadata: { contentType: input.contentType, platform: input.platform },
+        metadata: {
+          contentType: input.contentType,
+          platform: input.platform,
+          ...(input.structuredLongFormOutput ? { task: "content-generation" } : {}),
+        },
       });
       const result = Object.freeze({
         document: this.strategy.parse(response.content, input),

@@ -6,6 +6,7 @@ import {
   type ContentDocument,
   type ContentOpportunityCandidate,
   type ContentOpportunitySelectionMode,
+  type LongFormDiagnostic,
 } from "../../core/content";
 import type { QualityReport } from "../../core/quality";
 
@@ -97,6 +98,7 @@ export type ContentPlanningWorkflow = Readonly<{
   revision: number;
   createdAt: string;
   updatedAt: string;
+  longFormDiagnostic?: LongFormDiagnostic;
 }>;
 
 export type UserContentStatus = "planning" | "configuration_required" | "draft" | "in_review" | "ready" | "draft_saved";
@@ -134,6 +136,7 @@ export type UserContent = Readonly<{
   platform?: string;
   publishedUrl?: string;
   generationError?: string;
+  generationDiagnostic?: LongFormDiagnostic;
   finalConfirmationAt?: string;
   publishingPreparation?: Readonly<{
     tistory?: Readonly<{
@@ -360,6 +363,7 @@ export function failContentPlanning(data: UserData, input: Readonly<{
   operationId: string;
   error: string;
   retryFrom: "planning" | "generation";
+  diagnostic?: LongFormDiagnostic;
   now: string;
 }>): UserData {
   try {
@@ -372,8 +376,10 @@ export function failContentPlanning(data: UserData, input: Readonly<{
           status: "failed",
           error: normalizedError,
           retryFrom: input.retryFrom,
+          ...(input.diagnostic ? { longFormDiagnostic: input.diagnostic } : {}),
         }),
         generationError: input.retryFrom === "generation" ? input.error : content.generationError,
+        generationDiagnostic: input.retryFrom === "generation" ? input.diagnostic : content.generationDiagnostic,
         updatedAt: input.now,
       };
     });
@@ -400,6 +406,7 @@ export function startContentGeneration(data: UserData, input: Readonly<{
       lastSuccessfulStep: "confirmation",
     }),
     generationError: undefined,
+    generationDiagnostic: undefined,
     updatedAt: input.now,
   });
 }

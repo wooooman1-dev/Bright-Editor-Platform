@@ -16,7 +16,7 @@ type TestQualityReport = {
 };
 
 function rawDocument(title = "초기 원고") {
-  const prose = "독자가 바로 실행할 수 있도록 기준과 순서, 예시, 주의사항을 구체적인 문장으로 설명합니다. ".repeat(11);
+  const prose = "독자가 바로 실행할 수 있도록 기준과 순서, 예시, 주의사항을 구체적인 문장으로 설명합니다. ".repeat(16);
   return {
     title,
     metaDescription: "독자가 필요한 실행 기준과 순서, 주의사항을 확인할 수 있는 실용 안내입니다.",

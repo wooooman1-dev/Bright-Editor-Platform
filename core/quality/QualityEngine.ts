@@ -1,11 +1,14 @@
 import {
   analyzeContentOpportunityAlignment,
+  analyzeLongFormDocument,
   calculateContentMetrics,
   canonicalDocumentText,
   contentIntentTerms,
   normalizeSeoKeyword,
   titleContainsPrimaryKeyword,
   deriveContentTags,
+  longFormSafetyTarget,
+  requiresLongFormValidation,
   type ConfirmedContentOpportunity,
   type ContentDocument,
   type ContentOpportunityQualityReview,
@@ -42,6 +45,10 @@ export type QualityReport = Readonly<{
   reviewedRevisionId: string;
   weights: Readonly<Record<QualityCategory, number>>;
 }>;
+
+export function isStandardQualityApproved(report: Pick<QualityReport, "approved" | "approvalType"> | undefined): boolean {
+  return report?.approved === true && report.approvalType === "standard";
+}
 
 
 export function resolveQualityApproval(
@@ -103,9 +110,13 @@ export class QualityEngine {
 }
 
 export class PublishingGate {
-  assertReady(report: QualityReport, currentRevisionId?: string): void {
+  assertReady(report: QualityReport, currentRevisionId?: string, document?: ContentDocument): void {
     if (currentRevisionId && report.reviewedRevisionId !== currentRevisionId) throw new Error("Publishing blocked: Quality Review is stale for the current content revision.");
-    if (!report.approved) throw new Error(`Publishing blocked: quality score ${report.overallScore}.`);
+    if (!isStandardQualityApproved(report)) throw new Error(`Publishing blocked: standard quality approval is required; score ${report.overallScore}, approval ${report.approvalType ?? "none"}.`);
+    if (document && requiresLongFormValidation(document)) {
+      const diagnostic = analyzeLongFormDocument(document);
+      if (diagnostic.totalProseCharacters < longFormSafetyTarget || diagnostic.violations.length) throw new Error(`Publishing blocked: long-form safety target requires ${longFormSafetyTarget} prose characters and valid H2 sections.`);
+    }
   }
 }
 

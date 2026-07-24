@@ -24,7 +24,7 @@ export class OpenAIProvider implements AIProvider {
     const requestBody = new TextEncoder().encode(JSON.stringify({
       model: this.model,
       input: request.instruction,
-      ...(editorialOutput ? { max_output_tokens: editorialOutput.maxOutputTokens, text: { format: editorialDocumentFormat, verbosity: editorialOutput.verbosity } } : {}),
+      ...(editorialOutput ? { max_output_tokens: editorialOutput.maxOutputTokens, text: { format: editorialOutput.format, verbosity: editorialOutput.verbosity } } : {}),
     }));
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
@@ -43,10 +43,18 @@ export class OpenAIProvider implements AIProvider {
       clearTimeout(timeout);
     }
     if (!response.ok) throw new Error(`OpenAI request failed (${response.status}).`);
-    const responseBody = await response.json() as { output_text?: string; output?: Array<{ content?: Array<{ text?: string }> }> };
+    const responseBody = await response.json() as { id?: string; model?: string; status?: string; incomplete_details?: { reason?: string }; usage?: { output_tokens?: number }; output_text?: string; output?: Array<{ content?: Array<{ text?: string }> }> };
+    const diagnostics = Object.freeze({
+      ...(responseBody.id ? { responseId: responseBody.id } : {}),
+      ...(responseBody.status ? { status: responseBody.status } : {}),
+      ...(responseBody.incomplete_details?.reason ? { incompleteReason: responseBody.incomplete_details.reason } : {}),
+      ...(typeof responseBody.usage?.output_tokens === "number" ? { outputTokens: responseBody.usage.output_tokens } : {}),
+    });
+    console.info("[openai-response]", { ...diagnostics, model: responseBody.model ?? this.model });
+    if (responseBody.status === "incomplete") throw new Error(`OpenAI response was incomplete${responseBody.incomplete_details?.reason ? `: ${responseBody.incomplete_details.reason}` : "."}`);
     const content = responseBody.output_text ?? responseBody.output?.flatMap((item) => item.content ?? []).map((item) => item.text ?? "").join("");
     if (!content?.trim()) throw new Error("OpenAI returned an empty response.");
-    return Object.freeze({ content, model: this.model });
+    return Object.freeze({ content, model: responseBody.model ?? this.model, diagnostics });
   }
 }
 
@@ -60,10 +68,65 @@ function readTimeout(value: string | undefined, fallback: number): number {
 }
 
 function editorialOutputPolicy(metadata?: Readonly<Record<string, string>>) {
-  if (metadata?.task === "quality-final-edit" || metadata?.task === "quality-auto-improvement") return { maxOutputTokens: 12_000, verbosity: "high" as const };
-  if (/tistory|blog|article|long-form|guide|아티클|장문/i.test(`${metadata?.platform ?? ""} ${metadata?.contentType ?? ""}`)) return { maxOutputTokens: 12_000, verbosity: "medium" as const };
+  if (metadata?.task === "content-generation") return { maxOutputTokens: 12_000, verbosity: "medium" as const, format: structuredGenerationFormat };
+  if (metadata?.task === "quality-final-edit" || metadata?.task === "quality-auto-improvement") return { maxOutputTokens: 12_000, verbosity: "high" as const, format: editorialDocumentFormat };
+  if (/tistory|blog|article|long-form|guide|아티클|장문/i.test(`${metadata?.platform ?? ""} ${metadata?.contentType ?? ""}`)) return { maxOutputTokens: 12_000, verbosity: "medium" as const, format: editorialDocumentFormat };
   return undefined;
 }
+
+const structuredGenerationFormat = {
+  type: "json_schema",
+  name: "structured_long_form_generation",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    required: ["title", "metaDescription", "primarySearchIntent", "secondaryIntent", "secondaryKeywords", "relatedTerms", "tags", "introduction", "sections", "conclusion", "images", "cta"],
+    properties: {
+      title: { type: "string" },
+      metaDescription: { type: "string" },
+      primarySearchIntent: { type: "string" },
+      secondaryIntent: { type: "string" },
+      secondaryKeywords: { type: "array", items: { type: "string" } },
+      relatedTerms: { type: "array", items: { type: "string" } },
+      tags: { type: "array", items: { type: "string" } },
+      introduction: { type: "array", minItems: 5, maxItems: 5, items: { type: "string", minLength: 100 } },
+      sections: { type: "array", minItems: 5, maxItems: 6, items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["heading", "paragraphs"],
+        properties: {
+          heading: { type: "string" },
+          paragraphs: { type: "array", minItems: 8, maxItems: 8, items: { type: "string", minLength: 125 } },
+        },
+      } },
+      conclusion: { type: "array", minItems: 5, maxItems: 5, items: { type: "string", minLength: 100 } },
+      images: { type: "array", items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["afterSection", "purpose", "alt", "prompt"],
+        properties: {
+          afterSection: { type: "integer" },
+          purpose: { type: "string", enum: ["hero", "inline", "comparison", "checklist", "infographic", "summary", "warning"] },
+          alt: { type: "string" },
+          prompt: { type: "string" },
+        },
+      } },
+      cta: { type: "array", items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["afterSection", "purpose", "label", "targetUrl", "target"],
+        properties: {
+          afterSection: { type: "integer" },
+          purpose: { type: "string", enum: ["cta"] },
+          label: { type: "string" },
+          targetUrl: { type: "string" },
+          target: { type: "string", enum: ["_self", "_blank"] },
+        },
+      } },
+    },
+  },
+} as const;
 
 const editorialDocumentFormat = {
   type: "json_schema",
@@ -79,6 +142,7 @@ const editorialDocumentFormat = {
       secondaryIntent: { type: "string" },
       secondaryKeywords: { type: "array", items: { type: "string" } },
       relatedTerms: { type: "array", items: { type: "string" } },
+      tags: { type: "array", items: { type: "string" } },
       blocks: { type: "array", items: { type: "object", required: ["type"], properties: {
         type: { type: "string", enum: ["heading", "paragraph", "image", "button"] },
         level: { type: "integer" },

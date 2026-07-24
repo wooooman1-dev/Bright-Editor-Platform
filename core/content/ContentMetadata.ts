@@ -18,4 +18,12 @@ export type ContentMetadata = Readonly<{
   tags?: readonly string[];
   availableRelatedContentCandidates?: number;
   internalLinkCatalogStatus?: "evaluated" | "category_missing" | "catalog_unavailable";
+  longFormStructure?: Readonly<{
+    introductionBlockIds: readonly string[];
+    sections: readonly Readonly<{
+      headingBlockId: string;
+      paragraphBlockIds: readonly string[];
+    }>[];
+    conclusionBlockIds: readonly string[];
+  }>;
 }>;

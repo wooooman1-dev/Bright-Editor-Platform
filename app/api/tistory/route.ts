@@ -41,9 +41,9 @@ export async function POST(request: Request) {
     if (policy.publishing.reviewFirst && body.finalConfirmation !== true) throw new Error("검토 후 최종 확인이 필요합니다.");
     const revisionId = contentRevisionId(content.document);
     if (!content.quality) throw new Error("Quality Review must pass after the latest edit before external draft save.");
-    new PublishingGate().assertReady(content.quality, revisionId);
+    new PublishingGate().assertReady(content.quality, revisionId, content.document);
     const quality = new QualityEngine().review(content.document, { contentType: content.contentType, platform: "tistory", primaryKeyword: content.primaryKeyword, searchIntent: content.searchIntent, revisionId });
-    new PublishingGate().assertReady(quality, revisionId);
+    new PublishingGate().assertReady(quality, revisionId, content.document);
     const connection = await connectionRepository.findById(connectionId);
     if (!connection) throw new Error("Publishing account was not found.");
     const targets = targetRepository.listByProject ? await targetRepository.listByProject(projectId) : [];

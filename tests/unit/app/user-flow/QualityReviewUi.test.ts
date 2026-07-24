@@ -102,7 +102,7 @@ describe("Quality Review UI compatibility normalization", () => {
     expect(normalizeQualityReview(undefined, { requestState: "error", errorMessage: "API unavailable" })).toMatchObject({ status: "error", issues: ["API unavailable"] });
   });
 
-  it("preserves exception approval for the personal editor UI", () => {
+  it("keeps exception approval visible but not ready in the personal editor UI", () => {
     const report = {
       approved: true,
       approvalType: "exception",
@@ -112,6 +112,6 @@ describe("Quality Review UI compatibility normalization", () => {
       dimensions: [{ category: "searchIntent", score: 92, status: "ready", evaluation: "evaluated", reasons: [], tasks: [], evidence: [] }],
       tasks: [],
     };
-    expect(normalizeQualityReview(report)).toMatchObject({ status: "ready", approvalType: "exception", overallScore: 92 });
+    expect(normalizeQualityReview(report)).toMatchObject({ status: "improvement_required", approvalType: "exception", overallScore: 92 });
   });
 });

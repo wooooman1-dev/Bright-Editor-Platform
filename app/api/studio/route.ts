@@ -3,14 +3,14 @@
 import { studioStore } from "../../application/studio-store";
 import { mergeServerMutationSnapshot, mergeUserDataSnapshot } from "../../application/persistence/mergeUserDataSnapshot";
 import { AIWorkflow } from "../../../core/ai";
-import { contentRevisionId, evaluateQualityImprovement, qualityImprovementRejectionMessage, QualityEngine } from "../../../core/quality";
+import { contentRevisionId, evaluateQualityImprovement, isStandardQualityApproved, qualityImprovementRejectionMessage, QualityEngine } from "../../../core/quality";
 import { EditorialGenerationStrategy } from "../../application/EditorialGenerationStrategy";
 import { OpenAIProvider } from "../../application/OpenAIProvider";
 import { openAIGenerationModel, openAIReviewModel } from "../../application/OpenAIModelPolicy";
 import { EditorialQualityPipeline } from "../../application/EditorialQualityPipeline";
 import { ContentPlanningStrategy, createManualPlanningResult } from "../../application/ContentPlanningStrategy";
 import { TistoryPublishingAdapter } from "../../../apps/tistory/publishing/TistoryPublishingAdapter";
-import { applyContentOpportunityPolicy, calculateContentMetrics, contentOpportunityKeywords, deriveContentTags, detectContentOpportunitySelectionMode, ensureSeoKeywordPlacement, placeRecommendedPosts, rankRelatedPosts, restoreProtectedImageAssets, restoreVerifiedEditorialLinks, type ConfirmedContentOpportunity, type ContentDocument } from "../../../core/content";
+import { analyzeLongFormDocument, applyContentOpportunityPolicy, assertLongFormSafetyTarget, calculateContentMetrics, contentOpportunityKeywords, deriveContentTags, detectContentOpportunitySelectionMode, ensureSeoKeywordPlacement, LongFormValidationError, longFormSafetyTarget, placeRecommendedPosts, rankRelatedPosts, requiresLongFormValidation, restoreProtectedImageAssets, restoreVerifiedEditorialLinks, type ConfirmedContentOpportunity, type ContentDocument, type LongFormDiagnostic } from "../../../core/content";
 import { ContentDeletionService } from "../../application/content/ContentDeletionService";
 import { applyCanonicalDocument, completeContentGeneration, completeContentPlanning, failContentPlanning, resolveProjectStrategy, startContentPlanning, updateContent, type UserData } from "../../user-flow/user-data";
 import { isPlatformEnabled, resolveWorkspaceSettings } from "../../application/settings/WorkspaceSettingsService";
@@ -108,8 +108,10 @@ export async function POST(request: Request) {
         keywords,
         platform: required(input.platform) as never,
         projectId,
+        structuredLongFormOutput: true,
       });
       const initialDocument = applyContentPolicy(await placeAvailableTistoryPosts(owned, existing, result.document), existing);
+      assertLongFormSafetyTarget(initialDocument);
       const context = qualityContext(existing, initialDocument);
       const initialQuality = new QualityEngine().review(initialDocument, context);
       try {
@@ -122,10 +124,10 @@ export async function POST(request: Request) {
           requiredInformation: [...opportunity.expectedCoverage, ...editorialRequirements(typeof input.editorialContext === "string" ? input.editorialContext : undefined)],
         });
         const { document, quality } = pipeline;
-        let persisted = applyCanonicalDocument(owned, existing.id, document, "ai_revision", quality.reviewedAt);
-        if (!pipeline.reachedTarget || !quality.approved) {
+        if (!pipeline.reachedTarget || !isStandardQualityApproved(quality)) {
           const failure = qualityTargetFailure(quality);
-          persisted = updateContent(persisted, existing.id, { quality, status: "draft", generationError: failure });
+          const diagnostic = analyzeLongFormDocument(document);
+          let persisted = updateContent(owned, existing.id, { quality, status: "draft", generationError: failure, generationDiagnostic: diagnostic });
           if (existing.planningWorkflow) persisted = failContentPlanning(persisted, {
             workspaceId: owned.workspace!.id,
             projectId,
@@ -134,6 +136,7 @@ export async function POST(request: Request) {
             error: failure,
             retryFrom: "generation",
             now: quality.reviewedAt,
+            diagnostic,
           });
           const next = { ...persisted, qualityReports: [...(persisted.qualityReports ?? []).filter((item) => item.contentId !== existing.id), { contentId: existing.id, report: quality }] };
           const saved = await persistServerMutation(owned, next);
@@ -147,10 +150,11 @@ export async function POST(request: Request) {
             reachedTarget: false,
             qualityTargetBlocked: true,
             error: failure,
-            recoveryRevisionId: contentRevisionId(document),
+            diagnostic,
             data: saved,
           });
         }
+        let persisted = applyCanonicalDocument(owned, existing.id, document, "ai_revision", quality.reviewedAt);
         persisted = updateContent(persisted, existing.id, { quality, status: "ready", generationError: undefined });
         if (existing.planningWorkflow) persisted = completeContentGeneration(persisted, { workspaceId: owned.workspace!.id, projectId, contentId, operationId: generationOperationId, now: quality.reviewedAt });
         const next = { ...persisted, qualityReports: [...(persisted.qualityReports ?? []).filter((item) => item.contentId !== existing.id), { contentId: existing.id, report: quality }] };
@@ -159,8 +163,8 @@ export async function POST(request: Request) {
       } catch (error) {
         const quality = new QualityEngine().review(initialDocument, context);
         const failure = `최종 품질 검토·편집에 실패했습니다: ${message(error)}`;
-        let persisted = applyCanonicalDocument(owned, existing.id, initialDocument, "generation", quality.reviewedAt);
-        persisted = updateContent(persisted, existing.id, { quality, status: "draft", generationError: failure });
+        const diagnostic = analyzeLongFormDocument(initialDocument);
+        let persisted = updateContent(owned, existing.id, { quality, status: "draft", generationError: failure, generationDiagnostic: diagnostic });
         if (existing.planningWorkflow) persisted = failContentPlanning(persisted, {
           workspaceId: owned.workspace!.id,
           projectId,
@@ -169,10 +173,11 @@ export async function POST(request: Request) {
           error: failure,
           retryFrom: "generation",
           now: quality.reviewedAt,
+          diagnostic,
         });
         const next = { ...persisted, qualityReports: [...(persisted.qualityReports ?? []).filter((item) => item.contentId !== existing.id), { contentId: existing.id, report: quality }] };
         const saved = await persistServerMutation(owned, next);
-        return NextResponse.json({ aiReviewError: message(error), initialQuality, quality, reachedTarget: false, qualityTargetBlocked: true, error: failure, recoveryRevisionId: contentRevisionId(initialDocument), data: saved });
+        return NextResponse.json({ aiReviewError: message(error), initialQuality, quality, reachedTarget: false, qualityTargetBlocked: true, error: failure, diagnostic, data: saved });
       }
     }
     if (body.action === "final-review") {
@@ -190,7 +195,7 @@ export async function POST(request: Request) {
       const reviewedAt = new Date().toISOString();
       const quality = new QualityEngine().review(document, { ...qualityContext(content), revisionId: contentRevisionId(document), reviewedAt });
       let next = applyCanonicalDocument(data, contentId, document, "ai_revision", reviewedAt);
-      next = updateContent(next, contentId, { quality, status: quality.approved ? "ready" : "in_review", generationError: opportunityFailure(quality), updatedAt: reviewedAt });
+      next = updateContent(next, contentId, { quality, status: isPublishReady(document, quality) ? "ready" : "in_review", generationError: opportunityFailure(quality), updatedAt: reviewedAt });
       next = { ...next, qualityReports: [...(next.qualityReports ?? []).filter((item) => item.contentId !== contentId), { contentId, report: quality }] };
       const saved = await persistServerMutation(data, next);
       return NextResponse.json({ document, initialQuality, quality, revisionId: contentRevisionId(document), data: saved });
@@ -241,7 +246,7 @@ Current document: ${JSON.stringify(content.document)}`,
       const appliedAt = new Date().toISOString();
       const quality = new QualityEngine().review(document, { ...qualityContext(content), revisionId: contentRevisionId(document), reviewedAt: appliedAt });
       const improvement = evaluateQualityImprovement(currentQuality, quality);
-      if (quality.approved) {
+      if (isPublishReady(document, quality)) {
         let next = applyCanonicalDocument(data, contentId, document, "ai_revision", appliedAt);
         next = updateContent(next, contentId, { quality, status: "ready", generationError: undefined, updatedAt: appliedAt });
         next = { ...next, qualityReports: [...(next.qualityReports ?? []).filter((item) => item.contentId !== contentId), { contentId, report: quality }] };
@@ -266,9 +271,9 @@ Current document: ${JSON.stringify(content.document)}`,
       const quality = new QualityEngine().review(document, { ...qualityContext(content), revisionId: contentRevisionId(document), reviewedAt: appliedAt });
       const improvement = evaluateQualityImprovement(baselineQuality, quality);
       if (!improvement.accepted) throw new Error(qualityImprovementRejectionMessage(improvement));
-      if (!quality.approved) throw new Error(`개선안이 품질 승인 기준을 충족하지 못했습니다. 전체 ${quality.overallScore}점이며 모든 필수 항목이 기준을 충족해야 합니다.`);
+      if (!isPublishReady(document, quality)) throw new Error(`개선안이 standard 품질 승인 및 5,500자 안전 목표를 충족하지 못했습니다. 전체 ${quality.overallScore}점, 승인 유형 ${quality.approvalType ?? "none"}입니다.`);
       let next = applyCanonicalDocument(data, contentId, document, "ai_revision", appliedAt);
-      next = updateContent(next, contentId, { quality, status: quality.approved ? "ready" : "in_review", updatedAt: appliedAt });
+      next = updateContent(next, contentId, { quality, status: isPublishReady(document, quality) ? "ready" : "in_review", updatedAt: appliedAt });
       next = { ...next, qualityReports: [...(next.qualityReports ?? []).filter((item) => item.contentId !== contentId), { contentId, report: quality }] };
       const saved = await persistServerMutation(data, next);
       return NextResponse.json({ document, quality, improvement, revisionId: contentRevisionId(document), data: saved });
@@ -315,7 +320,7 @@ Current document: ${JSON.stringify(content.document)}`,
       const document = await placeAvailableTistoryPosts(data, content, content.document);
       const quality = new QualityEngine().review(document, { ...qualityContext(content), revisionId: contentRevisionId(document) });
       let next = contentRevisionId(document) === contentRevisionId(content.document) ? data : applyCanonicalDocument(data, contentId, document, "autosave", quality.reviewedAt);
-      next = updateContent(next, contentId, { quality, status: quality.approved ? "ready" : "in_review", updatedAt: quality.reviewedAt });
+      next = updateContent(next, contentId, { quality, status: isPublishReady(document, quality) ? "ready" : "in_review", updatedAt: quality.reviewedAt });
       const persisted = { ...next, qualityReports: [...(next.qualityReports ?? []).filter((item) => item.contentId !== contentId), { contentId, report: quality }] };
       const saved = await persistServerMutation(data, persisted);
       return NextResponse.json({ document, quality, data: saved });
@@ -324,7 +329,17 @@ Current document: ${JSON.stringify(content.document)}`,
   } catch (error) {
     await persistWorkflowFailure(body, error);
     const status = message(error).includes("OPENAI_API_KEY") ? 503 : 400;
-    return NextResponse.json({ error: message(error) }, { status });
+    const diagnostic = longFormDiagnostic(error);
+    if (diagnostic) {
+      console.error("[studio-generation] long-form validation failed", {
+        code: diagnostic.code,
+        totalProseCharacters: diagnostic.totalProseCharacters,
+        headingCount: diagnostic.headingCount,
+        sections: diagnostic.sections,
+        violations: diagnostic.violations,
+      });
+    }
+    return NextResponse.json({ error: message(error), ...(diagnostic ? { diagnostic } : {}) }, { status });
   }
 }
 
@@ -462,11 +477,24 @@ async function persistWorkflowFailure(body: { action?: string; input?: Record<st
       operationId: input.operationId as string,
       error: message(error),
       retryFrom,
+      ...(longFormDiagnostic(error) ? { diagnostic: longFormDiagnostic(error) } : {}),
       now: new Date().toISOString(),
     }) : (() => { throw new Error("Workspace was not found."); })());
   } catch (persistenceError) {
     console.error("[studio-workflow] failed to persist recoverable workflow error", { error: message(persistenceError) });
   }
+}
+
+function longFormDiagnostic(error: unknown): LongFormDiagnostic | undefined {
+  return error instanceof LongFormValidationError ? error.diagnostic : undefined;
+}
+
+function isPublishReady(document: ContentDocument, quality: ReturnType<QualityEngine["review"]>): boolean {
+  if (!requiresLongFormValidation(document)) return isStandardQualityApproved(quality);
+  const diagnostic = analyzeLongFormDocument(document);
+  return isStandardQualityApproved(quality)
+    && diagnostic.totalProseCharacters >= longFormSafetyTarget
+    && diagnostic.violations.length === 0;
 }
 
 function qualityContext(content: UserData["contents"][number], document = content.document) {
@@ -649,7 +677,7 @@ function qualityTargetFailure(quality: ReturnType<QualityEngine["review"]>): str
     .filter((item) => quality.weights[item.category] > 0)
     .filter((item) => item.status === "blocked" || item.score < (["searchIntent", "seo", "readability", "completeness"].includes(item.category) ? 95 : 80))
     .map((item) => `${item.category} ${item.score}`);
-  return `원고가 자동 품질 승인 기준에 도달하지 못했습니다. 전체 ${quality.overallScore}점${missing.length ? `, 미달 항목: ${missing.join(", ")}` : ""}. 품질 미승인 원고는 진단을 위해 편집기에서 확인할 수 있지만, 품질 승인 전에는 임시저장과 발행이 차단됩니다.`;
+  return `원고가 자동 품질 승인 기준에 도달하지 못했습니다. 전체 ${quality.overallScore}점${missing.length ? `, 미달 항목: ${missing.join(", ")}` : ""}. Content 기록과 진단은 보존되지만 표준 승인과 분량 목표를 모두 충족하기 전에는 Editor 준비 상태로 전환되지 않습니다.`;
 }
 
 function finalEditInstruction(document: ContentDocument, quality: ReturnType<QualityEngine["review"]>, opportunity?: ConfirmedContentOpportunity): string {

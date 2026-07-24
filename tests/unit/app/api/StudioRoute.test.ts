@@ -34,6 +34,23 @@ const planningResult = {
   estimateDisclosure: "AI estimate",
 };
 
+function structuredArticle(title: string, prose: string) {
+  return {
+    title,
+    metaDescription: "Complete canonical guide for readers.",
+    primarySearchIntent: "canonical guide",
+    secondaryIntent: "practical action",
+    secondaryKeywords: [],
+    relatedTerms: ["canonical"],
+    tags: ["canonical", "guide", "practical", "reader", "content"],
+    introduction: [prose],
+    sections: Array.from({ length: 5 }, (_, index) => ({ heading: `Section ${index + 1}`, paragraphs: [prose, prose] })),
+    conclusion: [prose],
+    images: [],
+    cta: [],
+  };
+}
+
 describe("studio planning endpoint", () => {
   beforeEach(() => {
     const current: UserData = { workspace: { id: "workspace-1", name: "Studio", settings: { enabledPlatforms: ["tistory"], publishing: { reviewFirst: true, draftOnly: true, publicPublish: false, sequentialDraftSave: true, qualityApprovalRequired: true }, appearance: { theme: "system" } } }, brands: [], projects: [{ id: "project-1", workspaceId: "workspace-1", name: "Project", description: "", createdAt: "now", updatedAt: "now" }], contents: [{ id: "content-1", workspaceId: "workspace-1", projectId: "project-1", title: "Draft", body: "", status: "planning", primaryKeyword: "canonical", relatedKeywords: [], searchIntent: opportunity.searchIntent, opportunity, createdAt: "now", updatedAt: "now" }], qualityReports: [] };
@@ -179,17 +196,7 @@ describe("studio planning endpoint", () => {
     vi.stubEnv("OPENAI_API_KEY", "sk-test-ascii-key");
     vi.stubEnv("OPENAI_REVIEW_TIMEOUT_MS", "5");
     const prose = "Generated complete body with concrete context, useful actions, examples, and a clear outcome for readers. ".repeat(20);
-    const document = {
-      title: "Canonical guide",
-      blocks: [
-        { type: "paragraph", text: prose },
-        ...Array.from({ length: 5 }, (_, index) => [
-          { type: "heading", level: 2, text: `Section ${index + 1}` },
-          { type: "paragraph", text: prose },
-        ]).flat(),
-        { type: "paragraph", text: prose },
-      ],
-    };
+    const document = structuredArticle("Canonical guide", prose);
     const fetchSpy = vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response(JSON.stringify({ output_text: JSON.stringify(document) }), { status: 200 }))
       .mockImplementationOnce((_url, init) => new Promise<Response>((_resolve, reject) => {
@@ -221,8 +228,8 @@ describe("studio planning endpoint", () => {
     expect(result.document).toBeUndefined();
     expect(result.qualityTargetBlocked).toBe(true);
     expect(result.reachedTarget).toBe(false);
-    expect(result.recoveryRevisionId).toMatch(/^rev-/);
-    expect(result.data?.contents[0].document?.title).toBe("Canonical guide");
+    expect(result.recoveryRevisionId).toBeUndefined();
+    expect(result.data?.contents[0].document).toBeUndefined();
     expect(result.data?.contents[0].primaryKeyword).toBe("canonical");
     expect(result.aiReviewError).toContain("timed out");
     expect(fetchSpy).toHaveBeenCalledTimes(2);
@@ -233,12 +240,12 @@ describe("studio planning endpoint", () => {
   it("uses one final quality-edit call and blocks editor completion when the result is still unapproved", async () => {
     vi.stubEnv("OPENAI_API_KEY", "sk-test-ascii-key");
     const prose = "This complete article explains the reader problem, practical actions, examples, and a concrete conclusion in readable language. ".repeat(18);
-    const draft = { title: "Canonical guide", metaDescription: "Initial guide", primarySearchIntent: "informational guide", blocks: [
-      { type: "paragraph", text: prose },
+    const draft = structuredArticle("Canonical guide", prose);
+    const corrected = { title: "Canonical guide final", metaDescription: "Corrected final guide", primarySearchIntent: "informational guide", blocks: [
+      { type: "paragraph", text: `Final edit applied. ${prose}` },
       ...Array.from({ length: 5 }, (_, index) => [{ type: "heading", level: 2, text: `Section ${index + 1}` }, { type: "paragraph", text: prose }]).flat(),
       { type: "paragraph", text: prose },
     ] };
-    const corrected = { ...draft, title: "Canonical guide final", metaDescription: "Corrected final guide", blocks: draft.blocks.map((block, index) => index === 0 ? { type: "paragraph", text: `Final edit applied. ${prose}` } : block) };
     const fetchSpy = vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response(JSON.stringify({ output_text: JSON.stringify(draft) }), { status: 200 }))
       .mockImplementation(async () => new Response(JSON.stringify({ output_text: JSON.stringify(corrected) }), { status: 200 }));
@@ -251,7 +258,7 @@ describe("studio planning endpoint", () => {
     expect(result.document).toBeUndefined();
     expect(result.reachedTarget).toBe(false);
     expect(result.qualityTargetBlocked).toBe(true);
-    expect(result.recoveryRevisionId).toMatch(/^rev-/);
+    expect(result.recoveryRevisionId).toBeUndefined();
     expect(result.data?.contents[0]).toMatchObject({ status: "draft" });
     expect(vi.mocked(studioStore.update)).toHaveBeenCalledWith("application", "user-data", expect.any(Function));
     const reviewBody = JSON.parse(new TextDecoder().decode(fetchSpy.mock.calls[1]?.[1]?.body as Uint8Array));
@@ -261,6 +268,41 @@ describe("studio planning endpoint", () => {
     expect(reviewBody.input).not.toContain("4,800–5,200 non-whitespace prose characters");
     expect(reviewBody.input).not.toContain("12–18 paragraph blocks");
     expect(reviewBody.input).toContain("distinct editorial purpose and section context");
+  });
+
+  it("returns structured diagnostics and skips review after a generation gate failure", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "sk-test-ascii-key");
+    const invalid = structuredArticle("Canonical guide", "나".repeat(1_000));
+    invalid.introduction = ["가".repeat(400)];
+    invalid.conclusion = ["다".repeat(400)];
+    invalid.sections[0] = { heading: "Too shallow", paragraphs: ["라".repeat(449)] };
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ output_text: JSON.stringify(invalid) }), { status: 200 }),
+    );
+    const response = await POST(new Request("http://localhost/api/studio", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "generate", input: {
+        contentId: "content-1",
+        opportunityId: opportunity.opportunityId,
+        opportunityVersion: opportunity.version,
+        opportunityFingerprint: opportunity.fingerprint,
+        primaryKeyword: opportunity.primaryKeyword,
+        topic: opportunity.selectedTopic,
+        searchIntent: opportunity.searchIntent,
+        secondaryKeywords: opportunity.secondaryKeywords,
+        keywords: ["canonical"],
+        platform: "tistory",
+        projectId: "project-1",
+        workspaceId: "workspace-1",
+        operationId: "",
+      } }),
+    }));
+    const result = await response.json() as { diagnostic?: { code?: string; sections: Array<{ heading: string; proseCharacters: number }> } };
+    expect(response.status).toBe(400);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(result.diagnostic?.code).toBe("LONG_FORM_SHALLOW_SECTION");
+    expect(result.diagnostic?.sections).toContainEqual({ heading: "Too shallow", proseCharacters: 449 });
   });
 
   it("restores the confirmed keyword when Final Review returns a title without it", async () => {

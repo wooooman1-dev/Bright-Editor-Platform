@@ -12,7 +12,7 @@ const introParagraph = "건강운동 방법을 찾는 독자가 바로 실천할
 const paragraph = "독자는 현재 컨디션과 통증 여부를 먼저 확인하고 무리하지 않는 범위에서 단계를 선택해야 합니다. 실행 결과를 날짜별로 기록하면 다음 계획을 세울 때 판단 근거로 활용할 수 있습니다. ";
 const document = { id: "content", title: "건강운동 방법 완전 가이드", metadata: { buttonCount: 4, createdAt: "now", generator: "test", imageCount: 1, language: "ko", readingTime: 5, source: "test", updatedAt: "now", version: 1, videoCount: 0, wordCount: 1000, metaDescription: "건강운동 방법을 시작하기 전에 확인할 기준부터 안전한 실천 순서, 기록 방법, 흔한 실수와 상황별 조정 원칙까지 구체적으로 안내합니다.", primarySearchIntent: "건강운동 방법" }, blocks: [
   { id: "intro", type: "paragraph" as const, text: introParagraph.repeat(3) },
-  ...Array.from({ length: 5 }, (_, index) => [{ id: `h-${index}`, type: "heading" as const, level: 2 as const, text: `건강운동 실천 단계 ${index + 1}` }, ...Array.from({ length: 3 }, (_, paragraphIndex) => ({ id: `p-${index}-${paragraphIndex}`, type: "paragraph" as const, text: `${index + 1}-${paragraphIndex + 1} 확인 항목을 구분해 설명합니다. ${paragraph.repeat(4)}` }))]).flat(),
+  ...Array.from({ length: 5 }, (_, index) => [{ id: `h-${index}`, type: "heading" as const, level: 2 as const, text: `건강운동 실천 단계 ${index + 1}` }, ...Array.from({ length: 4 }, (_, paragraphIndex) => ({ id: `p-${index}-${paragraphIndex}`, type: "paragraph" as const, text: `${index + 1}-${paragraphIndex + 1} 확인 항목을 구분해 설명합니다. ${paragraph.repeat(4)}` }))]).flat(),
   { id: "image", type: "image" as const, source: "", alt: "건강운동 단계별 자세와 안전 기준" },
   { id: "internal", type: "button" as const, purpose: "internal_link" as const, label: "건강 기록", targetUrl: "https://bright-healthy.tistory.com/entry/health-log" },
   ...Array.from({ length: 3 }, (_, index) => ({ id: `related-${index}`, type: "button" as const, purpose: "related_post" as const, label: `관련 건강 글 ${index + 1}`, targetUrl: `https://bright-healthy.tistory.com/entry/related-${index + 1}` })),
@@ -50,6 +50,7 @@ describe("Tistory publishing preparation", () => {
     let next = applyTistoryPublishingAccount(base, "project", "content", "account", "later");
     const quality = new QualityEngine().review(document, { contentType: "long-form blog article", platform: "tistory", primaryKeyword: "건강운동", searchIntent: "건강운동 방법" });
     expect(quality.approved).toBe(true);
+    expect(quality.approvalType).toBe("standard");
     next = { ...next, projects: next.projects.map((project) => ({ ...project, strategy: { ...project.strategy!, defaultTistoryCategory: { publishingAccountId: "account", id: "1057542", name: "건강운동" } } })), contents: next.contents.map((content) => ({ ...content, publishingPreparation: { tistory: { publishingAccountId: "account", platformCategoryId: "1057542", platformCategoryName: "건강운동", updatedAt: "later" } }, quality })) };
     const readiness = await calculateTistoryReadiness({ data: next, project: next.projects[0], content: next.contents[0], connection, selectedTarget: true, finalConfirmation: false, root: "root" });
     expect(readiness.ready).toBe(true);

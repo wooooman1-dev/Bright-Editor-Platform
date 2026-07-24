@@ -6,6 +6,12 @@ export type AIRequest = Readonly<{
 export type AIResponse = Readonly<{
   content: string;
   model: string;
+  diagnostics?: Readonly<{
+    responseId?: string;
+    status?: string;
+    incompleteReason?: string;
+    outputTokens?: number;
+  }>;
 }>;
 
 export interface AIProvider {
