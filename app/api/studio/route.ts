@@ -3,7 +3,7 @@
 import { studioStore } from "../../application/studio-store";
 import { mergeServerMutationSnapshot, mergeUserDataSnapshot } from "../../application/persistence/mergeUserDataSnapshot";
 import { AIWorkflow } from "../../../core/ai";
-import { contentRevisionId, evaluateQualityImprovement, isStandardQualityApproved, qualityImprovementRejectionMessage, QualityEngine } from "../../../core/quality";
+import { contentRevisionId, evaluateQualityImprovement, evaluateQualityReviewReadiness, isStandardQualityApproved, qualityImprovementRejectionMessage, QualityEngine } from "../../../core/quality";
 import { contentOpportunityAIContext, EditorialGenerationStrategy } from "../../application/EditorialGenerationStrategy";
 import { OpenAIProvider } from "../../application/OpenAIProvider";
 import { openAIGenerationModel, openAIReviewModel } from "../../application/OpenAIModelPolicy";
@@ -124,7 +124,12 @@ export async function POST(request: Request) {
       const initialQuality = new QualityEngine().review(initialDocument, context);
       const generationDiagnostic = initialDocument.metadata?.generationDiagnostic
         ?? analyzeLongFormDocument(initialDocument, opportunity.qualityTarget);
-      if (generationDiagnostic.violations.length) {
+      const reviewReadiness = evaluateQualityReviewReadiness(
+        initialDocument,
+        initialQuality,
+        generationDiagnostic,
+      );
+      if (reviewReadiness.fatal) {
         let persisted = applyCanonicalDocument(owned, existing.id, initialDocument, "ai_revision", initialQuality.reviewedAt);
         persisted = updateContent(persisted, existing.id, {
           quality: initialQuality,
@@ -803,5 +808,3 @@ Preserve all verified internal_link and related_post labels, URLs, purposes, tar
 Server rule report: ${JSON.stringify({ overallScore: quality.overallScore, dimensions: quality.dimensions, tasks: quality.tasks })}
   Canonical document: ${JSON.stringify(contentDocumentAIContext(document))}`;
 }
-
-
