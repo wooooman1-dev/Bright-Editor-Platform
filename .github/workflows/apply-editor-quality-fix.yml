@@ -120,14 +120,6 @@ jobs:
           replace(p,
               'This is the second and final AI call. Make only targeted editorial corrections to the current canonical document. Do not broadly rewrite strong sections or expand the manuscript into a new long-form draft. Return the complete publish-ready canonical ContentDocument in this one response. Do not return a review, plan, score, explanation, or partial patch.\n',
               'This is the second and final AI call. Make only targeted editorial corrections to the current canonical document. Do not broadly rewrite strong sections or expand the manuscript into a new long-form draft. Return the complete publish-ready canonical ContentDocument in this one response. Do not return a review, plan, score, explanation, or partial patch. Every paragraph.text must be plain text; represent ordered or unordered lists with newline-prefixed `1.` or `-` items and never return HTML list or paragraph tags.\n')
-
-          r = 'app/api/studio/route.ts'
-          replace(r,
-              'import { contentRevisionId, evaluateQualityImprovement, isStandardQualityApproved, qualityImprovementRejectionMessage, QualityEngine } from "../../../core/quality";\n',
-              'import { contentRevisionId, evaluateQualityImprovement, evaluateQualityReviewReadiness, isStandardQualityApproved, qualityImprovementRejectionMessage, QualityEngine } from "../../../core/quality";\n')
-          replace(r,
-              '      const generationDiagnostic = initialDocument.metadata?.generationDiagnostic\n        ?? analyzeLongFormDocument(initialDocument, opportunity.qualityTarget);\n      if (generationDiagnostic.violations.length) {\n',
-              '      const generationDiagnostic = initialDocument.metadata?.generationDiagnostic\n        ?? analyzeLongFormDocument(initialDocument, opportunity.qualityTarget);\n      const generationReadiness = evaluateQualityReviewReadiness(initialDocument, initialQuality, generationDiagnostic);\n      if (generationReadiness.fatal) {\n')
           PY
       - run: npm ci
       - run: npm run lint
