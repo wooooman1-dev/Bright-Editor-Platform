@@ -17,7 +17,9 @@ describe("Tistory representative image", () => {
   it("recognizes explicit selected control states", () => {
     expect(representativeControlLooksSelected({ ariaPressed: "true" })).toBe(true);
     expect(representativeControlLooksSelected({ ariaChecked: "true" })).toBe(true);
+    expect(representativeControlLooksSelected({ ariaSelected: "true" })).toBe(true);
     expect(representativeControlLooksSelected({ checked: true })).toBe(true);
+    expect(representativeControlLooksSelected({ dataState: "selected" })).toBe(true);
     expect(representativeControlLooksSelected({ className: "toolbar-button selected" })).toBe(true);
     expect(representativeControlLooksSelected({ label: "대표 이미지 해제" })).toBe(true);
   });
@@ -34,11 +36,18 @@ describe("Tistory representative image", () => {
     expect(sameEditorSource).toContain("representativeVerified");
   });
 
-  it("records representative image failures as warnings so draft save can continue", () => {
-    expect(representativeSource).toContain("function representativeWarning");
-    expect(representativeSource).toContain("passed: true");
+  it("uses a real Playwright image click before resolving the representative control", () => {
+    expect(representativeSource).toContain("clickRepresentativeCandidate(page, remoteUrl)");
+    expect(representativeSource).toContain("image.click({ force: true, timeout: 5000 })");
+    expect(representativeSource).toContain("trusted: true");
+    expect(representativeSource).toContain('data-tooltip-content*="대표"');
+  });
+
+  it("blocks draft save when representative selection cannot be verified", () => {
+    expect(representativeSource).not.toContain("function representativeWarning");
+    expect(representativeSource).toContain("function representativeFailure");
+    expect(representativeSource).toContain("passed: false");
     expect(representativeSource).toContain("verified: false");
-    expect(representativeSource).toContain("warning: { code, message }");
     expect(representativeSource).toContain("representative_control_not_found");
     expect(representativeSource).toContain("representative_control_not_clickable");
     expect(representativeSource).toContain("representative_selection_not_verified");
