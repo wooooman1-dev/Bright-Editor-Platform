@@ -17,6 +17,9 @@ export interface PublishingAuditRepository { save(record: PublishingAuditRecord)
 
 type MediaPreparationDiagnostic = Readonly<Record<string, string | number>>;
 type MediaPreparationResult = Readonly<{ status: "prepared" | "not_required" | "failed"; error?: string; code?: string; diagnostic?: MediaPreparationDiagnostic }>;
+type SemanticHtmlDiagnostic = Readonly<{ code: string; evidence?: Readonly<Record<string, unknown>> }>;
+
+const SEMANTIC_DIAGNOSTIC_PREFIX = "[tistory-semantic-html]";
 
 export class TistoryDraftApplicationService {
   constructor(
@@ -94,28 +97,83 @@ export class TistoryDraftApplicationService {
 function runWorker(commandPath: string): Promise<TistoryDraftSaveResult> {
   const worker = path.join(process.cwd(), "apps", "tistory", "workflows", "tistory-draft-worker.mjs");
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [worker, commandPath], { cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe"], windowsHide: true }); let output = "", stderr = "";
-    child.stdout.on("data", (data) => output += String(data)); child.stderr.on("data", (data) => stderr += String(data)); child.on("error", () => reject(new Error("The registered Tistory draft workflow could not start.")));
+    const child = spawn(process.execPath, [worker, commandPath], {
+      cwd: process.cwd(),
+      env: { ...process.env, BRIGHT_TISTORY_WORKER_DIAGNOSTICS: "1" },
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    });
+    let output = "", stderr = "";
+    child.stdout.on("data", (data) => output += String(data));
+    child.stderr.on("data", (data) => stderr += String(data));
+    child.on("error", () => reject(new Error("The registered Tistory draft workflow could not start.")));
     child.on("exit", () => {
       try {
         const line = output.trim().split(/\r?\n/).at(-1); if (!line) throw new Error();
-        const result = JSON.parse(line) as TistoryDraftSaveResult;
+        const parsed = JSON.parse(line) as TistoryDraftSaveResult;
+        const result = normalizeTistoryDraftWorkerResult(parsed, stderr);
         if (result.status === "failed" || result.status === "partial_failure" || result.status === "partially_verified") {
           console.error("[tistory-draft] workflow incomplete", {
             failedStep: result.failedStep,
             diagnosticCode: result.steps?.find((step) => !step.passed)?.diagnosticCode,
             completedSteps: result.steps?.filter((step) => step.passed).map((step) => step.key),
             draftSaveClickCount: result.draftSaveClickCount ?? 0,
+            verification: result.verification,
             runtimeFailure: result.diagnostic?.runtimeFailure,
             currentUrl: result.diagnostic?.currentUrl,
             safeError: result.error,
-            workerDiagnostic: stderr.trim().slice(0, 200) || undefined,
+            workerDiagnostic: stderr.trim().slice(0, 500) || undefined,
           });
         }
         resolve(result);
       } catch { reject(new Error("The registered Tistory draft workflow returned an invalid result.")); }
     });
   });
+}
+
+export function normalizeTistoryDraftWorkerResult(result: TistoryDraftSaveResult, stderr: string): TistoryDraftSaveResult {
+  const semantic = readSemanticHtmlDiagnostic(stderr);
+  if (!semantic) return result;
+  const failedStep = result.failedStep === "structure_verified" ? "structure_verified" : "body_verified";
+  const message = result.error ?? "Tistory 기본모드에서 Renderer HTML 본문을 확인하지 못했습니다.";
+  const failedRecord = Object.freeze({
+    key: failedStep,
+    passed: false,
+    diagnosticCode: semantic.code,
+    message,
+    ...(semantic.evidence ? { evidence: semantic.evidence } : {}),
+  });
+  const steps = Object.freeze([
+    ...(result.steps ?? []).filter((step) => !(step.key === failedStep && !step.passed)),
+    failedRecord,
+  ]);
+  return Object.freeze({
+    ...result,
+    failedStep,
+    steps,
+    ...(semantic.evidence ? { verification: semantic.evidence } : {}),
+    diagnostic: Object.freeze({ ...(result.diagnostic ?? {}), semanticHtml: semantic }),
+  });
+}
+
+function readSemanticHtmlDiagnostic(stderr: string): SemanticHtmlDiagnostic | undefined {
+  const lines = stderr.split(/\r?\n/).reverse();
+  for (const line of lines) {
+    const marker = `${SEMANTIC_DIAGNOSTIC_PREFIX} `;
+    const index = line.indexOf(marker);
+    if (index < 0) continue;
+    try {
+      const parsed = JSON.parse(line.slice(index + marker.length)) as Partial<SemanticHtmlDiagnostic>;
+      if (typeof parsed.code !== "string" || !parsed.code.startsWith("rendered_")) continue;
+      const evidence = parsed.evidence && typeof parsed.evidence === "object"
+        ? parsed.evidence as Readonly<Record<string, unknown>>
+        : undefined;
+      return Object.freeze({ code: parsed.code, ...(evidence ? { evidence } : {}) });
+    } catch {
+      continue;
+    }
+  }
+  return undefined;
 }
 
 function runMediaWorker(commandPath: string): Promise<void> {
