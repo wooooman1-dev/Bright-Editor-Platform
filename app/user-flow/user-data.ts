@@ -255,7 +255,7 @@ export function startContentPlanning(data: UserData, input: Readonly<{
 }>): UserData {
   const project = data.projects.find((item) => item.id === input.projectId);
   if (!project) throw new Error("프로젝트를 찾을 수 없습니다.");
-  const request = normalizeRequiredName(input.request);
+  const request = input.request.trim();
   const operationId = normalizeRequiredName(input.operationId);
   if (!request || !operationId) throw new Error("Planning 요청과 operation ID를 확인해 주세요.");
   const existing = data.contents.find((content) => content.id === input.id);
