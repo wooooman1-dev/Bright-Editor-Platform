@@ -259,7 +259,7 @@ async function installSyntheticCarrier(page, categoryId, categoryName) {
       pointerEvents: "auto",
     });
     wrapper.appendChild(carrier);
-    document.body.appendChild(wrapper);
+    document.body.prepend(wrapper);
   }, { expectedId: categoryId, expectedName: categoryName, selector: syntheticCarrierSelector });
 }
 
