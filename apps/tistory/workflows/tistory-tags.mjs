@@ -295,6 +295,32 @@ async function prepareObservedCategoryCarrier(page, categoryId, categoryName) {
         .sort((left, right) => Number(right.categoryContext) - Number(left.categoryContext) || left.area - right.area)
       : [];
 
+    const structuralCandidates = [...document.querySelectorAll([
+      "#category-btn",
+      'button[aria-controls*="category" i]',
+      '[role="button"][aria-controls*="category" i]',
+      'button[id*="category" i]',
+      '[role="button"][id*="category" i]',
+      'button[class*="category" i]',
+      '[role="button"][class*="category" i]',
+      '[id*="category" i] button',
+      '[class*="category" i] button',
+      'label[for*="category" i]',
+      'select[name*="category" i]',
+      'select[id*="category" i]',
+    ].join(", "))]
+      .filter((element) => outsideEditor(element) && visible(element))
+      .map((element) => {
+        const rect = element.getBoundingClientRect();
+        const text = normalize(element.textContent);
+        const interactive = element.matches('button, [role="button"], label, select');
+        const nameMatched = Boolean(expectedName && text.includes(expectedName));
+        return { element, area: rect.width * rect.height, interactive, nameMatched };
+      })
+      .sort((left, right) => Number(right.nameMatched) - Number(left.nameMatched)
+        || Number(right.interactive) - Number(left.interactive)
+        || left.area - right.area);
+
     const observedIds = [
       ...hiddenIds,
       ...selectedOptions.map((item) => item.id),
@@ -308,7 +334,11 @@ async function prepareObservedCategoryCarrier(page, categoryId, categoryName) {
     const idMatched = observedIds.includes(String(expectedId));
     const nameMatched = Boolean(expectedName && observedNames.some((value) => value.includes(expectedName)));
     const passed = idMatched || nameMatched;
-    const carrier = textCandidates[0]?.element;
+    const matchedElement = textCandidates[0]?.element;
+    const namedCarrier = matchedElement?.closest('button, [role="button"], label, select') ?? matchedElement;
+    const structuralCarrier = structuralCandidates[0]?.element;
+    const carrier = namedCarrier ?? structuralCarrier;
+    const carrierSource = namedCarrier ? "matched_name" : structuralCarrier ? "category_structure" : "none";
 
     if (passed && carrier) {
       if (carrier.id && carrier.id !== "category-btn") carrier.setAttribute("data-bright-original-id", carrier.id);
@@ -316,6 +346,9 @@ async function prepareObservedCategoryCarrier(page, categoryId, categoryName) {
       carrier.setAttribute("data-bright-category-verification", "observed");
       carrier.setAttribute("data-category-id", String(expectedId));
       carrier.setAttribute("aria-haspopup", "listbox");
+      if (expectedName && !normalize(carrier.textContent) && !carrier.getAttribute("aria-label")) {
+        carrier.setAttribute("aria-label", expectedName);
+      }
     }
 
     return {
@@ -327,14 +360,16 @@ async function prepareObservedCategoryCarrier(page, categoryId, categoryName) {
       idMatched,
       nameMatched,
       carrierPrepared: Boolean(passed && carrier),
+      carrierSource,
       carrierTagName: carrier?.tagName?.toLowerCase() ?? "",
-      carrierCategoryContext: Boolean(textCandidates[0]?.categoryContext),
+      carrierCategoryContext: Boolean(textCandidates[0]?.categoryContext || structuralCarrier),
     };
   }, { expectedId: categoryId, expectedName: categoryName }).catch(() => ({
     passed: false,
     expectedId: String(categoryId),
     expectedName: categoryName ?? "",
     carrierPrepared: false,
+    carrierSource: "error",
   }));
 }
 
