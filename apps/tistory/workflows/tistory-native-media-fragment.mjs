@@ -25,7 +25,7 @@ export async function captureNativeTistoryImageFragment(page, remoteUrl, timeout
     if (fallback?.html) return freezeFragment(fallback);
 
     lastDiagnostic = {
-      activeTinyMce: Boolean(await page.evaluate(() => window.tinymce?.activeEditor?.getBody?.()).catch(() => false)),
+      activeTinyMce: await page.evaluate(() => Boolean(window.tinymce?.activeEditor?.getBody?.())).catch(() => false),
       frameCount: page.frames().length,
     };
     await page.waitForTimeout(250);
@@ -96,7 +96,7 @@ async function captureFromActiveEditor(page, remoteUrl) {
 }
 
 async function captureFromFrame(frame, remoteUrl) {
-  return frame.evaluate(({ url, wrapperSelector }) => {
+  return frame.evaluate(({ url, wrapperSelector, frameName }) => {
     const root = document.body;
     if (!root) return undefined;
     for (const image of root.querySelectorAll("img")) {
@@ -123,7 +123,7 @@ async function captureFromFrame(frame, remoteUrl) {
       return {
         html: wrapper.outerHTML,
         metadata: {
-          context: `frame:${frame.name || "unnamed"}`,
+          context: `frame:${frameName || "unnamed"}`,
           tagName: wrapper.tagName.toLowerCase(),
           className: typeof wrapper.className === "string" ? wrapper.className.slice(0, 200) : "",
           dataKeType: wrapper.getAttribute("data-ke-type") ?? "",
@@ -136,7 +136,7 @@ async function captureFromFrame(frame, remoteUrl) {
       };
     }
     return undefined;
-  }, { url: remoteUrl, wrapperSelector: nativeImageWrapperSelector });
+  }, { url: remoteUrl, wrapperSelector: nativeImageWrapperSelector, frameName: frame.name() });
 }
 
 async function captureFromMainEditable(page, remoteUrl) {
