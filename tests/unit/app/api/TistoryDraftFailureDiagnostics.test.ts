@@ -13,6 +13,13 @@ describe("Tistory Draft failure diagnostics", () => {
     expect(routeSource).toContain("runtimeFailure: result.diagnostic?.runtimeFailure");
   });
 
+  it("returns confirmed saves and duplicates as structured non-error outcomes", () => {
+    expect(routeSource).toContain('import { classifyTistoryDraftOutcome }');
+    expect(routeSource).toContain("const outcome = classifyTistoryDraftOutcome(result)");
+    expect(routeSource).toContain('const failed = outcome.status === "failed"');
+    expect(routeSource).toContain("outcome,");
+  });
+
   it("logs completed steps, save click evidence, and the hidden runtime failure", () => {
     expect(serviceSource).toContain("completedSteps: result.steps?.filter((step) => step.passed).map((step) => step.key)");
     expect(serviceSource).toContain("draftSaveClickCount: result.draftSaveClickCount ?? 0");
