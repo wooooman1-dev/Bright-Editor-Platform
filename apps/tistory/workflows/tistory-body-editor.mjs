@@ -1,5 +1,6 @@
 const HTML_MODE_PATTERN = /html|htmlmixed|xml/i;
 const AUXILIARY_PATTERN = /search|find|replace|template|snippet|preview|dialog|modal/i;
+const SEMANTIC_DIAGNOSTIC_PREFIX = "[tistory-semantic-html]";
 
 export function rankCodeMirrorCandidates(candidates) {
   return candidates
@@ -36,8 +37,33 @@ function score(candidate) {
 
 export function looksAuxiliary(value) { return AUXILIARY_PATTERN.test(value ?? ""); }
 
+export function semanticHtmlDiagnosticCode(evidence) {
+  if (!evidence?.textLengthWithinTolerance) return "rendered_text_length_mismatch";
+  if (!evidence?.firstParagraphMatched) return "rendered_first_paragraph_mismatch";
+  if (!(evidence?.paragraphCount > 0)) return "rendered_paragraph_missing";
+  if (!evidence?.h2Matched) return "rendered_heading_missing";
+  if (!evidence?.tocMatched) return "rendered_toc_missing";
+  if (!evidence?.internalLinksMatched) return "rendered_internal_link_missing";
+  if (!evidence?.relatedLinksMatched) return "rendered_related_posts_missing";
+  if (!evidence?.ctaLinksMatched) return "rendered_cta_link_missing";
+  if ((evidence?.invalidPlaceholderLinks ?? 0) > 0) return "rendered_placeholder_link_present";
+  if (!evidence?.imagesMatched) return "rendered_image_mismatch";
+  return undefined;
+}
+
 export function semanticHtmlVerified(evidence) {
-  return Boolean(evidence?.textLengthWithinTolerance && evidence.firstParagraphMatched && evidence.paragraphCount > 0 && evidence.h2Matched && evidence.tocMatched && evidence.internalLinksMatched && evidence.relatedLinksMatched && evidence.ctaLinksMatched && evidence.invalidPlaceholderLinks === 0 && evidence.imagesMatched);
+  const diagnosticCode = semanticHtmlDiagnosticCode(evidence);
+  if (diagnosticCode) writeSemanticDiagnostic(diagnosticCode, evidence);
+  return diagnosticCode === undefined;
+}
+
+function writeSemanticDiagnostic(code, evidence) {
+  if (typeof process === "undefined" || process.env?.BRIGHT_TISTORY_WORKER_DIAGNOSTICS !== "1") return;
+  try {
+    process.stderr.write(`${SEMANTIC_DIAGNOSTIC_PREFIX} ${JSON.stringify({ code, evidence })}\n`);
+  } catch {
+    process.stderr.write(`${SEMANTIC_DIAGNOSTIC_PREFIX} ${JSON.stringify({ code })}\n`);
+  }
 }
 
 export function automationClicksAllowed(clicks) { return clicks?.draft === 1 && clicks.complete === 0 && clicks.publish === 0; }
