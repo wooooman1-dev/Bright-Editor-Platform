@@ -1,3 +1,5 @@
+import { basename, dirname, extname, join } from "node:path";
+
 const nativeWrapperSelector = 'figure.imageblock, figure[data-ke-type="image"], figure[data-origin-width], [data-ke-type="image"]';
 const representativeControlSelector = ".mce-represent-image-btn";
 
@@ -32,14 +34,13 @@ export async function ensureFirstTistoryImageRepresentative(page, remoteUrl) {
 
   const located = await waitForRepresentativeControl(page);
   if (!located) {
+    const controls = await representativeControlDiagnostics(page);
+    const diagnostic = { selection, trustedClick, controls };
+    writeRepresentativeDiagnostic("representative_control_not_found", diagnostic);
     return representativeFailure(
       "representative_control_not_found",
       "첫 번째 이미지의 대표이미지 설정 control을 찾지 못했습니다.",
-      {
-        selection,
-        trustedClick,
-        controls: await representativeControlDiagnostics(page),
-      },
+      diagnostic,
     );
   }
 
@@ -61,18 +62,25 @@ export async function ensureFirstTistoryImageRepresentative(page, remoteUrl) {
     };
   }
 
-  const clicked = await located.locator.click({ timeout: 5000 }).then(() => true).catch(() => false);
-  if (!clicked) {
+  const controlClick = await located.locator.click({ timeout: 5000 })
+    .then(() => ({ passed: true }))
+    .catch((error) => ({ passed: false, error: serializeError(error) }));
+  if (!controlClick.passed) {
+    const diagnostic = {
+      selection,
+      trustedClick,
+      selector: representativeControlSelector,
+      context: located.context,
+      before,
+      controlClick,
+      controls: await representativeControlDiagnostics(page),
+      screenshot: await captureRepresentativeScreenshot(page, "control-click-failed"),
+    };
+    writeRepresentativeDiagnostic("representative_control_not_clickable", diagnostic);
     return representativeFailure(
       "representative_control_not_clickable",
       "첫 번째 이미지의 대표이미지 설정 control을 클릭하지 못했습니다.",
-      {
-        selection,
-        trustedClick,
-        selector: representativeControlSelector,
-        context: located.context,
-        before,
-      },
+      diagnostic,
     );
   }
 
@@ -88,10 +96,16 @@ export async function ensureFirstTistoryImageRepresentative(page, remoteUrl) {
   };
 
   if (!selected.verified) {
+    const diagnostic = {
+      ...evidence,
+      controls: await representativeControlDiagnostics(page),
+      screenshot: await captureRepresentativeScreenshot(page, "selection-unverified"),
+    };
+    writeRepresentativeDiagnostic("representative_selection_not_verified", diagnostic);
     return representativeFailure(
       "representative_selection_not_verified",
       "첫 번째 이미지를 대표이미지로 설정했지만 선택 상태를 다시 확인하지 못했습니다.",
-      evidence,
+      diagnostic,
     );
   }
 
@@ -171,20 +185,31 @@ async function selectRepresentativeCandidate(page, remoteUrl) {
       tagName: wrapper.tagName.toLowerCase(),
       className: typeof wrapper.className === "string" ? wrapper.className.slice(0, 200) : "",
       sourcePresent: Boolean(image.currentSrc || image.getAttribute("src")),
+      selectedNode: truncateHtml(editor.selection.getNode?.()?.outerHTML),
     };
-  }, { expectedUrl: remoteUrl, wrapperSelector: nativeWrapperSelector }).catch(() => ({
+  }, { expectedUrl: remoteUrl, wrapperSelector: nativeWrapperSelector }).catch((error) => ({
     passed: false,
     code: "representative_image_selection_failed",
     message: "첫 번째 이미지를 대표이미지 후보로 선택하지 못했습니다.",
+    error: serializeError(error),
   }));
 }
 
 async function clickRepresentativeCandidate(page, remoteUrl) {
   const frames = page.frames();
+  const frameSummaries = [];
   for (let frameIndex = 0; frameIndex < frames.length; frameIndex += 1) {
     const frame = frames[frameIndex];
     const images = frame.locator("figure img, [data-ke-type=\"image\"] img");
     const count = await images.count().catch(() => 0);
+    frameSummaries.push({
+      frameIndex,
+      name: frame.name(),
+      url: sanitizeUrl(frame.url()),
+      candidateImageCount: count,
+      mainFrame: frame === page.mainFrame(),
+    });
+
     for (let index = 0; index < count; index += 1) {
       const image = images.nth(index);
       const matched = await image.evaluate((node, expectedUrl) => {
@@ -216,33 +241,155 @@ async function clickRepresentativeCandidate(page, remoteUrl) {
       }, remoteUrl).catch(() => false);
       if (!matched) continue;
 
-      await image.scrollIntoViewIfNeeded().catch(() => undefined);
+      const before = await inspectRepresentativeImageTarget(page, frame, image, frameIndex, index);
+      const scroll = await image.scrollIntoViewIfNeeded({ timeout: 5000 })
+        .then(() => ({ passed: true }))
+        .catch((error) => ({ passed: false, error: serializeError(error) }));
       const visible = await image.isVisible().catch(() => false);
-      const clicked = visible
-        && await image.click({ timeout: 5000 }).then(() => true).catch(() => false);
-      if (!clicked) {
+      const click = visible
+        ? await image.click({ timeout: 5000 })
+          .then(() => ({ passed: true }))
+          .catch((error) => ({ passed: false, error: serializeError(error) }))
+        : { passed: false, error: { name: "VisibilityError", message: "Matched image locator is not visible." } };
+
+      if (!click.passed) {
+        const diagnostic = {
+          remoteUrl: sanitizeUrl(remoteUrl),
+          frameIndex,
+          imageIndex: index,
+          frameSummaries,
+          scroll,
+          visible,
+          click,
+          before,
+          after: await inspectRepresentativeImageTarget(page, frame, image, frameIndex, index),
+          tinyMceSelection: await inspectTinyMceSelection(page),
+          representativeControls: await representativeControlDiagnostics(page),
+          screenshot: await captureRepresentativeScreenshot(page, "image-click-failed"),
+        };
+        writeRepresentativeDiagnostic("representative_image_click_failed", diagnostic);
         return {
           passed: false,
           code: "representative_image_click_failed",
           message: "대표이미지 후보를 실제 Tistory 편집 화면에서 클릭하지 못했습니다.",
           context: frame === page.mainFrame() ? "main" : `frame:${frameIndex}`,
           imageIndex: index,
+          diagnostic,
         };
       }
+
       return {
         passed: true,
         trusted: true,
         context: frame === page.mainFrame() ? "main" : `frame:${frameIndex}`,
         imageIndex: index,
+        target: before,
       };
     }
   }
 
+  const diagnostic = {
+    remoteUrl: sanitizeUrl(remoteUrl),
+    frameSummaries,
+    tinyMceSelection: await inspectTinyMceSelection(page),
+    representativeControls: await representativeControlDiagnostics(page),
+    screenshot: await captureRepresentativeScreenshot(page, "target-not-found"),
+  };
+  writeRepresentativeDiagnostic("representative_click_target_not_found", diagnostic);
   return {
     passed: false,
     code: "representative_click_target_not_found",
     message: "대표이미지 후보의 실제 이미지 element를 Tistory 편집 화면에서 찾지 못했습니다.",
+    diagnostic,
   };
+}
+
+async function inspectRepresentativeImageTarget(page, frame, image, frameIndex, imageIndex) {
+  const boundingBox = await image.boundingBox().catch(() => undefined);
+  const frameElement = frame === page.mainFrame() ? undefined : await frame.frameElement().catch(() => undefined);
+  const frameBox = frameElement ? await frameElement.boundingBox().catch(() => undefined) : undefined;
+  const frameOuterHtml = frameElement
+    ? await frameElement.evaluate((element) => truncateHtml(element.outerHTML)).catch(() => undefined)
+    : undefined;
+  const dom = await image.evaluate((node, wrapperSelector) => {
+    const rect = node.getBoundingClientRect();
+    const style = getComputedStyle(node);
+    const centerX = Math.max(0, Math.min(window.innerWidth - 1, rect.left + rect.width / 2));
+    const centerY = Math.max(0, Math.min(window.innerHeight - 1, rect.top + rect.height / 2));
+    const summarize = (element) => element ? {
+      tagName: element.tagName?.toLowerCase?.() ?? "",
+      id: element.id ?? "",
+      className: String(element.className ?? "").slice(0, 240),
+      role: element.getAttribute?.("role") ?? "",
+      ariaLabel: element.getAttribute?.("aria-label") ?? "",
+      pointerEvents: getComputedStyle(element).pointerEvents,
+      outerHTML: truncateHtml(element.outerHTML),
+    } : undefined;
+    const wrapper = node.closest(wrapperSelector) ?? node.parentElement;
+    const hitStack = document.elementsFromPoint(centerX, centerY).slice(0, 10).map(summarize);
+    return {
+      documentUrl: String(location.href),
+      documentReadyState: document.readyState,
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      isConnected: node.isConnected,
+      complete: Boolean(node.complete),
+      naturalSize: { width: node.naturalWidth ?? 0, height: node.naturalHeight ?? 0 },
+      rect: {
+        x: rect.x,
+        y: rect.y,
+        top: rect.top,
+        left: rect.left,
+        right: rect.right,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height,
+      },
+      center: { x: centerX, y: centerY },
+      style: {
+        display: style.display,
+        visibility: style.visibility,
+        opacity: style.opacity,
+        pointerEvents: style.pointerEvents,
+        position: style.position,
+        zIndex: style.zIndex,
+        overflow: style.overflow,
+      },
+      image: summarize(node),
+      wrapper: summarize(wrapper),
+      activeElement: summarize(document.activeElement),
+      elementFromPoint: summarize(document.elementFromPoint(centerX, centerY)),
+      elementsFromPoint: hitStack,
+    };
+  }, nativeWrapperSelector).catch((error) => ({ error: serializeError(error) }));
+
+  return {
+    frameIndex,
+    imageIndex,
+    frameName: frame.name(),
+    frameUrl: sanitizeUrl(frame.url()),
+    mainFrame: frame === page.mainFrame(),
+    boundingBox,
+    frameBox,
+    frameOuterHtml,
+    dom,
+  };
+}
+
+async function inspectTinyMceSelection(page) {
+  return page.evaluate(() => {
+    const editor = window.tinymce?.activeEditor;
+    const selected = editor?.selection?.getNode?.();
+    const body = editor?.getBody?.();
+    return {
+      editorAvailable: Boolean(editor),
+      bodyAvailable: Boolean(body),
+      selectedNode: truncateHtml(selected?.outerHTML),
+      selectedTagName: selected?.tagName?.toLowerCase?.() ?? "",
+      selectedClassName: String(selected?.className ?? "").slice(0, 240),
+      iframeId: editor?.iframeElement?.id ?? "",
+      iframeOuterHtml: truncateHtml(editor?.iframeElement?.outerHTML),
+    };
+  }).catch((error) => ({ error: serializeError(error) }));
 }
 
 async function waitForRepresentativeControl(page, attempts = 30) {
@@ -312,6 +459,7 @@ async function representativeControlDiagnostics(page) {
       index,
       visible: await locator.isVisible().catch(() => false),
       enabled: await locator.isEnabled().catch(() => false),
+      boundingBox: await locator.boundingBox().catch(() => undefined),
       state: await readRepresentativeControlState(locator),
     });
   }
@@ -320,4 +468,44 @@ async function representativeControlDiagnostics(page) {
     count,
     controls,
   };
+}
+
+async function captureRepresentativeScreenshot(page, suffix) {
+  const commandPath = process.argv[2];
+  const basePath = commandPath || join(process.cwd(), "tistory-command.json");
+  const extension = extname(basePath);
+  const stem = basename(basePath, extension).replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80) || "tistory";
+  const screenshotPath = join(dirname(basePath), `${stem}-representative-${suffix}.png`);
+  return page.screenshot({ path: screenshotPath, fullPage: false })
+    .then(() => ({ captured: true, path: screenshotPath }))
+    .catch((error) => ({ captured: false, path: screenshotPath, error: serializeError(error) }));
+}
+
+function writeRepresentativeDiagnostic(code, diagnostic) {
+  try {
+    process.stderr.write(`[tistory-representative-diagnostic] ${JSON.stringify({ code, diagnostic })}\n`);
+  } catch (error) {
+    process.stderr.write(`[tistory-representative-diagnostic] ${code}:serialization_failed:${String(error?.message ?? error)}\n`);
+  }
+}
+
+function serializeError(error) {
+  return {
+    name: String(error?.name ?? "Error").slice(0, 160),
+    message: String(error?.message ?? error ?? "unknown").slice(0, 5000),
+    stack: String(error?.stack ?? "").slice(0, 8000),
+  };
+}
+
+function sanitizeUrl(value) {
+  try {
+    const url = new URL(String(value));
+    return `${url.origin}${url.pathname}`;
+  } catch {
+    return String(value ?? "").slice(0, 500);
+  }
+}
+
+function truncateHtml(value, limit = 2400) {
+  return String(value ?? "").replace(/\s+/g, " ").trim().slice(0, limit);
 }
