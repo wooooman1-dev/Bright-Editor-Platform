@@ -24,8 +24,16 @@ describe("Tistory reopened evidence", () => {
   it("selects only a native TinyMCE image and reads the exact Tistory control", () => {
     expect(reopenedEvidenceSource).toContain("body#tinymce figure.imageblock img");
     expect(reopenedEvidenceSource).toContain('const representativeControlSelector = ".mce-represent-image-btn"');
-    expect(reopenedEvidenceSource).toContain("firstReopenedNativeImage(page)");
+    expect(reopenedEvidenceSource).toContain("const target = await firstReopenedNativeImage(page)");
     expect(reopenedEvidenceSource).toContain("waitForRepresentativeControl(page)");
+  });
+
+  it("checks actual reopened native content even when diagnostic media upload items are empty", () => {
+    const targetIndex = reopenedEvidenceSource.indexOf("const target = await firstReopenedNativeImage(page)");
+    const zeroExpectedIndex = reopenedEvidenceSource.indexOf("if (!(expectedMediaCount > 0))");
+    expect(targetIndex).toBeGreaterThan(-1);
+    expect(zeroExpectedIndex).toBeGreaterThan(targetIndex);
+    expect(reopenedEvidenceSource).toContain("nativeImageFound: true");
   });
 
   it("does not click the representative control during read-only verification", () => {
