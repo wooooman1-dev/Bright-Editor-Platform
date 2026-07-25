@@ -16,23 +16,29 @@ export function representativeControlLooksSelected(state) {
 
 export async function ensureFirstTistoryImageRepresentative(page, remoteUrl) {
   const selection = await selectRepresentativeCandidate(page, remoteUrl);
-  if (!selection.passed) return selection;
+  if (!selection.passed) {
+    return representativeWarning(
+      selection.code ?? "representative_image_selection_failed",
+      selection.message ?? "첫 번째 이미지를 대표이미지 후보로 선택하지 못했습니다.",
+      { selection },
+    );
+  }
 
   await page.waitForTimeout(150);
   const located = await findRepresentativeControl(page);
   if (!located) {
-    return {
-      passed: false,
-      code: "representative_control_not_found",
-      message: "첫 번째 이미지의 대표이미지 설정 control을 찾지 못했습니다.",
-      evidence: { selection, labels: await representativeControlLabels(page) },
-    };
+    return representativeWarning(
+      "representative_control_not_found",
+      "첫 번째 이미지의 대표이미지 설정 control을 찾지 못했습니다.",
+      { selection, labels: await representativeControlLabels(page) },
+    );
   }
 
   const before = await readRepresentativeControlState(located.locator);
   if (representativeControlLooksSelected(before)) {
     return {
       passed: true,
+      attempted: true,
       verified: true,
       evidence: { selection, context: located.context, before, after: before, action: "already_selected" },
     };
@@ -40,12 +46,11 @@ export async function ensureFirstTistoryImageRepresentative(page, remoteUrl) {
 
   const clicked = await located.locator.click({ timeout: 5000 }).then(() => true).catch(() => false);
   if (!clicked) {
-    return {
-      passed: false,
-      code: "representative_control_not_clickable",
-      message: "첫 번째 이미지의 대표이미지 설정 control을 클릭하지 못했습니다.",
-      evidence: { selection, context: located.context, before },
-    };
+    return representativeWarning(
+      "representative_control_not_clickable",
+      "첫 번째 이미지의 대표이미지 설정 control을 클릭하지 못했습니다.",
+      { selection, context: located.context, before },
+    );
   }
 
   await page.waitForTimeout(300);
@@ -64,16 +69,29 @@ export async function ensureFirstTistoryImageRepresentative(page, remoteUrl) {
   };
 
   if (!verified) {
-    return {
-      passed: false,
-      verified: false,
-      code: "representative_selection_not_verified",
-      message: "첫 번째 이미지를 대표이미지로 설정했지만 선택 상태를 다시 확인하지 못했습니다.",
+    return representativeWarning(
+      "representative_selection_not_verified",
+      "첫 번째 이미지를 대표이미지로 설정했지만 선택 상태를 다시 확인하지 못했습니다.",
       evidence,
-    };
+    );
   }
 
-  return { passed: true, verified: true, evidence };
+  return { passed: true, attempted: true, verified: true, evidence };
+}
+
+function representativeWarning(code, message, evidence) {
+  return {
+    passed: true,
+    attempted: true,
+    verified: false,
+    code,
+    message,
+    evidence: {
+      ...evidence,
+      action: evidence?.action ?? "warning_continue",
+      warning: { code, message },
+    },
+  };
 }
 
 async function selectRepresentativeCandidate(page, remoteUrl) {
