@@ -50,6 +50,23 @@ describe("Tistory representative image", () => {
     expect(representativeSource).toContain("await page.waitForTimeout(100)");
   });
 
+  it("captures the original click failure and visual obstruction evidence", () => {
+    expect(representativeSource).toContain("serializeError(error)");
+    expect(representativeSource).toContain("inspectRepresentativeImageTarget");
+    expect(representativeSource).toContain("document.elementFromPoint(centerX, centerY)");
+    expect(representativeSource).toContain("document.elementsFromPoint(centerX, centerY)");
+    expect(representativeSource).toContain("frameBox");
+    expect(representativeSource).toContain("tinyMceSelection");
+    expect(representativeSource).toContain("representativeControls");
+  });
+
+  it("writes a structured diagnostic and screenshot path without changing save behavior", () => {
+    expect(representativeSource).toContain("[tistory-representative-diagnostic]");
+    expect(representativeSource).toContain("captureRepresentativeScreenshot");
+    expect(representativeSource).toContain('page.screenshot({ path: screenshotPath, fullPage: false })');
+    expect(representativeSource).toContain("representative_image_click_failed");
+  });
+
   it("blocks draft save until the active state is verified", () => {
     expect(representativeSource).toContain("waitForRepresentativeSelection(page, located.locator)");
     expect(representativeSource).toContain("function representativeFailure");
