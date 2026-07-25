@@ -357,7 +357,7 @@ async function prepareObservedCategoryCarrier(page, categoryId, categoryName) {
 
     const idMatched = observedIds.includes(String(expectedId));
     const nameMatched = Boolean(expectedName && observedNames.some((value) => value.includes(expectedName)));
-    const passed = idMatched || nameMatched;
+    const passed = observedIds.length ? idMatched : nameMatched;
     const matchedElement = textCandidates[0]?.element;
     const namedCarrier = matchedElement?.closest('button, [role="button"], label, select');
     const structuralCarrier = structuralCandidates[0]?.element;
