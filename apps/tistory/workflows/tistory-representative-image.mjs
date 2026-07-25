@@ -54,19 +54,26 @@ export async function ensureFirstTistoryImageRepresentative(page, remoteUrl) {
   const feedback = await representativeFeedback(page);
   const verified = representativeControlLooksSelected(after)
     || feedback.some((value) => /대표.*(?:설정|지정|선택|완료)/u.test(value));
-
-  return {
-    passed: true,
-    verified,
-    evidence: {
-      selection,
-      context: afterLocated?.context ?? located.context,
-      before,
-      after,
-      feedback,
-      action: verified ? "selected_and_verified" : "control_clicked",
-    },
+  const evidence = {
+    selection,
+    context: afterLocated?.context ?? located.context,
+    before,
+    after,
+    feedback,
+    action: verified ? "selected_and_verified" : "control_clicked_unverified",
   };
+
+  if (!verified) {
+    return {
+      passed: false,
+      verified: false,
+      code: "representative_selection_not_verified",
+      message: "첫 번째 이미지를 대표이미지로 설정했지만 선택 상태를 다시 확인하지 못했습니다.",
+      evidence,
+    };
+  }
+
+  return { passed: true, verified: true, evidence };
 }
 
 async function selectRepresentativeCandidate(page, remoteUrl) {
