@@ -1,11 +1,14 @@
 export type RepresentativeControlState = Readonly<{
   label?: string;
+  tagName?: string;
   className?: string;
   checked?: boolean;
   ariaPressed?: string;
   ariaChecked?: string;
+  ariaSelected?: string;
   dataSelected?: string;
   dataActive?: string;
+  dataState?: string;
 }>;
 
 export type TistoryRepresentativeImageResult = Readonly<{
