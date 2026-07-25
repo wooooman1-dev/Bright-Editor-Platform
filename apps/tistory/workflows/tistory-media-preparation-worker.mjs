@@ -1,6 +1,8 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { chromium } from "playwright";
 import { tistoryMediaUploadSelectors, uploadSingleTistoryImage, uploadTistoryMediaSequentially } from "./tistory-media-upload.mjs";
+import { captureNativeTistoryImageFragment } from "./tistory-native-media-fragment.mjs";
+import { replaceTistoryMediaPlaceholders } from "./tistory-native-media-html.mjs";
 
 const [commandPath] = process.argv.slice(2);
 let browser;
@@ -21,23 +23,48 @@ try {
     throw safeError("session_expired", "Tistory 로그인 세션이 만료되어 이미지를 업로드하지 못했습니다.");
   }
 
+  let uploadIndex = 0;
   const resolved = await uploadTistoryMediaSequentially(page, media, async (editorPage, item) => {
+    const currentIndex = uploadIndex;
+    uploadIndex += 1;
     await removeReusableImageInputs(editorPage);
     try {
-      return await uploadSingleTistoryImage(editorPage, item);
+      const uploaded = await uploadSingleTistoryImage(editorPage, item);
+      const native = await captureNativeTistoryImageFragment(editorPage, uploaded.remoteUrl);
+      return Object.freeze({
+        ...uploaded,
+        alt: item.alt,
+        nativeHtml: native.html,
+        nativeMetadata: native.metadata,
+        representativeCandidate: currentIndex === 0,
+      });
     } catch (error) {
-      throw withMediaEvidence(error, { uploadSession: "same_editor_fresh_attachment_control" });
+      throw withMediaEvidence(error, { uploadSession: "same_editor_fresh_attachment_control", mediaIndex: currentIndex });
     }
   });
 
-  let html = String(command.html ?? "");
-  for (const item of resolved) html = html.replaceAll(item.placeholderUrl, item.remoteUrl);
-  if (html.includes("https://bright-studio.invalid/tistory-media/")) {
-    throw safeError("media_placeholder_unresolved", "일부 로컬 이미지가 Tistory 주소로 변환되지 않았습니다.");
-  }
-
-  await writeFile(commandPath, JSON.stringify({ ...command, html, resolvedMedia: resolved }), { encoding: "utf8", mode: 0o600 });
-  process.stdout.write(`${JSON.stringify({ status: "prepared", media: resolved })}\n`);
+  const html = replaceTistoryMediaPlaceholders(String(command.html ?? ""), resolved);
+  await writeFile(commandPath, JSON.stringify({
+    ...command,
+    html,
+    resolvedMedia: resolved,
+    representativeMedia: resolved[0]
+      ? {
+          blockId: resolved[0].blockId,
+          remoteUrl: resolved[0].remoteUrl,
+          nativeMetadata: resolved[0].nativeMetadata,
+        }
+      : undefined,
+  }), { encoding: "utf8", mode: 0o600 });
+  process.stdout.write(`${JSON.stringify({
+    status: "prepared",
+    media: resolved.map((item) => ({
+      blockId: item.blockId,
+      remoteUrl: item.remoteUrl,
+      nativeMetadata: item.nativeMetadata,
+      representativeCandidate: item.representativeCandidate,
+    })),
+  })}\n`);
   await context.close();
 } catch (error) {
   const code = error?.diagnosticCode ?? "media_upload_failed";
@@ -78,9 +105,9 @@ function safeMediaDiagnostic(error) {
   const evidence = error?.mediaEvidence;
   if (!evidence || typeof evidence !== "object") return undefined;
   const diagnostic = {};
-  for (const key of ["blockId", "mediaIndex", "uploadMethod", "uploadSession", "baselineMediaCount", "lastMediaCount", "baselineTrustedUrlCount", "lastTrustedUrlCount"]) {
+  for (const key of ["blockId", "mediaIndex", "uploadMethod", "uploadSession", "baselineMediaCount", "lastMediaCount", "baselineTrustedUrlCount", "lastTrustedUrlCount", "activeTinyMce", "frameCount"]) {
     const value = evidence[key];
-    if (typeof value === "string" || typeof value === "number") diagnostic[key] = value;
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") diagnostic[key] = value;
   }
   return Object.keys(diagnostic).length ? diagnostic : undefined;
 }
