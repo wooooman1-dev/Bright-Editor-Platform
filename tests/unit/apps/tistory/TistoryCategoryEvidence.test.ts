@@ -18,11 +18,18 @@ describe("Tistory category evidence", () => {
     });
   });
 
-  it("accepts the visible category name when no stable id carrier is available", () => {
+  it("accepts the visible category name only when no stable id carrier is available", () => {
     expect(verifyCategoryEvidence({ controlText: "건강정보" }, "1038988", "건강정보")).toEqual({
       passed: true,
       idVerified: false,
       nameVerified: true,
+    });
+  });
+
+  it("rejects a mismatched stable id even when the visible name looks correct", () => {
+    expect(verifyCategoryEvidence({ hiddenValues: ["999999"], controlText: "건강정보" }, "1038988", "건강정보")).toEqual({
+      passed: false,
+      code: "category_id_mismatch",
     });
   });
 
@@ -35,7 +42,7 @@ describe("Tistory category evidence", () => {
 
   it("creates a transient stable carrier only after real reopened category evidence matches", () => {
     expect(tagWorkflowSource).toContain("const idMatched = observedIds.includes(String(expectedId))");
-    expect(tagWorkflowSource).toContain("const passed = idMatched || nameMatched");
+    expect(tagWorkflowSource).toContain("const passed = observedIds.length ? idMatched : nameMatched");
     expect(tagWorkflowSource).toContain('data-bright-category-verification="observed"');
     expect(tagWorkflowSource).toContain('wrapper.setAttribute("data-bright-synthetic", "true")');
     expect(tagWorkflowSource).toContain('verificationCarrier.setAttribute("data-category-id", String(expectedId))');
