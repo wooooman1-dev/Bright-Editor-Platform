@@ -1,3 +1,5 @@
+import { prepareTistoryMediaInCurrentEditor } from "./tistory-same-editor-media.mjs";
+
 const TAG_INPUT_SELECTOR = [
   'input[placeholder="#태그입력"]',
   'input[placeholder*="태그"]',
@@ -26,12 +28,32 @@ export function normalizeTistoryTags(values, limit = 8) {
 }
 
 export async function fillTistoryTags(page, values) {
+  let media;
+  try {
+    media = await prepareTistoryMediaInCurrentEditor(page);
+  } catch (error) {
+    return {
+      passed: false,
+      code: error?.diagnosticCode ?? "media_same_editor_upload_failed",
+      message: error?.safeMessage ?? "현재 Tistory 편집기에서 이미지를 업로드하지 못했습니다.",
+      tags: normalizeTistoryTags(values),
+      evidence: error?.mediaEvidence,
+    };
+  }
+
   const expected = normalizeTistoryTags(values);
-  if (!expected.length) return { passed: true, tags: [], skipped: true, evidence: { expected: [] } };
+  if (!expected.length) {
+    return {
+      passed: true,
+      tags: [],
+      skipped: true,
+      evidence: { expected: [], media: mediaEvidence(media) },
+    };
+  }
 
   const input = await visibleTagInput(page);
   if (!input) {
-    return { passed: false, code: "tag_input_not_found", message: "Tistory 태그 입력 영역을 찾지 못했습니다.", tags: expected };
+    return { passed: false, code: "tag_input_not_found", message: "Tistory 태그 입력 영역을 찾지 못했습니다.", tags: expected, evidence: { media: mediaEvidence(media) } };
   }
 
   for (const tag of expected) {
@@ -42,9 +64,14 @@ export async function fillTistoryTags(page, values) {
 
   const verification = await verifyTistoryTags(page, expected, input);
   if (!verification.passed) {
-    return { ...verification, code: "tag_input_verification_failed", message: "태그를 입력했지만 생성된 태그를 확인하지 못했습니다." };
+    return {
+      ...verification,
+      code: "tag_input_verification_failed",
+      message: "태그를 입력했지만 생성된 태그를 확인하지 못했습니다.",
+      evidence: { ...(verification.evidence ?? {}), media: mediaEvidence(media) },
+    };
   }
-  return verification;
+  return { ...verification, evidence: { ...(verification.evidence ?? {}), media: mediaEvidence(media) } };
 }
 
 export async function verifyTistoryTags(page, values, resolvedInput) {
@@ -64,6 +91,16 @@ export async function verifyTistoryTags(page, values, resolvedInput) {
     tags: expected,
     evidence: { expected, missing, samples: evidence.slice(0, 12) },
     ...(missing.length ? { code: "tag_values_missing", message: `저장된 태그에서 ${missing.join(", ")} 항목을 확인하지 못했습니다.` } : {}),
+  };
+}
+
+function mediaEvidence(media) {
+  if (!media || media.skipped) return { skipped: true, count: 0 };
+  return {
+    skipped: false,
+    count: media.media?.length ?? 0,
+    representativeBlockId: media.representativeMedia?.blockId,
+    ...(media.evidence ?? {}),
   };
 }
 
