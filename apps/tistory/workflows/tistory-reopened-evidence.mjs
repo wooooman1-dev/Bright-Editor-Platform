@@ -23,12 +23,11 @@ export function reopenedRepresentativeLooksSelected(state) {
 }
 
 export async function verifyReopenedTistoryRepresentativeImage(page, expectedMediaCount) {
-  if (!(expectedMediaCount > 0)) {
-    return { passed: true, evidence: { skipped: true, expectedMediaCount: 0 } };
-  }
-
   const target = await firstReopenedNativeImage(page);
   if (!target) {
+    if (!(expectedMediaCount > 0)) {
+      return { passed: true, evidence: { skipped: true, expectedMediaCount: 0, nativeImageFound: false } };
+    }
     return {
       passed: false,
       code: "representative_persistence_image_not_found",
@@ -94,6 +93,7 @@ export async function verifyReopenedTistoryRepresentativeImage(page, expectedMed
     passed: true,
     evidence: {
       expectedMediaCount,
+      nativeImageFound: true,
       context: target.context,
       imageIndex: target.imageIndex,
       selector: representativeControlSelector,
