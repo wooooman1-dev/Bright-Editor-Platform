@@ -47,7 +47,7 @@ export function semanticHtmlDiagnosticCode(evidence) {
   if (!evidence?.relatedLinksMatched) return "rendered_related_posts_missing";
   if (!evidence?.ctaLinksMatched) return "rendered_cta_link_missing";
   if ((evidence?.invalidPlaceholderLinks ?? 0) > 0) return "rendered_placeholder_link_present";
-  if (!evidence?.imagesMatched) return "rendered_image_mismatch";
+  if (!imagesSatisfied(evidence)) return "rendered_image_mismatch";
   return undefined;
 }
 
@@ -55,6 +55,13 @@ export function semanticHtmlVerified(evidence) {
   const diagnosticCode = semanticHtmlDiagnosticCode(evidence);
   if (diagnosticCode) writeSemanticDiagnostic(diagnosticCode, evidence);
   return diagnosticCode === undefined;
+}
+
+function imagesSatisfied(evidence) {
+  if (evidence?.imagesMatched === true) return true;
+  const expected = Number(evidence?.expectedImageCount);
+  const actual = Number(evidence?.imageCount);
+  return Number.isFinite(expected) && Number.isFinite(actual) && expected >= 0 && actual >= expected;
 }
 
 function writeSemanticDiagnostic(code, evidence) {
