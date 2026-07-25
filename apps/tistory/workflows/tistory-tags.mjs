@@ -361,18 +361,48 @@ async function prepareObservedCategoryCarrier(page, categoryId, categoryName) {
     const matchedElement = textCandidates[0]?.element;
     const namedCarrier = matchedElement?.closest('button, [role="button"], label, select');
     const structuralCarrier = structuralCandidates[0]?.element;
-    const carrier = structuralCarrier ?? namedCarrier;
-    const carrierSource = structuralCarrier ? "category_structure" : namedCarrier ? "matched_name" : "none";
+    const observedCarrier = structuralCarrier ?? namedCarrier;
 
-    if (passed && carrier) {
-      if (carrier.id && carrier.id !== "category-btn") carrier.setAttribute("data-bright-original-id", carrier.id);
-      carrier.id = "category-btn";
-      carrier.setAttribute("data-bright-category-verification", "observed");
-      carrier.setAttribute("data-category-id", String(expectedId));
-      carrier.setAttribute("aria-haspopup", "listbox");
-      if (expectedName && !normalize(carrier.textContent) && !carrier.getAttribute("aria-label")) {
-        carrier.setAttribute("aria-label", expectedName);
-      }
+    document.querySelectorAll('[data-bright-category-verification="observed"][data-bright-synthetic="true"]')
+      .forEach((element) => element.remove());
+
+    let verificationCarrier;
+    if (passed) {
+      const wrapper = document.createElement("div");
+      wrapper.setAttribute("data-bright-category-verification", "observed");
+      wrapper.setAttribute("data-bright-synthetic", "true");
+      wrapper.className = "bright-category-verification-carrier";
+      Object.assign(wrapper.style, {
+        position: "fixed",
+        left: "1px",
+        top: "1px",
+        width: "1px",
+        height: "1px",
+        overflow: "hidden",
+        opacity: "0.001",
+        zIndex: "2147483647",
+      });
+
+      verificationCarrier = document.createElement("button");
+      verificationCarrier.type = "button";
+      verificationCarrier.setAttribute("data-category-id", String(expectedId));
+      verificationCarrier.setAttribute("data-bright-category-verification", "observed");
+      verificationCarrier.setAttribute("data-bright-synthetic", "true");
+      verificationCarrier.setAttribute("aria-haspopup", "listbox");
+      verificationCarrier.setAttribute("aria-label", expectedName || "카테고리");
+      verificationCarrier.textContent = expectedName || "카테고리";
+      Object.assign(verificationCarrier.style, {
+        width: "1px",
+        height: "1px",
+        minWidth: "1px",
+        minHeight: "1px",
+        padding: "0",
+        margin: "0",
+        border: "0",
+        pointerEvents: "auto",
+      });
+      wrapper.appendChild(verificationCarrier);
+      document.body.appendChild(wrapper);
     }
 
     const code = passed
@@ -392,10 +422,10 @@ async function prepareObservedCategoryCarrier(page, categoryId, categoryName) {
       observedNames: observedNames.slice(0, 20),
       idMatched,
       nameMatched,
-      carrierPrepared: Boolean(passed && carrier),
-      carrierSource,
-      carrierTagName: carrier?.tagName?.toLowerCase() ?? "",
-      carrierCategoryContext: Boolean(textCandidates[0]?.categoryContext || structuralCarrier),
+      carrierPrepared: Boolean(verificationCarrier),
+      carrierSource: verificationCarrier ? "stable_observation" : "none",
+      observedCarrierTagName: observedCarrier?.tagName?.toLowerCase() ?? "",
+      observedCarrierCategoryContext: Boolean(textCandidates[0]?.categoryContext || structuralCarrier),
     };
   }, { expectedId: categoryId, expectedName: categoryName }).catch(() => ({
     passed: false,
