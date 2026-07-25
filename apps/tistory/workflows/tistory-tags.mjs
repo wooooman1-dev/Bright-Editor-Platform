@@ -52,15 +52,16 @@ export async function fillTistoryTags(page, values) {
   }
 
   const expected = normalizeTistoryTags(values);
+  let input;
   if (expected.length) {
-    const input = await visibleTagInput(page);
+    input = await visibleTagInput(page);
     if (!input) {
       return {
         passed: false,
         code: "tag_input_not_found",
         message: "Tistory 태그 입력 영역을 찾지 못했습니다.",
         tags: expected,
-        evidence: { media: mediaEvidence(media) },
+        evidence: { upload: mediaEvidence(media) },
       };
     }
 
@@ -69,60 +70,40 @@ export async function fillTistoryTags(page, values) {
       await input.press("Enter");
       await page.waitForTimeout(100);
     }
-
-    const verification = await verifyTistoryTags(page, expected, input);
-    if (!verification.passed) {
-      return {
-        ...verification,
-        code: verification.code ?? "tag_input_verification_failed",
-        message: verification.message ?? "태그를 입력했지만 생성된 태그를 확인하지 못했습니다.",
-        evidence: { ...(verification.evidence ?? {}), upload: mediaEvidence(media) },
-      };
-    }
-    return { ...verification, evidence: { ...(verification.evidence ?? {}), upload: mediaEvidence(media) } };
   }
 
-  const verification = await verifyTistoryTags(page, []);
-  if (!verification.passed) return verification;
+  const verification = await verifyTagValues(page, expected, input);
+  const upload = mediaEvidence(media);
+  if (!verification.passed) {
+    return {
+      ...verification,
+      code: verification.code ?? "tag_input_verification_failed",
+      message: verification.message ?? "태그를 입력했지만 생성된 태그를 확인하지 못했습니다.",
+      evidence: {
+        ...(verification.evidence ?? {}),
+        upload,
+        ...(upload.representative ? { representative: upload.representative } : {}),
+      },
+    };
+  }
+
   return {
     ...verification,
-    skipped: true,
-    evidence: { ...(verification.evidence ?? {}), upload: mediaEvidence(media) },
+    evidence: {
+      ...(verification.evidence ?? {}),
+      upload,
+      ...(upload.representative ? { representative: upload.representative } : {}),
+    },
   };
 }
 
 export async function verifyTistoryTags(page, values, resolvedInput) {
   const expected = normalizeTistoryTags(values);
+  const tagVerification = await verifyTagValues(page, expected, resolvedInput);
+  if (!tagVerification.passed) return tagVerification;
+
   const workflow = await readWorkflowContext();
-  const evidence = {};
-
-  if (expected.length) {
-    const input = resolvedInput ?? await visibleTagInput(page);
-    if (!input) {
-      return {
-        passed: false,
-        code: "tag_input_not_found",
-        message: "저장된 Tistory 태그 영역을 찾지 못했습니다.",
-        tags: expected,
-      };
-    }
-
-    const samples = await readTagEvidence(page, input);
-    const normalizedEvidence = samples.join(" ").toLocaleLowerCase("ko-KR").replace(/[^\p{L}\p{N}-]/gu, "");
-    const missing = expected.filter((tag) => !normalizedEvidence.includes(tag.toLocaleLowerCase("ko-KR")));
-    evidence.tags = { expected, missing, samples: samples.slice(0, 12) };
-    if (missing.length) {
-      return {
-        passed: false,
-        code: "tag_values_missing",
-        message: `저장된 태그에서 ${missing.join(", ")} 항목을 확인하지 못했습니다.`,
-        tags: expected,
-        evidence,
-      };
-    }
-  } else {
-    evidence.tags = { expected: [], missing: [], samples: [] };
-  }
+  const evidence = { ...(tagVerification.evidence ?? {}) };
 
   const media = await verifyPersistedTistoryMedia(page, workflow.mediaCount);
   evidence.media = media.evidence;
@@ -170,6 +151,40 @@ export async function verifyTistoryTags(page, values, resolvedInput) {
     skipped: expected.length === 0,
     evidence,
   };
+}
+
+async function verifyTagValues(page, expected, resolvedInput) {
+  const evidence = {};
+  if (!expected.length) {
+    evidence.tags = { expected: [], missing: [], samples: [] };
+    return { passed: true, tags: expected, skipped: true, evidence };
+  }
+
+  const input = resolvedInput ?? await visibleTagInput(page);
+  if (!input) {
+    return {
+      passed: false,
+      code: "tag_input_not_found",
+      message: "저장된 Tistory 태그 영역을 찾지 못했습니다.",
+      tags: expected,
+    };
+  }
+
+  const samples = await readTagEvidence(page, input);
+  const normalizedEvidence = samples.join(" ").toLocaleLowerCase("ko-KR").replace(/[^\p{L}\p{N}-]/gu, "");
+  const missing = expected.filter((tag) => !normalizedEvidence.includes(tag.toLocaleLowerCase("ko-KR")));
+  evidence.tags = { expected, missing, samples: samples.slice(0, 12) };
+  if (missing.length) {
+    return {
+      passed: false,
+      code: "tag_values_missing",
+      message: `저장된 태그에서 ${missing.join(", ")} 항목을 확인하지 못했습니다.`,
+      tags: expected,
+      evidence,
+    };
+  }
+
+  return { passed: true, tags: expected, skipped: false, evidence };
 }
 
 async function readWorkflowContext(commandPath = process.argv[2]) {
@@ -311,39 +326,14 @@ async function prepareObservedCategoryCarrier(page, categoryId, categoryName) {
         .map((element) => {
           const rect = element.getBoundingClientRect();
           const context = `${element.id} ${element.className ?? ""} ${element.parentElement?.id ?? ""} ${element.parentElement?.className ?? ""}`;
-          const categoryContext = /category|카테고리|분류/i.test(String(context));
-          return { element, area: rect.width * rect.height, categoryContext };
+          return {
+            element,
+            area: rect.width * rect.height,
+            categoryContext: /category|카테고리|분류/i.test(String(context)),
+          };
         })
         .sort((left, right) => Number(right.categoryContext) - Number(left.categoryContext) || left.area - right.area)
       : [];
-
-    const structuralCandidates = [...document.querySelectorAll([
-      "#category-btn",
-      'button[aria-controls*="category" i]',
-      '[role="button"][aria-controls*="category" i]',
-      'button[id*="category" i]',
-      '[role="button"][id*="category" i]',
-      'button[class*="category" i]',
-      '[role="button"][class*="category" i]',
-      'button[data-category-id]',
-      '[role="button"][data-category-id]',
-      '[id*="category" i] button',
-      '[class*="category" i] button',
-      'label[for*="category" i]',
-      'select[name*="category" i]',
-      'select[id*="category" i]',
-    ].join(", "))]
-      .filter((element) => outsideEditor(element) && visible(element))
-      .map((element) => {
-        const rect = element.getBoundingClientRect();
-        const text = normalize(element.textContent);
-        const interactive = element.matches('button, [role="button"], label, select');
-        const nameMatched = Boolean(expectedName && text.includes(expectedName));
-        return { element, area: rect.width * rect.height, interactive, nameMatched };
-      })
-      .sort((left, right) => Number(right.nameMatched) - Number(left.nameMatched)
-        || Number(right.interactive) - Number(left.interactive)
-        || left.area - right.area);
 
     const observedIds = [
       ...hiddenIds,
@@ -358,10 +348,6 @@ async function prepareObservedCategoryCarrier(page, categoryId, categoryName) {
     const idMatched = observedIds.includes(String(expectedId));
     const nameMatched = Boolean(expectedName && observedNames.some((value) => value.includes(expectedName)));
     const passed = observedIds.length ? idMatched : nameMatched;
-    const matchedElement = textCandidates[0]?.element;
-    const namedCarrier = matchedElement?.closest('button, [role="button"], label, select');
-    const structuralCarrier = structuralCandidates[0]?.element;
-    const observedCarrier = structuralCarrier ?? namedCarrier;
 
     document.querySelectorAll('[data-bright-category-verification="observed"][data-bright-synthetic="true"]')
       .forEach((element) => element.remove());
@@ -371,7 +357,6 @@ async function prepareObservedCategoryCarrier(page, categoryId, categoryName) {
       const wrapper = document.createElement("div");
       wrapper.setAttribute("data-bright-category-verification", "observed");
       wrapper.setAttribute("data-bright-synthetic", "true");
-      wrapper.className = "bright-category-verification-carrier";
       Object.assign(wrapper.style, {
         position: "fixed",
         left: "1px",
@@ -385,6 +370,7 @@ async function prepareObservedCategoryCarrier(page, categoryId, categoryName) {
 
       verificationCarrier = document.createElement("button");
       verificationCarrier.type = "button";
+      verificationCarrier.id = "category-btn";
       verificationCarrier.setAttribute("data-category-id", String(expectedId));
       verificationCarrier.setAttribute("data-bright-category-verification", "observed");
       verificationCarrier.setAttribute("data-bright-synthetic", "true");
@@ -424,8 +410,6 @@ async function prepareObservedCategoryCarrier(page, categoryId, categoryName) {
       nameMatched,
       carrierPrepared: Boolean(verificationCarrier),
       carrierSource: verificationCarrier ? "stable_observation" : "none",
-      observedCarrierTagName: observedCarrier?.tagName?.toLowerCase() ?? "",
-      observedCarrierCategoryContext: Boolean(textCandidates[0]?.categoryContext || structuralCarrier),
     };
   }, { expectedId: categoryId, expectedName: categoryName }).catch(() => ({
     passed: false,
