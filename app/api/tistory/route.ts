@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import type { UserData } from "../../user-flow/user-data";
 import { PlatformConnectionService } from "../../../core/connections";
 import { contentRevisionId, PublishingGate, QualityEngine } from "../../../core/quality";
+import { classifyTistoryDraftOutcome } from "../../../apps/tistory/workflows/TistoryDraftOutcome";
 import { connectionRepository, connectionStore, targetRepository } from "../../application/connections/connection-runtime";
 import { studioStore } from "../../application/studio-store";
 import { isPlatformEnabled, resolveWorkspaceSettings } from "../../application/settings/WorkspaceSettingsService";
@@ -65,10 +66,12 @@ export async function POST(request: Request) {
     }
     if (isRetryableDraftStartupFailure(result)) result = normalizeDraftStartupFailure(result, attempts);
 
-    const failed = result.status === "failed" || result.status === "partial_failure";
+    const outcome = classifyTistoryDraftOutcome(result);
+    const failed = outcome.status === "failed";
     const failedRecord = result.steps?.find((step) => !step.passed);
     return NextResponse.json({
       result,
+      outcome,
       ...(failed ? {
         error: result.error ?? "Tistory 임시저장 작업을 완료하지 못했습니다.",
         failedStep: result.failedStep,
