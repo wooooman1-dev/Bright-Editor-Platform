@@ -10,6 +10,7 @@ import { resolveProjectStrategy, type UserContent, type UserData, type UserProje
 
 export type TistoryReadinessCheck = Readonly<{ key: string; passed: boolean; message: string }>;
 export type TistoryReadiness = Readonly<{ ready: boolean; checks: readonly TistoryReadinessCheck[] }>;
+export type TistoryCategorySelection = Readonly<{ id: string | null; name: string | null }>;
 
 export async function usableTistoryConnections(
   data: UserData,
@@ -58,6 +59,67 @@ export function applyTistoryPublishingAccount(
         platformCategoryName: defaultCategory.name,
         updatedAt,
       } } } : {}),
+      updatedAt,
+    } : item),
+  };
+}
+
+export function resolveTistoryDefaultCategory(
+  project: UserProject,
+  connectionId: string,
+  categories: readonly Readonly<{ id: string; name: string }>[],
+): TistoryCategorySelection | undefined {
+  const strategy = resolveProjectStrategy(project);
+  const configured = strategy.defaultTistoryCategory?.publishingAccountId === connectionId
+    ? strategy.defaultTistoryCategory
+    : undefined;
+  if (configured) {
+    if (configured.id === null) return { id: null, name: configured.name };
+    const selected = categories.find((item) => String(item.id) === String(configured.id))
+      ?? (configured.name ? categories.find((item) => item.name.trim() === configured.name?.trim()) : undefined);
+    return selected
+      ? { id: String(selected.id), name: selected.name }
+      : { id: configured.id, name: configured.name };
+  }
+  const selected = categories.find((item) => item.name.trim() === strategy.primaryTopic.trim());
+  return selected ? { id: String(selected.id), name: selected.name } : undefined;
+}
+
+export function applyTistoryPublishingCategory(
+  data: UserData,
+  projectId: string,
+  contentId: string,
+  connectionId: string,
+  category: TistoryCategorySelection,
+  updatedAt: string,
+): UserData {
+  const project = data.projects.find((item) => item.id === projectId && item.workspaceId === data.workspace?.id);
+  const content = data.contents.find((item) => item.id === contentId && item.projectId === projectId && item.workspaceId === data.workspace?.id);
+  if (!project || !content) throw new Error("카테고리 적용 대상 Project와 Content를 찾을 수 없습니다.");
+  const strategy = resolveProjectStrategy(project);
+  return {
+    ...data,
+    projects: data.projects.map((item) => item.id === projectId ? {
+      ...item,
+      selectedPublishingAccountIds: uniqueAccount(item.selectedPublishingAccountIds, connectionId),
+      strategy: {
+        ...strategy,
+        defaultPublishingAccountId: connectionId,
+        defaultTistoryCategory: { publishingAccountId: connectionId, id: category.id, name: category.name },
+      },
+      updatedAt,
+    } : item),
+    contents: data.contents.map((item) => item.id === contentId ? {
+      ...item,
+      platform: "tistory",
+      publishingAccountId: connectionId,
+      selectedPublishingAccountIds: uniqueAccount(item.selectedPublishingAccountIds, connectionId),
+      publishingPreparation: { ...item.publishingPreparation, tistory: {
+        publishingAccountId: connectionId,
+        platformCategoryId: category.id,
+        platformCategoryName: category.name,
+        updatedAt,
+      } },
       updatedAt,
     } : item),
   };
