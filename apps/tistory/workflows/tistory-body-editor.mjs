@@ -92,9 +92,15 @@ export function verifyCategoryEvidence(evidence, categoryId, categoryName) {
   const observedNames = [evidence?.controlText, evidence?.ariaLabel, ...(evidence?.selectedOptions ?? []).map((item) => item.text)].filter(Boolean);
   const idVerified = observedIds.includes(expectedId);
   const nameVerified = Boolean(categoryName && observedNames.some((value) => value.includes(categoryName)));
-  if (!observedIds.length && !observedNames.length) return { passed: false, code: "category_selected_value_missing" };
-  if (idVerified || nameVerified) return { passed: true, idVerified, nameVerified };
-  if (observedIds.length) return { passed: false, code: "category_id_mismatch" };
-  if (categoryName && observedNames.length) return { passed: false, code: "category_name_mismatch" };
+  if (observedIds.length) {
+    return idVerified
+      ? { passed: true, idVerified: true, nameVerified }
+      : { passed: false, code: "category_id_mismatch" };
+  }
+  if (observedNames.length) {
+    return nameVerified
+      ? { passed: true, idVerified: false, nameVerified: true }
+      : { passed: false, code: categoryName ? "category_name_mismatch" : "category_selected_value_missing" };
+  }
   return { passed: false, code: "category_selected_value_missing" };
 }
