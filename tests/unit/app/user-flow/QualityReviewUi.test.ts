@@ -46,6 +46,10 @@ describe("Quality Review UI compatibility normalization", () => {
           { signal: "characters", value: 4485 },
           { signal: "minimumCharacters", value: 4800 },
           { signal: "vagueInstructionCount", value: 0 },
+          { signal: "singleSentenceParagraphs", value: 0 },
+          { signal: "singleSentenceThreshold", value: 8 },
+          { signal: "singleSentenceExcess", value: 0 },
+          { signal: "excessiveSentenceParagraphs", value: 1 },
           { signal: "placeholderDetected", value: false },
         ],
       }],
@@ -56,6 +60,10 @@ describe("Quality Review UI compatibility normalization", () => {
       { signal: "본문 글자 수", value: "4,485자" },
       { signal: "최소 권장 글자 수", value: "4,800자" },
       { signal: "모호한 안내 표현 수", value: "0개" },
+      { signal: "한 문장 문단 수", value: "0개" },
+      { signal: "허용 한 문장 문단 수", value: "8개" },
+      { signal: "허용 기준 초과 한 문장 문단 수", value: "0개" },
+      { signal: "문장이 너무 많은 문단 수", value: "1개" },
       { signal: "임시 문구 감지", value: "없음" },
     ]);
   });
