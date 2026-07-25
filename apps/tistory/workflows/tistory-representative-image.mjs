@@ -34,8 +34,12 @@ export async function ensureFirstTistoryImageRepresentative(page, remoteUrl) {
 
   const located = await waitForRepresentativeControl(page);
   if (!located) {
-    const controls = await representativeControlDiagnostics(page);
-    const diagnostic = { selection, trustedClick, controls };
+    const diagnostic = {
+      selection,
+      trustedClick,
+      controls: await representativeControlDiagnostics(page),
+      screenshot: await captureRepresentativeScreenshot(page, "control-not-found"),
+    };
     writeRepresentativeDiagnostic("representative_control_not_found", diagnostic);
     return representativeFailure(
       "representative_control_not_found",
@@ -65,6 +69,7 @@ export async function ensureFirstTistoryImageRepresentative(page, remoteUrl) {
   const controlClick = await located.locator.click({ timeout: 5000 })
     .then(() => ({ passed: true }))
     .catch((error) => ({ passed: false, error: serializeError(error) }));
+
   if (!controlClick.passed) {
     const diagnostic = {
       selection,
@@ -128,6 +133,7 @@ function representativeFailure(code, message, evidence) {
 
 async function selectRepresentativeCandidate(page, remoteUrl) {
   return page.evaluate(({ expectedUrl, wrapperSelector }) => {
+    const clip = (value, limit = 2400) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, limit);
     const editor = window.tinymce?.activeEditor;
     const body = editor?.getBody?.();
     if (!editor || !body) {
@@ -185,7 +191,7 @@ async function selectRepresentativeCandidate(page, remoteUrl) {
       tagName: wrapper.tagName.toLowerCase(),
       className: typeof wrapper.className === "string" ? wrapper.className.slice(0, 200) : "",
       sourcePresent: Boolean(image.currentSrc || image.getAttribute("src")),
-      selectedNode: truncateHtml(editor.selection.getNode?.()?.outerHTML),
+      selectedNode: clip(editor.selection.getNode?.()?.outerHTML),
     };
   }, { expectedUrl: remoteUrl, wrapperSelector: nativeWrapperSelector }).catch((error) => ({
     passed: false,
@@ -198,6 +204,7 @@ async function selectRepresentativeCandidate(page, remoteUrl) {
 async function clickRepresentativeCandidate(page, remoteUrl) {
   const frames = page.frames();
   const frameSummaries = [];
+
   for (let frameIndex = 0; frameIndex < frames.length; frameIndex += 1) {
     const frame = frames[frameIndex];
     const images = frame.locator("figure img, [data-ke-type=\"image\"] img");
@@ -239,6 +246,7 @@ async function clickRepresentativeCandidate(page, remoteUrl) {
         }
         return values.some((value) => sameRemote(value, expectedUrl));
       }, remoteUrl).catch(() => false);
+
       if (!matched) continue;
 
       const before = await inspectRepresentativeImageTarget(page, frame, image, frameIndex, index);
@@ -250,7 +258,14 @@ async function clickRepresentativeCandidate(page, remoteUrl) {
         ? await image.click({ timeout: 5000 })
           .then(() => ({ passed: true }))
           .catch((error) => ({ passed: false, error: serializeError(error) }))
-        : { passed: false, error: { name: "VisibilityError", message: "Matched image locator is not visible." } };
+        : {
+            passed: false,
+            error: {
+              name: "VisibilityError",
+              message: "Matched image locator is not visible.",
+              stack: "",
+            },
+          };
 
       if (!click.passed) {
         const diagnostic = {
@@ -309,24 +324,32 @@ async function inspectRepresentativeImageTarget(page, frame, image, frameIndex, 
   const frameElement = frame === page.mainFrame() ? undefined : await frame.frameElement().catch(() => undefined);
   const frameBox = frameElement ? await frameElement.boundingBox().catch(() => undefined) : undefined;
   const frameOuterHtml = frameElement
-    ? await frameElement.evaluate((element) => truncateHtml(element.outerHTML)).catch(() => undefined)
+    ? await frameElement.evaluate((element) => String(element.outerHTML ?? "").replace(/\s+/g, " ").trim().slice(0, 2400)).catch(() => undefined)
     : undefined;
+
   const dom = await image.evaluate((node, wrapperSelector) => {
+    const clip = (value, limit = 2400) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, limit);
+    const summarize = (element) => {
+      if (!element) return undefined;
+      const style = getComputedStyle(element);
+      return {
+        tagName: element.tagName?.toLowerCase?.() ?? "",
+        id: element.id ?? "",
+        className: String(element.className ?? "").slice(0, 240),
+        role: element.getAttribute?.("role") ?? "",
+        ariaLabel: element.getAttribute?.("aria-label") ?? "",
+        pointerEvents: style.pointerEvents,
+        position: style.position,
+        zIndex: style.zIndex,
+        outerHTML: clip(element.outerHTML),
+      };
+    };
+
     const rect = node.getBoundingClientRect();
     const style = getComputedStyle(node);
     const centerX = Math.max(0, Math.min(window.innerWidth - 1, rect.left + rect.width / 2));
     const centerY = Math.max(0, Math.min(window.innerHeight - 1, rect.top + rect.height / 2));
-    const summarize = (element) => element ? {
-      tagName: element.tagName?.toLowerCase?.() ?? "",
-      id: element.id ?? "",
-      className: String(element.className ?? "").slice(0, 240),
-      role: element.getAttribute?.("role") ?? "",
-      ariaLabel: element.getAttribute?.("aria-label") ?? "",
-      pointerEvents: getComputedStyle(element).pointerEvents,
-      outerHTML: truncateHtml(element.outerHTML),
-    } : undefined;
     const wrapper = node.closest(wrapperSelector) ?? node.parentElement;
-    const hitStack = document.elementsFromPoint(centerX, centerY).slice(0, 10).map(summarize);
     return {
       documentUrl: String(location.href),
       documentReadyState: document.readyState,
@@ -358,7 +381,7 @@ async function inspectRepresentativeImageTarget(page, frame, image, frameIndex, 
       wrapper: summarize(wrapper),
       activeElement: summarize(document.activeElement),
       elementFromPoint: summarize(document.elementFromPoint(centerX, centerY)),
-      elementsFromPoint: hitStack,
+      elementsFromPoint: document.elementsFromPoint(centerX, centerY).slice(0, 10).map(summarize),
     };
   }, nativeWrapperSelector).catch((error) => ({ error: serializeError(error) }));
 
@@ -377,17 +400,18 @@ async function inspectRepresentativeImageTarget(page, frame, image, frameIndex, 
 
 async function inspectTinyMceSelection(page) {
   return page.evaluate(() => {
+    const clip = (value, limit = 2400) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, limit);
     const editor = window.tinymce?.activeEditor;
     const selected = editor?.selection?.getNode?.();
     const body = editor?.getBody?.();
     return {
       editorAvailable: Boolean(editor),
       bodyAvailable: Boolean(body),
-      selectedNode: truncateHtml(selected?.outerHTML),
+      selectedNode: clip(selected?.outerHTML),
       selectedTagName: selected?.tagName?.toLowerCase?.() ?? "",
       selectedClassName: String(selected?.className ?? "").slice(0, 240),
       iframeId: editor?.iframeElement?.id ?? "",
-      iframeOuterHtml: truncateHtml(editor?.iframeElement?.outerHTML),
+      iframeOuterHtml: clip(editor?.iframeElement?.outerHTML),
     };
   }).catch((error) => ({ error: serializeError(error) }));
 }
@@ -504,8 +528,4 @@ function sanitizeUrl(value) {
   } catch {
     return String(value ?? "").slice(0, 500);
   }
-}
-
-function truncateHtml(value, limit = 2400) {
-  return String(value ?? "").replace(/\s+/g, " ").trim().slice(0, limit);
 }
