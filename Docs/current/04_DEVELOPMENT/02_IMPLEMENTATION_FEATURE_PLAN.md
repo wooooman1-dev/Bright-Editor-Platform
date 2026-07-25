@@ -491,6 +491,59 @@ Route: `/dev/content-processing`
 
 ---
 
+## Bright Studio v1.0.0 Release Baseline
+
+Status: Released
+
+Release information:
+
+- Tag: `v1.0.0`
+- Release commit: `9946f9ecc9167b343ff0c7763c62437d593764ea`
+- Release date: `2026-07-25`
+- Latest Release: Yes
+- Draft: No
+- Prerelease: No
+
+Completed implementation baseline:
+
+- Planning request formatting preservation
+- Atomic Content Opportunity identity recovery
+- Canonical ContentDocument normalization of generated HTML
+- Canonical list, ordered procedure and table conversion
+- Canonical structure-based incomplete and repeated section inspection
+- Current Revision Quality Review alignment
+- Tistory account and Category context preparation before generation
+- Category context propagation into Quality and internal-link evaluation
+- Verified published URL-only internal links
+- Contextual internal link maximum 1
+- Related content maximum 3
+- No forced link filling when suitable candidates are insufficient
+- Readability checks without sentence-count-only paragraph penalties
+- AI Generation 1 call
+- Quality Review 1 call
+
+Verification:
+
+- Test Files: `137 passed`
+- Tests: `693 passed`
+- Manual Tests: `17 skipped`
+- lint: Passed
+- TypeScript: Passed
+- production build: Passed
+- browser Quality score: `100`
+- browser approval: `standard`
+- contextual internal link: `1`
+- related content links: `3`
+
+Frozen implementation areas:
+
+- Quality score calculation logic
+- Internal link placement logic
+
+These areas may only be changed after a real regression is reproduced and the user approves the minimum required correction.
+
+The real Tistory Draft Save and reopened Draft verification remains an independent external Gate and is not inferred from the `v1.0.0` release.
+
 ## Current Development State
 
 Sprint 1 — Platform and Content Foundation: Completed
@@ -509,7 +562,7 @@ Sprint 7 — Project DNA, Content Library, and Internal Link Intelligence: Desig
 
 Sprint 8 — WordPress and Multi-platform Foundation: Design Approved; Not Implemented
 
-Current implementation baseline: Sprint 5 completed plus the Data Source and Opportunity Intelligence Foundation implemented at `71d4899d`.
+Current implementation baseline: Bright Studio `v1.0.0` released from `9946f9ecc9167b343ff0c7763c62437d593764ea`, including the completed Sprint 1–5 baseline, Data Source and Opportunity Intelligence Foundation and the verified canonical HTML, Planning, Category-context and internal-link corrections.
 
 Current external-environment gate: Editor → Preview → Tistory Category → Draft Save → reopened title/body/category and non-public-state verification.
 
@@ -574,7 +627,7 @@ Out of scope: local Scheduler, recurring schedules, multi-platform scheduling, A
 
 ## Tistory Usable Flow Completion
 
-Status: Implemented in repository at `71d4899d`; final real-account Tistory Draft reopen verification pending.
+Status: Core usable flow is included in Bright Studio `v1.0.0`; final real-account Tistory Draft Save and reopened Draft verification remains pending.
 
 - Replaced the normal post-Project dead end with natural-language planning, confirmation, durable Content creation, generation/manual fallback, Editor, autosave/history, Quality Review, exact Tistory preview, and permission-gated draft save.
 - Extended the approved PlatformConnection boundary with least-privilege account permissions and safe audit records.

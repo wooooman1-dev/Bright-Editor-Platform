@@ -214,6 +214,49 @@ Release 7	Analytics Preview	Future
 Release 8	Commercial Preview	Future
 Release 9	Closed Beta	Future
 Release 10	Public Release	Future
+## 6.1 Versioned Release Baseline
+
+Roadmap의 Release 단계와 Git Tag 기반 제품 버전은 서로 다른 기준으로 관리한다.
+
+| Version | Product Baseline | Status | Release Commit |
+|---|---|---|---|
+| `v1.0.0` | Personal Editing and Quality Baseline | Released | `9946f9ecc9167b343ff0c7763c62437d593764ea` |
+
+`Bright Studio v1.0.0`은 2026년 7월 25일 발행된 실제 GitHub Release이며 Draft 또는 Prerelease가 아닌 Latest Release다.
+
+포함 범위:
+
+- Planning 요청 보존과 Content Opportunity 정체성 복구
+- AI Generation 1회
+- canonical ContentDocument 생성과 HTML 구조 정규화
+- 일반 문서형 Editor와 Revision 복원
+- Quality Review 1회
+- 품질 점수 `100`과 `standard` 승인 브라우저 검증
+- Tistory Category 컨텍스트 전달
+- 검증된 공개 URL 기반 내부 링크
+- 본문 내부 링크 1개와 하단 관련 글 3개 브라우저 검증
+- 게시 준비 상태 검증
+
+검증 결과:
+
+- Test Files `137 passed`
+- Tests `693 passed`
+- Manual Tests `17 skipped`
+- lint, TypeScript와 production build 통과
+
+Release boundary:
+
+- Public Publish는 포함하지 않는다.
+- 자동 예약 발행은 포함하지 않는다.
+- WordPress Draft Save는 포함하지 않는다.
+- 실제 Tistory Draft Save 후 재진입 외부 검증은 별도 Gate다.
+- 따라서 `v1.0.0 Released`와 Roadmap의 `Release 1 — Personal Tistory Alpha` 완료 여부를 동일하게 취급하지 않는다.
+
+Rollback baseline:
+
+- Tag: `v1.0.0`
+- Commit: `9946f9ecc9167b343ff0c7763c62437d593764ea`
+
 7. Release 0 — Internal Foundation
 Status
 
