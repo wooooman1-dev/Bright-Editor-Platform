@@ -6,6 +6,7 @@ import {
   uploadTistoryMediaSequentially,
 } from "./tistory-media-upload.mjs";
 import { tistoryMediaMarkerText } from "./tistory-media-marker.mjs";
+import { ensureFirstTistoryImageRepresentative } from "./tistory-representative-image.mjs";
 
 const nativeWrapperSelector = 'figure.imageblock, figure[data-ke-type="image"], figure[data-origin-width], [data-ke-type="image"]';
 
@@ -43,11 +44,25 @@ export async function prepareTistoryMediaInCurrentEditor(page, commandPath = pro
       });
     }
 
+    let representative;
+    if (currentIndex === 0) {
+      representative = await ensureFirstTistoryImageRepresentative(editorPage, uploaded.remoteUrl);
+      if (!representative.passed) {
+        throw mediaPlacementError(representative.code, representative.message, {
+          blockId: item.blockId,
+          mediaIndex: currentIndex,
+          remoteUrl: uploaded.remoteUrl,
+          ...(representative.evidence ? { representative: representative.evidence } : {}),
+        });
+      }
+    }
+
     return Object.freeze({
       ...uploaded,
       alt: item.alt,
       nativeMetadata: placement.metadata,
       representativeCandidate: currentIndex === 0,
+      ...(representative ? { representative: representative.evidence, representativeVerified: representative.verified === true } : {}),
     });
   });
 
@@ -61,7 +76,11 @@ export async function prepareTistoryMediaInCurrentEditor(page, commandPath = pro
     skipped: false,
     media: Object.freeze(resolved),
     representativeMedia: resolved[0],
-    evidence: Object.freeze(verification.evidence),
+    evidence: Object.freeze({
+      ...verification.evidence,
+      representative: resolved[0]?.representative,
+      representativeVerified: resolved[0]?.representativeVerified === true,
+    }),
   });
 }
 
