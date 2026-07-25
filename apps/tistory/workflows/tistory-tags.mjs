@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 
+import { verifyReopenedTistoryRepresentativeImage } from "./tistory-reopened-evidence.mjs";
 import { prepareTistoryMediaInCurrentEditor } from "./tistory-same-editor-media.mjs";
 
 const TAG_INPUT_SELECTOR = [
@@ -135,12 +136,33 @@ export async function verifyTistoryTags(page, values, resolvedInput) {
     };
   }
 
+  const representative = await verifyReopenedTistoryRepresentativeImage(page, workflow.mediaCount);
+  evidence.representative = representative.evidence;
+  if (!representative.passed) {
+    return {
+      passed: false,
+      code: representative.code,
+      message: representative.message,
+      tags: expected,
+      evidence,
+    };
+  }
+
   const category = await prepareObservedCategoryCarrier(
     page,
     workflow.categoryId,
     workflow.categoryName,
   );
   evidence.category = category;
+  if (!category.skipped && !category.uncategorized && !category.passed) {
+    return {
+      passed: false,
+      code: category.code ?? "category_selected_value_missing",
+      message: "다시 연 Tistory 편집기에서 저장된 카테고리 값을 확인하지 못했습니다.",
+      tags: expected,
+      evidence,
+    };
+  }
 
   return {
     passed: true,
@@ -303,6 +325,8 @@ async function prepareObservedCategoryCarrier(page, categoryId, categoryName) {
       '[role="button"][id*="category" i]',
       'button[class*="category" i]',
       '[role="button"][class*="category" i]',
+      'button[data-category-id]',
+      '[role="button"][data-category-id]',
       '[id*="category" i] button',
       '[class*="category" i] button',
       'label[for*="category" i]',
@@ -335,10 +359,10 @@ async function prepareObservedCategoryCarrier(page, categoryId, categoryName) {
     const nameMatched = Boolean(expectedName && observedNames.some((value) => value.includes(expectedName)));
     const passed = idMatched || nameMatched;
     const matchedElement = textCandidates[0]?.element;
-    const namedCarrier = matchedElement?.closest('button, [role="button"], label, select') ?? matchedElement;
+    const namedCarrier = matchedElement?.closest('button, [role="button"], label, select');
     const structuralCarrier = structuralCandidates[0]?.element;
-    const carrier = namedCarrier ?? structuralCarrier;
-    const carrierSource = namedCarrier ? "matched_name" : structuralCarrier ? "category_structure" : "none";
+    const carrier = structuralCarrier ?? namedCarrier;
+    const carrierSource = structuralCarrier ? "category_structure" : namedCarrier ? "matched_name" : "none";
 
     if (passed && carrier) {
       if (carrier.id && carrier.id !== "category-btn") carrier.setAttribute("data-bright-original-id", carrier.id);
@@ -351,8 +375,17 @@ async function prepareObservedCategoryCarrier(page, categoryId, categoryName) {
       }
     }
 
+    const code = passed
+      ? undefined
+      : observedIds.length
+        ? "category_id_mismatch"
+        : observedNames.length
+          ? "category_name_mismatch"
+          : "category_selected_value_missing";
+
     return {
       passed,
+      code,
       expectedId: String(expectedId),
       expectedName: expectedName ?? "",
       observedIds: observedIds.slice(0, 20),
@@ -366,6 +399,7 @@ async function prepareObservedCategoryCarrier(page, categoryId, categoryName) {
     };
   }, { expectedId: categoryId, expectedName: categoryName }).catch(() => ({
     passed: false,
+    code: "category_selected_value_missing",
     expectedId: String(categoryId),
     expectedName: categoryName ?? "",
     carrierPrepared: false,
