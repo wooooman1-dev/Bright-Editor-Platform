@@ -33,9 +33,16 @@ describe("Tistory category evidence", () => {
     });
   });
 
-  it("prepares a category control carrier from the reopened editor structure", () => {
+  it("prefers the real category structure over a non-interactive visible name node", () => {
     expect(tagWorkflowSource).toContain("const structuralCandidates");
-    expect(tagWorkflowSource).toContain('carrierSource = namedCarrier ? "matched_name" : structuralCarrier ? "category_structure" : "none"');
+    expect(tagWorkflowSource).toContain("const carrier = structuralCarrier ?? namedCarrier");
+    expect(tagWorkflowSource).toContain('const carrierSource = structuralCarrier ? "category_structure" : namedCarrier ? "matched_name" : "none"');
     expect(tagWorkflowSource).toContain('carrier.setAttribute("data-bright-category-verification", "observed")');
+    expect(tagWorkflowSource).toContain('carrier.setAttribute("data-category-id", String(expectedId))');
+  });
+
+  it("fails before the legacy control lookup when reopened category evidence is absent", () => {
+    expect(tagWorkflowSource).toContain("if (!category.skipped && !category.uncategorized && !category.passed)");
+    expect(tagWorkflowSource).toContain('code: category.code ?? "category_selected_value_missing"');
   });
 });
