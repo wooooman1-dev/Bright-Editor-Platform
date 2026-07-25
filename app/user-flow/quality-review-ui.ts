@@ -39,6 +39,13 @@ const evidenceLabels: Readonly<Record<string, string>> = Object.freeze({
   contextualInternalLinkCount: "본문 내부 링크 수",
   relatedPostCount: "관련 글 수",
   availableInternalLinkCandidates: "사용 가능한 내부 링크 후보 수",
+  placedContextualInternalLinks: "배치된 본문 내부 링크 수",
+  placedRelatedPosts: "배치된 관련 글 수",
+  availableSameCategoryCandidates: "같은 카테고리 후보 수",
+  categoryName: "티스토리 카테고리",
+  catalogStatus: "공개 글 카탈로그 상태",
+  scoringExcluded: "품질 점수 제외",
+  placedCtaBlocks: "배치된 CTA 수",
 });
 const countSignals = new Set([
   "headingCount", "requiredSections", "paragraphCount", "shortParagraphs", "singleSentenceParagraphs", "singleSentenceThreshold",
@@ -47,6 +54,7 @@ const countSignals = new Set([
   "practicalToolSignals", "editorialInstructionCount", "duplicateHeadingCount", "emptyHeadings", "shallowSections",
   "duplicateBlockIds", "emptyParagraphs", "invalidButtonUrls", "targetPolicyViolations", "keywordOccurrences", "imageCount",
   "buttonCount", "contextualInternalLinkCount", "relatedPostCount", "availableInternalLinkCandidates",
+  "placedContextualInternalLinks", "placedRelatedPosts", "availableSameCategoryCandidates", "placedCtaBlocks",
 ]);
 
 export type QualityUiStatus = "no_review" | "loading" | "error" | "not_evaluated" | "stale" | "improvement_required" | "ready";
@@ -95,15 +103,39 @@ function normalizeDimension(value: unknown): QualityDimensionResult[] {
   if (!isRecord(value) || !categories.includes(value.category as QualityCategory)) return [];
   const normalizedScore = score(value.score);
   if (normalizedScore === null || !["ready", "needs_improvement", "blocked"].includes(String(value.status)) || !["evaluated", "not_evaluated"].includes(String(value.evaluation))) return [];
+  const category = value.category as QualityCategory;
+  const rawEvidence = Array.isArray(value.evidence) ? value.evidence : [];
   return [Object.freeze({
-    category: value.category as QualityCategory,
+    category,
     score: normalizedScore,
     status: value.status as QualityDimensionResult["status"],
     evaluation: value.evaluation as QualityDimensionResult["evaluation"],
-    reasons: Object.freeze(strings(value.reasons)),
+    reasons: Object.freeze(normalizeReasons(category, value.reasons, rawEvidence)),
     tasks: Object.freeze(strings(value.tasks)),
-    evidence: Object.freeze(Array.isArray(value.evidence) ? value.evidence.flatMap(normalizeEvidence) : []),
+    evidence: Object.freeze(rawEvidence.flatMap(normalizeEvidence)),
   })];
+}
+
+function normalizeReasons(category: QualityCategory, value: unknown, evidence: readonly unknown[]): string[] {
+  const reasons = strings(value);
+  if (category !== "internalLinks") return reasons;
+
+  const contextualCount = numericEvidence(evidence, "placedContextualInternalLinks");
+  const relatedCount = numericEvidence(evidence, "placedRelatedPosts");
+  if (contextualCount + relatedCount === 0) return reasons;
+
+  const staleCatalogReason = (reason: string) => reason.includes("카테고리가 확인되지 않아 내부 링크 자동 배치를 생략")
+    || reason.includes("공개 글 카탈로그를 불러오지 못해 내부 링크 자동 배치를 완료하지 못");
+  const filtered = reasons.filter((reason) => !staleCatalogReason(reason));
+  if (filtered.length !== reasons.length) {
+    filtered.unshift(`본문 내부 링크 ${contextualCount}개와 관련 글 ${relatedCount}개가 배치되어 있습니다.`);
+  }
+  return filtered;
+}
+
+function numericEvidence(evidence: readonly unknown[], signal: string): number {
+  const match = evidence.find((item) => isRecord(item) && item.signal === signal && typeof item.value === "number");
+  return isRecord(match) && typeof match.value === "number" ? match.value : 0;
 }
 
 function normalizeEvidence(value: unknown): QualityDimensionResult["evidence"] {
