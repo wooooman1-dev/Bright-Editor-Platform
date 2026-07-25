@@ -8,8 +8,9 @@ const remoteUrl = "https://blog.kakaocdn.net/dn/example/native-image.png";
 const nativeHtml = `<figure class="imageblock alignCenter" data-ke-type="image" data-origin-width="1200" data-origin-height="800"><span data-url="${remoteUrl}" data-phocus="${remoteUrl}"><img src="${remoteUrl}" alt=""></span></figure>`;
 
 describe("Tistory native media HTML", () => {
-  it("replaces the renderer figure with the complete native Tistory image block", () => {
-    const html = `<p>도입 문단</p><figure><img src="${placeholder}" alt="기존 ALT"><figcaption>이미지 설명</figcaption></figure><h2>다음 내용</h2>`;
+  it("replaces only the renderer figure containing the matching placeholder", () => {
+    const existingRemote = "https://example.com/already-remote.png";
+    const html = `<p>도입 문단</p><figure data-existing="true"><img src="${existingRemote}" alt="기존 원격 이미지"></figure><p>중간 문단</p><figure><img src="${placeholder}" alt="기존 ALT"><figcaption>이미지 설명</figcaption></figure><h2>다음 내용</h2>`;
 
     const result = replaceTistoryMediaPlaceholders(html, [{
       alt: "탈수 증상을 확인하는 사람",
@@ -20,12 +21,13 @@ describe("Tistory native media HTML", () => {
     }]);
 
     expect(result).not.toContain("bright-studio.invalid");
+    expect(result).toContain(`data-existing="true"><img src="${existingRemote}"`);
     expect(result).toContain('class="imageblock alignCenter"');
     expect(result).toContain('data-ke-type="image"');
     expect(result).toContain('data-origin-width="1200"');
     expect(result).toContain('alt="탈수 증상을 확인하는 사람"');
     expect(result).toContain("<figcaption>이미지 설명</figcaption>");
-    expect(result.indexOf("도입 문단")).toBeLessThan(result.indexOf("imageblock"));
+    expect(result.indexOf(existingRemote)).toBeLessThan(result.indexOf("imageblock"));
     expect(result.indexOf("imageblock")).toBeLessThan(result.indexOf("다음 내용"));
   });
 
