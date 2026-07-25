@@ -1,16 +1,16 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 
 import { studioStore } from "../../application/studio-store";
 import { mergeServerMutationSnapshot, mergeUserDataSnapshot } from "../../application/persistence/mergeUserDataSnapshot";
 import { AIWorkflow } from "../../../core/ai";
-import { contentRevisionId, evaluateQualityImprovement, qualityImprovementRejectionMessage, QualityEngine } from "../../../core/quality";
-import { EditorialGenerationStrategy } from "../../application/EditorialGenerationStrategy";
+import { contentRevisionId, evaluateQualityImprovement, evaluateQualityReviewReadiness, isStandardQualityApproved, qualityImprovementRejectionMessage, QualityEngine } from "../../../core/quality";
+import { contentOpportunityAIContext, EditorialGenerationStrategy } from "../../application/EditorialGenerationStrategy";
 import { OpenAIProvider } from "../../application/OpenAIProvider";
 import { openAIGenerationModel, openAIReviewModel } from "../../application/OpenAIModelPolicy";
-import { EditorialQualityPipeline } from "../../application/EditorialQualityPipeline";
-import { ContentPlanningStrategy, createManualPlanningResult } from "../../application/ContentPlanningStrategy";
+import { contentDocumentAIContext, EditorialQualityPipeline } from "../../application/EditorialQualityPipeline";
+import { ContentPlanningStrategy, createManualPlanningResult, projectStrategyAIContext } from "../../application/ContentPlanningStrategy";
 import { TistoryPublishingAdapter } from "../../../apps/tistory/publishing/TistoryPublishingAdapter";
-import { applyContentOpportunityPolicy, calculateContentMetrics, contentOpportunityKeywords, deriveContentTags, detectContentOpportunitySelectionMode, ensureSeoKeywordPlacement, placeRecommendedPosts, rankRelatedPosts, restoreProtectedImageAssets, restoreVerifiedEditorialLinks, type ConfirmedContentOpportunity, type ContentDocument } from "../../../core/content";
+import { analyzeLongFormDocument, applyContentDepthPolicy, applyContentOpportunityPolicy, calculateContentMetrics, contentOpportunityKeywords, deriveContentTags, detectContentOpportunitySelectionMode, ensureSeoKeywordPlacement, LongFormValidationError, placeRecommendedPosts, rankRelatedPosts, requiresLongFormValidation, restoreProtectedImageAssets, restoreVerifiedEditorialLinks, type ConfirmedContentOpportunity, type ContentDocument, type LongFormDiagnostic } from "../../../core/content";
 import { ContentDeletionService } from "../../application/content/ContentDeletionService";
 import { applyCanonicalDocument, completeContentGeneration, completeContentPlanning, failContentPlanning, resolveProjectStrategy, startContentPlanning, updateContent, type UserData } from "../../user-flow/user-data";
 import { isPlatformEnabled, resolveWorkspaceSettings } from "../../application/settings/WorkspaceSettingsService";
@@ -26,6 +26,7 @@ const stateId = "user-data";
 const opportunityEvidenceService = new OpportunityEvidenceService(dataSourceConnectionRepository, projectDataSourceReferenceRepository, opportunityEvidenceRepository);
 type PlanningExecutionResult = Readonly<{ plan: import("../../user-flow/user-data").ContentPlanningResult; data: UserData }>;
 const activePlanningOperations = new Map<string, Promise<PlanningExecutionResult>>();
+const activeGenerationOperations = new Set<string>();
 
 export async function GET() {
   try {
@@ -84,6 +85,12 @@ export async function POST(request: Request) {
       if (existing.planningWorkflow && (existing.planningWorkflow.status !== "generating" || existing.planningWorkflow.operationId !== generationOperationId)) {
         throw new Error("현재 Content의 생성 operation과 요청이 일치하지 않습니다.");
       }
+      const generationExecutionKey = `${owned.workspace!.id}:${projectId}:${contentId}:${generationOperationId}`;
+      if (activeGenerationOperations.has(generationExecutionKey)) {
+        return NextResponse.json({ error: "동일한 Content 생성 operation이 이미 실행 중입니다." }, { status: 409 });
+      }
+      activeGenerationOperations.add(generationExecutionKey);
+      try {
       const generationContract = resolveGenerationOpportunity(existing, {
         workspaceId: owned.workspace!.id,
         projectId,
@@ -100,19 +107,75 @@ export async function POST(request: Request) {
       const { keywords, opportunity } = generationContract;
       const provider = new OpenAIProvider(undefined, openAIGenerationModel());
       const workflow = new AIWorkflow(provider, new EditorialGenerationStrategy());
+      const generationStartedAt = new Date();
       const result = await workflow.generate({
         contentId,
         contentType: opportunity.contentType as never,
         contentOpportunity: opportunity,
-        editorialContext: JSON.stringify({ projectStrategy: resolveProjectStrategy(ownedProject(owned, projectId)) }),
+        editorialContext: JSON.stringify({ projectStrategy: projectStrategyAIContext(resolveProjectStrategy(ownedProject(owned, projectId))) }),
         keywords,
         platform: required(input.platform) as never,
         projectId,
+        structuredLongFormOutput: true,
       });
+      const generationCompletedAt = new Date();
       const initialDocument = applyContentPolicy(await placeAvailableTistoryPosts(owned, existing, result.document), existing);
       const context = qualityContext(existing, initialDocument);
       const initialQuality = new QualityEngine().review(initialDocument, context);
+      const generationDiagnostic = initialDocument.metadata?.generationDiagnostic
+        ?? analyzeLongFormDocument(initialDocument, opportunity.qualityTarget);
+      const reviewReadiness = evaluateQualityReviewReadiness(
+        initialDocument,
+        initialQuality,
+        generationDiagnostic,
+      );
+      if (reviewReadiness.fatal) {
+        let persisted = applyCanonicalDocument(owned, existing.id, initialDocument, "ai_revision", initialQuality.reviewedAt);
+        persisted = updateContent(persisted, existing.id, {
+          quality: initialQuality,
+          status: "in_review",
+          generationError: undefined,
+          reviewError: undefined,
+          qualityTarget: opportunity.qualityTarget,
+          generationDiagnostic,
+        });
+        if (existing.planningWorkflow) persisted = completeContentGeneration(persisted, {
+          workspaceId: owned.workspace!.id,
+          projectId,
+          contentId,
+          operationId: generationOperationId,
+          now: initialQuality.reviewedAt,
+        });
+        const next = {
+          ...persisted,
+          qualityReports: [
+            ...(persisted.qualityReports ?? []).filter((item) => item.contentId !== existing.id),
+            { contentId: existing.id, report: initialQuality },
+          ],
+        };
+        const saved = await persistServerMutation(owned, next);
+        return NextResponse.json({
+          document: initialDocument,
+          initialQuality,
+          quality: initialQuality,
+          reachedTarget: false,
+          qualityTargetBlocked: true,
+          callCounts: { generation: 1, review: 0 },
+          error: qualityTargetFailure(initialQuality),
+          diagnostic: generationDiagnostic,
+          executionDiagnostics: {
+            generation: {
+              startedAt: generationStartedAt.toISOString(),
+              completedAt: generationCompletedAt.toISOString(),
+              elapsedMs: generationCompletedAt.getTime() - generationStartedAt.getTime(),
+              provider: result.providerDiagnostics,
+            },
+          },
+          data: saved,
+        });
+      }
       try {
+        const reviewStartedAt = new Date();
         const pipeline = await new EditorialQualityPipeline(new OpenAIProvider(undefined, openAIReviewModel(), reviewTimeoutMs())).run({
           document: initialDocument,
           finalReviewInstruction: (document, quality) => finalEditInstruction(document, quality, opportunity),
@@ -121,18 +184,32 @@ export async function POST(request: Request) {
           qualityContext: context,
           requiredInformation: [...opportunity.expectedCoverage, ...editorialRequirements(typeof input.editorialContext === "string" ? input.editorialContext : undefined)],
         });
+        const reviewCompletedAt = new Date();
+        const executionDiagnostics = {
+          generation: {
+            startedAt: generationStartedAt.toISOString(),
+            completedAt: generationCompletedAt.toISOString(),
+            elapsedMs: generationCompletedAt.getTime() - generationStartedAt.getTime(),
+            provider: result.providerDiagnostics,
+          },
+          review: {
+            startedAt: reviewStartedAt.toISOString(),
+            completedAt: reviewCompletedAt.toISOString(),
+            elapsedMs: reviewCompletedAt.getTime() - reviewStartedAt.getTime(),
+            provider: pipeline.providerDiagnostics,
+          },
+        };
         const { document, quality } = pipeline;
-        let persisted = applyCanonicalDocument(owned, existing.id, document, "ai_revision", quality.reviewedAt);
-        if (!pipeline.reachedTarget || !quality.approved) {
+        if (!pipeline.reachedTarget || !isStandardQualityApproved(quality)) {
           const failure = qualityTargetFailure(quality);
-          persisted = updateContent(persisted, existing.id, { quality, status: "draft", generationError: failure });
-          if (existing.planningWorkflow) persisted = failContentPlanning(persisted, {
+          const diagnostic = analyzeLongFormDocument(document, opportunity.qualityTarget);
+          let persisted = applyCanonicalDocument(owned, existing.id, document, "ai_revision", quality.reviewedAt);
+          persisted = updateContent(persisted, existing.id, { quality, status: "in_review", generationError: undefined, reviewError: undefined, qualityTarget: opportunity.qualityTarget, generationDiagnostic, reviewDiagnostic: document.metadata?.reviewDiagnostic ?? diagnostic });
+          if (existing.planningWorkflow) persisted = completeContentGeneration(persisted, {
             workspaceId: owned.workspace!.id,
             projectId,
             contentId,
             operationId: generationOperationId,
-            error: failure,
-            retryFrom: "generation",
             now: quality.reviewedAt,
           });
           const next = { ...persisted, qualityReports: [...(persisted.qualityReports ?? []).filter((item) => item.contentId !== existing.id), { contentId: existing.id, report: quality }] };
@@ -144,35 +221,72 @@ export async function POST(request: Request) {
             qualityHistory: pipeline.qualityHistory,
             attemptHistory: pipeline.attemptHistory,
             automaticImprovementCount: 0,
+            document,
             reachedTarget: false,
             qualityTargetBlocked: true,
+            callCounts: { generation: 1, review: 1 },
             error: failure,
-            recoveryRevisionId: contentRevisionId(document),
+            diagnostic,
+            executionDiagnostics,
             data: saved,
           });
         }
-        persisted = updateContent(persisted, existing.id, { quality, status: "ready", generationError: undefined });
+        let persisted = applyCanonicalDocument(owned, existing.id, document, "ai_revision", quality.reviewedAt);
+        persisted = updateContent(persisted, existing.id, {
+          quality,
+          status: "ready",
+          generationError: undefined,
+          reviewError: undefined,
+          qualityTarget: opportunity.qualityTarget,
+          generationDiagnostic: initialDocument.metadata?.generationDiagnostic,
+          reviewDiagnostic: document.metadata?.reviewDiagnostic ?? analyzeLongFormDocument(document, opportunity.qualityTarget),
+        });
         if (existing.planningWorkflow) persisted = completeContentGeneration(persisted, { workspaceId: owned.workspace!.id, projectId, contentId, operationId: generationOperationId, now: quality.reviewedAt });
         const next = { ...persisted, qualityReports: [...(persisted.qualityReports ?? []).filter((item) => item.contentId !== existing.id), { contentId: existing.id, report: quality }] };
         const saved = await persistServerMutation(owned, next);
-        return NextResponse.json({ document, initialQuality, quality, finalReviewQuality: pipeline.finalReviewQuality, qualityHistory: pipeline.qualityHistory, attemptHistory: pipeline.attemptHistory, automaticImprovementCount: 0, reachedTarget: true, finalRevisionId: contentRevisionId(document), data: saved });
+        return NextResponse.json({ document, initialQuality, quality, finalReviewQuality: pipeline.finalReviewQuality, qualityHistory: pipeline.qualityHistory, attemptHistory: pipeline.attemptHistory, automaticImprovementCount: 0, reachedTarget: true, finalRevisionId: contentRevisionId(document), callCounts: { generation: 1, review: 1 }, executionDiagnostics, data: saved });
       } catch (error) {
         const quality = new QualityEngine().review(initialDocument, context);
         const failure = `최종 품질 검토·편집에 실패했습니다: ${message(error)}`;
-        let persisted = applyCanonicalDocument(owned, existing.id, initialDocument, "generation", quality.reviewedAt);
-        persisted = updateContent(persisted, existing.id, { quality, status: "draft", generationError: failure });
+        const diagnostic = analyzeLongFormDocument(initialDocument, opportunity.qualityTarget);
+        let persisted = applyCanonicalDocument(owned, existing.id, initialDocument, "ai_revision", quality.reviewedAt);
+        persisted = updateContent(persisted, existing.id, { quality, status: "in_review", generationError: undefined, reviewError: failure, qualityTarget: opportunity.qualityTarget, generationDiagnostic });
         if (existing.planningWorkflow) persisted = failContentPlanning(persisted, {
           workspaceId: owned.workspace!.id,
           projectId,
           contentId,
           operationId: generationOperationId,
           error: failure,
-          retryFrom: "generation",
+          retryFrom: "review",
           now: quality.reviewedAt,
+          diagnostic,
         });
         const next = { ...persisted, qualityReports: [...(persisted.qualityReports ?? []).filter((item) => item.contentId !== existing.id), { contentId: existing.id, report: quality }] };
         const saved = await persistServerMutation(owned, next);
-        return NextResponse.json({ aiReviewError: message(error), initialQuality, quality, reachedTarget: false, qualityTargetBlocked: true, error: failure, recoveryRevisionId: contentRevisionId(initialDocument), data: saved });
+        return NextResponse.json({
+          aiReviewError: message(error),
+          document: initialDocument,
+          initialQuality,
+          quality,
+          reachedTarget: false,
+          qualityTargetBlocked: true,
+          callCounts: { generation: 1, review: 1 },
+          error: failure,
+          diagnostic,
+          executionDiagnostics: {
+            generation: {
+              startedAt: generationStartedAt.toISOString(),
+              completedAt: generationCompletedAt.toISOString(),
+              elapsedMs: generationCompletedAt.getTime() - generationStartedAt.getTime(),
+              provider: result.providerDiagnostics,
+            },
+            review: { requestTimeoutMs: reviewTimeoutMs() },
+          },
+          data: saved,
+        });
+      }
+      } finally {
+        activeGenerationOperations.delete(generationExecutionKey);
       }
     }
     if (body.action === "final-review") {
@@ -190,7 +304,7 @@ export async function POST(request: Request) {
       const reviewedAt = new Date().toISOString();
       const quality = new QualityEngine().review(document, { ...qualityContext(content), revisionId: contentRevisionId(document), reviewedAt });
       let next = applyCanonicalDocument(data, contentId, document, "ai_revision", reviewedAt);
-      next = updateContent(next, contentId, { quality, status: quality.approved ? "ready" : "in_review", generationError: opportunityFailure(quality), updatedAt: reviewedAt });
+      next = updateContent(next, contentId, { quality, status: isPublishReady(document, quality) ? "ready" : "in_review", generationError: opportunityFailure(quality), updatedAt: reviewedAt });
       next = { ...next, qualityReports: [...(next.qualityReports ?? []).filter((item) => item.contentId !== contentId), { contentId, report: quality }] };
       const saved = await persistServerMutation(data, next);
       return NextResponse.json({ document, initialQuality, quality, revisionId: contentRevisionId(document), data: saved });
@@ -225,11 +339,11 @@ export async function POST(request: Request) {
       const currentQuality = new QualityEngine().review(content.document, qualityContext(content));
       if (!currentQuality.tasks.length) throw new Error("현재 원고에는 AI로 개선할 품질 항목이 없습니다.");
       const response = await new OpenAIProvider(undefined, openAIReviewModel(), reviewTimeoutMs()).generate({
-        instruction: `This is the only quality-improvement AI call. Return a fully approved final manuscript in this response. Improve this complete canonical ContentDocument using only the Quality Review tasks below. Preserve the immutable Content Opportunity as one plan: ${JSON.stringify(content.opportunity ?? { primaryKeyword: content.primaryKeyword, searchIntent: content.searchIntent })}. Correct topic drift across title, headings, body, images, links, and CTA instead of mechanically prefixing the keyword. Preserve every unaffected block ID and the user's existing block order. Do not create, remove, replace, or edit internal_link or related_post blocks; verified links are protected and restored by the server. Preserve every attached image source, assetId, ALT, prompt, purpose, and media field. For source-empty image recommendations, resolve image-strategy tasks by grounding each prompt in its nearest H2 and differentiating subject, action, background, composition, viewpoint, and information expression while keeping one brand style. Never return an empty internal-link placeholder. Do not add monetization links. Preserve existing metadata exactly unless the SEO or search-intent task requires a change. Return the complete revised document as JSON only in {"title":"...","metaDescription":"...","primarySearchIntent":"...","secondaryIntent":"...","secondaryKeywords":["..."],"relatedTerms":["..."],"blocks":[...]} form. Do not return commentary.
+        instruction: `This is the only quality-improvement AI call. Return a fully approved final manuscript in this response. Improve this complete canonical ContentDocument using only the Quality Review tasks below. Preserve the immutable Content Opportunity as one plan: ${JSON.stringify(content.opportunity ? contentOpportunityAIContext(content.opportunity) : { primaryKeyword: content.primaryKeyword, searchIntent: content.searchIntent })}. Correct topic drift across title, headings, body, images, links, and CTA instead of mechanically prefixing the keyword. Preserve every unaffected block ID and the user's existing block order. Do not create, remove, replace, or edit internal_link or related_post blocks; verified links are protected and restored by the server. Preserve every attached image source, assetId, ALT, prompt, purpose, and media field. For source-empty image recommendations, resolve image-strategy tasks by grounding each prompt in its nearest H2 and differentiating subject, action, background, composition, viewpoint, and information expression while keeping one brand style. Never return an empty internal-link placeholder. Do not add monetization links. Preserve existing metadata exactly unless the SEO or search-intent task requires a change. Return the complete revised document as JSON only in {"title":"...","metaDescription":"...","primarySearchIntent":"...","secondaryIntent":"...","secondaryKeywords":["..."],"relatedTerms":["..."],"blocks":[...]} form. Do not return commentary.
 Mandatory approval contract: overallScore >= 95; searchIntent, SEO, readability, and completeness >= 95; every other dimension >= 80; no blocked finding. Do not raise completeness or usefulness by lowering readability below 95. Break long sentences and paragraphs while adding concrete criteria, sequence, examples, cautions, and alternatives.
 Current Rule Quality report: ${JSON.stringify(currentQuality)}
 Quality tasks: ${JSON.stringify(currentQuality.tasks)}
-Current document: ${JSON.stringify(content.document)}`,
+  Current document: ${JSON.stringify(contentDocumentAIContext(content.document))}`,
         metadata: { task: "quality-improvement" },
       });
       const parsed = new EditorialGenerationStrategy().parse(response.content, {
@@ -241,7 +355,7 @@ Current document: ${JSON.stringify(content.document)}`,
       const appliedAt = new Date().toISOString();
       const quality = new QualityEngine().review(document, { ...qualityContext(content), revisionId: contentRevisionId(document), reviewedAt: appliedAt });
       const improvement = evaluateQualityImprovement(currentQuality, quality);
-      if (quality.approved) {
+      if (isPublishReady(document, quality)) {
         let next = applyCanonicalDocument(data, contentId, document, "ai_revision", appliedAt);
         next = updateContent(next, contentId, { quality, status: "ready", generationError: undefined, updatedAt: appliedAt });
         next = { ...next, qualityReports: [...(next.qualityReports ?? []).filter((item) => item.contentId !== contentId), { contentId, report: quality }] };
@@ -266,9 +380,9 @@ Current document: ${JSON.stringify(content.document)}`,
       const quality = new QualityEngine().review(document, { ...qualityContext(content), revisionId: contentRevisionId(document), reviewedAt: appliedAt });
       const improvement = evaluateQualityImprovement(baselineQuality, quality);
       if (!improvement.accepted) throw new Error(qualityImprovementRejectionMessage(improvement));
-      if (!quality.approved) throw new Error(`개선안이 품질 승인 기준을 충족하지 못했습니다. 전체 ${quality.overallScore}점이며 모든 필수 항목이 기준을 충족해야 합니다.`);
+      if (!isPublishReady(document, quality)) throw new Error(`개선안이 standard 품질 승인 및 Planning 품질 목표를 충족하지 못했습니다. 전체 ${quality.overallScore}점, 승인 유형 ${quality.approvalType ?? "none"}입니다.`);
       let next = applyCanonicalDocument(data, contentId, document, "ai_revision", appliedAt);
-      next = updateContent(next, contentId, { quality, status: quality.approved ? "ready" : "in_review", updatedAt: appliedAt });
+      next = updateContent(next, contentId, { quality, status: isPublishReady(document, quality) ? "ready" : "in_review", updatedAt: appliedAt });
       next = { ...next, qualityReports: [...(next.qualityReports ?? []).filter((item) => item.contentId !== contentId), { contentId, report: quality }] };
       const saved = await persistServerMutation(data, next);
       return NextResponse.json({ document, quality, improvement, revisionId: contentRevisionId(document), data: saved });
@@ -315,7 +429,7 @@ Current document: ${JSON.stringify(content.document)}`,
       const document = await placeAvailableTistoryPosts(data, content, content.document);
       const quality = new QualityEngine().review(document, { ...qualityContext(content), revisionId: contentRevisionId(document) });
       let next = contentRevisionId(document) === contentRevisionId(content.document) ? data : applyCanonicalDocument(data, contentId, document, "autosave", quality.reviewedAt);
-      next = updateContent(next, contentId, { quality, status: quality.approved ? "ready" : "in_review", updatedAt: quality.reviewedAt });
+      next = updateContent(next, contentId, { quality, status: isPublishReady(document, quality) ? "ready" : "in_review", updatedAt: quality.reviewedAt });
       const persisted = { ...next, qualityReports: [...(next.qualityReports ?? []).filter((item) => item.contentId !== contentId), { contentId, report: quality }] };
       const saved = await persistServerMutation(data, persisted);
       return NextResponse.json({ document, quality, data: saved });
@@ -324,7 +438,17 @@ Current document: ${JSON.stringify(content.document)}`,
   } catch (error) {
     await persistWorkflowFailure(body, error);
     const status = message(error).includes("OPENAI_API_KEY") ? 503 : 400;
-    return NextResponse.json({ error: message(error) }, { status });
+    const diagnostic = longFormDiagnostic(error);
+    if (diagnostic) {
+      console.error("[studio-generation] long-form validation failed", {
+        code: diagnostic.code,
+        totalProseCharacters: diagnostic.totalProseCharacters,
+        headingCount: diagnostic.headingCount,
+        sections: diagnostic.sections,
+        violations: diagnostic.violations,
+      });
+    }
+    return NextResponse.json({ error: message(error), ...(diagnostic ? { diagnostic } : {}) }, { status });
   }
 }
 
@@ -339,16 +463,16 @@ function resolveGenerationOpportunity(
     const stored = content.opportunity;
     const sameIdentity = Boolean(
       stored
-      && (
-        (typeof input.opportunityFingerprint === "string" && input.opportunityFingerprint === stored.fingerprint)
-        || (
-          typeof input.opportunityId === "string"
-          && input.opportunityId === stored.opportunityId
-          && String(input.opportunityVersion) === String(stored.version)
-        )
-      )
+      && typeof input.opportunityId === "string"
+      && input.opportunityId === stored.opportunityId
+      && String(input.opportunityVersion) === String(stored.version)
+      && typeof input.opportunityFingerprint === "string"
+      && input.opportunityFingerprint === stored.fingerprint
     );
-    if (!stored || !sameIdentity || !message(error).includes("선택한 콘텐츠 전략이 현재 원고와 일치하지 않습니다")) throw error;
+    const mismatchMessage = message(error);
+    const isCurrentDraftMismatch = mismatchMessage.includes("선택한 콘텐츠 전략이 현재 원고와 일치하지 않습니다")
+      || mismatchMessage.includes("선택한 콘텐츠 전략이 요청한 현재 원고와 일치하지 않습니다");
+    if (!stored || !sameIdentity || !isCurrentDraftMismatch) throw error;
     return resolveConfirmedGenerationOpportunity(content, {
       ...input,
       opportunityId: stored.opportunityId,
@@ -371,9 +495,16 @@ function applyContentPolicy(document: ContentDocument, content: UserData["conten
     throw new Error("AI 수정 결과가 확정된 콘텐츠 기획과 일치하지 않아 적용하지 않았습니다.");
   }
   const tags = deriveContentTags(aligned.document, content.primaryKeyword);
+  const qualityTarget = content.qualityTarget ?? content.opportunity?.qualityTarget ?? aligned.document.metadata?.qualityTarget;
+  const baseMetadata = aligned.document.metadata ?? content.document?.metadata;
   return {
     ...aligned.document,
-    ...(aligned.document.metadata ? { metadata: { ...aligned.document.metadata, tags } } : {}),
+    ...(baseMetadata ? { metadata: {
+      ...baseMetadata,
+      ...(qualityTarget ? { qualityTarget } : {}),
+      longFormStructure: aligned.document.metadata?.longFormStructure ?? content.document?.metadata?.longFormStructure,
+      tags,
+    } } : {}),
   };
 }
 
@@ -440,12 +571,17 @@ async function performPlanning(data: UserData, project: UserData["projects"][num
     : await new ContentPlanningStrategy(new OpenAIProvider(undefined, openAIGenerationModel())).analyze(planningRequest, resolveWorkspaceSettings(data).enabledPlatforms, {
       projectId: project.id,
       selectionMode,
-      projectContext: JSON.stringify(resolveProjectStrategy(project)),
+      projectContext: JSON.stringify(projectStrategyAIContext(resolveProjectStrategy(project))),
       existingContent: data.contents.filter((content) => content.projectId === project.id && content.id !== contentId).map((content) => `${content.title} | ${content.primaryKeyword ?? ""}`),
       hasVerifiedKeywordData: evidenceBundle.some((value) => value.provider !== "brightStudio" && value.verified),
       evidenceBundle,
     });
-  const plan = withClassifiedCandidates(rawPlan, opportunityEvidenceService.classifyCandidates(rawPlan.opportunityCandidates ?? [], evidenceBundle, data, project));
+  const classified = opportunityEvidenceService.classifyCandidates(rawPlan.opportunityCandidates ?? [], evidenceBundle, data, project)
+    .map((candidate) => applyContentDepthPolicy(candidate, {
+      domain: rawPlan.domain,
+      projectStrategy: JSON.stringify(projectStrategyAIContext(resolveProjectStrategy(project))),
+    }));
+  const plan = withClassifiedCandidates(rawPlan, classified);
   const saved = await persistPlanningResult(data, input, plan);
   return { plan, data: saved };
 }
@@ -462,6 +598,7 @@ async function persistWorkflowFailure(body: { action?: string; input?: Record<st
       operationId: input.operationId as string,
       error: message(error),
       retryFrom,
+      ...(longFormDiagnostic(error) ? { diagnostic: longFormDiagnostic(error) } : {}),
       now: new Date().toISOString(),
     }) : (() => { throw new Error("Workspace was not found."); })());
   } catch (persistenceError) {
@@ -469,8 +606,19 @@ async function persistWorkflowFailure(body: { action?: string; input?: Record<st
   }
 }
 
+function longFormDiagnostic(error: unknown): LongFormDiagnostic | undefined {
+  return error instanceof LongFormValidationError ? error.diagnostic : undefined;
+}
+
+function isPublishReady(document: ContentDocument, quality: ReturnType<QualityEngine["review"]>): boolean {
+  if (!requiresLongFormValidation(document)) return isStandardQualityApproved(quality);
+  const diagnostic = analyzeLongFormDocument(document, document.metadata?.qualityTarget);
+  return isStandardQualityApproved(quality)
+    && diagnostic.violations.length === 0;
+}
+
 function qualityContext(content: UserData["contents"][number], document = content.document) {
-  return { contentType: content.contentType, platform: content.platform ?? "canonical", primaryKeyword: content.primaryKeyword, searchIntent: content.searchIntent, categoryName: content.publishingPreparation?.tistory?.platformCategoryName ?? undefined, availableInternalLinkCandidates: document?.metadata?.availableRelatedContentCandidates, internalLinkCatalogStatus: document?.metadata?.internalLinkCatalogStatus, ...(content.opportunity ? { opportunity: content.opportunity } : {}), revisionId: document ? contentRevisionId(document) : undefined };
+  return { contentType: content.contentType, platform: content.platform ?? "canonical", primaryKeyword: content.primaryKeyword, searchIntent: content.searchIntent, categoryName: content.publishingPreparation?.tistory?.platformCategoryName ?? undefined, availableInternalLinkCandidates: document?.metadata?.availableRelatedContentCandidates, internalLinkCatalogStatus: document?.metadata?.internalLinkCatalogStatus, qualityTarget: content.qualityTarget ?? content.opportunity?.qualityTarget ?? document?.metadata?.qualityTarget, ...(content.opportunity ? { opportunity: content.opportunity } : {}), revisionId: document ? contentRevisionId(document) : undefined };
 }
 
 function opportunityFailure(quality: ReturnType<QualityEngine["review"]>): string | undefined {
@@ -500,7 +648,7 @@ function required(value: unknown): string { if (typeof value !== "string" || !va
 function withClassifiedCandidates(plan: import("../../user-flow/user-data").ContentPlanningResult, candidates: readonly import("../../../core/content").ContentOpportunityCandidate[]): import("../../user-flow/user-data").ContentPlanningResult {
   const first = candidates[0];
   if (!first) throw new Error("안전 기준과 Project 정책을 통과한 Content Opportunity가 없습니다. 직접 입력한 주제라면 검색 의도와 안전 문구를 확인해 주세요.");
-  return Object.freeze({ ...plan, opportunityCandidates: Object.freeze(candidates), recommendedPrimaryKeyword: first.primaryKeyword, keywordCandidates: Object.freeze(candidates.map((value) => value.primaryKeyword)), searchIntent: first.searchIntent, recommendedContentType: first.contentType, relatedKeywords: first.secondaryKeywords, targetAudience: first.audience, contentGoal: first.contentAngle, recommendationReason: first.selectionRationale, confidence: first.confidence });
+  return Object.freeze({ ...plan, opportunityCandidates: Object.freeze(candidates), qualityTarget: first.qualityTarget, recommendedPrimaryKeyword: first.primaryKeyword, keywordCandidates: Object.freeze(candidates.map((value) => value.primaryKeyword)), providerSearchIntent: first.providerSearchIntent, searchIntent: first.searchIntent, recommendedContentType: first.contentType, relatedKeywords: first.secondaryKeywords, targetAudience: first.audience, contentGoal: first.contentAngle, recommendationReason: first.selectionRationale, confidence: first.confidence });
 }
 
 function collectOpportunities(input: unknown): readonly import("../../../core/content").ContentOpportunityCandidate[] {
@@ -649,14 +797,14 @@ function qualityTargetFailure(quality: ReturnType<QualityEngine["review"]>): str
     .filter((item) => quality.weights[item.category] > 0)
     .filter((item) => item.status === "blocked" || item.score < (["searchIntent", "seo", "readability", "completeness"].includes(item.category) ? 95 : 80))
     .map((item) => `${item.category} ${item.score}`);
-  return `원고가 자동 품질 승인 기준에 도달하지 못했습니다. 전체 ${quality.overallScore}점${missing.length ? `, 미달 항목: ${missing.join(", ")}` : ""}. 품질 미승인 원고는 진단을 위해 편집기에서 확인할 수 있지만, 품질 승인 전에는 임시저장과 발행이 차단됩니다.`;
+  return `원고가 자동 품질 승인 기준에 도달하지 못했습니다. 전체 ${quality.overallScore}점${missing.length ? `, 미달 항목: ${missing.join(", ")}` : ""}. Content 기록과 진단은 보존되지만 표준 승인 기준을 충족하기 전에는 Editor 준비 상태로 전환되지 않습니다.`;
 }
 
 function finalEditInstruction(document: ContentDocument, quality: ReturnType<QualityEngine["review"]>, opportunity?: ConfirmedContentOpportunity): string {
   return `Act as the Senior Editor performing the second and final AI call for this Korean canonical ContentDocument. Rewrite the complete manuscript in one pass so it directly resolves the confirmed search intent, opens with the core answer, removes repetition and generic AI phrasing, deepens only the sections that are genuinely incomplete, connects paragraphs naturally, improves the conclusion, and unifies polite Korean tone. Do not expose planning notes or editorial commentary.
-The confirmed Content Opportunity is immutable: ${JSON.stringify(opportunity ?? null)}. Keep the title, headings, body, image recommendations, link context, and CTA aligned to that one Opportunity. If the manuscript drifts to another topic, correct the complete manuscript rather than mechanically inserting the primary keyword.
+  The confirmed Content Opportunity is immutable: ${JSON.stringify(opportunity ? contentOpportunityAIContext(opportunity) : null)}. Keep the title, headings, body, image recommendations, link context, and CTA aligned to that one Opportunity. If the manuscript drifts to another topic, correct the complete manuscript rather than mechanically inserting the primary keyword.
 Fix every actionable server rule-quality issue without gaming scores. Remove fabricated first-person experience, unsupported statistics, overconfident claims, keyword stuffing, empty headings, repeated one-sentence paragraphs, and placeholder prose. For health topics, preserve concrete practical guidance while avoiding diagnosis, treatment promises, fabricated evidence, and repetitive disclaimers. Use observable criteria, conditions, sequence, exceptions, and next actions when exact external evidence is not supplied.
 Preserve all verified internal_link and related_post labels, URLs, purposes, targets, and sourceExternalPostId values exactly. Preserve every attached image source, assetId, ALT, prompt, purpose, and media field exactly. Source-empty image recommendations may be revised or removed when they are redundant, but every retained recommendation must have a distinct editorial purpose and section context. Keep the title as the only H1 and use semantic H2/H3 structure. Return the complete final article as JSON only in the same canonical shape accepted by the generator, with no commentary.
 Server rule report: ${JSON.stringify({ overallScore: quality.overallScore, dimensions: quality.dimensions, tasks: quality.tasks })}
-Canonical document: ${JSON.stringify(document)}`;
+  Canonical document: ${JSON.stringify(contentDocumentAIContext(document))}`;
 }

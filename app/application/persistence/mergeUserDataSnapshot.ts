@@ -9,6 +9,7 @@ export function mergeUserDataSnapshot(current: UserData | undefined, input: unkn
   const incomingContentIds = new Set(incoming.contents.map((content) => content.id));
   const contents = [...incoming.contents.map((content) => {
     const serverContent = current.contents.find((item) => item.id === content.id);
+    if (serverContent && sameValue(content, serverContent)) return serverContent;
     if (serverContent && isOlderSnapshot(content.updatedAt, serverContent.updatedAt)) return serverContent;
     const planningProtectedContent = preserveNewerPlanningWorkflow(serverContent, content);
     const preserveServerOpportunity = serverContent?.opportunity

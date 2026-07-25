@@ -1,3 +1,4 @@
+import type { ContentDocument, LongFormDiagnostic } from "../content";
 import type { QualityCategory, QualityReport } from "./QualityEngine";
 
 export type QualityScoreRegression = Readonly<{
@@ -15,6 +16,41 @@ export type QualityImprovementDecision = Readonly<{
   regressions: readonly QualityScoreRegression[];
   targetCategories: readonly QualityCategory[];
 }>;
+
+export type QualityReviewReadiness = Readonly<{
+  fatal: boolean;
+  fatalReasons: readonly string[];
+  recoverableReasons: readonly string[];
+}>;
+
+export function evaluateQualityReviewReadiness(
+  document: ContentDocument,
+  quality: QualityReport,
+  diagnostic: LongFormDiagnostic,
+): QualityReviewReadiness {
+  const fatalReasons: string[] = [];
+  if (!document.title.trim()) fatalReasons.push("canonical_document_title_missing");
+  if (!document.blocks.length) fatalReasons.push("canonical_document_blocks_missing");
+  if (!document.blocks.some((block) => block.type === "paragraph" && block.text.trim())) fatalReasons.push("canonical_document_body_missing");
+  if (document.blocks.length !== new Set(document.blocks.map((block) => block.id)).size) fatalReasons.push("canonical_document_duplicate_block_ids");
+
+  const opportunity = quality.opportunityReview;
+  if (opportunity && (!opportunity.contentOpportunityConsistency.pass || !opportunity.crossTopicDrift.pass)) {
+    fatalReasons.push("content_opportunity_mismatch");
+  }
+
+  const recoverableReasons = [
+    ...diagnostic.violations.map((item) => `${item.code}${item.heading ? `:${item.heading}` : item.requiredElement ? `:${item.requiredElement}` : ""}`),
+    ...quality.dimensions
+      .filter((item) => item.status !== "ready")
+      .map((item) => `${item.category}:${item.score}`),
+  ];
+  return Object.freeze({
+    fatal: fatalReasons.length > 0,
+    fatalReasons: Object.freeze([...new Set(fatalReasons)]),
+    recoverableReasons: Object.freeze([...new Set(recoverableReasons)]),
+  });
+}
 
 export function evaluateQualityImprovement(
   before: QualityReport,

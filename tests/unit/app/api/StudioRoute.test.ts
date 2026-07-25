@@ -6,12 +6,17 @@ vi.mock("../../../../app/application/studio-store", () => ({ studioStore: storeM
 import { studioStore } from "../../../../app/application/studio-store";
 import { POST, PUT } from "../../../../app/api/studio/route";
 import type { UserData } from "../../../../app/user-flow/user-data";
-import { confirmContentOpportunity, createContentOpportunityCandidate } from "../../../../core/content";
+import { confirmContentOpportunity, createContentOpportunityCandidate, determineContentPlanQualityTarget } from "../../../../core/content";
 
 const opportunity = confirmContentOpportunity(createContentOpportunityCandidate({
   sourceRequest: "canonical guide", selectionMode: "userSpecified", selectedTopic: "Canonical guide", primaryKeyword: "canonical",
   secondaryKeywords: [], searchIntent: "canonical guide", audience: "readers", contentType: "guide", contentAngle: "practical guide",
   readerProblem: "needs a canonical guide", expectedCoverage: [], selectionRationale: "user specified",
+  qualityTarget: determineContentPlanQualityTarget({
+    contentType: "guide",
+    readerProblem: "needs a canonical guide",
+    requiredContentElements: ["necessary background", "execution method", "warnings and next action"],
+  }),
   opportunityEvidence: [{ source: "unknown", summary: "no keyword data" }], confidence: 0.8, cautions: [], projectId: "project-1",
 }), { workspaceId: "workspace-1", projectId: "project-1", contentId: "content-1", confirmedAt: "now" });
 
@@ -33,6 +38,30 @@ const planningResult = {
   confidence: 0.9,
   estimateDisclosure: "AI estimate",
 };
+
+function structuredArticle(title: string, prose: string) {
+  const sectionTexts = [
+    "The necessary background explains the reader context. It separates causes from effects. It defines the scope of the guide. It states what the reader should understand.",
+    "The execution method starts with preparation. It describes the action sequence. It explains how to apply each step. It identifies the expected outcome.",
+    "Decision criteria distinguish the available conditions. Each criterion supports a concrete choice. The reader can compare the current state. The result leads to an appropriate action.",
+    "A practical example shows a realistic situation. The example applies the earlier criteria. It explains why one option fits. It also identifies an exception.",
+    "Warnings and next action close the guide. The reader checks a caution before acting. An exception changes the recommended choice. The final action is explicit.",
+  ];
+  return {
+    title,
+    metaDescription: "Complete canonical guide for readers.",
+    primarySearchIntent: "canonical guide",
+    secondaryIntent: "practical action",
+    secondaryKeywords: [],
+    relatedTerms: ["canonical"],
+    tags: ["canonical", "guide", "practical", "reader", "content"],
+    introduction: [`This guide directly answers the reader problem. It explains how to use the canonical guide safely. ${prose}`],
+    sections: sectionTexts.map((text, index) => ({ heading: `Section ${index + 1}`, sectionType: "explanation", paragraphs: [`${text} ${String.fromCharCode(106 + index).repeat(Math.min(prose.length, 120))}`] })),
+    conclusion: ["The conclusion summarizes the decision. The reader can now take the next action with the warnings in mind."],
+    images: [],
+    cta: [],
+  };
+}
 
 describe("studio planning endpoint", () => {
   beforeEach(() => {
@@ -179,17 +208,7 @@ describe("studio planning endpoint", () => {
     vi.stubEnv("OPENAI_API_KEY", "sk-test-ascii-key");
     vi.stubEnv("OPENAI_REVIEW_TIMEOUT_MS", "5");
     const prose = "Generated complete body with concrete context, useful actions, examples, and a clear outcome for readers. ".repeat(20);
-    const document = {
-      title: "Canonical guide",
-      blocks: [
-        { type: "paragraph", text: prose },
-        ...Array.from({ length: 5 }, (_, index) => [
-          { type: "heading", level: 2, text: `Section ${index + 1}` },
-          { type: "paragraph", text: prose },
-        ]).flat(),
-        { type: "paragraph", text: prose },
-      ],
-    };
+    const document = structuredArticle("Canonical guide", prose);
     const fetchSpy = vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response(JSON.stringify({ output_text: JSON.stringify(document) }), { status: 200 }))
       .mockImplementationOnce((_url, init) => new Promise<Response>((_resolve, reject) => {
@@ -218,27 +237,34 @@ describe("studio planning endpoint", () => {
     const result = await response.json() as { aiReviewError?: string; document?: { id: string; title: string }; qualityTargetBlocked?: boolean; reachedTarget?: boolean; recoveryRevisionId?: string; data?: UserData };
 
     expect(response.status).toBe(200);
-    expect(result.document).toBeUndefined();
+    expect(result.document).toMatchObject({ id: "content-1", title: "Canonical guide" });
     expect(result.qualityTargetBlocked).toBe(true);
     expect(result.reachedTarget).toBe(false);
-    expect(result.recoveryRevisionId).toMatch(/^rev-/);
-    expect(result.data?.contents[0].document?.title).toBe("Canonical guide");
+    expect(result.recoveryRevisionId).toBeUndefined();
+    expect(result.data?.contents[0]).toMatchObject({
+      status: "in_review",
+      document: { id: "content-1", title: "Canonical guide" },
+    });
     expect(result.data?.contents[0].primaryKeyword).toBe("canonical");
     expect(result.aiReviewError).toContain("timed out");
     expect(fetchSpy).toHaveBeenCalledTimes(2);
-    expect(result.data).toEqual(expect.objectContaining({ contents: [expect.objectContaining({ status: "draft", generationError: expect.stringContaining("최종 품질 검토") })] }));
+    expect(result.data).toEqual(expect.objectContaining({ contents: [expect.objectContaining({
+      status: "in_review",
+      reviewError: expect.stringContaining("최종 품질 검토"),
+    })] }));
+    expect(result.data?.contents[0].generationError).toBeUndefined();
     expect(vi.mocked(studioStore.update)).toHaveBeenCalledWith("application", "user-data", expect.any(Function));
   });
 
   it("uses one final quality-edit call and blocks editor completion when the result is still unapproved", async () => {
     vi.stubEnv("OPENAI_API_KEY", "sk-test-ascii-key");
     const prose = "This complete article explains the reader problem, practical actions, examples, and a concrete conclusion in readable language. ".repeat(18);
-    const draft = { title: "Canonical guide", metaDescription: "Initial guide", primarySearchIntent: "informational guide", blocks: [
-      { type: "paragraph", text: prose },
+    const draft = structuredArticle("Canonical guide", prose);
+    const corrected = { title: "Canonical guide final", metaDescription: "Corrected final guide", primarySearchIntent: "informational guide", blocks: [
+      { type: "paragraph", text: `Final edit applied. ${prose}` },
       ...Array.from({ length: 5 }, (_, index) => [{ type: "heading", level: 2, text: `Section ${index + 1}` }, { type: "paragraph", text: prose }]).flat(),
       { type: "paragraph", text: prose },
     ] };
-    const corrected = { ...draft, title: "Canonical guide final", metaDescription: "Corrected final guide", blocks: draft.blocks.map((block, index) => index === 0 ? { type: "paragraph", text: `Final edit applied. ${prose}` } : block) };
     const fetchSpy = vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response(JSON.stringify({ output_text: JSON.stringify(draft) }), { status: 200 }))
       .mockImplementation(async () => new Response(JSON.stringify({ output_text: JSON.stringify(corrected) }), { status: 200 }));
@@ -248,11 +274,13 @@ describe("studio planning endpoint", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(2);
     expect(result.automaticImprovementCount).toBe(0);
     expect(result.qualityHistory).toHaveLength(2);
-    expect(result.document).toBeUndefined();
+    expect(result.document).toMatchObject({ title: "Canonical guide" });
     expect(result.reachedTarget).toBe(false);
     expect(result.qualityTargetBlocked).toBe(true);
-    expect(result.recoveryRevisionId).toMatch(/^rev-/);
-    expect(result.data?.contents[0]).toMatchObject({ status: "draft" });
+    expect(result.recoveryRevisionId).toBeUndefined();
+    expect(result.data?.contents[0]).toMatchObject({ status: "in_review" });
+    expect(result.data?.contents[0].document).toMatchObject({ title: "Canonical guide" });
+    expect(result.data?.contents[0].generationError).toBeUndefined();
     expect(vi.mocked(studioStore.update)).toHaveBeenCalledWith("application", "user-data", expect.any(Function));
     const reviewBody = JSON.parse(new TextDecoder().decode(fetchSpy.mock.calls[1]?.[1]?.body as Uint8Array));
     expect(reviewBody.input).toContain("second and final AI call");
@@ -261,6 +289,81 @@ describe("studio planning endpoint", () => {
     expect(reviewBody.input).not.toContain("4,800–5,200 non-whitespace prose characters");
     expect(reviewBody.input).not.toContain("12–18 paragraph blocks");
     expect(reviewBody.input).toContain("distinct editorial purpose and section context");
+  });
+
+  it("preserves the canonical draft and diagnostics when generation gate rejects incomplete content", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "sk-test-ascii-key");
+    const current = await studioStore.get<UserData>("application", "user-data");
+    const generating: UserData = {
+      ...current!,
+      contents: current!.contents.map((content) => ({
+        ...content,
+        planningWorkflow: {
+          status: "generating",
+          request: "canonical guide",
+          selectionMode: "userSpecified",
+          operationId: "generation-1",
+          selectedOpportunityId: opportunity.opportunityId,
+          lastSuccessfulStep: "confirmation",
+          revision: 4,
+          createdAt: "now",
+          updatedAt: "now",
+        },
+      })),
+    };
+    storeMocks.get.mockResolvedValue(generating);
+    storeMocks.update.mockImplementation(async (_collection: string, _stateId: string, updater: (value: UserData | undefined) => UserData) => updater(generating));
+    const invalid = structuredArticle("Canonical guide", "나".repeat(1_000));
+    invalid.introduction = ["가".repeat(400)];
+    invalid.conclusion = ["다".repeat(400)];
+    invalid.sections[0] = { heading: "Too shallow", sectionType: "explanation", paragraphs: ["라".repeat(100)] };
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ output_text: JSON.stringify(invalid) }), { status: 200 }),
+    );
+    const response = await POST(new Request("http://localhost/api/studio", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "generate", input: {
+        contentId: "content-1",
+        opportunityId: opportunity.opportunityId,
+        opportunityVersion: opportunity.version,
+        opportunityFingerprint: opportunity.fingerprint,
+        primaryKeyword: opportunity.primaryKeyword,
+        topic: opportunity.selectedTopic,
+        searchIntent: opportunity.searchIntent,
+        secondaryKeywords: opportunity.secondaryKeywords,
+        keywords: ["canonical"],
+        platform: "tistory",
+        projectId: "project-1",
+        workspaceId: "workspace-1",
+        operationId: "generation-1",
+      } }),
+    }));
+    const result = await response.json() as {
+      callCounts?: { generation: number; review: number };
+      data?: UserData;
+      diagnostic?: { code?: string; sections: Array<{ heading: string; proseCharacters: number }> };
+      document?: { title: string };
+      reachedTarget?: boolean;
+    };
+    expect(response.status).toBe(200);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(result.callCounts).toEqual({ generation: 1, review: 1 });
+    expect(result.reachedTarget).toBe(false);
+    expect(result.document?.title).toBe("Canonical guide");
+    expect(result.diagnostic?.code).toBe("CONTENT_INCOMPLETE_SECTION");
+    expect(result.diagnostic?.sections).toContainEqual(expect.objectContaining({ heading: "Too shallow", proseCharacters: 100 }));
+    expect(result.data?.contents[0]).toMatchObject({
+      status: "in_review",
+      document: { title: "Canonical guide" },
+    });
+    expect(result.data?.contents[0].generationError).toBeUndefined();
+    expect(result.data?.contents[0].generationDiagnostic?.code).toBe("CONTENT_INCOMPLETE_SECTION");
+    expect(result.data?.contents[0].planningWorkflow).toMatchObject({
+      status: "failed",
+      lastSuccessfulStep: "confirmation",
+      failedStep: "review",
+    });
   });
 
   it("restores the confirmed keyword when Final Review returns a title without it", async () => {

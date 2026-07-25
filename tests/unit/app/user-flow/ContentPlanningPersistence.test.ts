@@ -84,6 +84,7 @@ describe("durable Content planning workflow", () => {
       workspaceId: "workspace-1", projectId: "project-1", contentId: "content-1", opportunityId: second.opportunityId,
       expectedRevision: 2, now: "2026-07-18T00:03:00.000Z",
     });
+    expect(selected.contents[0].title).toBe(second.selectedTopic);
     const confirmed = createContentFromPlan(selected, {
       id: "content-1", projectId: "project-1", naturalLanguageRequest: "오늘의 건강 글을 골라줘", plan, opportunity: second,
       selectedPublishingAccountIds: [], now: "2026-07-18T00:04:00.000Z",
@@ -95,6 +96,13 @@ describe("durable Content planning workflow", () => {
     });
     expect(confirmed.relatedKeywords).toEqual(second.secondaryKeywords);
     expect(confirmed.relatedKeywords).not.toContain("유산균");
+    expect(confirmed.qualityTarget).toEqual(second.qualityTarget);
+    expect(confirmed.qualityTarget).toMatchObject({
+      contentDepth: second.qualityTarget.contentDepth,
+      readerProblem: second.qualityTarget.readerProblem,
+      requiredContentElements: second.qualityTarget.requiredContentElements,
+    });
+    expect(confirmed.qualityTarget).not.toHaveProperty("targetLengthRange");
   });
 
   it("isolates Content and Project bindings and rejects a late response from a superseded analysis", () => {
@@ -131,7 +139,16 @@ describe("durable Content planning workflow", () => {
       workspaceId: "workspace-1", projectId: "project-1", contentId: "content-1", operationId: "generation-1", error: "provider timeout",
       retryFrom: "generation", now: "2026-07-18T00:05:00.000Z",
     });
-    expect(failed.contents[0].planningWorkflow).toMatchObject({ status: "failed", retryFrom: "generation", error: "provider timeout" });
+    expect(failed.contents[0].planningWorkflow).toMatchObject({ status: "failed", retryFrom: "generation", failedStep: "generation", error: "provider timeout" });
+    const reviewFailed = failContentPlanning(generating, {
+      workspaceId: "workspace-1", projectId: "project-1", contentId: "content-1", operationId: "generation-1", error: "review provider timeout",
+      retryFrom: "review", now: "2026-07-18T00:05:30.000Z",
+    });
+    expect(reviewFailed.contents[0]).toMatchObject({
+      reviewError: "review provider timeout",
+      planningWorkflow: { status: "failed", retryFrom: "review", failedStep: "review" },
+    });
+    expect(reviewFailed.contents[0].generationError).toBeUndefined();
     const restarted = startContentGeneration(createContentFromPlan(failed, {
       id: "content-1", projectId: "project-1", naturalLanguageRequest: "오늘의 건강 글을 골라줘", plan, opportunity: first,
       selectedPublishingAccountIds: [], now: "2026-07-18T00:06:00.000Z",
@@ -140,6 +157,7 @@ describe("durable Content planning workflow", () => {
       workspaceId: "workspace-1", projectId: "project-1", contentId: "content-1", operationId: "generation-2", now: "2026-07-18T00:08:00.000Z",
     });
     expect(generated.contents[0].planningWorkflow).toMatchObject({ status: "generated", lastSuccessfulStep: "generation" });
+    expect(generated.contents[0].planningWorkflow).not.toHaveProperty("failedStep");
   });
 
   it("does not let an equal or older workflow revision overwrite a newer selected candidate or other Content fields", () => {

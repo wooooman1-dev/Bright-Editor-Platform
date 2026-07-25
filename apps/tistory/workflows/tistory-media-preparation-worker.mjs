@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { chromium } from "playwright";
-import { uploadTistoryMediaSequentially } from "./tistory-media-upload.mjs";
+import { tistoryMediaUploadSelectors, uploadSingleTistoryImage, uploadTistoryMediaSequentially } from "./tistory-media-upload.mjs";
 
 const [commandPath] = process.argv.slice(2);
 let browser;
@@ -21,7 +21,14 @@ try {
     throw safeError("session_expired", "Tistory 로그인 세션이 만료되어 이미지를 업로드하지 못했습니다.");
   }
 
-  const resolved = await uploadTistoryMediaSequentially(page, media);
+  const resolved = await uploadTistoryMediaSequentially(page, media, async (editorPage, item) => {
+    await removeReusableImageInputs(editorPage);
+    try {
+      return await uploadSingleTistoryImage(editorPage, item);
+    } catch (error) {
+      throw withMediaEvidence(error, { uploadSession: "same_editor_fresh_attachment_control" });
+    }
+  });
 
   let html = String(command.html ?? "");
   for (const item of resolved) html = html.replaceAll(item.placeholderUrl, item.remoteUrl);
@@ -43,6 +50,13 @@ try {
   await browser?.close();
 }
 
+async function removeReusableImageInputs(page) {
+  for (const frame of page.frames()) {
+    const inputs = frame.locator(tistoryMediaUploadSelectors.existingImageInput);
+    await inputs.evaluateAll((nodes) => nodes.forEach((node) => node.remove())).catch(() => undefined);
+  }
+}
+
 function safeError(diagnosticCode, safeMessage) {
   const error = new Error(safeMessage);
   error.diagnosticCode = diagnosticCode;
@@ -50,11 +64,21 @@ function safeError(diagnosticCode, safeMessage) {
   return error;
 }
 
+function withMediaEvidence(error, evidence) {
+  if (!error || typeof error !== "object") return error;
+  error.mediaEvidence = Object.freeze({ ...(error.mediaEvidence ?? {}), ...withoutUndefined(evidence) });
+  return error;
+}
+
+function withoutUndefined(value) {
+  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined));
+}
+
 function safeMediaDiagnostic(error) {
   const evidence = error?.mediaEvidence;
   if (!evidence || typeof evidence !== "object") return undefined;
   const diagnostic = {};
-  for (const key of ["blockId", "mediaIndex", "uploadMethod", "baselineMediaCount", "lastMediaCount", "baselineTrustedUrlCount", "lastTrustedUrlCount"]) {
+  for (const key of ["blockId", "mediaIndex", "uploadMethod", "uploadSession", "baselineMediaCount", "lastMediaCount", "baselineTrustedUrlCount", "lastTrustedUrlCount"]) {
     const value = evidence[key];
     if (typeof value === "string" || typeof value === "number") diagnostic[key] = value;
   }

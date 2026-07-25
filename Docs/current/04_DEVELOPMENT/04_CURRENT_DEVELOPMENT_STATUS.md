@@ -49,11 +49,11 @@ AI Generation
 → Rule Quality Review
 → Final Editorial Review
 → Rule Quality Review
-→ Automatic Manuscript Improvement (maximum 3)
-→ Best Revision Selection
+→ Candidate Regression Protection
+→ Standard Approval or In Review
 ```
 
-The Editor receives the first approved 95+ result or the highest-scoring bounded result.
+The Editor receives a ready manuscript only after standard 95+ approval. A non-standard result remains in review and does not trigger an automatic Provider retry.
 
 The current Content creation baseline also treats AI topic selection as an atomic Content Opportunity. Automatic mode proposes complete opportunities; user-specified mode preserves the requested topic. Confirmation persists one versioned/fingerprinted strategy snapshot, generation uses the server copy, and Quality blocks cross-topic manuscripts before publishing. Search opportunity evidence is labeled as verified, estimated, inferred, or unknown; no measured volume is claimed without a connected provider. This strengthens the existing Generation and Quality Review calls and does not add a provider call.
 
@@ -256,3 +256,19 @@ Sprint 7 as a whole must not be reported as implemented or verified.
 - GA4 and AdSense real-account verification remains open.
 - Token refresh after actual expiry, quota limits and diverse real Provider responses remain open.
 - Google Ads and Google Trends remain inactive until official access is available and verified.
+
+## Information-Sufficiency First-Generation Quality Policy (2026-07-24)
+
+The first-generation WIP now uses a Core-owned information-sufficiency target and does not use prose length as a quality goal or Gate.
+
+Implemented on `fix/first-generation-quality` as uncommitted follow-up work after WIP commit `b2bfeee`:
+
+- standard / deep / comparison Planning targets, with legacy quick read compatibility
+- target persistence in Content Opportunity, Content, and canonical metadata
+- strict generation schema without prose minLength or target section counts
+- sectionType-aware LongForm diagnostics
+- missing / mentioned / sufficient required-element and repetition gates
+- dynamic Final Review regression protection
+- standard-approval-only Editor and publishing readiness
+
+Automated verification is required for this uncommitted work. Live AI and browser generation are intentionally deferred until separate user approval and must not be inferred from automated results. This section must not be treated as a release or commit record.

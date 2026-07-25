@@ -6,9 +6,10 @@ import { contentRevisionId, PublishingGate, QualityEngine } from "../../../core/
 import { connectionRepository, connectionStore, targetRepository } from "../../application/connections/connection-runtime";
 import { studioStore } from "../../application/studio-store";
 import { isPlatformEnabled, resolveWorkspaceSettings } from "../../application/settings/WorkspaceSettingsService";
+import { TistoryCategoryApplicationService } from "../../application/publishing/TistoryCategoryApplicationService";
 import { TistoryDraftApplicationService, type PublishingAuditRecord } from "../../application/publishing/TistoryDraftApplicationService";
 import { isRetryableDraftStartupFailure, normalizeDraftStartupFailure } from "../../application/publishing/TistoryDraftStartupRecovery";
-import { applyTistoryPublishingAccount, calculateTistoryReadiness, usableTistoryConnections } from "../../application/publishing/TistoryPublishingPreparation";
+import { applyTistoryPublishingAccount, applyTistoryPublishingCategory, calculateTistoryReadiness, resolveTistoryDefaultCategory, usableTistoryConnections } from "../../application/publishing/TistoryPublishingPreparation";
 
 export async function GET(request: Request) {
   try {
@@ -41,9 +42,9 @@ export async function POST(request: Request) {
     if (policy.publishing.reviewFirst && body.finalConfirmation !== true) throw new Error("검토 후 최종 확인이 필요합니다.");
     const revisionId = contentRevisionId(content.document);
     if (!content.quality) throw new Error("Quality Review must pass after the latest edit before external draft save.");
-    new PublishingGate().assertReady(content.quality, revisionId);
+    new PublishingGate().assertReady(content.quality, revisionId, content.document);
     const quality = new QualityEngine().review(content.document, { contentType: content.contentType, platform: "tistory", primaryKeyword: content.primaryKeyword, searchIntent: content.searchIntent, revisionId });
-    new PublishingGate().assertReady(quality, revisionId);
+    new PublishingGate().assertReady(quality, revisionId, content.document);
     const connection = await connectionRepository.findById(connectionId);
     if (!connection) throw new Error("Publishing account was not found.");
     const targets = targetRepository.listByProject ? await targetRepository.listByProject(projectId) : [];
@@ -99,10 +100,26 @@ async function prepare(data: UserData, projectId: string, contentId: string, req
   }
   await new PlatformConnectionService(connectionRepository, targetRepository).selectTarget(data.projects.find((item) => item.id === projectId)!, connection.id);
   const updatedAt = new Date().toISOString();
-  const next = applyTistoryPublishingAccount(data, projectId, contentId, connection.id, updatedAt);
+  let next = applyTistoryPublishingAccount(data, projectId, contentId, connection.id, updatedAt);
+  let project = next.projects.find((item) => item.id === projectId)!;
+  let content = next.contents.find((item) => item.id === contentId)!;
+  if (content.publishingPreparation?.tistory?.publishingAccountId !== connection.id) {
+    try {
+      const categoryResult = await new TistoryCategoryApplicationService().read({ workspaceId: next.workspace!.id, projectId, contentId, connection, selectedTarget: true });
+      const category = resolveTistoryDefaultCategory(project, connection.id, categoryResult.categories);
+      if (category) {
+        next = applyTistoryPublishingCategory(next, projectId, contentId, connection.id, category, updatedAt);
+        project = next.projects.find((item) => item.id === projectId)!;
+        content = next.contents.find((item) => item.id === contentId)!;
+        console.info("[tistory-preparation] category auto-applied", { categoryId: category.id, categoryName: category.name, connectionId: connection.id, contentId, projectId });
+      } else {
+        console.info("[tistory-preparation] no matching default category", { connectionId: connection.id, contentId, projectId, projectTopic: project.strategy?.primaryTopic ?? project.name });
+      }
+    } catch (error) {
+      console.warn("[tistory-preparation] category auto-apply unavailable", { connectionId: connection.id, contentId, error: error instanceof Error ? error.message : "Category preparation failed.", projectId });
+    }
+  }
   await studioStore.set("application", "user-data", next);
-  const project = next.projects.find((item) => item.id === projectId)!;
-  const content = next.contents.find((item) => item.id === contentId)!;
   return NextResponse.json({ data: next, connectionId: connection.id, automaticallyApplied: !requestedConnectionId && available.length === 1, readiness: await calculateTistoryReadiness({ data: next, project, content, connection, selectedTarget: true, finalConfirmation: false }) });
 }
 

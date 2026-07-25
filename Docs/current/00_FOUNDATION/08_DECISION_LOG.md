@@ -692,6 +692,20 @@ Workstream B는 `ScheduledPublication`과 `ScheduleJob`을 정의하고 Tistory 
 
 로컬 Scheduler, 반복 예약, 다중 플랫폼 예약, AI의 임의 예약 시간 결정과 자동 즉시 공개 발행은 통합 Sprint 범위에서 제외한다. 실제 Tistory 예약 등록·수정·취소와 외부 상태가 검증되기 전에는 Sprint 전체를 `Completed` 또는 `Verified`로 표시하지 않는다.
 
+D-035 Information Sufficiency Over Content Length
+
+Status: Accepted
+
+Bright Studio는 콘텐츠의 최소·선호·최대 글자 수를 Planning 목표, Generation 지시, Quality 점수, Gate 또는 승인 조건으로 사용하지 않는다. 실제 문자 수와 토큰 사용량은 비용·진단 telemetry로 측정할 수 있지만 품질 판정에는 영향을 주지 않는다.
+
+신규 Planning의 `contentDepth`는 `standard`, `deep`, `comparison`만 사용한다. `standard`는 핵심 문제의 직접 해결, `deep`은 복잡한 관계·여러 판단 기준·사례·예외·주의사항·다음 행동, `comparison`은 비교 기준·차이·장단점·상황별 선택 조건을 의미한다. 이 분류는 글자 수 유형이 아니다. 기존 `quick`과 길이 목표가 저장된 데이터는 읽기 호환을 유지하되 `quick`은 standard 정보 정책으로 해석하며 신규 결과로 만들지 않는다.
+
+Planning은 검색 의도, 독자 문제, 핵심 질문, 필수 정보 요소, 판단 기준, 필요한 예시, 주의사항과 예외, 실행 가능한 다음 행동, 비교·표·체크리스트 필요성 및 범위 경계를 하나의 호출에서 정의한다. Generation은 이 정보 계약을 충분히 설명한 뒤 종료하고, 같은 품질이면 더 간결한 결과를 선호하며, 분량 확보를 위한 반복·장황함·임의 URL을 만들지 않는다.
+
+Quality Engine은 필수 정보 요소를 `missing`, `mentioned`, `sufficient`로 구분하고 `sufficient`만 충족으로 인정한다. 검색 의도, 독자 문제 해결, 섹션 역할 완결성, 정보 밀도, 정확성과 안전성, 판단 기준, 예시, 예외, 다음 행동, 반복과 장황함을 평가한다. 짧다는 이유만으로 실패시키지 않으며 길어도 필수 정보가 부족하거나 반복되면 실패한다. Generation 1회와 Quality Review 1회, standard 승인만 ready인 정책은 유지한다.
+
+Provider 응답과 구조화 형식이 유효해 canonical `ContentDocument`를 만들 수 있다면, Generation 또는 Quality Review의 품질 기준을 충족하지 못해도 문서와 진단을 보존하고 Content를 `in_review`로 둔다. 사용자는 Editor에서 이 문서를 수정하고 다시 Quality Review를 실행할 수 있다. Provider 오류나 구조화 형식 오류처럼 canonical 문서를 만들 수 없는 기술 실패는 문서가 없는 실패로 구분한다. 품질 미달 문서는 `ready` 또는 발행 가능 상태가 아니며, `approved === true && approvalType === "standard"` 조건은 변경하지 않는다.
+
 
 ---
 

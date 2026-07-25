@@ -2,6 +2,7 @@ import type { ContentBlock } from "../ContentBlock";
 import type { ContentBlockType } from "../ContentBlockType";
 import type { ContentDocument } from "../ContentDocument";
 import type { HeadingLevel } from "../blocks/HeadingBlock";
+import { normalizeStructuredText } from "../StructuredText";
 
 export class ContentNormalizer {
   normalize(document: ContentDocument): ContentDocument {
@@ -12,17 +13,17 @@ export class ContentNormalizer {
       let previousHeadingLevel: HeadingLevel | undefined;
 
       const blocks = document.blocks.flatMap((block, index) => {
-        if (block.type === "paragraph" && block.text.trim().length === 0) {
-          return [];
-        }
-
         const id = block.id || createBlockId(block.type, index, usedIds);
-        const normalizedBlock = normalizeHeading(block, previousHeadingLevel, id);
-
-        if (normalizedBlock.type === "heading") {
-          previousHeadingLevel = normalizedBlock.level;
+        if (block.type === "paragraph") {
+          const text = normalizeStructuredText(block.text);
+          if (!text) return [];
+          return [id === block.id && text === block.text
+            ? block
+            : Object.freeze({ ...block, id, text })];
         }
 
+        const normalizedBlock = normalizeHeading(block, previousHeadingLevel, id);
+        if (normalizedBlock.type === "heading") previousHeadingLevel = normalizedBlock.level;
         return [normalizedBlock];
       });
 
@@ -35,7 +36,7 @@ export class ContentNormalizer {
 
 function normalizeHeading(
   block: ContentBlock,
-  previousLevel: HeadingLevel | undefined,
+  previousHeadingLevel: HeadingLevel | undefined,
   id: string,
 ): ContentBlock {
   if (block.type !== "heading") {
@@ -43,12 +44,13 @@ function normalizeHeading(
   }
 
   const boundedLevel = Math.min(6, Math.max(1, block.level)) as HeadingLevel;
-  const level =
-    previousLevel !== undefined && boundedLevel > previousLevel + 1
-      ? ((previousLevel + 1) as HeadingLevel)
-      : boundedLevel;
-
-  return Object.freeze({ ...block, id, level });
+  const level = previousHeadingLevel !== undefined && boundedLevel > previousHeadingLevel + 1
+    ? ((previousHeadingLevel + 1) as HeadingLevel)
+    : boundedLevel;
+  const text = normalizeStructuredText(block.text);
+  return id === block.id && level === block.level && text === block.text
+    ? block
+    : Object.freeze({ ...block, id, level, text });
 }
 
 function createBlockId(

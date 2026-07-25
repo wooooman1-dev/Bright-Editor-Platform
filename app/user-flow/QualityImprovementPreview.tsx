@@ -21,7 +21,8 @@ export function QualityImprovementPreview({ baseline, candidate, document, disab
     const after = candidate.dimensions.find((item) => item.category === before.category) ?? before;
     return { category: before.category, before: before.score, after: after.score, target: editorialTargets.has(before.category) ? 95 : 80 };
   }).sort((left, right) => Number(left.before === left.after) - Number(right.before === right.after));
-  const canApply = improvementAccepted && candidate.approved && !disabled;
+  const standardApproved = candidate.approved && candidate.approvalType === "standard";
+  const canApply = improvementAccepted && standardApproved && !disabled;
 
   return <section className="mt-5 rounded-xl border border-[#ffb3b3] bg-[#fffafa] p-4" aria-label="AI 개선안 점수 비교">
     <div className="flex flex-wrap items-start justify-between gap-3">
@@ -29,8 +30,8 @@ export function QualityImprovementPreview({ baseline, candidate, document, disab
         <h3 className="font-semibold">AI 개선안 미리보기</h3>
         <p className="mt-1 text-sm text-[#66666f]">현재 원고는 아직 변경되지 않았습니다. 품질 승인 기준을 충족한 개선안만 적용할 수 있습니다.</p>
       </div>
-      <span className={`rounded-full px-3 py-1 text-sm font-semibold ${improvementAccepted && candidate.approved ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"}`}>
-        {!improvementAccepted ? "현재 원고보다 개선되지 않음" : candidate.approved ? "품질 승인 기준 충족" : "품질 승인 기준 미달"}
+      <span className={`rounded-full px-3 py-1 text-sm font-semibold ${improvementAccepted && standardApproved ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"}`}>
+        {!improvementAccepted ? "현재 원고보다 개선되지 않음" : standardApproved ? "standard 품질 승인 기준 충족" : "standard 품질 승인 기준 미달"}
       </span>
     </div>
 
@@ -48,7 +49,7 @@ export function QualityImprovementPreview({ baseline, candidate, document, disab
 
     <details className="mt-4 rounded-xl bg-white p-3 text-sm"><summary className="cursor-pointer font-semibold">개선 원고 내용 보기</summary><p className="mt-2 text-[#66666f]">{document.title} · {document.blocks.length}개 canonical block</p><pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-[#f8f8fa] p-3 text-xs">{documentToPreview(document)}</pre></details>
 
-    {!improvementAccepted ? <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">{rejectionReasons.join(" ") || "현재 원고보다 품질이 좋아지지 않아 적용할 수 없습니다."}</p> : !candidate.approved ? <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">전체 95점 이상이며 검색 의도·SEO·가독성·정보 완성도는 각각 95점 이상이어야 합니다. 기준 미달 개선안은 현재 원고에 적용되지 않습니다.</p> : null}
+    {!improvementAccepted ? <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">{rejectionReasons.join(" ") || "현재 원고보다 품질이 좋아지지 않아 적용할 수 없습니다."}</p> : !standardApproved ? <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">전체 95점 이상이며 검색 의도·SEO·가독성·정보 완성도는 각각 95점 이상인 standard 승인만 적용할 수 있습니다.</p> : null}
 
     <div className="mt-4 flex gap-2"><button className="rounded-lg bg-[#ff6b6b] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40" disabled={!canApply} onClick={onApply} type="button">개선안 적용</button><button className="rounded-lg border px-4 py-2 text-sm" disabled={disabled} onClick={onCancel} type="button">취소</button></div>
   </section>;

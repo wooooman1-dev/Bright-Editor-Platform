@@ -149,6 +149,7 @@ function createMetadata(
   const metrics = calculateContentMetrics({ ...document, blocks });
 
   return Object.freeze({
+    ...(current ?? {}),
     buttonCount: blocks.filter((block) => block.type === "button").length,
     createdAt: current?.createdAt ?? timestamp,
     generator: current?.generator ?? "seo-keyword-placement",

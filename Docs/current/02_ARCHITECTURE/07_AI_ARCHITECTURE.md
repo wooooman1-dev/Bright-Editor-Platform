@@ -26,8 +26,6 @@ Final Editorial Review AI
     ↓
 Rule Validation
     ↓
-Automatic manuscript improvement (maximum 3) + Rule Validation
-    ↓
 Platform Adapter
 ```
 
@@ -59,7 +57,7 @@ A single generation call should produce:
 
 ## Quality Review AI
 
-Performs one final editorial review after the first Rule Validation. If the unchanged Rule Quality result remains below the accepted target, the application passes the complete measured report to the AI and improves the manuscript itself. Automatic improvement stops immediately on approval and never runs more than three times. If the target is still not reached, the highest-scoring manuscript is returned.
+Performs one final editorial review after the first Rule Validation. The application passes the complete measured report to this review call so it can make targeted corrections. There is no automatic retry or fallback Provider call. If the result is not standard-approved, it remains `in_review` with measured findings.
 
 Checks include:
 

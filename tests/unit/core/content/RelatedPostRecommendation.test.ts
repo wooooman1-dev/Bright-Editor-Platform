@@ -72,6 +72,25 @@ describe("placeRecommendedPosts", () => {
     expect(new Set(links.map((block) => block.type === "button" ? block.targetUrl : "")).size).toBe(4);
   });
 
+  it("moves existing related posts after the final content block while preserving contextual internal links", () => {
+    const existing = {
+      ...document,
+      blocks: [
+        { id: "intro", type: "paragraph" as const, text: "도입 문단" },
+        { id: "context", type: "button" as const, purpose: "internal_link" as const, label: "본문 링크", targetUrl: "https://blog.tistory.com/entry/context" },
+        { id: "related-one", type: "button" as const, purpose: "related_post" as const, label: "기존 관련 글", targetUrl: "https://blog.tistory.com/entry/related-one" },
+        { id: "last-heading", type: "heading" as const, level: 2 as const, text: "마지막 판단 기준" },
+        { id: "conclusion", type: "paragraph" as const, text: "마지막 결론 문단" },
+      ],
+    };
+    const placed = placeRecommendedPosts(existing, [post("related-two", "새 관련 글", "https://blog.tistory.com/entry/related-two", "건강정보")]);
+    expect(placed.blocks.map((block) => block.id)).toEqual(["intro", "context", "last-heading", "conclusion", "related-one", "auto-related-post"]);
+    const previous = placed.blocks.at(-2);
+    const last = placed.blocks.at(-1);
+    expect(previous?.type === "button" && previous.purpose).toBe("related_post");
+    expect(last?.type === "button" && last.purpose).toBe("related_post");
+  });
+
   it("uses only the available candidates when fewer than four exist", () => {
     const candidates = [
       post("one", "도움 글 1", "https://blog.tistory.com/entry/one", "건강정보"),

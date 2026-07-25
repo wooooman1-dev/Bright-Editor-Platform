@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  applyContentDepthPolicy,
   assertConfirmedContentOpportunity,
   confirmContentOpportunity,
   createContentOpportunityCandidate,
@@ -88,5 +89,33 @@ describe("Content Opportunity contract", () => {
   it("distinguishes delegated topic selection from an explicit topic", () => {
     expect(detectContentOpportunitySelectionMode("기존에 작성하지 않은 주제를 AI가 골라줘")).toBe("automatic");
     expect(detectContentOpportunitySelectionMode("만성 염증 관리 글을 작성해 줘")).toBe("userSpecified");
+  });
+
+  it("reclassifies depth without replacing the Planning provider's concrete information contract", () => {
+    const source = candidate();
+    const planned = createContentOpportunityCandidate({
+      ...source,
+      qualityTarget: {
+        ...source.qualityTarget,
+        coreQuestions: ["복용 중인 약과 검사 결과를 함께 해석해야 하는 이유는 무엇인가"],
+        requiredContentElements: ["처방약·일반의약품·건강기능식품을 의료진에게 알리는 방법"],
+        decisionCriteria: ["복용 지속 여부는 처방 의료진의 지시로 판단"],
+        examplesNeeded: ["복용 목록을 진료 전에 정리하는 사례"],
+        warningsOrExceptions: ["약과 보충제를 임의로 중단하지 않음"],
+        actionableNextSteps: ["제품명·성분·복용 시각을 기록해 상담 때 제시"],
+      },
+    });
+
+    const classified = applyContentDepthPolicy(planned, { domain: "health" });
+
+    expect(classified.qualityTarget).toMatchObject({
+      coreQuestions: planned.qualityTarget.coreQuestions,
+      requiredContentElements: planned.qualityTarget.requiredContentElements,
+      decisionCriteria: planned.qualityTarget.decisionCriteria,
+      examplesNeeded: planned.qualityTarget.examplesNeeded,
+      warningsOrExceptions: planned.qualityTarget.warningsOrExceptions,
+      actionableNextSteps: planned.qualityTarget.actionableNextSteps,
+    });
+    expect(classified.qualityTarget.requiredContentElements).not.toContain("복잡한 원인과 관계");
   });
 });

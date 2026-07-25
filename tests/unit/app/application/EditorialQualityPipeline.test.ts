@@ -1,12 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { EditorialQualityPipeline } from "../../../../app/application/EditorialQualityPipeline";
+import { detectEditorialReviewRegression, EditorialQualityPipeline } from "../../../../app/application/EditorialQualityPipeline";
 import { EditorialGenerationStrategy } from "../../../../app/application/EditorialGenerationStrategy";
 import type { AIProvider, AIRequest } from "../../../../core/ai";
+import { determineContentPlanQualityTarget, type ContentDocument, type ContentPlanQualityTarget } from "../../../../core/content";
 
 type TestQualityReport = {
   overallScore: number;
   approved: boolean;
+  approvalType: "standard" | "exception" | "none";
   reviewedAt: string;
   revisionId: string;
   dimensions: Array<{ category: string; score: number; status: string; reasons: string[]; evidence: never[] }>;
@@ -15,7 +17,7 @@ type TestQualityReport = {
 };
 
 function rawDocument(title = "초기 원고") {
-  const prose = "독자가 바로 실행할 수 있도록 기준과 순서, 예시, 주의사항을 구체적인 문장으로 설명합니다. ".repeat(11);
+  const prose = "독자가 바로 실행할 수 있도록 기준과 순서, 예시, 주의사항을 구체적인 문장으로 설명합니다. ".repeat(16);
   return {
     title,
     metaDescription: "독자가 필요한 실행 기준과 순서, 주의사항을 확인할 수 있는 실용 안내입니다.",
@@ -31,7 +33,7 @@ function rawDocument(title = "초기 원고") {
   };
 }
 
-function report(overallScore: number, approved: boolean, readability = approved ? 96 : 88): TestQualityReport {
+function report(overallScore: number, approved: boolean, readability = approved ? 96 : 88, approvalType: TestQualityReport["approvalType"] = approved ? "standard" : "none"): TestQualityReport {
   const scores = {
     searchIntent: approved ? 97 : 90,
     seo: approved ? 98 : 92,
@@ -47,6 +49,7 @@ function report(overallScore: number, approved: boolean, readability = approved 
   return {
     overallScore,
     approved,
+    approvalType,
     reviewedAt: "2026-07-19T00:00:00.000Z",
     revisionId: "rev-test",
     dimensions: Object.entries(scores).map(([category, score]) => ({ category, score, status: "passed", reasons: [], evidence: [] })),
@@ -80,7 +83,7 @@ describe("EditorialQualityPipeline", () => {
     expect(result.document.title).toBe("승인 원고");
   });
 
-  it("accepts a server-approved candidate even when a non-blocking score is lower", async () => {
+  it("accepts a standard-approved candidate even when a non-blocking score is lower", async () => {
     const initial = new EditorialGenerationStrategy().parse(JSON.stringify(rawDocument()), parseInput());
     const generate = vi.fn(async () => ({ content: JSON.stringify(rawDocument("최종 승인")), model: "review" }));
     const reviews = [report(94, false, 99), report(95, true, 95)];
@@ -90,10 +93,10 @@ describe("EditorialQualityPipeline", () => {
     expect(result.document.title).toBe("최종 승인");
   });
 
-  it("exception-approves an integrity-safe candidate when overall is at least 90 and required dimensions are at least 90", async () => {
+  it("does not treat exception approval as publish-ready", async () => {
     const initial = new EditorialGenerationStrategy().parse(JSON.stringify(rawDocument()), parseInput());
     const generate = vi.fn(async () => ({ content: JSON.stringify(rawDocument("예외 승인 원고")), model: "review" }));
-    const exceptionReport = report(96, false);
+    const exceptionReport = report(96, true, 95, "exception");
     exceptionReport.dimensions = exceptionReport.dimensions.map((dimension) =>
       dimension.category === "completeness" ? { ...dimension, score: 93 } :
       dimension.category === "readability" ? { ...dimension, score: 95 } :
@@ -110,8 +113,8 @@ describe("EditorialQualityPipeline", () => {
       qualityContext: {},
     });
 
-    expect(result.reachedTarget).toBe(true);
-    expect(result.quality.approved).toBe(false);
+    expect(result.reachedTarget).toBe(false);
+    expect(result.quality.approvalType).toBe("exception");
     expect(result.document.title).toBe("예외 승인 원고");
   });
 
@@ -132,16 +135,17 @@ describe("EditorialQualityPipeline", () => {
     const qualityEngine = { review: vi.fn(() => report(96, true)) };
     await new EditorialQualityPipeline({ generate } as AIProvider, undefined, qualityEngine as never).run({ document: initial, finalReviewInstruction: () => "base instruction", parseInput: parseInput(), qualityContext: {}, requiredInformation: ["실행 예시"] });
     expect(instruction).toContain("second and final AI call");
+    expect(instruction).toContain("standard approval only");
     expect(instruction).toContain("overallScore >= 95");
     expect(instruction).toContain("readability >= 95");
     expect(instruction).toContain("usefulness >= 90");
+    expect(instruction).toContain("repeated core advice = 0");
     expect(instruction).toContain("Manuscript diagnostics");
-    expect(instruction).toContain("at least 4,800 non-whitespace prose characters");
-    expect(instruction).toContain("no maximum character limit");
-    expect(instruction).toContain("according to the topic and confirmed search intent");
-    expect(instruction).toContain("only where the section and reader intent genuinely require them");
-    expect(instruction).toContain("Keyword placement is mandatory");
-    expect(instruction).toContain("every confirmed secondary keyword naturally");
+    expect(instruction).toContain("missing, merely mentioned, or sufficiently explained");
+    expect(instruction).toContain("Do not broadly rewrite strong sections or expand the manuscript");
+    expect(instruction).not.toContain("character safety floor");
+    expect(instruction).not.toContain("Current prose length");
+    expect(instruction).toContain("Preserve all verified links, tags, related posts");
     expect(instruction).toContain("Reader usefulness is a mandatory final-edit contract");
     expect(instruction).toContain("Do not respond to a low usefulness score by merely adding sentences");
     expect(instruction).toContain("Every H2 must provide distinct new information");
@@ -150,6 +154,47 @@ describe("EditorialQualityPipeline", () => {
     expect(instruction).toContain("unsupportedClaimSignal");
     expect(instruction).toContain("fabricatedExperienceRisk");
     expect(instruction).toContain("Never solve this by inventing a citation, source, number, or personal story");
+    expect(instruction).toContain("Priority corrections");
+    expect(instruction).toContain("Correct blocked and below-threshold dimensions first");
+    expect(instruction).toContain("keep the strongest occurrence in its owning H2");
+    expect(instruction).toContain("convert existing generic advice into a usable checklist");
+  });
+
+  it("removes legacy length targets from the final review prompt and priorities", async () => {
+    const initial = new EditorialGenerationStrategy().parse(JSON.stringify(rawDocument()), parseInput());
+    const legacyDocument = {
+      ...initial,
+      metadata: {
+        ...initial.metadata!,
+        qualityTarget: {
+          contentDepth: "deep",
+          targetLengthRange: { min: 6000, preferred: 7000, max: 8000 },
+          targetSectionCount: { min: 5, preferred: 6, max: 7 },
+          sectionLengthGuidance: "각 섹션 450자 이상",
+          requiredContentElements: ["판단 기준"],
+          topicComplexity: "high",
+          readerProblem: "검사 결과 해석이 어려움",
+        },
+      },
+    } as unknown as ContentDocument;
+    let instruction = "";
+    const generate = vi.fn(async (request: AIRequest) => {
+      instruction = request.instruction;
+      return { content: JSON.stringify(rawDocument("검토 원고")), model: "review" };
+    });
+    const qualityEngine = { review: vi.fn(() => report(90, false)) };
+    await new EditorialQualityPipeline({ generate } as AIProvider, undefined, qualityEngine as never).run({
+      document: legacyDocument,
+      finalReviewInstruction: () => "base instruction",
+      parseInput: parseInput(),
+      qualityContext: {},
+    });
+
+    expect(instruction).not.toContain("targetLengthRange");
+    expect(instruction).not.toContain("sectionLengthGuidance");
+    expect(instruction).not.toContain("6000");
+    expect(instruction).not.toContain("450자");
+    expect(instruction).not.toContain("CONTENT_BELOW_PLANNING_TARGET");
   });
 
   it("preserves the current manuscript when the response is invalid", async () => {
@@ -160,4 +205,61 @@ describe("EditorialQualityPipeline", () => {
     expect(result.document.title).toBe("초기 원고");
     expect(result.attemptHistory[0]?.rejectionReason).toBe("invalid_content_document");
   });
+
+  it("restores verified editorial links and removes links invented by the Review response", async () => {
+    const parsed = new EditorialGenerationStrategy().parse(JSON.stringify(rawDocument()), parseInput());
+    const protectedLink = { id: "protected", type: "button" as const, purpose: "internal_link" as const, label: "기존 글", targetUrl: "https://example.com/existing", target: "_blank" as const };
+    const initial = { ...parsed, blocks: [...parsed.blocks, protectedLink] };
+    const invented = rawDocument("검토 원고");
+    invented.blocks.push({ type: "button", purpose: "related_post", label: "만든 링크", targetUrl: "https://example.com/invented", target: "_blank" } as never);
+    const reviews = [report(90, false), report(96, true)];
+    const qualityEngine = { review: vi.fn(() => reviews.shift() ?? report(96, true)) };
+    const result = await new EditorialQualityPipeline({
+      generate: async () => ({ content: JSON.stringify(invented), model: "review" }),
+    }, undefined, qualityEngine as never).run({
+      document: initial,
+      finalReviewInstruction: () => "final",
+      parseInput: parseInput(),
+      qualityContext: {},
+    });
+    const links = result.document.blocks.filter((block) => block.type === "button" && (block.purpose === "internal_link" || block.purpose === "related_post"));
+    expect(links).toEqual([protectedLink]);
+    expect(result.attemptHistory[0]?.rejectionReason).toBeUndefined();
+  });
+
+  it("rejects a Review that removes a required content element", () => {
+    const target = determineContentPlanQualityTarget({ contentType: "standard article", readerProblem: "판단 기준 부족" });
+    const before = targetedDocument(target, 900, true);
+    const after = targetedDocument(target, 900, false);
+    expect(detectEditorialReviewRegression(before, after)).toBe("required_content_element_removed");
+  });
+
+  it("allows a quick Review to remove padding while preserving complete information", () => {
+    const target = determineContentPlanQualityTarget({ contentType: "quick checklist", readerProblem: "간단한 사용 순서" });
+    const before = targetedDocument(target, 720, true);
+    const after = targetedDocument(target, 580, true);
+    expect(detectEditorialReviewRegression(before, after)).toBeUndefined();
+  });
 });
+
+function targetedDocument(target: ContentPlanQualityTarget, sectionLength: number, includeApplication: boolean): ContentDocument {
+  const types = target.contentDepth === "quick" ? ["checklist", "steps", "warning"] as const : ["explanation", "case_example", "warning", "summary"] as const;
+  const blocks: ContentDocument["blocks"][number][] = [{ id: "intro", type: "paragraph", text: "독자의 질문에 직접 답변하고 핵심 의미를 먼저 설명합니다. ".repeat(8) }];
+  const sections = types.map((sectionType, index) => {
+    const headingBlockId = `h-${index}`, paragraphBlockIds = [`p-${index}`];
+    const list = sectionType === "checklist" ? "\n- 준비\n- 확인\n- 실행\n- 정리\n" : sectionType === "steps" ? "\n1. 준비\n2. 확인\n3. 행동\n" : "";
+    const semantic = `핵심 개념과 원리를 설명합니다. 판단 기준과 주의사항, 예외 조건을 확인합니다. ${includeApplication ? "실제 적용 방법과 예시를 제공합니다." : ""} 다음 행동을 정합니다.`;
+    blocks.push({ id: headingBlockId, type: "heading", level: 2, text: `섹션 ${index + 1}` });
+    blocks.push({ id: paragraphBlockIds[0], type: "paragraph", text: `${semantic}${list}${String.fromCharCode(0xac00 + index * 40).repeat(sectionLength)}` });
+    return { headingBlockId, paragraphBlockIds, sectionType };
+  });
+  blocks.push({ id: "conclusion", type: "paragraph", text: "다음 행동을 정리하고 판단 기준을 다시 확인합니다. ".repeat(8) });
+  return {
+    id: "targeted", title: "동적 Review 문서", blocks,
+    metadata: {
+      buttonCount: 0, createdAt: "now", generator: "test", imageCount: 0, language: "ko", readingTime: 1,
+      source: "test", updatedAt: "now", version: 1, videoCount: 0, wordCount: 1, qualityTarget: target,
+      longFormStructure: { introductionBlockIds: ["intro"], sections, conclusionBlockIds: ["conclusion"] },
+    },
+  };
+}

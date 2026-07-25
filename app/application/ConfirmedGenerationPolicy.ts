@@ -20,21 +20,23 @@ export type ConfirmedGenerationContract = Readonly<{
   keywords: readonly string[];
 }>;
 
+type ConfirmedGenerationRequest = {
+  workspaceId: string;
+  projectId: string;
+  contentId: string;
+  opportunityId?: unknown;
+  opportunityVersion?: unknown;
+  opportunityFingerprint?: unknown;
+  primaryKeyword?: unknown;
+  topic?: unknown;
+  searchIntent?: unknown;
+  secondaryKeywords?: unknown;
+  keywords?: unknown;
+};
+
 export function resolveConfirmedGenerationOpportunity(
   content: ConfirmedGenerationContent,
-  request: Readonly<{
-    workspaceId: string;
-    projectId: string;
-    contentId: string;
-    opportunityId?: unknown;
-    opportunityVersion?: unknown;
-    opportunityFingerprint?: unknown;
-    primaryKeyword?: unknown;
-    topic?: unknown;
-    searchIntent?: unknown;
-    secondaryKeywords?: unknown;
-    keywords?: unknown;
-  }>,
+  request: ConfirmedGenerationRequest,
 ): ConfirmedGenerationContract {
   let opportunity: ConfirmedContentOpportunity;
   try {
@@ -51,11 +53,37 @@ export function resolveConfirmedGenerationOpportunity(
       secondaryKeywords: request.secondaryKeywords,
     });
   } catch (error) {
-    if (error instanceof Error && error.message.includes("선택한 콘텐츠 전략이 현재 원고와 일치하지 않습니다")) {
+    if (!(error instanceof Error) || !error.message.includes("선택한 콘텐츠 전략이 현재 원고와 일치하지 않습니다")) {
+      throw error;
+    }
+
+    const stored = content.opportunity;
+    if (!stored || !isWholeStoredSnapshotRecovery(stored, request)) {
+      // The route still contains a legacy same-identity recovery fallback. Clear
+      // the request fingerprint so a partial field mismatch cannot pass that
+      // fallback and reach the AI provider.
+      request.opportunityFingerprint = undefined;
       throw new Error("선택한 콘텐츠 전략이 요청한 현재 원고와 일치하지 않습니다. 주제와 대표 키워드를 다시 확인해 주세요.");
     }
-    throw error;
+
+    opportunity = assertConfirmedContentOpportunity(stored, {
+      workspaceId: request.workspaceId,
+      projectId: request.projectId,
+      contentId: request.contentId,
+      opportunityId: stored.opportunityId,
+      opportunityVersion: stored.version,
+      opportunityFingerprint: stored.fingerprint,
+      primaryKeyword: stored.primaryKeyword,
+      selectedTopic: stored.selectedTopic,
+      searchIntent: stored.searchIntent,
+      secondaryKeywords: stored.secondaryKeywords,
+    });
+    request = {
+      ...request,
+      keywords: contentOpportunityKeywords(stored),
+    };
   }
+
   const mirroredPrimary = normalizeSeoKeyword(content.primaryKeyword ?? "");
   const mirroredRelated = (content.relatedKeywords ?? []).map(normalizeSeoKeyword);
   if (mirroredPrimary.toLocaleLowerCase("ko-KR") !== opportunity.primaryKeyword.toLocaleLowerCase("ko-KR")
@@ -72,6 +100,33 @@ export function resolveConfirmedGenerationOpportunity(
     throw new Error("선택한 콘텐츠 전략의 키워드 구성이 저장된 값과 일치하지 않습니다.");
   }
   return Object.freeze({ opportunity, keywords: canonicalKeywords });
+}
+
+function isWholeStoredSnapshotRecovery(
+  stored: ConfirmedContentOpportunity,
+  request: ConfirmedGenerationRequest,
+): boolean {
+  const sameIdentity = typeof request.opportunityId === "string"
+    && request.opportunityId === stored.opportunityId
+    && String(request.opportunityVersion) === String(stored.version)
+    && typeof request.opportunityFingerprint === "string"
+    && request.opportunityFingerprint === stored.fingerprint;
+  if (!sameIdentity) return false;
+
+  const primaryChanged = normalizedText(request.primaryKeyword) !== normalizedText(stored.primaryKeyword);
+  const topicChanged = normalizedText(request.topic) !== normalizedText(stored.selectedTopic);
+  const intentChanged = normalizedText(request.searchIntent) !== normalizedText(stored.searchIntent);
+  const secondaryChanged = JSON.stringify(normalizedList(request.secondaryKeywords)) !== JSON.stringify(stored.secondaryKeywords.map(normalizeSeoKeyword));
+
+  return primaryChanged && topicChanged && intentChanged && secondaryChanged;
+}
+
+function normalizedText(value: unknown): string {
+  return normalizeSeoKeyword(typeof value === "string" ? value : "").toLocaleLowerCase("ko-KR");
+}
+
+function normalizedList(value: unknown): readonly string[] {
+  return Array.isArray(value) ? value.map((item) => normalizeSeoKeyword(String(item))) : [];
 }
 
 /**

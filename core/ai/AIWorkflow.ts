@@ -1,5 +1,5 @@
 import type { ConfirmedContentOpportunity, ContentDocument } from "../content";
-import type { AIProvider } from "./AIProvider";
+import type { AIProvider, AIResponse } from "./AIProvider";
 
 export type PlatformId = string & { readonly __platformId: unique symbol };
 export type ContentTypeId = string & { readonly __contentTypeId: unique symbol };
@@ -12,11 +12,13 @@ export type GenerationInput = Readonly<{
   keywords: readonly string[];
   platform: PlatformId;
   projectId: string;
+  structuredLongFormOutput?: boolean;
 }>;
 
 export type GenerationResult = Readonly<{
   document: ContentDocument;
   rawResponse: string;
+  providerDiagnostics?: AIResponse["diagnostics"];
 }>;
 
 export interface ContentGenerationStrategy {
@@ -55,11 +57,19 @@ export class AIWorkflow {
       const request = this.strategy.createRequest(input);
       const response = await this.provider.generate({
         ...request,
-        metadata: { contentType: input.contentType, platform: input.platform },
+        metadata: {
+          contentType: input.contentType,
+          platform: input.platform,
+          ...(input.structuredLongFormOutput ? { task: "content-generation" } : {}),
+          ...(input.contentOpportunity?.qualityTarget
+            ? { qualityTarget: JSON.stringify(input.contentOpportunity.qualityTarget) }
+            : {}),
+        },
       });
       const result = Object.freeze({
         document: this.strategy.parse(response.content, input),
         rawResponse: response.content,
+        ...(response.diagnostics ? { providerDiagnostics: response.diagnostics } : {}),
       });
       this.state = Object.freeze({ result, status: "generated" });
       return result;

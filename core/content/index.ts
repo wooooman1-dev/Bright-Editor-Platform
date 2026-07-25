@@ -4,9 +4,26 @@ export {
   type ContentBlockType,
 } from "./ContentBlockType";
 export type { ContentDocument } from "./ContentDocument";
+export {
+  contentDepths,
+  contentSectionTypes,
+  determineContentPlanQualityTarget,
+  effectiveContentDepth,
+  normalizeContentPlanQualityTarget,
+  type ContentDepth,
+  type ContentDepthPolicyInput,
+  type ContentPlanQualityTarget,
+  type ContentSectionType,
+  type ContentTargetRange,
+  type LegacySectionLengthGuidance,
+  type PlannedContentDepth,
+  type SectionCompletenessGuidance,
+  type SectionLengthGuidance,
+} from "./ContentDepthPolicy";
 export { createContentOutline, type ContentOutlineEntry } from "./ContentOutline";
 export {
   assertConfirmedContentOpportunity,
+  applyContentDepthPolicy,
   confirmContentOpportunity,
   contentOpportunityKeywords,
   createContentOpportunityCandidate,
@@ -30,6 +47,17 @@ export {
   type OpportunityAlignmentStatus,
 } from "./ContentOpportunityAlignment";
 export { calculateContentMetrics, canonicalDocumentText } from "./ContentMetrics";
+export {
+  analyzeLongFormDocument,
+  assertLongFormDocument,
+  assertLongFormSafetyTarget,
+  formatLongFormDiagnostic,
+  LongFormValidationError,
+  requiresLongFormValidation,
+  type LongFormDiagnostic,
+  type LongFormSectionDiagnostic,
+  type LongFormViolationCode,
+} from "./LongFormDiagnostics";
 export { deriveContentTags } from "./ContentTags";
 export { placeRecommendedPosts, rankRelatedPosts, type PublicPostCandidate } from "./RelatedPostRecommendation";
 export { restoreProtectedImageAssets } from "./ProtectedImageAssets";
@@ -63,6 +91,7 @@ export type { ImageBlock, ImageBlockPurpose, ImageBlockSourceType } from "./bloc
 export type { ParagraphBlock } from "./blocks/ParagraphBlock";
 export type { VideoBlock } from "./blocks/VideoBlock";
 export { ContentNormalizer } from "./processors/ContentNormalizer";
+export { normalizeStructuredText, structuredListItems, structuredProseText, structuredTableCount } from "./StructuredText";
 export {
   ContentOptimizer,
   type ContentOptimizerOptions,

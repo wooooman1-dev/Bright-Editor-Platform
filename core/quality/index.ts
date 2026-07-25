@@ -1,6 +1,7 @@
 export {
   PublishingGate,
   contentRevisionId,
+  isStandardQualityApproved,
   resolveQualityApproval,
 } from "./QualityEngine";
 export type {

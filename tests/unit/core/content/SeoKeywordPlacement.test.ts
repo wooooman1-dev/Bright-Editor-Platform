@@ -31,6 +31,23 @@ function createDocument(): ContentDocument {
 }
 
 describe("ensureSeoKeywordPlacement", () => {
+  it("preserves structured long-form boundary metadata while refreshing SEO metadata", () => {
+    const source = createDocument();
+    const longFormStructure = {
+      introductionBlockIds: ["paragraph-1"],
+      sections: [{ headingBlockId: "heading-1", paragraphBlockIds: ["paragraph-2"] }],
+      conclusionBlockIds: ["paragraph-3"],
+    };
+    const sourceWithBoundaries = {
+      ...source,
+      metadata: { ...source.metadata, longFormStructure },
+    } as ContentDocument;
+
+    const result = ensureSeoKeywordPlacement(sourceWithBoundaries, keyword);
+
+    expect(result.metadata?.longFormStructure).toEqual(longFormStructure);
+  });
+
   it("places the exact keyword in title, introduction, and metadata without changing block identity or order", () => {
     const source = createDocument();
     const result = ensureSeoKeywordPlacement(source, keyword);
