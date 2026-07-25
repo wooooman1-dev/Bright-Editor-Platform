@@ -14,18 +14,17 @@ const representativeSource = readFileSync(
 );
 
 describe("Tistory representative image", () => {
-  it("recognizes explicit selected control states", () => {
+  it("recognizes the actual Tistory active representative control state", () => {
+    expect(representativeControlLooksSelected({ className: "mce-represent-image-btn active" })).toBe(true);
     expect(representativeControlLooksSelected({ ariaPressed: "true" })).toBe(true);
     expect(representativeControlLooksSelected({ ariaChecked: "true" })).toBe(true);
     expect(representativeControlLooksSelected({ ariaSelected: "true" })).toBe(true);
     expect(representativeControlLooksSelected({ checked: true })).toBe(true);
     expect(representativeControlLooksSelected({ dataState: "selected" })).toBe(true);
-    expect(representativeControlLooksSelected({ className: "toolbar-button selected" })).toBe(true);
-    expect(representativeControlLooksSelected({ label: "대표 이미지 해제" })).toBe(true);
   });
 
-  it("does not treat an unselected representative control as selected", () => {
-    expect(representativeControlLooksSelected({ label: "대표 이미지", ariaPressed: "false" })).toBe(false);
+  it("does not treat an inactive icon-only representative control as selected", () => {
+    expect(representativeControlLooksSelected({ className: "mce-represent-image-btn" })).toBe(false);
     expect(representativeControlLooksSelected(undefined)).toBe(false);
   });
 
@@ -36,15 +35,23 @@ describe("Tistory representative image", () => {
     expect(sameEditorSource).toContain("representativeVerified");
   });
 
-  it("uses a real Playwright image click before resolving the representative control", () => {
-    expect(representativeSource).toContain("clickRepresentativeCandidate(page, remoteUrl)");
-    expect(representativeSource).toContain("image.click({ force: true, timeout: 5000 })");
-    expect(representativeSource).toContain("trusted: true");
-    expect(representativeSource).toContain('data-tooltip-content*="대표"');
+  it("targets Tistory's exact icon-only representative control in the main document", () => {
+    expect(representativeSource).toContain('const representativeControlSelector = ".mce-represent-image-btn"');
+    expect(representativeSource).toContain("page.locator(representativeControlSelector)");
+    expect(representativeSource).toContain('context: "main"');
+    expect(representativeSource).not.toContain("representativeLabelPattern");
   });
 
-  it("blocks draft save when representative selection cannot be verified", () => {
-    expect(representativeSource).not.toContain("function representativeWarning");
+  it("uses a trusted editor image click and waits for the asynchronous control", () => {
+    expect(representativeSource).toContain('frame.locator("figure img, [data-ke-type=\\"image\\"] img")');
+    expect(representativeSource).toContain("image.click({ timeout: 5000 })");
+    expect(representativeSource).not.toContain("image.click({ force: true");
+    expect(representativeSource).toContain("waitForRepresentativeControl(page)");
+    expect(representativeSource).toContain("await page.waitForTimeout(100)");
+  });
+
+  it("blocks draft save until the active state is verified", () => {
+    expect(representativeSource).toContain("waitForRepresentativeSelection(page, located.locator)");
     expect(representativeSource).toContain("function representativeFailure");
     expect(representativeSource).toContain("passed: false");
     expect(representativeSource).toContain("verified: false");
