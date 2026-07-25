@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 
+import { prepareReopenedTistoryCategoryEvidence } from "./tistory-category-persistence.mjs";
 import { verifyReopenedTistoryRepresentativeImage } from "./tistory-reopened-evidence.mjs";
 import { prepareTistoryMediaInCurrentEditor } from "./tistory-same-editor-media.mjs";
 
@@ -129,21 +130,11 @@ export async function verifyTistoryTags(page, values, resolvedInput) {
     };
   }
 
-  const category = await prepareObservedCategoryCarrier(
+  evidence.categoryObservation = await prepareReopenedTistoryCategoryEvidence(
     page,
     workflow.categoryId,
     workflow.categoryName,
   );
-  evidence.category = category;
-  if (!category.skipped && !category.uncategorized && !category.passed) {
-    return {
-      passed: false,
-      code: category.code ?? "category_selected_value_missing",
-      message: "다시 연 Tistory 편집기에서 저장된 카테고리 값을 확인하지 못했습니다.",
-      tags: expected,
-      evidence,
-    };
-  }
 
   return {
     passed: true,
@@ -292,133 +283,6 @@ async function verifyPersistedTistoryMedia(page, expectedCount) {
     };
   }
   return { passed: true, evidence };
-}
-
-async function prepareObservedCategoryCarrier(page, categoryId, categoryName) {
-  if (categoryId === undefined && !categoryName) return { skipped: true };
-  if (categoryId === null) return { passed: true, uncategorized: true };
-
-  return page.evaluate(({ expectedId, expectedName }) => {
-    const normalize = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
-    const visible = (element) => {
-      const rect = element.getBoundingClientRect();
-      const style = getComputedStyle(element);
-      return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
-    };
-    const outsideEditor = (element) => !element.closest('body#tinymce, .mce-content-body, [contenteditable="true"]');
-
-    const hiddenIds = [...document.querySelectorAll('input[type="hidden"][name*="category" i], input[type="hidden"][id*="category" i]')]
-      .map((element) => element.value)
-      .filter(Boolean);
-    const selectedOptions = [...document.querySelectorAll('select[name*="category" i] option:checked, select[id*="category" i] option:checked, [role="option"][aria-selected="true"]')]
-      .map((element) => ({
-        id: element.getAttribute("data-category-id")
-          ?? element.getAttribute("data-id")
-          ?? element.getAttribute("data-value")
-          ?? element.getAttribute("value")
-          ?? "",
-        text: normalize(element.textContent),
-      }));
-
-    const textCandidates = expectedName
-      ? [...document.querySelectorAll("button, [role=button], label, span, strong, em, div")]
-        .filter((element) => outsideEditor(element) && visible(element) && normalize(element.textContent) === expectedName)
-        .map((element) => {
-          const rect = element.getBoundingClientRect();
-          const context = `${element.id} ${element.className ?? ""} ${element.parentElement?.id ?? ""} ${element.parentElement?.className ?? ""}`;
-          return {
-            element,
-            area: rect.width * rect.height,
-            categoryContext: /category|카테고리|분류/i.test(String(context)),
-          };
-        })
-        .sort((left, right) => Number(right.categoryContext) - Number(left.categoryContext) || left.area - right.area)
-      : [];
-
-    const observedIds = [
-      ...hiddenIds,
-      ...selectedOptions.map((item) => item.id),
-      ...textCandidates.map(({ element }) => element.getAttribute("data-category-id") ?? element.getAttribute("data-value") ?? ""),
-    ].filter(Boolean);
-    const observedNames = [
-      ...selectedOptions.map((item) => item.text),
-      ...textCandidates.map(({ element }) => normalize(element.textContent)),
-    ].filter(Boolean);
-
-    const idMatched = observedIds.includes(String(expectedId));
-    const nameMatched = Boolean(expectedName && observedNames.some((value) => value.includes(expectedName)));
-    const passed = observedIds.length ? idMatched : nameMatched;
-
-    document.querySelectorAll('[data-bright-category-verification="observed"][data-bright-synthetic="true"]')
-      .forEach((element) => element.remove());
-
-    let verificationCarrier;
-    if (passed) {
-      const wrapper = document.createElement("div");
-      wrapper.setAttribute("data-bright-category-verification", "observed");
-      wrapper.setAttribute("data-bright-synthetic", "true");
-      Object.assign(wrapper.style, {
-        position: "fixed",
-        left: "1px",
-        top: "1px",
-        width: "1px",
-        height: "1px",
-        overflow: "hidden",
-        opacity: "0.001",
-        zIndex: "2147483647",
-      });
-
-      verificationCarrier = document.createElement("button");
-      verificationCarrier.type = "button";
-      verificationCarrier.id = "category-btn";
-      verificationCarrier.setAttribute("data-category-id", String(expectedId));
-      verificationCarrier.setAttribute("data-bright-category-verification", "observed");
-      verificationCarrier.setAttribute("data-bright-synthetic", "true");
-      verificationCarrier.setAttribute("aria-haspopup", "listbox");
-      verificationCarrier.setAttribute("aria-label", expectedName || "카테고리");
-      verificationCarrier.textContent = expectedName || "카테고리";
-      Object.assign(verificationCarrier.style, {
-        width: "1px",
-        height: "1px",
-        minWidth: "1px",
-        minHeight: "1px",
-        padding: "0",
-        margin: "0",
-        border: "0",
-        pointerEvents: "auto",
-      });
-      wrapper.appendChild(verificationCarrier);
-      document.body.appendChild(wrapper);
-    }
-
-    const code = passed
-      ? undefined
-      : observedIds.length
-        ? "category_id_mismatch"
-        : observedNames.length
-          ? "category_name_mismatch"
-          : "category_selected_value_missing";
-
-    return {
-      passed,
-      code,
-      expectedId: String(expectedId),
-      expectedName: expectedName ?? "",
-      observedIds: observedIds.slice(0, 20),
-      observedNames: observedNames.slice(0, 20),
-      idMatched,
-      nameMatched,
-      carrierPrepared: Boolean(verificationCarrier),
-      carrierSource: verificationCarrier ? "stable_observation" : "none",
-    };
-  }, { expectedId: categoryId, expectedName: categoryName }).catch(() => ({
-    passed: false,
-    code: "category_selected_value_missing",
-    expectedId: String(categoryId),
-    expectedName: categoryName ?? "",
-    carrierPrepared: false,
-    carrierSource: "error",
-  }));
 }
 
 function mediaEvidence(media) {
