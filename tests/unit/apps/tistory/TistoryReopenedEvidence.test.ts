@@ -41,6 +41,16 @@ describe("Tistory reopened evidence", () => {
     expect(reopenedEvidenceSource).toContain("representative_persistence_not_selected");
   });
 
+  it("keeps reopened media, representative, and category checks out of pre-save tag verification", () => {
+    const fillStart = tagWorkflowSource.indexOf("export async function fillTistoryTags");
+    const reopenedStart = tagWorkflowSource.indexOf("export async function verifyTistoryTags");
+    const fillSection = tagWorkflowSource.slice(fillStart, reopenedStart);
+    expect(fillSection).toContain("verifyTagValues(page, expected, input)");
+    expect(fillSection).not.toContain("verifyReopenedTistoryRepresentativeImage");
+    expect(fillSection).not.toContain("prepareObservedCategoryCarrier");
+    expect(fillSection).not.toContain("verifyPersistedTistoryMedia");
+  });
+
   it("runs representative persistence verification before reopened category preparation", () => {
     const representativeIndex = tagWorkflowSource.indexOf(
       "const representative = await verifyReopenedTistoryRepresentativeImage(page, workflow.mediaCount)",
