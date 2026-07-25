@@ -137,7 +137,14 @@ try {
   const finalCategory = await verifyCategorySelection(page, command.categoryId, command.categoryName, category.descriptor);
   if (!finalCategory.passed) fail("category_verified", finalCategory.code, finalCategory.message);
   const finalBody = await verifyRenderedHtml(page, command.html);
-  if (!finalBody.passed) fail("body_verified", "body_verification_failed", "임시저장 직전 Tistory 본문 상태를 확인하지 못했습니다.");
+  verificationEvidence = finalBody.diagnostic;
+  if (!finalBody.passed) {
+    fail(
+      "body_verified",
+      structureDiagnosticCode(finalBody.diagnostic),
+      "임시저장 직전 Tistory 기본모드에서 Renderer HTML 본문을 확인하지 못했습니다.",
+    );
+  }
 
   const saveButton = await visibleDraftButton(page);
   if (!saveButton) fail("draft_save_clicked", "draft_button_not_found", "Tistory 임시저장 버튼을 찾지 못했습니다.");
@@ -833,10 +840,15 @@ async function draftCandidateHandle(container, title, candidateIndex) {
 function safeDraftCandidate(candidate) { return { title: candidate.title, id: candidate.id || undefined, date: candidate.date || undefined, tagName: candidate.tagName, className: candidate.className, hrefPresent: Boolean(candidate.href), candidateIndex: candidate.candidateIndex }; }
 
 function structureDiagnosticCode(diagnostic) {
-  if (!diagnostic?.h2Matched) return "reopened_heading_missing";
-  if (!diagnostic?.tocMatched) return "reopened_toc_missing";
-  if (!diagnostic?.internalLinksMatched) return "reopened_internal_link_missing";
-  if (!diagnostic?.relatedLinksMatched) return "reopened_related_posts_missing";
+  if (!diagnostic?.textLengthWithinTolerance) return "rendered_text_length_mismatch";
+  if (!diagnostic?.firstParagraphMatched) return "rendered_first_paragraph_mismatch";
+  if (!diagnostic?.h2Matched) return "rendered_heading_missing";
+  if (!diagnostic?.tocMatched) return "rendered_toc_missing";
+  if (!diagnostic?.internalLinksMatched) return "rendered_internal_link_missing";
+  if (!diagnostic?.relatedLinksMatched) return "rendered_related_posts_missing";
+  if (!diagnostic?.ctaLinksMatched) return "rendered_cta_link_missing";
+  if (!diagnostic?.imagesMatched) return "rendered_image_mismatch";
+  if ((diagnostic?.invalidPlaceholderLinks ?? 0) > 0) return "rendered_placeholder_link_present";
   return "structure_verification_failed";
 }
 async function readMeaningfulBody(targetPage, expectedHtml) {
