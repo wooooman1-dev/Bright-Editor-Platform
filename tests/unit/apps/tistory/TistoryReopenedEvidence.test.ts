@@ -34,8 +34,12 @@ describe("Tistory reopened evidence", () => {
   });
 
   it("runs representative persistence verification before reopened category preparation", () => {
-    const representativeIndex = tagWorkflowSource.indexOf("verifyReopenedTistoryRepresentativeImage");
-    const categoryIndex = tagWorkflowSource.indexOf("prepareObservedCategoryCarrier(");
+    const representativeIndex = tagWorkflowSource.indexOf(
+      "const representative = await verifyReopenedTistoryRepresentativeImage(page, workflow.mediaCount)",
+    );
+    const categoryIndex = tagWorkflowSource.indexOf(
+      "const category = await prepareObservedCategoryCarrier(",
+    );
     expect(representativeIndex).toBeGreaterThan(-1);
     expect(categoryIndex).toBeGreaterThan(representativeIndex);
     expect(tagWorkflowSource).toContain("evidence.representative = representative.evidence");
