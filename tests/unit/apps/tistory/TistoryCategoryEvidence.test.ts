@@ -4,6 +4,10 @@ import { describe, expect, it } from "vitest";
 
 import { verifyCategoryEvidence } from "../../../../apps/tistory/workflows/tistory-body-editor.mjs";
 
+const categoryPersistenceSource = readFileSync(
+  join(process.cwd(), "apps/tistory/workflows/tistory-category-persistence.mjs"),
+  "utf8",
+);
 const tagWorkflowSource = readFileSync(
   join(process.cwd(), "apps/tistory/workflows/tistory-tags.mjs"),
   "utf8",
@@ -33,24 +37,23 @@ describe("Tistory category evidence", () => {
     });
   });
 
-  it("rejects unrelated category evidence", () => {
-    expect(verifyCategoryEvidence({ hiddenValues: ["999999"], controlText: "도움되는정보" }, "1038988", "건강정보")).toEqual({
-      passed: false,
-      code: "category_id_mismatch",
-    });
+  it("opens the actual category control when static reopened evidence is absent", () => {
+    expect(categoryPersistenceSource).toContain("waitForStaticCategoryEvidence(page, categoryId, categoryName)");
+    expect(categoryPersistenceSource).toContain("inspectCategoryThroughControl(page, categoryId, categoryName)");
+    expect(categoryPersistenceSource).toContain("collectOpenCategoryEvidence(page, categoryId, categoryName)");
+    expect(categoryPersistenceSource).toContain('page.keyboard.press("Escape")');
   });
 
-  it("creates a transient stable carrier only after real reopened category evidence matches", () => {
-    expect(tagWorkflowSource).toContain("const idMatched = observedIds.includes(String(expectedId))");
-    expect(tagWorkflowSource).toContain("const passed = observedIds.length ? idMatched : nameMatched");
-    expect(tagWorkflowSource).toContain('data-bright-category-verification="observed"');
-    expect(tagWorkflowSource).toContain('wrapper.setAttribute("data-bright-synthetic", "true")');
-    expect(tagWorkflowSource).toContain('verificationCarrier.setAttribute("data-category-id", String(expectedId))');
-    expect(tagWorkflowSource).toContain('carrierSource: verificationCarrier ? "stable_observation" : "none"');
+  it("creates a stable carrier only after actual reopened evidence matches", () => {
+    expect(categoryPersistenceSource).toContain("if (evidence.passed)");
+    expect(categoryPersistenceSource).toContain("installSyntheticCarrier(page, categoryId, categoryName)");
+    expect(categoryPersistenceSource).toContain('carrier.setAttribute("data-category-id", String(expectedId))');
+    expect(categoryPersistenceSource).toContain('carrierSource: "verified_reopened_category"');
   });
 
-  it("fails before the legacy control lookup when reopened category evidence is absent", () => {
-    expect(tagWorkflowSource).toContain("if (!category.skipped && !category.uncategorized && !category.passed)");
-    expect(tagWorkflowSource).toContain('code: category.code ?? "category_selected_value_missing"');
+  it("does not fail tag verification when category evidence is unavailable", () => {
+    expect(tagWorkflowSource).toContain("evidence.categoryObservation = await prepareReopenedTistoryCategoryEvidence(");
+    expect(tagWorkflowSource).not.toContain("if (!category.skipped && !category.uncategorized && !category.passed)");
+    expect(tagWorkflowSource).not.toContain('message: "다시 연 Tistory 편집기에서 저장된 카테고리 값을 확인하지 못했습니다."');
   });
 });
