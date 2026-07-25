@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ access: vi.fn() }));
 vi.mock("node:fs/promises", () => ({ access: mocks.access }));
 
-import { applyTistoryPublishingAccount, calculateTistoryReadiness, usableTistoryConnections } from "../../../../app/application/publishing/TistoryPublishingPreparation";
+import { applyTistoryPublishingAccount, applyTistoryPublishingCategory, calculateTistoryReadiness, resolveTistoryDefaultCategory, usableTistoryConnections } from "../../../../app/application/publishing/TistoryPublishingPreparation";
 import { QualityEngine } from "../../../../core/quality";
 import { safeDraftPermissions, type PlatformConnection } from "../../../../core/connections";
 import { determineContentPlanQualityTarget, type ContentDocument } from "../../../../core/content";
@@ -77,6 +77,18 @@ describe("Tistory publishing preparation", () => {
     const next = applyTistoryPublishingAccount(base, "project", "content", "account", "later");
     expect(next.projects[0]).toMatchObject({ selectedPublishingAccountIds: ["account"], strategy: { defaultPublishingAccountId: "account" } });
     expect(next.contents[0]).toMatchObject({ platform: "tistory", publishingAccountId: "account", selectedPublishingAccountIds: ["account"] });
+  });
+
+  it("matches the Project topic to a Tistory category before generation and stores it as the default", () => {
+    const category = resolveTistoryDefaultCategory(base.projects[0], connection.id, [
+      { id: "1038988", name: "건강정보" },
+      { id: "1057542", name: "건강운동" },
+    ]);
+    expect(category).toEqual({ id: "1057542", name: "건강운동" });
+    const accountReady = applyTistoryPublishingAccount(base, "project", "content", connection.id, "later");
+    const next = applyTistoryPublishingCategory(accountReady, "project", "content", connection.id, category!, "later");
+    expect(next.projects[0].strategy?.defaultTistoryCategory).toEqual({ publishingAccountId: "account", id: "1057542", name: "건강운동" });
+    expect(next.contents[0].publishingPreparation?.tistory).toMatchObject({ publishingAccountId: "account", platformCategoryId: "1057542", platformCategoryName: "건강운동" });
   });
 
   it("returns server readiness with only final confirmation remaining", async () => {
