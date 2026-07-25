@@ -59,12 +59,6 @@ export {
   type LongFormViolationCode,
 } from "./LongFormDiagnostics";
 export { deriveContentTags } from "./ContentTags";
-export {
-  isStructuredParagraphText,
-  readableSentenceCount,
-  readableSentenceSegments,
-  splitReadableParagraphText,
-} from "./ParagraphReadability";
 export { placeRecommendedPosts, rankRelatedPosts, type PublicPostCandidate } from "./RelatedPostRecommendation";
 export { restoreProtectedImageAssets } from "./ProtectedImageAssets";
 export { isVerifiedEditorialLink, restoreVerifiedEditorialLinks } from "./ProtectedEditorialLinks";
