@@ -33,12 +33,13 @@ describe("Tistory category evidence", () => {
     });
   });
 
-  it("prefers the real category structure over a non-interactive visible name node", () => {
-    expect(tagWorkflowSource).toContain("const structuralCandidates");
-    expect(tagWorkflowSource).toContain("const carrier = structuralCarrier ?? namedCarrier");
-    expect(tagWorkflowSource).toContain('const carrierSource = structuralCarrier ? "category_structure" : namedCarrier ? "matched_name" : "none"');
-    expect(tagWorkflowSource).toContain('carrier.setAttribute("data-bright-category-verification", "observed")');
-    expect(tagWorkflowSource).toContain('carrier.setAttribute("data-category-id", String(expectedId))');
+  it("creates a transient stable carrier only after real reopened category evidence matches", () => {
+    expect(tagWorkflowSource).toContain("const idMatched = observedIds.includes(String(expectedId))");
+    expect(tagWorkflowSource).toContain("const passed = idMatched || nameMatched");
+    expect(tagWorkflowSource).toContain('data-bright-category-verification="observed"');
+    expect(tagWorkflowSource).toContain('wrapper.setAttribute("data-bright-synthetic", "true")');
+    expect(tagWorkflowSource).toContain('verificationCarrier.setAttribute("data-category-id", String(expectedId))');
+    expect(tagWorkflowSource).toContain('carrierSource: verificationCarrier ? "stable_observation" : "none"');
   });
 
   it("fails before the legacy control lookup when reopened category evidence is absent", () => {
