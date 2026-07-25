@@ -10,6 +10,7 @@ export type RepresentativeControlState = Readonly<{
 
 export type TistoryRepresentativeImageResult = Readonly<{
   passed: boolean;
+  attempted?: boolean;
   verified?: boolean;
   code?: string;
   message?: string;
