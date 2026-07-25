@@ -44,6 +44,24 @@ describe("Tistory body verification diagnostics", () => {
     expect(semanticHtmlDiagnosticCode(completeEvidence)).toBeUndefined();
   });
 
+  it("accepts native images added after marker-only HTML verification", () => {
+    expect(semanticHtmlDiagnosticCode({
+      ...completeEvidence,
+      imagesMatched: false,
+      expectedImageCount: 0,
+      imageCount: 3,
+    })).toBeUndefined();
+  });
+
+  it("still rejects a missing expected image", () => {
+    expect(semanticHtmlDiagnosticCode({
+      ...completeEvidence,
+      imagesMatched: false,
+      expectedImageCount: 3,
+      imageCount: 0,
+    })).toBe("rendered_image_mismatch");
+  });
+
   it("keeps the semantic verifier boolean contract", () => {
     expect(semanticHtmlVerified(completeEvidence)).toBe(true);
     expect(semanticHtmlVerified({ ...completeEvidence, tocMatched: false })).toBe(false);
