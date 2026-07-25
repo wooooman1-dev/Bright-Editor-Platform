@@ -22,14 +22,12 @@ function replaceSinglePlaceholder(html, item) {
   assertNativeFragment(nativeHtml);
 
   const withAlt = applyAlt(nativeHtml, item?.alt);
-  const figurePattern = new RegExp(
-    `<figure\\b[^>]*>[\\s\\S]*?<img\\b[^>]*\\bsrc=(['"])${escapeRegExp(placeholderUrl)}\\1[^>]*>[\\s\\S]*?<\\/figure>`,
-    "i",
-  );
-  const figureMatch = html.match(figurePattern);
-  if (figureMatch) {
+  const figureMatch = [...html.matchAll(/<figure\b[^>]*>[\s\S]*?<\/figure>/gi)]
+    .find((match) => match[0].includes(placeholderUrl));
+  if (figureMatch && figureMatch.index !== undefined) {
     const caption = figureMatch[0].match(/<figcaption\b[^>]*>[\s\S]*?<\/figcaption>/i)?.[0];
-    return html.replace(figurePattern, mergeCaption(withAlt, caption));
+    const replacement = mergeCaption(withAlt, caption);
+    return `${html.slice(0, figureMatch.index)}${replacement}${html.slice(figureMatch.index + figureMatch[0].length)}`;
   }
 
   const imagePattern = new RegExp(`<img\\b[^>]*\\bsrc=(['"])${escapeRegExp(placeholderUrl)}\\1[^>]*>`, "i");
