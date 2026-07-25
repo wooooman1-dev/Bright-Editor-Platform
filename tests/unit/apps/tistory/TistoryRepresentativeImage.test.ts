@@ -34,8 +34,11 @@ describe("Tistory representative image", () => {
     expect(sameEditorSource).toContain("representativeVerified");
   });
 
-  it("fails before draft save when the representative control cannot be used or verified", () => {
-    expect(sameEditorSource).toContain("throw mediaPlacementError(representative.code, representative.message");
+  it("records representative image failures as warnings so draft save can continue", () => {
+    expect(representativeSource).toContain("function representativeWarning");
+    expect(representativeSource).toContain("passed: true");
+    expect(representativeSource).toContain("verified: false");
+    expect(representativeSource).toContain("warning: { code, message }");
     expect(representativeSource).toContain("representative_control_not_found");
     expect(representativeSource).toContain("representative_control_not_clickable");
     expect(representativeSource).toContain("representative_selection_not_verified");
