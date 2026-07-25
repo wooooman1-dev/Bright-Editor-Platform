@@ -2,7 +2,7 @@
 
 ## Baseline
 
-Implementation baseline: Sprint 5 completed plus Data Source and Opportunity Intelligence Foundation implemented.
+Implementation baseline: Bright Studio `v1.0.0` released from commit `9946f9ecc9167b343ff0c7763c62437d593764ea`, including the completed Sprint 1–5 baseline, Data Source and Opportunity Intelligence Foundation, canonical HTML review structure fixes, Planning preservation, Tistory Category context propagation and verified internal-link placement.
 
 Architecture design baseline: Sprint 6, Sprint 7, and Sprint 8 approved. Sprint 7 as a whole remains not implemented; only the separately identified Data Source and Opportunity Intelligence Foundation is implemented.
 
@@ -11,6 +11,54 @@ Internal name: Bright Editor Platform
 Product name: Bright Studio
 
 Architecture status: Frozen
+
+## Bright Studio v1.0.0 Release Baseline
+
+Release status:
+
+- Product: `Bright Studio`
+- Internal project: `Bright Editor Platform`
+- Release: `Bright Studio v1.0.0`
+- Tag: `v1.0.0`
+- Status: `Released`
+- Release date: `2026-07-25`
+- Release commit: `9946f9ecc9167b343ff0c7763c62437d593764ea`
+- Latest Release: Yes
+- Draft: No
+- Prerelease: No
+
+Current verification:
+
+- Test Files: `137 passed`
+- Tests: `693 passed`
+- Manual Tests: `17 skipped`
+- lint: Passed
+- TypeScript compilation: Passed
+- Next.js production build: Passed
+- working tree at release: Clean
+
+Browser verification:
+
+- Planning: Passed
+- Generation: Passed
+- Quality Review: Passed
+- Overall score: `100`
+- Approval level: `standard`
+- Publishing readiness: Confirmed
+- Contextual internal link: `1`
+- Related content links: `3`
+- Internal-link diagnostic wording: Matched actual placement result
+
+Frozen areas:
+
+- Quality score calculation logic
+- Internal link placement logic
+
+수정은 실제 화면, 실제 로그, 실제 저장 데이터와 실제 코드 경로를 확인하고 문제를 재현한 뒤 사용자 승인과 최소 수정 원칙에 따라 진행한다.
+
+External verification boundary:
+
+`v1.0.0` 릴리즈는 완료되었지만, 실제 Tistory Draft Save 후 Draft를 다시 열어 제목, 의미 있는 본문 구조, Category와 비공개 상태를 확인하는 Gate는 별도의 외부 검증 기록이 확인되기 전까지 미완료 상태를 유지한다.
 
 ## Sprint Summary
 
@@ -257,18 +305,32 @@ Sprint 7 as a whole must not be reported as implemented or verified.
 - Token refresh after actual expiry, quota limits and diverse real Provider responses remain open.
 - Google Ads and Google Trends remain inactive until official access is available and verified.
 
-## Information-Sufficiency First-Generation Quality Policy (2026-07-24)
+## Information-Sufficiency and Canonical Review Baseline — Released in v1.0.0
 
-The first-generation WIP now uses a Core-owned information-sufficiency target and does not use prose length as a quality goal or Gate.
+The information-sufficiency and canonical document review work is included in `Bright Studio v1.0.0`.
 
-Implemented on `fix/first-generation-quality` as uncommitted follow-up work after WIP commit `b2bfeee`:
+Released behavior:
 
-- standard / deep / comparison Planning targets, with legacy quick read compatibility
-- target persistence in Content Opportunity, Content, and canonical metadata
-- strict generation schema without prose minLength or target section counts
-- sectionType-aware LongForm diagnostics
-- missing / mentioned / sufficient required-element and repetition gates
-- dynamic Final Review regression protection
-- standard-approval-only Editor and publishing readiness
+- Prose length is not used as a quality goal or publishing Gate.
+- Quality is evaluated using search-intent fulfillment, reader-problem resolution, required information elements, section completeness, information density, repetition and accuracy.
+- AI HTML paragraphs are normalized into canonical ContentDocument blocks.
+- Lists, ordered procedures and tables are preserved as canonical structures.
+- Incomplete sections and repeated structures are inspected against the canonical document.
+- Multiple sentences in a normal paragraph do not trigger an automatic readability penalty or forced paragraph splitting.
+- Recoverable quality issues are handled within the single Quality Review.
+- JSON corruption, document damage and Content Opportunity identity mismatch remain blocking failures.
+- AI Generation remains one Provider call.
+- Quality Review remains one Provider call.
+- Additional Provider retries were not introduced.
 
-Automated verification is required for this uncommitted work. Live AI and browser generation are intentionally deferred until separate user approval and must not be inferred from automated results. This section must not be treated as a release or commit record.
+Release verification:
+
+- Release commit: `9946f9ecc9167b343ff0c7763c62437d593764ea`
+- Test Files: `137 passed`
+- Tests: `693 passed`
+- Manual Tests: `17 skipped`
+- Browser score: `100`
+- Browser approval: `standard`
+- Browser publishing readiness: Confirmed
+
+This section replaces the previous WIP and uncommitted-work description. The functionality must now be treated as released behavior in `v1.0.0`, not as an uncommitted feature-branch state.

@@ -238,7 +238,7 @@ Sprint는 개발 실행 단위이며, Stage는 제품 가치와 장기 완료 �
 | Sprint 7 | Project DNA, Content Library, Internal Link Intelligence | Stage 5 | Design Approved, Not Implemented |
 | Sprint 8 | WordPress and Multi-platform Foundation | Stage 6, Stage 7 | Design Approved, Not Implemented |
 
-현재 Repository 기준은 Sprint 5 완료와 Data Source and Opportunity Intelligence Foundation 구현 완료 상태이다. 해당 Foundation은 `71d4899d feat: add content intelligence and data source workflows`로 `main`과 `origin/main`에 반영되었다.
+현재 Repository의 안정 기준점은 `Bright Studio v1.0.0`이다. 해당 Release는 `9946f9ecc9167b343ff0c7763c62437d593764ea`를 기준으로 `v1.0.0` Tag와 Latest Release가 발행되었다. Sprint와 Stage의 완료 여부는 버전 릴리즈 여부와 분리하여 실제 구현, 자동 테스트와 외부 검증 Gate를 기준으로 판단한다.
 
 Sprint 6 이후 문서가 존재하더라도 Sprint 전체를 `Implemented` 또는 `Verified`로 판단해서는 안 된다. 특히 Sprint 7 전체는 미구현이며, 별도로 완료된 Data Source and Opportunity Intelligence Foundation만 `Implemented`다. 실제 상태는 Repository 코드, 자동 테스트, 외부 검증 결과 및 Development 문서를 통해 각각 확인한다.
 
@@ -269,6 +269,61 @@ Workstream B:
 ScheduledPublication → ScheduleJob → Asia/Seoul → 고정 Revision/Account/Category → Tistory 자체 예약 → 예약 시간 수정 → Draft 보존 예약 취소 → 예약 목록과 상태 → 중복 방지 → 실패 Job만 재시도 → 앱 재시작 복원 → 실제 Tistory 예약 외부 검증
 
 통합 Sprint는 실제 외부 검증 전 `Completed` 또는 `Verified`로 올리지 않는다.
+
+## 6.3 Bright Studio v1.0.0 Release Baseline
+
+Bright Studio의 첫 번째 정식 버전 릴리즈 기준점은 다음과 같다.
+
+- Release: `Bright Studio v1.0.0`
+- Status: `Released`
+- Release Date: `2026-07-25`
+- Tag: `v1.0.0`
+- Release Commit: `9946f9ecc9167b343ff0c7763c62437d593764ea`
+- Draft Release: No
+- Prerelease: No
+- Latest Release: Yes
+
+Released scope:
+
+- AI가 반환한 HTML 형식 문단을 canonical `ContentDocument`로 정규화
+- 목록, 순서형 절차와 표를 canonical block으로 변환
+- 문서 구조와 Quality Review 결과의 정합성 강화
+- 자연어 Planning 요청의 줄바꿈과 문단 형식 보존
+- 저장된 Content Opportunity와 생성 요청의 정체성 복구 강화
+- 선택된 Tistory 연결과 Category 정보를 생성 및 검토 과정에 전달
+- 같은 Tistory Category의 검증된 공개 URL만 내부 링크 후보로 사용
+- 본문 문맥형 내부 링크 최대 1개
+- 하단 관련 글 최대 3개
+- 적합한 후보가 부족할 경우 강제 배치하지 않음
+- 여러 문장이 포함된 정상 문단을 문장 수만으로 감점하거나 자동 분할하지 않음
+- AI Generation 1회와 Quality Review 1회 정책 유지
+
+Release verification baseline:
+
+- Test Files: `137 passed`
+- Tests: `693 passed`
+- Manual Tests: `17 skipped`
+- `npm run lint`: Passed
+- TypeScript compilation: Passed
+- `npm run build`: Passed
+- Next.js production build: Passed
+- Browser Planning flow: Verified
+- Browser Generation flow: Verified
+- Browser Quality Review flow: Verified
+- Quality score: `100`
+- Quality approval: `standard`
+- Publishing readiness: Confirmed
+- Contextual internal link: `1`
+- Related content links: `3`
+
+Frozen release areas:
+
+- Quality score calculation logic
+- Internal link placement logic
+
+이 두 영역은 실제 오류나 회귀가 재현되지 않는 한 변경하지 않는다.
+
+`v1.0.0` 릴리즈는 안정적인 버전 기준점이다. 다만 이 버전 릴리즈 자체가 실제 Tistory Draft를 저장하고 다시 열어 제목, 의미 있는 본문 구조, Category와 비공개 상태를 확인하는 Stage 4 외부 검증 Gate의 완료를 의미하지는 않는다. 해당 검증은 별도의 Gate로 유지한다.
 
 7. Stage 1 — Platform and Content Foundation
 Status
