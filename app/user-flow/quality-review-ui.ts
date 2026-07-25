@@ -10,6 +10,10 @@ const evidenceLabels: Readonly<Record<string, string>> = Object.freeze({
   requiredSections: "필수 섹션 수",
   paragraphCount: "문단 수",
   shortParagraphs: "짧은 문단 수",
+  singleSentenceParagraphs: "한 문장 문단 수",
+  singleSentenceThreshold: "허용 한 문장 문단 수",
+  singleSentenceExcess: "허용 기준 초과 한 문장 문단 수",
+  excessiveSentenceParagraphs: "문장이 너무 많은 문단 수",
   repeatedOpenings: "반복되는 문단 도입부",
   clicheCount: "상투적 표현 수",
   semanticHeadingOverlapCount: "의미가 겹치는 소제목 수",
@@ -37,7 +41,8 @@ const evidenceLabels: Readonly<Record<string, string>> = Object.freeze({
   availableInternalLinkCandidates: "사용 가능한 내부 링크 후보 수",
 });
 const countSignals = new Set([
-  "headingCount", "requiredSections", "paragraphCount", "shortParagraphs", "repeatedOpenings", "clicheCount",
+  "headingCount", "requiredSections", "paragraphCount", "shortParagraphs", "singleSentenceParagraphs", "singleSentenceThreshold",
+  "singleSentenceExcess", "excessiveSentenceParagraphs", "repeatedOpenings", "clicheCount",
   "semanticHeadingOverlapCount", "repeatedCoreAdviceCount", "vagueInstructionCount", "concreteCriteriaCount",
   "practicalToolSignals", "editorialInstructionCount", "duplicateHeadingCount", "emptyHeadings", "shallowSections",
   "duplicateBlockIds", "emptyParagraphs", "invalidButtonUrls", "targetPolicyViolations", "keywordOccurrences", "imageCount",
