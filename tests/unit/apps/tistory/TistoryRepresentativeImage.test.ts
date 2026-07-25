@@ -8,6 +8,10 @@ const sameEditorSource = readFileSync(
   join(process.cwd(), "apps/tistory/workflows/tistory-same-editor-media.mjs"),
   "utf8",
 );
+const representativeSource = readFileSync(
+  join(process.cwd(), "apps/tistory/workflows/tistory-representative-image.mjs"),
+  "utf8",
+);
 
 describe("Tistory representative image", () => {
   it("recognizes explicit selected control states", () => {
@@ -32,6 +36,7 @@ describe("Tistory representative image", () => {
 
   it("fails before draft save when the representative control cannot be used", () => {
     expect(sameEditorSource).toContain("throw mediaPlacementError(representative.code, representative.message");
-    expect(sameEditorSource).toContain("representative_control_not_found");
+    expect(representativeSource).toContain("representative_control_not_found");
+    expect(representativeSource).toContain("representative_control_not_clickable");
   });
 });
