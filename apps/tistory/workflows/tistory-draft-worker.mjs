@@ -1,12 +1,14 @@
 import { readFile } from "node:fs/promises";
 import { chromium } from "playwright";
 import { automationClicksAllowed, editorStateSynchronized, looksAuxiliary, readOnlyClicksAllowed, reopenedDraftVerified, selectCodeMirrorCandidate, selectDraftCandidate, semanticHtmlVerified, verifyCategoryEvidence } from "./tistory-body-editor.mjs";
+import { tistoryCategoryControlSelector } from "./tistory-category-locators.mjs";
 import { fillTistoryTags, verifyTistoryTags } from "./tistory-tags.mjs";
 
 const [commandPath] = process.argv.slice(2);
 const empty = { saveClicked: false, saveNotificationDetected: false, draftIdDetected: false, draftListVerified: false, reopenedDraftVerified: false, titleMatched: false, bodyMatched: false, publicPostCreated: false };
 const PROBE_HTML = '<p data-bright-studio-probe="true">Bright Studio editor probe</p>';
 const PROBE_TEXT = "Bright Studio editor probe";
+const CATEGORY_CONTROL_TIMEOUT_MS = 15000;
 const steps = [];
 let browser;
 let page;
@@ -234,7 +236,7 @@ async function selectCategory(targetPage, categoryId, categoryName) {
     return { passed: true, descriptor: await describeCategoryControl(select), applicationEvidence: await categorySelectionEvidence(targetPage, select) };
   }
   const control = await findCategoryControl(targetPage, undefined, categoryName);
-  if (!await control.isVisible({ timeout: 10000 }).catch(() => false)) return { passed: false, code: "category_selector_not_found", message: "카테고리 선택 버튼을 찾지 못했습니다." };
+  if (!control) return { passed: false, code: "category_selector_not_found", message: "카테고리 선택 버튼을 찾지 못했습니다." };
   const descriptor = await describeCategoryControl(control);
   const categoryClicked = await control.click({ timeout: 5000 }).then(() => true).catch(() => false);
   if (!categoryClicked) return { passed: false, code: "category_control_not_clickable", message: "보이는 Tistory 카테고리 버튼을 클릭하지 못했습니다." };
@@ -256,27 +258,36 @@ async function selectCategory(targetPage, categoryId, categoryName) {
   }, { categoryId, categoryName });
   if (!selected) return { passed: false, code: "category_option_not_found", message: "저장된 Tistory 카테고리를 현재 목록에서 찾지 못했습니다." };
   const stableControl = await findCategoryControl(targetPage, descriptor, categoryName);
-  return { passed: true, descriptor, applicationEvidence: await categorySelectionEvidence(targetPage, stableControl) };
+  return { passed: true, descriptor, applicationEvidence: await categorySelectionEvidence(targetPage, stableControl ?? control) };
 }
 
-async function findCategoryControl(targetPage, descriptor, categoryName) {
-  const candidates = [];
-  if (descriptor?.id) candidates.push(targetPage.locator(`[id=${JSON.stringify(descriptor.id)}]`));
-  if (descriptor?.ariaControls) candidates.push(targetPage.locator(`[aria-controls=${JSON.stringify(descriptor.ariaControls)}]`));
-  if (descriptor?.ariaHaspopup) candidates.push(targetPage.locator(`[aria-haspopup=${JSON.stringify(descriptor.ariaHaspopup)}]`));
-  candidates.push(targetPage.locator('#category-btn, button[aria-controls*="category" i], button[aria-haspopup="listbox"], [class*="category" i] button'));
-  if (categoryName) candidates.push(targetPage.getByRole("button", { name: new RegExp(escapeRegExp(categoryName)) }));
-  candidates.push(targetPage.getByRole("button", { name: /카테고리|분류/ }));
-  for (const candidate of candidates) {
-    for (let index = 0; index < await candidate.count(); index += 1) {
-      const control = candidate.nth(index);
-      const visible = await control.isVisible().catch(() => false);
-      const enabled = await control.isEnabled().catch(() => false);
-      const clickable = visible && enabled && await control.click({ trial: true, timeout: 1000 }).then(() => true).catch(() => false);
-      if (clickable) return control;
+async function findCategoryControl(targetPage, descriptor, categoryName, timeoutMs = CATEGORY_CONTROL_TIMEOUT_MS) {
+  const deadline = Date.now() + timeoutMs;
+  do {
+    const candidates = [];
+    if (descriptor?.id) candidates.push(targetPage.locator(`[id=${JSON.stringify(descriptor.id)}]`));
+    if (descriptor?.ariaControls) candidates.push(targetPage.locator(`[aria-controls=${JSON.stringify(descriptor.ariaControls)}]`));
+    if (descriptor?.ariaHaspopup) candidates.push(targetPage.locator(`[aria-haspopup=${JSON.stringify(descriptor.ariaHaspopup)}]`));
+    candidates.push(targetPage.locator(tistoryCategoryControlSelector));
+    if (categoryName) {
+      const expectedName = new RegExp(escapeRegExp(categoryName));
+      candidates.push(targetPage.getByRole("button", { name: expectedName }));
+      candidates.push(targetPage.getByRole("combobox", { name: expectedName }));
     }
-  }
-  return targetPage.locator("button").filter({ hasText: "__bright_studio_missing_category_control__" }).first();
+    candidates.push(targetPage.getByRole("button", { name: /카테고리|분류/ }));
+    candidates.push(targetPage.getByRole("combobox", { name: /카테고리|분류/ }));
+    for (const candidate of candidates) {
+      for (let index = 0; index < await candidate.count(); index += 1) {
+        const control = candidate.nth(index);
+        const visible = await control.isVisible().catch(() => false);
+        const enabled = await control.isEnabled().catch(() => false);
+        const clickable = visible && enabled && await control.click({ trial: true, timeout: 1000 }).then(() => true).catch(() => false);
+        if (clickable) return control;
+      }
+    }
+    if (Date.now() < deadline) await targetPage.waitForTimeout(200);
+  } while (Date.now() < deadline);
+  return undefined;
 }
 
 async function describeCategoryControl(control) {
@@ -297,7 +308,7 @@ async function categorySelectionEvidence(targetPage, control) {
 async function verifyCategorySelection(targetPage, categoryId, categoryName, descriptor) {
   if (categoryId === null) return { passed: true, evidence: { uncategorized: true } };
   const control = await findCategoryControl(targetPage, descriptor, categoryName);
-  if (!await control.isVisible().catch(() => false)) return { passed: false, code: "category_control_not_found", message: "선택 후 Tistory 카테고리 control을 다시 찾지 못했습니다." };
+  if (!control) return { passed: false, code: "category_control_not_found", message: "선택 후 Tistory 카테고리 control을 다시 찾지 못했습니다." };
   const evidence = await categorySelectionEvidence(targetPage, control);
   const result = verifyCategoryEvidence(evidence, categoryId, categoryName);
   if (!result.passed) {

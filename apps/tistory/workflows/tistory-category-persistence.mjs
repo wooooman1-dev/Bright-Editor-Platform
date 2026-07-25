@@ -1,18 +1,6 @@
+import { tistoryCategoryControlSelector } from "./tistory-category-locators.mjs";
+
 const syntheticCarrierSelector = '[data-bright-category-verification="observed"][data-bright-synthetic="true"]';
-const categoryControlSelector = [
-  "#category-btn",
-  'button[aria-controls*="category" i]',
-  '[role="button"][aria-controls*="category" i]',
-  'button[aria-haspopup="listbox"]',
-  '[role="button"][aria-haspopup="listbox"]',
-  '[role="combobox"]',
-  'button[id*="category" i]',
-  '[role="button"][id*="category" i]',
-  'button[class*="category" i]',
-  '[role="button"][class*="category" i]',
-  '[id*="category" i] button',
-  '[class*="category" i] button',
-].join(", ");
 
 export async function prepareReopenedTistoryCategoryEvidence(page, categoryId, categoryName) {
   if (categoryId === undefined && !categoryName) return { passed: true, skipped: true };
@@ -110,7 +98,7 @@ async function inspectCategoryThroughControl(page, categoryId, categoryName) {
   const attempts = [];
 
   for (const candidate of candidates) {
-    const locator = page.locator(categoryControlSelector).nth(candidate.index);
+    const locator = page.locator(tistoryCategoryControlSelector).nth(candidate.index);
     const clicked = await locator.click({ timeout: 3000 }).then(() => true).catch((error) => {
       attempts.push({ ...candidate, clicked: false, error: String(error?.message ?? error ?? "unknown").slice(0, 500) });
       return false;
@@ -135,7 +123,7 @@ async function inspectCategoryThroughControl(page, categoryId, categoryName) {
 }
 
 async function rankedCategoryControls(page, categoryName) {
-  const candidates = page.locator(categoryControlSelector);
+  const candidates = page.locator(tistoryCategoryControlSelector);
   const count = await candidates.count().catch(() => 0);
   const result = [];
   for (let index = 0; index < count; index += 1) {

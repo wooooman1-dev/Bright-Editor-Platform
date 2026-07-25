@@ -1,8 +1,10 @@
+import { tistoryCategoryControlSelector } from "./tistory-category-locators.mjs";
+
 export async function readTistoryCategories(page) {
   const namedCategoryButton = page.getByRole("button", { name: /카테고리|분류/ }).first();
   const categoryControl = await namedCategoryButton.count()
     ? namedCategoryButton
-    : page.locator('#category-btn, button[aria-controls*="category" i], button[class*="category" i], [class*="category" i] button, select[name*="category" i], select[id*="category" i]').first();
+    : page.locator(`${tistoryCategoryControlSelector}, select[name*="category" i], select[id*="category" i]`).first();
   await categoryControl.waitFor({ state: "attached", timeout: 15000 });
   if (await categoryControl.evaluate((element) => element.tagName !== "SELECT") && await categoryControl.isVisible()) await categoryControl.click();
   const categoryRoot = page.getByRole("listbox").first();

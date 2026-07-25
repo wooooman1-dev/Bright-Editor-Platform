@@ -12,6 +12,14 @@ const tagWorkflowSource = readFileSync(
   join(process.cwd(), "apps/tistory/workflows/tistory-tags.mjs"),
   "utf8",
 );
+const draftWorkerSource = readFileSync(
+  join(process.cwd(), "apps/tistory/workflows/tistory-draft-worker.mjs"),
+  "utf8",
+);
+const categoryLocatorSource = readFileSync(
+  join(process.cwd(), "apps/tistory/workflows/tistory-category-locators.mjs"),
+  "utf8",
+);
 
 describe("Tistory category evidence", () => {
   it("accepts the stable category id after a draft is reopened even when the visible name is unavailable", () => {
@@ -55,5 +63,14 @@ describe("Tistory category evidence", () => {
     expect(tagWorkflowSource).toContain("evidence.categoryObservation = await prepareReopenedTistoryCategoryEvidence(");
     expect(tagWorkflowSource).not.toContain("if (!category.skipped && !category.uncategorized && !category.passed)");
     expect(tagWorkflowSource).not.toContain('message: "다시 연 Tistory 편집기에서 저장된 카테고리 값을 확인하지 못했습니다."');
+  });
+
+  it("waits for a late-mounted category control and supports accessible non-button controls", () => {
+    expect(draftWorkerSource).toContain("const CATEGORY_CONTROL_TIMEOUT_MS = 15000");
+    expect(draftWorkerSource).toContain("const deadline = Date.now() + timeoutMs");
+    expect(draftWorkerSource).toContain("await targetPage.waitForTimeout(200)");
+    expect(draftWorkerSource).toContain('targetPage.getByRole("combobox"');
+    expect(categoryLocatorSource).toContain("[role=\"button\"][aria-controls*=\"category\" i]");
+    expect(categoryLocatorSource).toContain("[role=\"combobox\"]");
   });
 });

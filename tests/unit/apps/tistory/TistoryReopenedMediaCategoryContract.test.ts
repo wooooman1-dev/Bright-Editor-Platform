@@ -6,6 +6,10 @@ const tagsSource = readFileSync(
   join(process.cwd(), "apps/tistory/workflows/tistory-tags.mjs"),
   "utf8",
 );
+const categoryPersistenceSource = readFileSync(
+  join(process.cwd(), "apps/tistory/workflows/tistory-category-persistence.mjs"),
+  "utf8",
+);
 
 describe("Tistory reopened media and category contract", () => {
   it("verifies native media persistence before a reopened draft can pass", () => {
@@ -21,14 +25,15 @@ describe("Tistory reopened media and category contract", () => {
   });
 
   it("prepares a category verification carrier only from observed DOM evidence", () => {
-    expect(tagsSource).toContain("prepareObservedCategoryCarrier");
-    expect(tagsSource).toContain("const passed = idMatched || nameMatched");
-    expect(tagsSource).toContain('data-bright-category-verification", "observed"');
-    expect(tagsSource).toContain('carrier.id = "category-btn"');
+    expect(tagsSource).toContain("prepareReopenedTistoryCategoryEvidence");
+    expect(categoryPersistenceSource).toContain("const passed = observedIds.length ? idMatched : nameMatched");
+    expect(categoryPersistenceSource).toContain("if (evidence.passed)");
+    expect(categoryPersistenceSource).toContain('data-bright-category-verification", "observed"');
+    expect(categoryPersistenceSource).toContain('carrier.id = "category-btn"');
   });
 
   it("excludes article editor content from category-name evidence", () => {
-    expect(tagsSource).toContain("body#tinymce, .mce-content-body");
-    expect(tagsSource).toContain('[contenteditable="true"]');
+    expect(categoryPersistenceSource).toContain("body#tinymce, .mce-content-body");
+    expect(categoryPersistenceSource).toContain('[contenteditable="true"]');
   });
 });
