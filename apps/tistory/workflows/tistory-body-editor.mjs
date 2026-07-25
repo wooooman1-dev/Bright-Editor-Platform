@@ -90,8 +90,11 @@ export function verifyCategoryEvidence(evidence, categoryId, categoryName) {
   const expectedId = String(categoryId);
   const observedIds = [evidence?.controlSelectedId, ...(evidence?.selectedOptions ?? []).map((item) => item.id), ...(evidence?.hiddenValues ?? [])].filter(Boolean);
   const observedNames = [evidence?.controlText, evidence?.ariaLabel, ...(evidence?.selectedOptions ?? []).map((item) => item.text)].filter(Boolean);
+  const idVerified = observedIds.includes(expectedId);
+  const nameVerified = Boolean(categoryName && observedNames.some((value) => value.includes(categoryName)));
   if (!observedIds.length && !observedNames.length) return { passed: false, code: "category_selected_value_missing" };
-  if (observedIds.length && !observedIds.includes(expectedId)) return { passed: false, code: "category_id_mismatch" };
-  if (categoryName && !observedNames.some((value) => value.includes(categoryName))) return { passed: false, code: "category_name_mismatch" };
-  return { passed: true, idVerified: observedIds.includes(expectedId), nameVerified: Boolean(categoryName && observedNames.some((value) => value.includes(categoryName))) };
+  if (idVerified || nameVerified) return { passed: true, idVerified, nameVerified };
+  if (observedIds.length) return { passed: false, code: "category_id_mismatch" };
+  if (categoryName && observedNames.length) return { passed: false, code: "category_name_mismatch" };
+  return { passed: false, code: "category_selected_value_missing" };
 }
