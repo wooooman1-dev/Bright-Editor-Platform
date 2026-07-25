@@ -2,27 +2,36 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const workerSource = readFileSync(join(process.cwd(), "apps/tistory/workflows/tistory-media-preparation-worker.mjs"), "utf8");
+const preparationWorkerSource = readFileSync(join(process.cwd(), "apps/tistory/workflows/tistory-media-preparation-worker.mjs"), "utf8");
+const sameEditorSource = readFileSync(join(process.cwd(), "apps/tistory/workflows/tistory-same-editor-media.mjs"), "utf8");
+const tagSource = readFileSync(join(process.cwd(), "apps/tistory/workflows/tistory-tags.mjs"), "utf8");
 const serviceSource = readFileSync(join(process.cwd(), "app/application/publishing/TistoryDraftApplicationService.ts"), "utf8");
 
-describe("Tistory native media preparation contract", () => {
-  it("captures the native Tistory wrapper after each real upload", () => {
-    expect(workerSource).toContain("captureNativeTistoryImageFragment");
-    expect(workerSource).toContain("nativeHtml: native.html");
-    expect(workerSource).toContain("nativeMetadata: native.metadata");
+describe("Tistory same-editor media preparation contract", () => {
+  it("prepares deterministic markers without opening a second Tistory editor", () => {
+    expect(preparationWorkerSource).toContain("replaceTistoryMediaPlaceholdersWithMarkers");
+    expect(preparationWorkerSource).toContain('mediaPreparationMode: "same_editor_markers"');
+    expect(preparationWorkerSource).not.toContain("chromium.launch");
+    expect(preparationWorkerSource).not.toContain("uploadSingleTistoryImage");
   });
 
-  it("replaces renderer placeholders with native image HTML instead of CDN URLs only", () => {
-    expect(workerSource).toContain("replaceTistoryMediaPlaceholders");
-    expect(workerSource).not.toContain("html.replaceAll(item.placeholderUrl, item.remoteUrl)");
+  it("uploads every local image in the active Draft editor and replaces its marker", () => {
+    expect(sameEditorSource).toContain("uploadTistoryMediaSequentially");
+    expect(sameEditorSource).toContain("focusMediaMarker");
+    expect(sameEditorSource).toContain("placeUploadedImageAtMarker");
+    expect(sameEditorSource).toContain("verifySameEditorMedia");
   });
 
-  it("keeps the first uploaded image as the deterministic representative candidate", () => {
-    expect(workerSource).toContain("representativeCandidate: currentIndex === 0");
-    expect(workerSource).toContain("representativeMedia: resolved[0]");
+  it("keeps the first active-editor upload as the representative candidate", () => {
+    expect(sameEditorSource).toContain("representativeCandidate: currentIndex === 0");
+    expect(sameEditorSource).toContain("representativeMedia: resolved[0]");
   });
 
-  it("still completes media preparation before the registered Draft Worker", () => {
+  it("runs active-editor media placement before writing tags", () => {
+    expect(tagSource.indexOf("prepareTistoryMediaInCurrentEditor(page)")).toBeLessThan(tagSource.indexOf("const expected = normalizeTistoryTags(values)"));
+  });
+
+  it("keeps marker preparation inside the registered Permission Gate workflow", () => {
     expect(serviceSource.indexOf("await this.executeMediaWorker(commandPath)")).toBeLessThan(serviceSource.indexOf("await this.executeWorker(commandPath)"));
   });
 });
