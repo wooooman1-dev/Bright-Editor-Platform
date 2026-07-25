@@ -11,8 +11,6 @@ export type TistoryCategoryPersistenceEvidence = Readonly<{
   observedNames?: readonly string[];
   idMatched?: boolean;
   nameMatched?: boolean;
-  carrierPrepared?: boolean;
-  carrierSource?: string;
   [key: string]: unknown;
 }>;
 

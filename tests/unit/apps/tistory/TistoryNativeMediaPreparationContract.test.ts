@@ -24,7 +24,9 @@ describe("Tistory same-editor media preparation contract", () => {
 
   it("keeps the first active-editor upload as the representative candidate", () => {
     expect(sameEditorSource).toContain("representativeCandidate: currentIndex === 0");
-    expect(sameEditorSource).toContain("representativeMedia: resolved[0]");
+    expect(sameEditorSource).toContain("representativeMedia: prepared[0]");
+    expect(sameEditorSource.indexOf("ensureFirstTistoryImageRepresentative(page, resolved[0].remoteUrl)"))
+      .toBeGreaterThan(sameEditorSource.indexOf("uploadTistoryMediaSequentially(page, media"));
   });
 
   it("runs active-editor media placement before writing tags", () => {

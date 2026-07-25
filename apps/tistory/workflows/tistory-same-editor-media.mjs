@@ -44,27 +44,26 @@ export async function prepareTistoryMediaInCurrentEditor(page, commandPath = pro
       });
     }
 
-    let representative;
-    if (currentIndex === 0) {
-      representative = await ensureFirstTistoryImageRepresentative(editorPage, uploaded.remoteUrl);
-      if (!representative.passed) {
-        throw mediaPlacementError(representative.code, representative.message, {
-          blockId: item.blockId,
-          mediaIndex: currentIndex,
-          remoteUrl: uploaded.remoteUrl,
-          ...(representative.evidence ? { representative: representative.evidence } : {}),
-        });
-      }
-    }
-
     return Object.freeze({
       ...uploaded,
       alt: item.alt,
       nativeMetadata: placement.metadata,
       representativeCandidate: currentIndex === 0,
-      ...(representative ? { representative: representative.evidence, representativeVerified: representative.verified === true } : {}),
     });
   });
+
+  const representative = await ensureFirstTistoryImageRepresentative(page, resolved[0].remoteUrl);
+  if (!representative.passed) {
+    throw mediaPlacementError(representative.code, representative.message, {
+      blockId: media[0].blockId,
+      mediaIndex: 0,
+      remoteUrl: resolved[0].remoteUrl,
+      ...(representative.evidence ? { representative: representative.evidence } : {}),
+    });
+  }
+  const prepared = Object.freeze(resolved.map((item, index) => index === 0
+    ? Object.freeze({ ...item, representative: representative.evidence, representativeVerified: representative.verified === true })
+    : item));
 
   const verification = await verifySameEditorMedia(page, media.length);
   if (!verification.passed) {
@@ -74,12 +73,12 @@ export async function prepareTistoryMediaInCurrentEditor(page, commandPath = pro
   return Object.freeze({
     passed: true,
     skipped: false,
-    media: Object.freeze(resolved),
-    representativeMedia: resolved[0],
+    media: prepared,
+    representativeMedia: prepared[0],
     evidence: Object.freeze({
       ...verification.evidence,
-      representative: resolved[0]?.representative,
-      representativeVerified: resolved[0]?.representativeVerified === true,
+      representative: prepared[0]?.representative,
+      representativeVerified: prepared[0]?.representativeVerified === true,
     }),
   });
 }

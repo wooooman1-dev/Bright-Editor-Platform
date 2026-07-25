@@ -1,12 +1,8 @@
 import { tistoryCategoryControlSelector } from "./tistory-category-locators.mjs";
 
-const syntheticCarrierSelector = '[data-bright-category-verification="observed"][data-bright-synthetic="true"]';
-
 export async function prepareReopenedTistoryCategoryEvidence(page, categoryId, categoryName) {
   if (categoryId === undefined && !categoryName) return { passed: true, skipped: true };
   if (categoryId === null) return { passed: true, uncategorized: true };
-
-  await removeSyntheticCarrier(page);
 
   let evidence = await waitForStaticCategoryEvidence(page, categoryId, categoryName);
   if (!evidence.passed && evidence.code === "category_selected_value_missing") {
@@ -14,12 +10,7 @@ export async function prepareReopenedTistoryCategoryEvidence(page, categoryId, c
     evidence = interactive.passed ? interactive : mergeEvidence(evidence, interactive);
   }
 
-  if (evidence.passed) {
-    await installSyntheticCarrier(page, categoryId, categoryName);
-    return { ...evidence, carrierPrepared: true, carrierSource: "verified_reopened_category" };
-  }
-
-  return { ...evidence, carrierPrepared: false, carrierSource: "none" };
+  return evidence;
 }
 
 async function waitForStaticCategoryEvidence(page, categoryId, categoryName, attempts = 30) {
@@ -209,50 +200,6 @@ async function collectOpenCategoryEvidence(page, categoryId, categoryName) {
       visibleRootCount: roots.length,
     };
   }, { expectedId: categoryId, expectedName: categoryName }).catch(() => emptyEvidence(categoryId, categoryName));
-}
-
-async function installSyntheticCarrier(page, categoryId, categoryName) {
-  await page.evaluate(({ expectedId, expectedName, selector }) => {
-    document.querySelectorAll(selector).forEach((element) => element.remove());
-    const wrapper = document.createElement("div");
-    wrapper.setAttribute("data-bright-category-verification", "observed");
-    wrapper.setAttribute("data-bright-synthetic", "true");
-    Object.assign(wrapper.style, {
-      position: "fixed",
-      left: "1px",
-      top: "1px",
-      width: "1px",
-      height: "1px",
-      overflow: "hidden",
-      opacity: "0.001",
-      zIndex: "2147483647",
-    });
-    const carrier = document.createElement("button");
-    carrier.type = "button";
-    carrier.id = "category-btn";
-    carrier.setAttribute("data-category-id", String(expectedId));
-    carrier.setAttribute("data-bright-category-verification", "observed");
-    carrier.setAttribute("data-bright-synthetic", "true");
-    carrier.setAttribute("aria-haspopup", "listbox");
-    carrier.setAttribute("aria-label", expectedName || "카테고리");
-    carrier.textContent = expectedName || "카테고리";
-    Object.assign(carrier.style, {
-      width: "1px",
-      height: "1px",
-      minWidth: "1px",
-      minHeight: "1px",
-      padding: "0",
-      margin: "0",
-      border: "0",
-      pointerEvents: "auto",
-    });
-    wrapper.appendChild(carrier);
-    document.body.prepend(wrapper);
-  }, { expectedId: categoryId, expectedName: categoryName, selector: syntheticCarrierSelector });
-}
-
-async function removeSyntheticCarrier(page) {
-  await page.locator(syntheticCarrierSelector).evaluateAll((elements) => elements.forEach((element) => element.remove())).catch(() => undefined);
 }
 
 function emptyEvidence(categoryId, categoryName) {

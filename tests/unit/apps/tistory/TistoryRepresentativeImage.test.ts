@@ -29,10 +29,20 @@ describe("Tistory representative image", () => {
   });
 
   it("sets the representative image only for the first uploaded media item", () => {
-    expect(sameEditorSource).toContain("if (currentIndex === 0)");
-    expect(sameEditorSource).toContain("ensureFirstTistoryImageRepresentative(editorPage, uploaded.remoteUrl)");
+    const uploadIndex = sameEditorSource.indexOf("const resolved = await uploadTistoryMediaSequentially");
+    const representativeIndex = sameEditorSource.indexOf("const representative = await ensureFirstTistoryImageRepresentative(page, resolved[0].remoteUrl)");
+    expect(uploadIndex).toBeGreaterThan(-1);
+    expect(representativeIndex).toBeGreaterThan(uploadIndex);
+    expect(sameEditorSource).not.toContain("if (currentIndex === 0)");
     expect(sameEditorSource).toContain("representativeCandidate: currentIndex === 0");
     expect(sameEditorSource).toContain("representativeVerified");
+  });
+
+  it("sets the representative image after every native image upload and before final media verification", () => {
+    const representativeIndex = sameEditorSource.indexOf("const representative = await ensureFirstTistoryImageRepresentative(page, resolved[0].remoteUrl)");
+    const verificationIndex = sameEditorSource.indexOf("const verification = await verifySameEditorMedia(page, media.length)");
+    expect(representativeIndex).toBeGreaterThan(-1);
+    expect(verificationIndex).toBeGreaterThan(representativeIndex);
   });
 
   it("targets Tistory's exact icon-only representative control in the main document", () => {

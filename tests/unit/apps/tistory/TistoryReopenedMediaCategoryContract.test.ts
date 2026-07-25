@@ -10,6 +10,10 @@ const categoryPersistenceSource = readFileSync(
   join(process.cwd(), "apps/tistory/workflows/tistory-category-persistence.mjs"),
   "utf8",
 );
+const draftWorkerSource = readFileSync(
+  join(process.cwd(), "apps/tistory/workflows/tistory-draft-worker.mjs"),
+  "utf8",
+);
 
 describe("Tistory reopened media and category contract", () => {
   it("verifies native media persistence before a reopened draft can pass", () => {
@@ -24,12 +28,11 @@ describe("Tistory reopened media and category contract", () => {
     expect(tagsSource).toContain("workflow.mediaCount");
   });
 
-  it("prepares a category verification carrier only from observed DOM evidence", () => {
-    expect(tagsSource).toContain("prepareReopenedTistoryCategoryEvidence");
+  it("verifies reopened category directly from observed DOM evidence", () => {
+    expect(tagsSource).not.toContain("prepareReopenedTistoryCategoryEvidence");
+    expect(draftWorkerSource).toContain("prepareReopenedTistoryCategoryEvidence");
     expect(categoryPersistenceSource).toContain("const passed = observedIds.length ? idMatched : nameMatched");
-    expect(categoryPersistenceSource).toContain("if (evidence.passed)");
-    expect(categoryPersistenceSource).toContain('data-bright-category-verification", "observed"');
-    expect(categoryPersistenceSource).toContain('carrier.id = "category-btn"');
+    expect(categoryPersistenceSource).not.toContain("data-bright-synthetic");
   });
 
   it("excludes article editor content from category-name evidence", () => {

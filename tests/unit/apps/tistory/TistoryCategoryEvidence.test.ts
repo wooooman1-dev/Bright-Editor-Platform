@@ -52,17 +52,16 @@ describe("Tistory category evidence", () => {
     expect(categoryPersistenceSource).toContain('page.keyboard.press("Escape")');
   });
 
-  it("creates a stable carrier only after actual reopened evidence matches", () => {
-    expect(categoryPersistenceSource).toContain("if (evidence.passed)");
-    expect(categoryPersistenceSource).toContain("installSyntheticCarrier(page, categoryId, categoryName)");
-    expect(categoryPersistenceSource).toContain('carrier.setAttribute("data-category-id", String(expectedId))');
-    expect(categoryPersistenceSource).toContain('carrierSource: "verified_reopened_category"');
+  it("returns actual reopened evidence without injecting a synthetic category control", () => {
+    expect(categoryPersistenceSource).toContain("return evidence");
+    expect(categoryPersistenceSource).not.toContain("installSyntheticCarrier");
+    expect(categoryPersistenceSource).not.toContain("data-bright-synthetic");
   });
 
-  it("does not fail tag verification when category evidence is unavailable", () => {
-    expect(tagWorkflowSource).toContain("evidence.categoryObservation = await prepareReopenedTistoryCategoryEvidence(");
-    expect(tagWorkflowSource).not.toContain("if (!category.skipped && !category.uncategorized && !category.passed)");
-    expect(tagWorkflowSource).not.toContain('message: "다시 연 Tistory 편집기에서 저장된 카테고리 값을 확인하지 못했습니다."');
+  it("keeps reopened category verification in the draft worker instead of tag verification", () => {
+    expect(tagWorkflowSource).not.toContain("prepareReopenedTistoryCategoryEvidence");
+    expect(draftWorkerSource).toContain("const evidence = await prepareReopenedTistoryCategoryEvidence(targetPage, categoryId, categoryName)");
+    expect(draftWorkerSource).toContain('fail("category_reverified", category.code, category.message)');
   });
 
   it("waits for a late-mounted category control and supports accessible non-button controls", () => {

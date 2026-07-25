@@ -1,6 +1,5 @@
 import { readFile } from "node:fs/promises";
 
-import { prepareReopenedTistoryCategoryEvidence } from "./tistory-category-persistence.mjs";
 import { verifyReopenedTistoryRepresentativeImage } from "./tistory-reopened-evidence.mjs";
 import { prepareTistoryMediaInCurrentEditor } from "./tistory-same-editor-media.mjs";
 
@@ -129,12 +128,6 @@ export async function verifyTistoryTags(page, values, resolvedInput) {
       evidence,
     };
   }
-
-  evidence.categoryObservation = await prepareReopenedTistoryCategoryEvidence(
-    page,
-    workflow.categoryId,
-    workflow.categoryName,
-  );
 
   return {
     passed: true,

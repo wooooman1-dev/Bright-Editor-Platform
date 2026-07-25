@@ -12,6 +12,10 @@ const tagWorkflowSource = readFileSync(
   join(process.cwd(), "apps/tistory/workflows/tistory-tags.mjs"),
   "utf8",
 );
+const draftWorkerSource = readFileSync(
+  join(process.cwd(), "apps/tistory/workflows/tistory-draft-worker.mjs"),
+  "utf8",
+);
 
 describe("Tistory reopened evidence", () => {
   it("recognizes the persisted active representative control state", () => {
@@ -51,16 +55,14 @@ describe("Tistory reopened evidence", () => {
     expect(fillSection).not.toContain("verifyPersistedTistoryMedia");
   });
 
-  it("prepares category evidence after reopened media and representative checks without failing tags", () => {
+  it("verifies category after reopened media, representative, and tags without synthetic DOM evidence", () => {
     const representativeIndex = tagWorkflowSource.indexOf(
       "const representative = await verifyReopenedTistoryRepresentativeImage(page, workflow.mediaCount)",
     );
-    const categoryIndex = tagWorkflowSource.indexOf(
-      "evidence.categoryObservation = await prepareReopenedTistoryCategoryEvidence(",
-    );
     expect(representativeIndex).toBeGreaterThan(-1);
-    expect(categoryIndex).toBeGreaterThan(representativeIndex);
     expect(tagWorkflowSource).toContain("evidence.representative = representative.evidence");
-    expect(tagWorkflowSource).not.toContain("category_selected_value_missing");
+    expect(tagWorkflowSource).not.toContain("prepareReopenedTistoryCategoryEvidence");
+    expect(draftWorkerSource).toContain("const reopenedTags = await verifyTistoryTags(page, command.tags)");
+    expect(draftWorkerSource).toContain("const reopenedCategory = await verifyReopenedCategory(page, command.categoryId, command.categoryName)");
   });
 });

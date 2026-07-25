@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { chromium } from "playwright";
 import { automationClicksAllowed, editorStateSynchronized, looksAuxiliary, readOnlyClicksAllowed, reopenedDraftVerified, selectCodeMirrorCandidate, selectDraftCandidate, semanticHtmlVerified, verifyCategoryEvidence } from "./tistory-body-editor.mjs";
 import { tistoryCategoryControlSelector } from "./tistory-category-locators.mjs";
+import { prepareReopenedTistoryCategoryEvidence } from "./tistory-category-persistence.mjs";
 import { fillTistoryTags, verifyTistoryTags } from "./tistory-tags.mjs";
 
 const [commandPath] = process.argv.slice(2);
@@ -57,9 +58,11 @@ try {
     const verified = await verifyCategorySelection(page, command.categoryId, command.categoryName, category.descriptor);
     if (!verified.passed) fail("category_verified", verified.code, verified.message);
     step("category_verified", `동일 stable locator로 카테고리 ${command.categoryName ?? "없음"}을 재검증했습니다.`, verified.evidence);
+    const reopenedEvidence = await verifyReopenedCategory(page, command.categoryId, command.categoryName);
+    if (!reopenedEvidence.passed) fail("category_verified", reopenedEvidence.code, reopenedEvidence.message);
     const countAfter = await currentDraftCount(page); const clicks = await readAutomationClickCounts(page);
     if (countBefore !== countAfter || clicks.draft !== 0 || clicks.complete !== 0 || clicks.publish !== 0) fail("category_verified", "category_listbox_state_invalid", "카테고리 진단 중 저장 또는 공개 관련 상태가 변경되었습니다.");
-    process.stdout.write(`${JSON.stringify({ ...empty, status: "diagnosed", steps, categoryProbe: { descriptor: category.descriptor, evidence: verified.evidence, draftCountBefore: countBefore, draftCountAfter: countAfter, clicks }, editorUrl: safeUrl(page.url()) })}\n`);
+    process.stdout.write(`${JSON.stringify({ ...empty, status: "diagnosed", steps, categoryProbe: { descriptor: category.descriptor, evidence: verified.evidence, reopenedEvidence: reopenedEvidence.evidence, draftCountBefore: countBefore, draftCountAfter: countAfter, clicks }, editorUrl: safeUrl(page.url()) })}\n`);
     await context.close(); await browser.close(); process.exit(0);
   }
 
@@ -68,9 +71,9 @@ try {
     draftCountBefore = await currentDraftCount(page);
     if (!draftCountBefore) fail("draft_list_opened", "draft_list_control_not_found", "기존 Tistory 임시글 목록을 여는 control을 찾지 못했습니다.");
     const reopened = await reopenExistingDraft(page, command.title);
-    if (!reopened.passed) fail(reopened.failedStep, reopened.code, reopened.message);
     draftLookupDiagnostic = reopened.draftList;
     draftOpenDiagnostic = reopened.open;
+    if (!reopened.passed) fail(reopened.failedStep, reopened.code, reopened.message);
     step("draft_list_opened", "Tistory 임시글 목록 container를 열었습니다.", reopened.draftList.container);
     step("draft_item_identified", "목록 내부에서 현재 Content와 정확히 일치하는 임시글 한 건을 식별했습니다.", reopened.item);
     step("draft_reopened", "식별한 기존 임시글을 읽기 전용 검증을 위해 다시 열었습니다.", reopened.open);
@@ -84,13 +87,13 @@ try {
     if (!bodyMatched) fail("body_reverified", "reopened_body_empty", "다시 연 임시글의 본문이 비어 있거나 기대 길이에 미달합니다.");
     step("body_reverified", "다시 연 임시글의 본문이 비어 있지 않고 현재 Renderer 본문과 일치합니다.");
 
-    const category = await verifyCategorySelection(page, command.categoryId, command.categoryName);
-    if (!category.passed) fail("category_reverified", "reopened_category_mismatch", "다시 연 임시글의 카테고리가 건강정보와 일치하지 않습니다.");
-    step("category_reverified", `다시 연 임시글의 카테고리가 ${command.categoryName ?? "없음"}과 일치합니다.`, category.evidence);
-
     const reopenedTags = await verifyTistoryTags(page, command.tags);
     if (!reopenedTags.passed) fail("tags_reverified", reopenedTags.code, reopenedTags.message);
     step("tags_reverified", `다시 연 임시글에서 태그 ${reopenedTags.tags.length}개를 확인했습니다.`, reopenedTags.evidence);
+
+    const category = await verifyReopenedCategory(page, command.categoryId, command.categoryName);
+    if (!category.passed) fail("category_reverified", category.code, category.message);
+    step("category_reverified", `다시 연 임시글의 카테고리가 ${command.categoryName ?? "없음"}과 일치합니다.`, category.evidence);
 
     const structure = await verifyRenderedHtml(page, command.html);
     verificationEvidence = structure.diagnostic;
@@ -166,7 +169,9 @@ try {
   step("draft_save_confirmed", "임시저장 완료 신호와 count 증가를 확인했습니다.", { draftCountBefore, draftCountAfter });
 
   const reopened = await reopenExistingDraft(page, command.title);
-  if (!reopened.passed) fail("draft_reopened", reopened.code, reopened.message);
+  draftLookupDiagnostic = reopened.draftList;
+  draftOpenDiagnostic = reopened.open;
+  if (!reopened.passed) fail(reopened.failedStep ?? "draft_reopened", reopened.code, reopened.message);
   step("draft_list_opened", "임시저장 목록에서 방금 생성한 제목을 찾았습니다.", reopened.draftList?.container);
   step("draft_item_identified", "목록 내부에서 방금 생성한 임시글 항목을 식별했습니다.", reopened.item);
   step("draft_reopened", "저장된 임시글을 다시 열었습니다.");
@@ -184,8 +189,8 @@ try {
   if (!reopenedTags.passed) fail("tags_reverified", reopenedTags.code, reopenedTags.message);
   step("tags_reverified", `다시 연 임시글에서 태그 ${reopenedTags.tags.length}개를 확인했습니다.`, reopenedTags.evidence);
 
-  const reopenedCategory = await verifyCategorySelection(page, command.categoryId, command.categoryName);
-  if (!reopenedCategory.passed) fail("category_reverified", reopenedCategory.code === "category_id_mismatch" ? "reopened_category_mismatch" : reopenedCategory.code, reopenedCategory.message);
+  const reopenedCategory = await verifyReopenedCategory(page, command.categoryId, command.categoryName);
+  if (!reopenedCategory.passed) fail("category_reverified", reopenedCategory.code, reopenedCategory.message);
   step("category_reverified", `다시 연 임시글의 카테고리가 ${command.categoryName ?? "없음"}과 일치합니다.`, reopenedCategory.evidence);
 
   const structure = await verifyRenderedHtml(page, command.html);
@@ -316,6 +321,22 @@ async function verifyCategorySelection(targetPage, categoryId, categoryName, des
     return { passed: false, code: result.code, message: messages[result.code] ?? "선택된 Tistory 카테고리를 검증하지 못했습니다.", evidence };
   }
   return { passed: true, evidence: { ...evidence, idVerified: result.idVerified, nameVerified: result.nameVerified } };
+}
+
+async function verifyReopenedCategory(targetPage, categoryId, categoryName) {
+  const evidence = await prepareReopenedTistoryCategoryEvidence(targetPage, categoryId, categoryName);
+  if (evidence.passed) return { passed: true, evidence };
+  const messages = {
+    category_id_mismatch: "다시 연 임시글의 카테고리 ID가 저장값과 일치하지 않습니다.",
+    category_name_mismatch: `다시 연 임시글의 카테고리가 ${categoryName ?? "선택값"}과 일치하지 않습니다.`,
+    category_selected_value_missing: "다시 연 임시글에서 저장된 카테고리 값을 확인하지 못했습니다.",
+  };
+  return {
+    passed: false,
+    code: evidence.code ?? "category_selected_value_missing",
+    message: messages[evidence.code] ?? "다시 연 임시글의 카테고리를 검증하지 못했습니다.",
+    evidence,
+  };
 }
 
 function escapeRegExp(value) { return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
@@ -805,7 +826,7 @@ async function waitForDraftListContainer(targetPage, title) {
         const text = normalize(element.textContent);
         const hasExactTitle = [...element.querySelectorAll("*")].some((node) => !["INPUT", "TEXTAREA"].includes(node.tagName) && normalize(node.textContent) === expectedTitle);
         const rect = element.getBoundingClientRect();
-        return { role: element.getAttribute("role") ?? "", id: element.id ?? "", className: String(element.className ?? "").slice(0, 180), ariaModal: element.getAttribute("aria-modal") ?? "", ariaLabelledby: element.getAttribute("aria-labelledby") ?? "", ariaControls: element.getAttribute("aria-controls") ?? "", loading: /로딩|loading/i.test(text), hasExactTitle, area: Math.round(rect.width * rect.height) };
+        return { role: element.getAttribute("role") ?? "", id: element.id ?? "", className: String(element.className ?? "").slice(0, 180), ariaModal: element.getAttribute("aria-modal") ?? "", ariaLabelledby: element.getAttribute("aria-labelledby") ?? "", ariaControls: element.getAttribute("aria-controls") ?? "", loading: /로딩|loading/i.test(text), hasExactTitle, textSample: text.slice(0, 600), area: Math.round(rect.width * rect.height) };
       }, title.trim()).catch(() => undefined);
       if (!data || data.loading) continue;
       if (!fallback && (data.role === "dialog" || data.ariaModal === "true")) fallback = { container: root, diagnostic: data };
