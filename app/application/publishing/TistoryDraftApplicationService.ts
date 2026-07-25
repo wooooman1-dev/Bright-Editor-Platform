@@ -8,7 +8,7 @@ import { deriveContentTags, type ContentDocument } from "../../../core/content";
 import { PublishingPermissionGate } from "../../../core/publishing";
 import { TistoryPublishingAdapter } from "../../../apps/tistory/publishing/TistoryPublishingAdapter";
 import { createTistoryMediaUploadPlan, type TistoryMediaUploadPlan } from "../../../apps/tistory/publishing/TistoryMediaUploadPlan";
-import type { TistoryDraftSaveResult } from "../../../apps/tistory/workflows/TistoryDraftSaveWorkflow";
+import type { TistoryDraftSaveResult, TistoryDraftWorkflowStep } from "../../../apps/tistory/workflows/TistoryDraftSaveWorkflow";
 import { localMediaFilePath } from "../media/LocalMediaStorage";
 
 export type TistoryDraftExecution = Readonly<{ workspaceId: string; projectId: string; contentId: string; connection: PlatformConnection; document: ContentDocument; primaryKeyword?: string; finalConfirmation: boolean; selectedTarget: boolean; categoryId?: string | null; categoryName?: string | null; diagnosticMode?: "body_editor_probe" | "category_verification_probe" | "draft_reopen_verify" }>;
@@ -133,7 +133,11 @@ function runWorker(commandPath: string): Promise<TistoryDraftSaveResult> {
 
 export function normalizeTistoryDraftWorkerResult(result: TistoryDraftSaveResult, stderr: string): TistoryDraftSaveResult {
   const semantic = readSemanticHtmlDiagnostic(stderr);
-  if (!semantic) return result;
+  const normalizedSemantic = semantic ? normalizeSemanticFailure(result, semantic) : result;
+  return normalizeExplicitWorkflowSteps(normalizedSemantic);
+}
+
+function normalizeSemanticFailure(result: TistoryDraftSaveResult, semantic: SemanticHtmlDiagnostic): TistoryDraftSaveResult {
   const failedStep = result.failedStep === "structure_verified" ? "structure_verified" : "body_verified";
   const message = result.error ?? "Tistory 기본모드에서 Renderer HTML 본문을 확인하지 못했습니다.";
   const failedRecord = Object.freeze({
@@ -154,6 +158,68 @@ export function normalizeTistoryDraftWorkerResult(result: TistoryDraftSaveResult
     ...(semantic.evidence ? { verification: semantic.evidence } : {}),
     diagnostic: Object.freeze({ ...(result.diagnostic ?? {}), semanticHtml: semantic }),
   });
+}
+
+function normalizeExplicitWorkflowSteps(result: TistoryDraftSaveResult): TistoryDraftSaveResult {
+  const existing = result.steps ?? [];
+  const expanded: TistoryDraftWorkflowStep[] = [];
+  const has = (key: TistoryDraftWorkflowStep["key"]) => existing.some((step) => step.key === key);
+
+  for (const step of existing) {
+    if (step.passed && step.key === "tags_filled") {
+      const evidence = step.evidence ?? {};
+      if (!has("media_prepared") && hasEvidence(evidence.upload)) {
+        expanded.push(Object.freeze({ key: "media_prepared", passed: true, message: "Tistory 네이티브 이미지 업로드와 본문 배치를 확인했습니다.", evidence: asEvidence(evidence.upload) }));
+      }
+      if (!has("representative_image_verified") && hasEvidence(evidence.representative)) {
+        expanded.push(Object.freeze({ key: "representative_image_verified", passed: true, message: "첫 번째 이미지의 Tistory 대표이미지 지정 상태를 저장 전에 확인했습니다.", evidence: asEvidence(evidence.representative) }));
+      }
+    }
+    if (step.passed && step.key === "tags_reverified") {
+      const evidence = step.evidence ?? {};
+      if (!has("media_reverified") && hasEvidence(evidence.media)) {
+        expanded.push(Object.freeze({ key: "media_reverified", passed: true, message: "다시 연 Tistory 임시글에서 네이티브 이미지와 ALT 상태를 확인했습니다.", evidence: asEvidence(evidence.media) }));
+      }
+      if (!has("representative_reverified") && hasEvidence(evidence.representative)) {
+        expanded.push(Object.freeze({ key: "representative_reverified", passed: true, message: "다시 연 Tistory 임시글에서 대표이미지 지정 상태가 유지됨을 확인했습니다.", evidence: asEvidence(evidence.representative) }));
+      }
+    }
+    expanded.push(step);
+  }
+
+  const failedIndex = expanded.findIndex((step) => !step.passed);
+  if (failedIndex >= 0) {
+    const failedRecord = expanded[failedIndex];
+    const mapped = explicitFailureStep(result.failedStep, failedRecord.diagnosticCode);
+    if (mapped && mapped !== failedRecord.key) {
+      expanded[failedIndex] = Object.freeze({ ...failedRecord, key: mapped });
+      return Object.freeze({ ...result, failedStep: mapped, steps: Object.freeze(expanded) });
+    }
+  }
+
+  if (!expanded.length || expanded.length === existing.length && expanded.every((step, index) => step === existing[index])) return result;
+  return Object.freeze({ ...result, steps: Object.freeze(expanded) });
+}
+
+function explicitFailureStep(
+  failedStep: TistoryDraftSaveResult["failedStep"],
+  diagnosticCode?: string,
+): TistoryDraftWorkflowStep["key"] | undefined {
+  if (!diagnosticCode) return failedStep;
+  if (diagnosticCode.startsWith("representative_persistence_")) return "representative_reverified";
+  if (diagnosticCode.startsWith("representative_")) return "representative_image_verified";
+  if (diagnosticCode.startsWith("media_persistence_")) return "media_reverified";
+  if (diagnosticCode.startsWith("media_")) return "media_prepared";
+  if (failedStep === "tags_reverified" && diagnosticCode.startsWith("category_")) return "category_reverified";
+  return failedStep;
+}
+
+function hasEvidence(value: unknown): boolean {
+  return Boolean(value && typeof value === "object" && !(value as { skipped?: unknown }).skipped);
+}
+
+function asEvidence(value: unknown): Readonly<Record<string, unknown>> {
+  return value && typeof value === "object" ? value as Readonly<Record<string, unknown>> : Object.freeze({});
 }
 
 function readSemanticHtmlDiagnostic(stderr: string): SemanticHtmlDiagnostic | undefined {
