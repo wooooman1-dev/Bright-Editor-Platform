@@ -13,15 +13,40 @@ on:
       - fix/canonical-table-and-image-cost-policy
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: Checkout
+      - name: Checkout branch
         uses: actions/checkout@v4
+        with:
+          ref: fix/canonical-table-and-image-cost-policy
+
+      - name: Align hero-only prompt policy
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("app/application/EditorialGenerationStrategy.ts")
+          old = "Return no more than one source-empty image recommendation block for the entire article, and return zero when an image is not materially needed or a reusable Project image can serve the role. Prefer a representative hero image when a new image is necessary. Do not create image blocks for comparison, checklist, summary, or warning content; represent those as a Markdown table, list, checklist, or Bright HTML/SVG component instead. The one optional image purpose must be hero, inline, or infographic and must include a specific Korean ALT plus a standalone production prompt. Decide whether CTA is useful; when useful place at most two CTA button blocks in context. Never invent a URL. If no approved CTA URL is known, use an empty targetUrl. Do not create internal, monetization, or related-post links unless their real approved URLs are supplied in the editorial context; Bright Studio will place verified catalog links separately."
+          new = "Return no more than one source-empty representative hero image recommendation block for the entire article, and return zero when a representative image is not materially needed. A hero image must be unique to this article and must never be satisfied by reusing another post's Project image. Do not return source-empty inline or infographic image blocks. Represent comparison, checklist, summary, warning, steps, and other body visuals as a Markdown table, list, checklist, or Bright HTML/SVG component; Bright Studio may separately connect eligible body-only Project media or a user upload without a paid AI image call. The one optional image purpose must be hero, placed after the introduction with afterSection 0, and must include a specific Korean ALT plus a standalone production prompt. Decide whether CTA is useful; when useful place at most two CTA button blocks in context. Never invent a URL. If no approved CTA URL is known, use an empty targetUrl. Do not create internal, monetization, or related-post links unless their real approved URLs are supplied in the editorial context; Bright Studio will place verified catalog links separately."
+          text = path.read_text(encoding="utf-8")
+          if old in text:
+              path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          elif new not in text:
+              raise SystemExit("Expected image policy prompt was not found; refusing broad rewrite.")
+          PY
+          if ! git diff --quiet -- app/application/EditorialGenerationStrategy.ts; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add app/application/EditorialGenerationStrategy.ts
+            git commit -m "fix: align editorial prompt with unique hero policy"
+            git push origin HEAD:fix/canonical-table-and-image-cost-policy
+          fi
 
       - name: Setup Node
         uses: actions/setup-node@v4
