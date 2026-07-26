@@ -3,7 +3,7 @@
 import { Fragment, useMemo, useState, type ReactNode } from "react";
 
 import { ContentNormalizer, createContentOutline, type ContentBlock, type ContentDocument, type ContentOutlineEntry, type PublicPostCandidate } from "../../core/content";
-import { brightBodyVisualContent, ensureFreeBodyVisuals } from "../../core/media";
+import { brightBodyVisualContent, ensureFreeBodyVisuals, isFreeBodyVisualBlock } from "../../core/media";
 import { ImageBlockEditor } from "./ImageBlockEditor";
 
 type ButtonPurpose = "cta" | "internal_link" | "monetization" | "related_post";
@@ -124,7 +124,7 @@ export function ContentDocumentEditor({
         {block.type === "heading" ? <div className="flex items-start gap-2"><select aria-label="제목 단계" className="mt-2 rounded-md border border-transparent bg-transparent px-1 py-1 text-xs text-[#92929a] opacity-0 group-focus-within:opacity-100 group-hover:opacity-100" onChange={(event) => void replace(block.id, { ...block, level: Number(event.target.value) as 2 | 3 })} value={block.level === 3 ? 3 : 2}><option value="2">H2</option><option value="3">H3</option></select><input className={`w-full border-0 bg-transparent px-1 py-2 outline-none ${block.level === 3 ? "mt-3 text-xl font-semibold" : "mt-7 text-3xl font-bold tracking-[-0.035em]"}`} defaultValue={block.text} onBlur={(event) => event.target.value !== block.text && void replace(block.id, { ...block, text: event.target.value })} /></div> : null}
         {block.type === "paragraph" ? <textarea className="w-full resize-none overflow-hidden border-0 bg-transparent px-1 py-2 text-[17px] leading-8 outline-none" defaultValue={block.text} onBlur={(event) => event.target.value !== block.text && void replace(block.id, { ...block, text: event.target.value })} rows={Math.max(2, Math.ceil(block.text.length / 55) + block.text.split("\n").length - 1)} /> : null}
         {block.type === "table" ? <TableEditor block={block} disabled={disabled} onChange={(next) => replace(block.id, next)} /> : null}
-        {block.type === "image" ? block.source || block.purpose === "hero" || block.purpose === "inline"
+        {block.type === "image" ? block.source || !isFreeBodyVisualBlock(block)
           ? <ImageBlockEditor key={`${block.id}:${block.alt}:${block.prompt ?? ""}:${block.purpose ?? ""}`} block={block} contentId={document.id} disabled={disabled} onChange={(next) => replace(block.id, next)} />
           : <FreeBodyVisualCard block={block} contentId={document.id} disabled={disabled} onChange={(next) => replace(block.id, next)} />
           : null}
@@ -219,5 +219,5 @@ function RelatedPosts({ candidates, current, disabled, onAdd }: { candidates: re
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) { return <label className="text-sm font-semibold">{label}{children}</label>; }
-function blockLabel(block: ContentBlock) { if (block.type === "heading") return `H${block.level}`; if (block.type === "paragraph") return "문단"; if (block.type === "table") return "표"; if (block.type === "image") return block.source ? "이미지" : block.purpose !== "hero" && block.purpose !== "inline" ? "무료 시각 카드" : "추천 이미지"; if (block.type === "button") return purposeLabel(block.purpose ?? "cta"); return "비디오"; }
+function blockLabel(block: ContentBlock) { if (block.type === "heading") return `H${block.level}`; if (block.type === "paragraph") return "문단"; if (block.type === "table") return "표"; if (block.type === "image") return block.source ? "이미지" : isFreeBodyVisualBlock(block) ? "무료 시각 카드" : "추천 이미지"; if (block.type === "button") return purposeLabel(block.purpose ?? "cta"); return "비디오"; }
 function purposeLabel(value: ButtonPurpose) { return ({ cta: "CTA", internal_link: "내부 링크", monetization: "수익 링크", related_post: "관련 글" })[value]; }

@@ -1,5 +1,5 @@
 import { ContentNormalizer, type ContentDocument, type TableBlock } from "../../core/content";
-import { ensureFreeBodyVisuals, renderBrightBodyVisualHtml } from "../../core/media";
+import { ensureFreeBodyVisuals, isFreeBodyVisualBlock, renderBrightBodyVisualHtml } from "../../core/media";
 
 export class WordPressHtmlRenderer {
   render(input: ContentDocument): string {
@@ -11,7 +11,7 @@ export class WordPressHtmlRenderer {
       if (block.type === "table") return renderTable(block);
       if (block.type === "image") {
         if (block.source) return `<figure class="wp-block-image"><img src="${attribute(block.source)}" alt="${attribute(block.alt)}"></figure>`;
-        if (block.purpose !== "hero" && block.purpose !== "inline") return renderBrightBodyVisualHtml(block);
+        if (isFreeBodyVisualBlock(block)) return renderBrightBodyVisualHtml(block);
         return `<!-- image: ${escapeHtml(block.alt)} -->`;
       }
       if (block.type === "video") return `<p><a href="${attribute(block.source)}">${escapeHtml(block.source)}</a></p>`;

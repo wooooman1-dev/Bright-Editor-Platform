@@ -1,5 +1,5 @@
 import { ContentNormalizer, createContentOutline, type ContentDocument, type ContentOutlineEntry, type TableBlock } from "../../../core/content";
-import { ensureFreeBodyVisuals, renderBrightBodyVisualHtml } from "../../../core/media";
+import { ensureFreeBodyVisuals, isFreeBodyVisualBlock, renderBrightBodyVisualHtml } from "../../../core/media";
 
 export class TistoryHtmlRenderer {
   render(input: ContentDocument): string {
@@ -15,7 +15,7 @@ export class TistoryHtmlRenderer {
       if (block.type === "table") return [...before, renderTable(block)];
       if (block.type === "image") {
         if (block.source) return [...before, `<figure><img src="${attribute(block.source)}" alt="${attribute(block.alt)}">${block.caption ? `<figcaption>${escape(block.caption)}</figcaption>` : ""}</figure>`];
-        if (block.purpose !== "hero" && block.purpose !== "inline") return [...before, renderBrightBodyVisualHtml(block)];
+        if (isFreeBodyVisualBlock(block)) return [...before, renderBrightBodyVisualHtml(block)];
         return [...before, `<figure class="bright-image-placeholder" data-image-required="true"><strong>추천 이미지</strong><p>${escape(block.alt)}</p></figure>`];
       }
       if (block.type === "video") return [...before, `<div class="bright-embed"><a href="${attribute(block.source)}">${escape(block.source)}</a></div>`];
