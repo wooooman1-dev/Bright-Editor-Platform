@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import {
   draftOutcomePresentation,
+  projectOutcomeDestination,
   readDraftRequestContext,
   reverifyRequestBody,
   type TistoryDraftOutcomeStatus,
@@ -68,7 +69,11 @@ export function TistoryDraftOutcomeOverlay() {
 
   const executePrimary = async () => {
     if (presentation.primaryAction === "continue") {
-      window.location.reload();
+      if (card.outcome.status === "verified") {
+        window.location.assign(projectOutcomeDestination(card.context, window.location.href));
+      } else {
+        window.location.reload();
+      }
       return;
     }
 
