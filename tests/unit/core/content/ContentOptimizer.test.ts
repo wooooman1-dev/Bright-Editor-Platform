@@ -102,4 +102,33 @@ describe("ContentOptimizer", () => {
       videoCount: 1,
     });
   });
+
+  it("normalizes table cells, drops empty tables, and counts visible table words", () => {
+    const result = new ContentOptimizer({
+      now: () => new Date("2026-07-26T00:00:00.000Z"),
+    }).optimize({
+      id: "document",
+      title: "운동 비교",
+      blocks: [
+        {
+          id: "table",
+          type: "table",
+          caption: " 선택 기준 ",
+          headers: [" 비교 기준 ", " 근력 운동 "],
+          rows: [[" 주된 목표 ", " 힘과 기능 "]],
+        },
+        { id: "empty", type: "table", headers: ["항목"], rows: [[""]] },
+      ],
+    });
+
+    expect(result.blocks).toEqual([{
+      id: "table",
+      type: "table",
+      caption: "선택 기준",
+      headers: ["비교 기준", "근력 운동"],
+      rows: [["주된 목표", "힘과 기능"]],
+    }]);
+    expect(result.metadata?.wordCount).toBeGreaterThan(2);
+    expect(result.metadata?.imageCount).toBe(0);
+  });
 });
