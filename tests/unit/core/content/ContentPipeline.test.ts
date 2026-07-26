@@ -79,7 +79,7 @@ describe("ContentPipeline", () => {
 
   it("returns unsupported runtime blocks as validation errors without throwing", () => {
     const document = {
-      blocks: [{ id: "unsupported", type: "table" }],
+      blocks: [{ id: "unsupported", type: "unknown-widget" }],
       id: "document",
       title: "Title",
     } as unknown as ContentDocument;
@@ -91,6 +91,27 @@ describe("ContentPipeline", () => {
       document,
       validation: { valid: false },
     });
+  });
+
+  it("processes canonical tables through the default processors", () => {
+    const result = new ContentPipeline().process({
+      id: "table-document",
+      title: " Table ",
+      blocks: [{
+        id: "table",
+        type: "table",
+        headers: [" Criterion ", " Value "],
+        rows: [[" Platform ", " Independent "]],
+      }],
+    });
+
+    expect(result.validation.valid).toBe(true);
+    expect(result.document.blocks).toEqual([{
+      id: "table",
+      type: "table",
+      headers: ["Criterion", "Value"],
+      rows: [["Platform", "Independent"]],
+    }]);
   });
 
   it("optimizes when validation contains non-blocking issues", () => {
