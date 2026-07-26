@@ -211,7 +211,9 @@ function inlineText(value: string): string {
 }
 
 function normalizeCell(value: string): string {
-  return inlineText(value).replace(/\s+/g, " ").trim();
+  return decodeEntities(value.normalize("NFKC"))
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function escapeMarkdownCell(value: string): string {
