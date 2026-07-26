@@ -89,9 +89,20 @@ export type {
 } from "./blocks/HeadingBlock";
 export type { ImageBlock, ImageBlockPurpose, ImageBlockSourceType } from "./blocks/ImageBlock";
 export type { ParagraphBlock } from "./blocks/ParagraphBlock";
+export type { TableBlock } from "./blocks/TableBlock";
 export type { VideoBlock } from "./blocks/VideoBlock";
 export { ContentNormalizer } from "./processors/ContentNormalizer";
-export { normalizeStructuredText, structuredListItems, structuredProseText, structuredTableCount } from "./StructuredText";
+export {
+  normalizeStructuredTable,
+  normalizeStructuredText,
+  parseStructuredText,
+  serializeStructuredTable,
+  structuredListItems,
+  structuredProseText,
+  structuredTableCount,
+  type StructuredTableData,
+  type StructuredTextSegment,
+} from "./StructuredText";
 export {
   ContentOptimizer,
   type ContentOptimizerOptions,
