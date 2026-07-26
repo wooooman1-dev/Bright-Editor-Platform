@@ -1,0 +1,40 @@
+name: Temporary Free Card Prompt Score Fix
+
+on:
+  push:
+    branches:
+      - fix/canonical-table-and-image-cost-policy
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/canonical-table-and-image-cost-policy
+      - name: Apply patch
+        run: python scripts/temporary_free_card_prompt_score_fix.py
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet; then
+            git add core/quality/QualityEngine.ts tests/unit/core/quality/QualityEngine.test.ts
+            git commit -m "fix: exclude free-card prompts from image scoring"
+            git push origin HEAD:fix/canonical-table-and-image-cost-policy
+          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
