@@ -1,17 +1,18 @@
 import { describe, expect, it } from "vitest";
 
-import type { ContentDocument, ImageBlock } from "../../../../core/content";
+import type { ContentDocument, ImageBlock, ImageBlockPurpose } from "../../../../core/content";
 import {
   applyGeneratedImageCostPolicy,
   findReusableProjectImage,
   generatedImageCountForContent,
+  isProjectImageReusableForBlock,
   selectAutomaticImageBlock,
   type MediaAsset,
   type ProjectMediaAsset,
 } from "../../../../core/media";
 
 describe("ImageCostPolicy", () => {
-  it("selects one source-empty hero block before other planned images", () => {
+  it("selects only one source-empty hero block for automatic paid generation", () => {
     const document = imageDocument([
       planned("inline", "inline", "본문 운동 자세"),
       planned("hero", "hero", "운동 비교 대표"),
@@ -19,9 +20,12 @@ describe("ImageCostPolicy", () => {
     ]);
 
     expect(selectAutomaticImageBlock(document)?.id).toBe("hero");
+    expect(selectAutomaticImageBlock(imageDocument([
+      planned("inline", "inline", "본문 운동 자세"),
+    ]))).toBeUndefined();
   });
 
-  it("keeps additional planned images but removes Bright component image recommendations", () => {
+  it("keeps only the planned hero while preserving already connected body images", () => {
     const placedComparison: ImageBlock = {
       id: "placed-comparison",
       type: "image",
@@ -42,29 +46,43 @@ describe("ImageCostPolicy", () => {
 
     expect(result.blocks.map((block) => block.id)).toEqual([
       "hero",
-      "inline",
       "placed-comparison",
     ]);
     expect(selectAutomaticImageBlock(result)?.id).toBe("hero");
   });
 
-  it("reuses a semantically suitable Project image without requiring an exact asset id", () => {
-    const target = planned("hero", "hero", "근력운동과 유산소운동 비교 대표 이미지");
+  it("never reuses Project media as a representative image", () => {
+    const hero = planned("hero", "hero", "근력운동과 유산소운동 비교 대표 이미지");
     const suitable = projectAsset({
       id: "suitable",
       alt: "근력운동 유산소운동 비교 대표 이미지",
       prompt: "근력운동과 유산소운동을 나란히 비교한 장면",
-      purpose: "hero",
-    });
-    const unrelated = projectAsset({
-      id: "unrelated",
-      alt: "수면 습관 체크 이미지",
-      prompt: "침실과 수면 기록 장면",
-      purpose: "hero",
+      purpose: "inline",
     });
 
-    expect(findReusableProjectImage([unrelated, suitable], target)?.id).toBe("suitable");
-    expect(findReusableProjectImage([unrelated], target)).toBeUndefined();
+    expect(isProjectImageReusableForBlock(suitable, hero)).toBe(false);
+    expect(findReusableProjectImage([suitable], hero)).toBeUndefined();
+  });
+
+  it("reuses suitable body media but excludes anything used as a hero", () => {
+    const target = planned("inline", "inline", "근력운동과 유산소운동 차이 본문 이미지");
+    const suitable = projectAsset({
+      id: "suitable",
+      alt: "근력운동 유산소운동 차이 본문 이미지",
+      prompt: "근력운동과 유산소운동을 비교하는 본문 장면",
+      purpose: "inline",
+    });
+    const usedAsHero = projectAsset({
+      id: "hero-history",
+      alt: "근력운동 유산소운동 차이 본문 이미지",
+      prompt: "근력운동과 유산소운동을 비교하는 본문 장면",
+      purpose: "inline",
+      references: [{ blockId: "old-hero", contentId: "old", contentTitle: "이전 글", purpose: "hero", updatedAt: "2026-07-25T00:00:00.000Z" }],
+    });
+
+    expect(isProjectImageReusableForBlock(suitable, target)).toBe(true);
+    expect(isProjectImageReusableForBlock(usedAsHero, target)).toBe(false);
+    expect(findReusableProjectImage([usedAsHero, suitable], target)?.id).toBe("suitable");
   });
 
   it("counts only AI-generated assets belonging to the same content", () => {
@@ -98,8 +116,10 @@ function projectAsset(input: Readonly<{
   id: string;
   alt: string;
   prompt: string;
-  purpose: NonNullable<ImageBlock["purpose"]>;
+  purpose: ImageBlockPurpose;
+  references?: ProjectMediaAsset["references"];
 }>): ProjectMediaAsset {
+  const references = input.references ?? [];
   return {
     id: input.id,
     kind: "image",
@@ -112,8 +132,8 @@ function projectAsset(input: Readonly<{
       sourceType: "ai_generated",
       createdAt: "2026-07-26T00:00:00.000Z",
     },
-    referenceCount: 1,
-    references: [],
+    referenceCount: references.length,
+    references,
   };
 }
 
