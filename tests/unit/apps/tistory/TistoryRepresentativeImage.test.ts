@@ -4,18 +4,13 @@ import { describe, expect, it } from "vitest";
 
 import { representativeControlLooksSelected, verifyTistoryRepresentativePersistence } from "../../../../apps/tistory/workflows/tistory-representative-image.mjs";
 
-const sameEditorSource = readFileSync(
-  join(process.cwd(), "apps/tistory/workflows/tistory-same-editor-media.mjs"),
-  "utf8",
-);
-const representativeSource = readFileSync(
-  join(process.cwd(), "apps/tistory/workflows/tistory-representative-image.mjs"),
-  "utf8",
-);
-const draftWorkerSource = readFileSync(
-  join(process.cwd(), "apps/tistory/workflows/tistory-draft-worker.mjs"),
-  "utf8",
-);
+function readSource(path: string): string {
+  return readFileSync(join(process.cwd(), path), "utf8").replace(/\r\n/g, "\n");
+}
+
+const sameEditorSource = readSource("apps/tistory/workflows/tistory-same-editor-media.mjs");
+const representativeSource = readSource("apps/tistory/workflows/tistory-representative-image.mjs");
+const draftWorkerSource = readSource("apps/tistory/workflows/tistory-draft-worker.mjs");
 
 describe("Tistory representative image", () => {
   it("recognizes the actual Tistory active representative control state", () => {
