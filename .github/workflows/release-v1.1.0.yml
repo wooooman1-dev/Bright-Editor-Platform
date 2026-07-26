@@ -6,6 +6,7 @@ on:
       - main
     types:
       - reopened
+      - synchronize
   push:
     branches:
       - main
