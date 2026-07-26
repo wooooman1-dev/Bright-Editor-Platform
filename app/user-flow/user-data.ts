@@ -1,7 +1,9 @@
 import {
   confirmContentOpportunity,
+  ContentNormalizer,
   createContentOpportunityCandidate,
   hasCurrentContentOpportunityFingerprint,
+  serializeStructuredTable,
   type ConfirmedContentOpportunity,
   type ContentDocument,
   type ContentOpportunityCandidate,
@@ -336,92 +338,96 @@ export function completeContentPlanning(data: UserData, input: Readonly<{
         selectedOpportunityId,
         lastSuccessfulStep: "planning",
       }),
-      updatedAt: input.now,
+      generationError: undefined,
     };
   });
 }
 
-export function selectContentPlanningOpportunity(data: UserData, input: Readonly<{
+export function selectContentOpportunity(data: UserData, input: Readonly<{
   workspaceId: string;
   projectId: string;
   contentId: string;
+  operationId: string;
   opportunityId: string;
-  expectedRevision: number;
   now: string;
 }>): UserData {
-  const content = requirePlanningContent(data, input.workspaceId, input.projectId, input.contentId);
-  const workflow = requirePlanningWorkflow(content);
-  if (workflow.revision !== input.expectedRevision) throw new Error("Planning 상태가 다른 화면에서 변경되었습니다. 최신 상태를 다시 불러와 주세요.");
-  const candidate = content.planning?.opportunityCandidates?.find((item) => item.opportunityId === input.opportunityId);
-  if (!candidate || candidate.projectId !== input.projectId || !hasCurrentContentOpportunityFingerprint(candidate)) {
-    throw new Error("선택한 Content Opportunity가 현재 Planning 후보와 일치하지 않습니다.");
-  }
-  return updateContent(data, content.id, {
-    title: candidate.selectedTopic,
-    planningWorkflow: nextPlanningWorkflow(workflow, input.now, {
-      status: "opportunitySelected",
-      selectedOpportunityId: candidate.opportunityId,
-      lastSuccessfulStep: "selection",
-    }),
-    updatedAt: input.now,
+  return updatePlanningContent(data, input, (content, workflow) => {
+    const candidate = content.planning?.opportunityCandidates?.find((item) => item.opportunityId === input.opportunityId);
+    if (!candidate || candidate.projectId !== input.projectId || !hasCurrentContentOpportunityFingerprint(candidate)) {
+      throw new Error("선택한 Content Opportunity가 현재 Project에 속하지 않습니다.");
+    }
+    return {
+      ...content,
+      primaryKeyword: candidate.primaryKeyword,
+      relatedKeywords: candidate.secondaryKeywords,
+      searchIntent: candidate.searchIntent,
+      targetAudience: candidate.audience,
+      contentGoal: candidate.contentAngle,
+      contentType: candidate.contentType,
+      qualityTarget: candidate.qualityTarget,
+      title: candidate.selectedTopic,
+      planningWorkflow: nextPlanningWorkflow(workflow, input.now, {
+        status: "opportunitySelected",
+        selectedOpportunityId: candidate.opportunityId,
+        lastSuccessfulStep: "selection",
+      }),
+    };
   });
 }
 
-export function failContentPlanning(data: UserData, input: Readonly<{
+export function confirmSelectedContentOpportunity(data: UserData, input: Readonly<{
   workspaceId: string;
   projectId: string;
   contentId: string;
   operationId: string;
-  error: string;
-  retryFrom: "planning" | "generation" | "review";
-  diagnostic?: LongFormDiagnostic;
   now: string;
 }>): UserData {
-  try {
-    return updatePlanningContent(data, input, (content, workflow) => {
-      const normalizedError = normalizeRequiredName(input.error) || "작업에 실패했습니다.";
-      if (workflow.status === "failed" && workflow.error === normalizedError && workflow.retryFrom === input.retryFrom) return content;
-      return {
-        ...content,
-        planningWorkflow: nextPlanningWorkflow(workflow, input.now, {
-          status: "failed",
-          error: normalizedError,
-          retryFrom: input.retryFrom,
-          failedStep: input.retryFrom,
-          ...(input.diagnostic ? { longFormDiagnostic: input.diagnostic } : {}),
-        }),
-        generationError: input.retryFrom === "generation" ? input.error : content.generationError,
-        reviewError: input.retryFrom === "review" ? input.error : content.reviewError,
-        generationDiagnostic: input.retryFrom === "generation" ? input.diagnostic : content.generationDiagnostic,
-        updatedAt: input.now,
-      };
-    });
-  } catch (error) {
-    if (error instanceof StalePlanningOperationError) return data;
-    throw error;
-  }
+  return updatePlanningContent(data, input, (content, workflow) => {
+    const candidate = content.planning?.opportunityCandidates?.find((item) => item.opportunityId === workflow.selectedOpportunityId);
+    if (!candidate || candidate.projectId !== input.projectId || !hasCurrentContentOpportunityFingerprint(candidate)) {
+      throw new Error("확정할 Content Opportunity가 현재 Project에 속하지 않습니다.");
+    }
+    const confirmed = confirmContentOpportunity(candidate, input.now);
+    return {
+      ...content,
+      opportunity: confirmed,
+      primaryKeyword: confirmed.primaryKeyword,
+      relatedKeywords: confirmed.secondaryKeywords,
+      searchIntent: confirmed.searchIntent,
+      targetAudience: confirmed.audience,
+      contentGoal: confirmed.contentAngle,
+      contentType: confirmed.contentType,
+      qualityTarget: confirmed.qualityTarget,
+      title: confirmed.selectedTopic,
+      planningWorkflow: nextPlanningWorkflow(workflow, input.now, {
+        status: "opportunityConfirmed",
+        selectedOpportunityId: confirmed.opportunityId,
+        lastSuccessfulStep: "confirmation",
+      }),
+    };
+  });
 }
 
-export function startContentGeneration(data: UserData, input: Readonly<{
+export function markContentGenerationStarted(data: UserData, input: Readonly<{
   workspaceId: string;
   projectId: string;
   contentId: string;
   operationId: string;
   now: string;
 }>): UserData {
-  const content = requirePlanningContent(data, input.workspaceId, input.projectId, input.contentId);
-  const workflow = requirePlanningWorkflow(content);
-  if (!content.opportunity || workflow.status !== "opportunityConfirmed") throw new Error("Content Opportunity를 먼저 확정해 주세요.");
-  return updateContent(data, content.id, {
-    planningWorkflow: nextPlanningWorkflow(workflow, input.now, {
-      status: "generating",
-      operationId: input.operationId,
-      lastSuccessfulStep: "confirmation",
-    }),
-    generationError: undefined,
-    reviewError: undefined,
-    generationDiagnostic: undefined,
-    updatedAt: input.now,
+  return updatePlanningContent(data, input, (content, workflow) => {
+    if (!content.opportunity || !hasCurrentContentOpportunityFingerprint(content.opportunity)) {
+      throw new Error("확정된 Content Opportunity 없이 생성 단계를 시작할 수 없습니다.");
+    }
+    return {
+      ...content,
+      status: "planning",
+      generationError: undefined,
+      planningWorkflow: nextPlanningWorkflow(workflow, input.now, {
+        status: "generating",
+        lastSuccessfulStep: "confirmation",
+      }),
+    };
   });
 }
 
@@ -430,72 +436,116 @@ export function completeContentGeneration(data: UserData, input: Readonly<{
   projectId: string;
   contentId: string;
   operationId: string;
+  document: ContentDocument;
+  now: string;
+}>): UserData {
+  return updatePlanningContent(data, input, (content, workflow) => {
+    if (!content.opportunity || !hasCurrentContentOpportunityFingerprint(content.opportunity)) {
+      throw new Error("생성 결과에 연결할 Content Opportunity가 없습니다.");
+    }
+    const body = documentToEditableText(input.document);
+    return {
+      ...content,
+      title: input.document.title,
+      body,
+      document: input.document,
+      status: "draft",
+      quality: undefined,
+      generationError: undefined,
+      generationDiagnostic: input.document.metadata?.generationDiagnostic,
+      qualityTarget: input.document.metadata?.qualityTarget ?? content.qualityTarget,
+      planningWorkflow: nextPlanningWorkflow(workflow, input.now, {
+        status: "generated",
+        lastSuccessfulStep: "generation",
+        longFormDiagnostic: input.document.metadata?.generationDiagnostic,
+      }),
+      updatedAt: input.now,
+    };
+  });
+}
+
+export function failContentPlanning(data: UserData, input: Readonly<{
+  workspaceId: string;
+  projectId: string;
+  contentId: string;
+  operationId: string;
+  failedStep: ContentPlanningWorkflowStep;
+  error: string;
+  now: string;
+}>): UserData {
+  return updatePlanningContent(data, input, (content, workflow) => {
+    const lastSuccessfulStep = input.failedStep === "generation" ? "confirmation" : workflow.lastSuccessfulStep;
+    return {
+      ...content,
+      status: "planning",
+      generationError: input.error,
+      planningWorkflow: nextPlanningWorkflow(workflow, input.now, {
+        status: "failed",
+        error: input.error,
+        failedStep: input.failedStep,
+        retryFrom: input.failedStep,
+        ...(lastSuccessfulStep ? { lastSuccessfulStep } : {}),
+      }),
+    };
+  });
+}
+
+export function cancelContentPlanning(data: UserData, input: Readonly<{
+  workspaceId: string;
+  projectId: string;
+  contentId: string;
+  operationId: string;
   now: string;
 }>): UserData {
   return updatePlanningContent(data, input, (content, workflow) => ({
     ...content,
-    planningWorkflow: nextPlanningWorkflow(workflow, input.now, {
-      status: "generated",
-      lastSuccessfulStep: "generation",
-    }),
-    updatedAt: input.now,
+    status: "planning",
+    planningWorkflow: nextPlanningWorkflow(workflow, input.now, { status: "cancelled" }),
   }));
 }
 
-export function createContentFromPlan(data: UserData, input: Readonly<{
-  id: string; projectId: string; naturalLanguageRequest: string; plan: ContentPlanningResult;
-  opportunity?: ContentOpportunityCandidate; primaryKeyword?: string; selectedPublishingAccountIds: readonly string[]; now: string;
+export function retryContentPlanning(data: UserData, input: Readonly<{
+  workspaceId: string;
+  projectId: string;
+  contentId: string;
+  operationId: string;
+  now: string;
 }>): UserData {
-  const existing = data.contents.find((content) => content.id === input.id);
-  const project = data.projects.find((item) => item.id === input.projectId);
-  if (!project) throw new Error("프로젝트를 찾을 수 없습니다.");
-  const request = normalizeRequiredName(input.naturalLanguageRequest);
-  const selectedOpportunity = input.opportunity ?? resolveLegacyOpportunity(input.plan, input.primaryKeyword, input.projectId, request);
-  const opportunity = confirmContentOpportunity(selectedOpportunity, {
-    workspaceId: project.workspaceId,
-    projectId: project.id,
-    contentId: input.id,
-    confirmedAt: input.now,
+  return updatePlanningContent(data, input, (content, workflow) => {
+    if (workflow.status !== "failed" || !workflow.retryFrom) throw new Error("재시도 가능한 실패 상태가 아닙니다.");
+    if (workflow.retryFrom === "generation" && !content.opportunity) throw new Error("생성 재시도에 필요한 Content Opportunity가 없습니다.");
+    const nextStatus: ContentPlanningWorkflowStatus = workflow.retryFrom === "generation" ? "opportunityConfirmed" : "planning";
+    return {
+      ...content,
+      generationError: undefined,
+      planningWorkflow: nextPlanningWorkflow(workflow, input.now, {
+        status: nextStatus,
+        ...(workflow.retryFrom === "generation" ? { lastSuccessfulStep: "confirmation" as const } : { lastSuccessfulStep: "request" as const }),
+      }),
+    };
   });
-  if (!request) throw new Error("요청과 콘텐츠 기회를 확인해 주세요.");
-  const content: UserContent = {
-    ...(existing ?? {}),
-    id: input.id, workspaceId: project.workspaceId, projectId: project.id, ...(project.brandId ? { brandId: project.brandId } : {}),
-    naturalLanguageRequest: request, interpretedIntent: input.plan.interpretedIntent, domain: input.plan.domain,
-    planning: input.plan, opportunity,
-    planningWorkflow: existing?.planningWorkflow
-      ? nextPlanningWorkflow(existing.planningWorkflow, input.now, {
-        status: "opportunityConfirmed",
-        selectedOpportunityId: opportunity.opportunityId,
-        lastSuccessfulStep: "confirmation",
-      })
-      : undefined,
-    primaryKeyword: opportunity.primaryKeyword, relatedKeywords: opportunity.secondaryKeywords, searchIntent: opportunity.searchIntent,
-    providerSearchIntent: opportunity.providerSearchIntent,
-    targetAudience: opportunity.audience, contentGoal: opportunity.contentAngle, contentType: opportunity.contentType,
-    qualityTarget: opportunity.qualityTarget,
-    selectedPublishingAccountIds: [...new Set(input.selectedPublishingAccountIds)],
-    ...(input.selectedPublishingAccountIds.length === 1 ? { publishingAccountId: input.selectedPublishingAccountIds[0], platform: "tistory" } : {}),
-    title: opportunity.selectedTopic,
-    body: existing?.body ?? "", status: "planning", creationMethod: "natural_language", createdAt: existing?.createdAt ?? input.now, updatedAt: input.now,
-    ...(project.strategy?.defaultTistoryCategory ? { publishingPreparation: { tistory: { publishingAccountId: project.strategy.defaultTistoryCategory.publishingAccountId, platformCategoryId: project.strategy.defaultTistoryCategory.id, platformCategoryName: project.strategy.defaultTistoryCategory.name, updatedAt: input.now } } } : {}),
-  };
-  return { ...data, contents: existing ? data.contents.map((item) => item.id === existing.id ? content : item) : [...data.contents, content] };
+}
+
+export function getResumablePlanningContent(data: UserData, workspaceId: string, projectId: string, contentId?: string): UserContent | undefined {
+  const candidates = data.contents.filter((content) => content.workspaceId === workspaceId && content.projectId === projectId && content.planningWorkflow && content.planningWorkflow.status !== "cancelled");
+  if (contentId) return candidates.find((content) => content.id === contentId);
+  return candidates.sort((left, right) => (right.planningWorkflow?.updatedAt ?? right.updatedAt).localeCompare(left.planningWorkflow?.updatedAt ?? left.updatedAt))[0];
 }
 
 function updatePlanningContent(
   data: UserData,
-  input: Readonly<{ workspaceId: string; projectId: string; contentId: string; operationId: string; now: string }>,
-  update: (content: UserContent, workflow: ContentPlanningWorkflow) => UserContent,
+  input: Readonly<{ workspaceId: string; projectId: string; contentId: string; operationId: string }>,
+  updater: (content: UserContent, workflow: ContentPlanningWorkflow) => UserContent,
 ): UserData {
   const content = requirePlanningContent(data, input.workspaceId, input.projectId, input.contentId);
   const workflow = requirePlanningWorkflow(content);
   if (workflow.operationId !== input.operationId) throw new StalePlanningOperationError();
-  return updateContent(data, content.id, update(content, workflow));
+  const next = updater(content, workflow);
+  return { ...data, contents: data.contents.map((item) => item.id === content.id ? next : item) };
 }
 
 function requirePlanningContent(data: UserData, workspaceId: string, projectId: string, contentId: string): UserContent {
-  if (data.workspace?.id !== workspaceId) throw new Error("Workspace를 찾을 수 없습니다.");
+  if (data.workspace?.id !== workspaceId) throw new Error("Workspace가 현재 사용자 데이터와 일치하지 않습니다.");
   const project = data.projects.find((item) => item.id === projectId && item.workspaceId === workspaceId);
   if (!project) throw new Error("Project가 현재 Workspace에 속하지 않습니다.");
   const content = data.contents.find((item) => item.id === contentId && item.workspaceId === workspaceId && item.projectId === projectId);
@@ -634,14 +684,19 @@ export function parseStoredUserData(raw: string | null): UserData {
 
 function bodyToDocument(content: UserContent, title: string, body: string): ContentDocument {
   const editable = editableTextToBlocks(content.id, body);
-  const nonTextBlocks = content.document?.blocks.filter((block) => block.type !== "heading" && block.type !== "paragraph") ?? [];
-  return Object.freeze({ id: content.document?.id ?? content.id, title, blocks: Object.freeze([...editable, ...nonTextBlocks]) });
+  const nonTextBlocks = content.document?.blocks.filter((block) => block.type !== "heading" && block.type !== "paragraph" && block.type !== "table") ?? [];
+  return new ContentNormalizer().normalize(Object.freeze({
+    id: content.document?.id ?? content.id,
+    title,
+    blocks: Object.freeze([...editable, ...nonTextBlocks]),
+  }));
 }
 
 export function documentToEditableText(document: ContentDocument): string {
   return document.blocks.flatMap((block) => {
     if (block.type === "heading") return [`${"#".repeat(block.level)} ${block.text}`];
     if (block.type === "paragraph") return [block.text];
+    if (block.type === "table") return [serializeStructuredTable(block)];
     return [];
   }).join("\n\n");
 }
