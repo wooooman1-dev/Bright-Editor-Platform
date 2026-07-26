@@ -1,8 +1,9 @@
 import { ContentNormalizer, createContentOutline, type ContentDocument, type ContentOutlineEntry, type TableBlock } from "../../../core/content";
+import { ensureFreeBodyVisuals, renderBrightBodyVisualHtml } from "../../../core/media";
 
 export class TistoryHtmlRenderer {
   render(input: ContentDocument): string {
-    const document = new ContentNormalizer().normalize(input);
+    const document = ensureFreeBodyVisuals(new ContentNormalizer().normalize(input));
     const anchors = headingAnchors(createContentOutline(document));
     const toc = anchors.length ? `<nav class="bright-toc" aria-label="목차"><strong>목차</strong><ul>${anchors.map((item) => `<li class="bright-toc-level-${item.level}"><a href="#${item.anchor}">${escape(item.text)}</a></li>`).join("")}</ul></nav>` : "";
     const firstHeading = document.blocks.findIndex((block) => block.type === "heading" && block.level >= 2);
@@ -12,7 +13,11 @@ export class TistoryHtmlRenderer {
       if (block.type === "heading") { const anchor = anchors.find((item) => item.id === block.id)?.anchor; return [...before, `<h${block.level}${anchor ? ` id="${anchor}"` : ""}>${escape(block.text)}</h${block.level}>`]; }
       if (block.type === "paragraph") return [...before, `<p>${escape(block.text).replace(/\n/g, "<br>")}</p>`];
       if (block.type === "table") return [...before, renderTable(block)];
-      if (block.type === "image") return [...before, block.source ? `<figure><img src="${attribute(block.source)}" alt="${attribute(block.alt)}">${block.caption ? `<figcaption>${escape(block.caption)}</figcaption>` : ""}</figure>` : `<figure class="bright-image-placeholder" data-image-required="true"><strong>추천 이미지</strong><p>${escape(block.alt)}</p></figure>`];
+      if (block.type === "image") {
+        if (block.source) return [...before, `<figure><img src="${attribute(block.source)}" alt="${attribute(block.alt)}">${block.caption ? `<figcaption>${escape(block.caption)}</figcaption>` : ""}</figure>`];
+        if (block.purpose !== "hero" && block.purpose !== "inline") return [...before, renderBrightBodyVisualHtml(block)];
+        return [...before, `<figure class="bright-image-placeholder" data-image-required="true"><strong>추천 이미지</strong><p>${escape(block.alt)}</p></figure>`];
+      }
       if (block.type === "video") return [...before, `<div class="bright-embed"><a href="${attribute(block.source)}">${escape(block.source)}</a></div>`];
       const className = `bright-${block.purpose ?? "cta"}`;
       const target = block.target === "_blank" ? ' target="_blank" rel="noopener noreferrer"' : "";
