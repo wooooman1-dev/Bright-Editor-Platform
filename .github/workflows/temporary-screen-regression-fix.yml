@@ -1,0 +1,59 @@
+name: Temporary Screen Regression Fix
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - reopened
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/canonical-table-and-image-cost-policy
+
+      - name: Apply patch
+        run: python scripts/temporary_screen_regression_fix.py
+
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet; then
+            git add core/media/ImageCostPolicy.ts core/media/BrightBodyVisuals.ts app/user-flow/ContentDocumentEditor.tsx core/content/ContentOpportunityAlignment.ts tests/unit/core/media/ImageCostPolicy.test.ts tests/unit/app/api/MediaRoute.test.ts tests/unit/core/media/BrightBodyVisuals.test.ts tests/unit/core/content/ContentOpportunityAlignment.test.ts tests/unit/app/user-flow/ImageWorkspace.test.ts
+            git commit -m "fix: address visible image and intent regressions"
+            git push origin HEAD:fix/canonical-table-and-image-cost-policy
+          fi
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
