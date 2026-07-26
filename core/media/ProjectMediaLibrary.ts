@@ -53,6 +53,7 @@ export function buildProjectMediaLibrary(input: Readonly<{
           mimeType: block.mimeType,
           projectId: input.projectId,
           prompt: block.prompt,
+          purpose: block.purpose,
           sourceType: legacySourceType(block),
         }),
         source: block.source,
@@ -61,17 +62,23 @@ export function buildProjectMediaLibrary(input: Readonly<{
   }
 
   return Object.freeze([...known.values()].map((asset) => {
-    const references = contents.flatMap((content) => imageBlocks(content.document)
+    const matchingBlocks = contents.flatMap((content) => imageBlocks(content.document)
       .filter((block) => block.assetId === asset.id || block.source === asset.source)
-      .map((block) => Object.freeze({
-        blockId: block.id,
-        contentId: content.id,
-        contentTitle: content.title,
-        updatedAt: content.updatedAt,
-      })));
+      .map((block) => ({ block, content })));
+    const references = matchingBlocks.map(({ block, content }) => Object.freeze({
+      blockId: block.id,
+      contentId: content.id,
+      contentTitle: content.title,
+      updatedAt: content.updatedAt,
+    }));
     const lastReferencedAt = references.map((reference) => reference.updatedAt).sort().at(-1);
+    const referencedPurpose = matchingBlocks.find(({ block }) => block.purpose)?.block.purpose;
+    const metadata = asset.metadata.purpose || !referencedPurpose
+      ? asset.metadata
+      : Object.freeze({ ...asset.metadata, purpose: referencedPurpose });
     return Object.freeze({
       ...asset,
+      metadata,
       ...(lastReferencedAt ? { lastReferencedAt } : {}),
       referenceCount: references.length,
       references: Object.freeze(references),
