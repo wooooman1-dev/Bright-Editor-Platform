@@ -11,8 +11,9 @@ const generationSource = readFileSync(join(process.cwd(), "app/application/Edito
 const imageBlockSource = readFileSync(join(process.cwd(), "core/content/blocks/ImageBlock.ts"), "utf8");
 const mediaLibrarySource = readFileSync(join(process.cwd(), "core/media/ProjectMediaLibrary.ts"), "utf8");
 const imageCostPolicySource = readFileSync(join(process.cwd(), "core/media/ImageCostPolicy.ts"), "utf8");
+const freeVisualSource = readFileSync(join(process.cwd(), "core/media/BrightBodyVisuals.ts"), "utf8");
 
-describe("Bright Studio image workspace", () => {
+ describe("Bright Studio image workspace", () => {
   it("offers prompt, upload, and copy actions for every image block", () => {
     expect(imageEditorSource).toContain("이미지 별도 제작용 프롬프트");
     expect(imageEditorSource).toContain("파일 불러오기");
@@ -29,9 +30,18 @@ describe("Bright Studio image workspace", () => {
     expect(imageCostPolicySource).toContain('block.purpose === "hero"');
   });
 
+  it("shows up to two zero-cost body visual cards in the existing editor", () => {
+    expect(documentEditorSource).toContain("ensureFreeBodyVisuals");
+    expect(documentEditorSource).toContain("FreeBodyVisualCard");
+    expect(documentEditorSource).toContain('data-free-visual="true"');
+    expect(documentEditorSource).toContain("Project 이미지 또는 파일로 교체");
+    expect(freeVisualSource).toContain("const bodyVisualLimit = 2");
+    expect(freeVisualSource).toContain("renderBrightBodyVisualHtml");
+  });
+
   it("allows a new independent image workspace to be added to the canonical document", () => {
     expect(documentEditorSource).toContain("이미지 추가");
-    expect(documentEditorSource).toContain("sourceType: \"planned\"");
+    expect(documentEditorSource).toContain('sourceType: "planned"');
     expect(documentEditorSource).toContain("<ImageBlockEditor");
   });
 
@@ -44,7 +54,7 @@ describe("Bright Studio image workspace", () => {
 
   it("validates image ownership and supported upload formats on the server", () => {
     expect(mediaRouteSource).toContain("resolveOwnedImageBlock(contentId, blockId)");
-    expect(mediaRouteSource).toContain("item.id === blockId && item.type === \"image\"");
+    expect(mediaRouteSource).toContain('item.id === blockId && item.type === "image"');
     expect(mediaRouteSource).toContain("imageTypeFromMimeType(file.type)");
     expect(mediaRouteSource).toContain("BRIGHT_STUDIO_MAX_IMAGE_BYTES");
   });
