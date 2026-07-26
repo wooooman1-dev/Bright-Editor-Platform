@@ -1,0 +1,77 @@
+name: Temporary Related AI Score PR
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - reopened
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/canonical-table-and-image-cost-policy
+
+      - name: Apply patch
+        run: python scripts/temporary_related_ai_score_fix.py
+
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet; then
+            git add core/media/BrightBodyVisuals.ts app/user-flow/ImageBlockEditor.tsx app/api/media/route.ts core/content/ContentOpportunityAlignment.ts core/quality/QualityEngine.ts tests/unit/app/api/MediaRoute.test.ts tests/unit/core/media/BrightBodyVisuals.test.ts tests/unit/core/quality/QualityEngine.test.ts tests/unit/core/content/ContentOpportunityAlignment.test.ts tests/unit/app/user-flow/ImageWorkspace.test.ts
+            git commit -m "fix: align related visuals and quality scoring"
+            git push origin HEAD:fix/canonical-table-and-image-cost-policy
+          fi
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test and build
+        shell: bash
+        run: |
+          set +e
+          npm test 2>&1 | tee test.log
+          test_status=${PIPESTATUS[0]}
+          npm run build 2>&1 | tee build.log
+          build_status=${PIPESTATUS[0]}
+          echo "Verification results: tests=$test_status build=$build_status"
+          if [[ "$test_status" != "0" || "$build_status" != "0" ]]; then
+            exit 1
+          fi
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: related-ai-score-pr-logs
+          path: |
+            test.log
+            build.log
+          if-no-files-found: warn
+          retention-days: 1
