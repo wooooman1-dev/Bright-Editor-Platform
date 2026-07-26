@@ -127,15 +127,15 @@ describe("integration infrastructure", () => {
     fetchSpy.mockRestore();
   });
 
-  it("converts one AI JSON response into canonical blocks", () => {
+  it("converts one AI JSON response into canonical blocks without forcing an image", () => {
     const strategy = new EditorialGenerationStrategy();
     const prose = "A complete and useful explanation for the reader with concrete context, actions, examples, and outcomes. ".repeat(20);
     const document = strategy.parse(JSON.stringify({ title: "Guide", blocks: [{ type: "paragraph", text: prose }, ...Array.from({ length: 5 }, (_, index) => [{ type: "heading", level: 2, text: `Step ${index + 1}` }, { type: "paragraph", text: prose }]).flat(), { type: "button", purpose: "cta", label: "Start", targetUrl: "https://example.com", target: "_blank" }] }), {
       contentType: "article" as never, keywords: ["guide"], platform: "tistory" as never, projectId: "project-1",
     });
     expect(document.blocks.map((block) => block.type)).toContain("button");
-    expect(document.blocks.map((block) => block.type)).toContain("image");
-    expect(document.blocks).toHaveLength(13);
+    expect(document.blocks.map((block) => block.type)).not.toContain("image");
+    expect(document.blocks).toHaveLength(12);
     expect(document.blocks.at(-1)).toMatchObject({ type: "button", purpose: "cta", target: "_blank" });
   });
 
