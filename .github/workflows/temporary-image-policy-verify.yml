@@ -1,0 +1,59 @@
+name: Temporary Image Policy Verify
+
+on:
+  push:
+    branches:
+      - fix/canonical-table-and-image-cost-policy
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test and build
+        shell: bash
+        run: |
+          set +e
+          npm test 2>&1 | tee test.log
+          test_status=${PIPESTATUS[0]}
+          npm run build 2>&1 | tee build.log
+          build_status=${PIPESTATUS[0]}
+          echo "Verification results: tests=$test_status build=$build_status"
+          if [[ "$test_status" != "0" || "$build_status" != "0" ]]; then
+            exit 1
+          fi
+
+      - name: Upload verification logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: temporary-image-policy-verification-logs
+          path: |
+            test.log
+            build.log
+          if-no-files-found: warn
+          retention-days: 1
