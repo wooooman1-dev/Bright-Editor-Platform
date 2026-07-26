@@ -41,6 +41,10 @@ export function classifyTistoryDraftOutcome(result: TistoryDraftSaveResult): Tis
     return outcome("verified", diagnosticCode, editorUrl, false, false);
   }
 
+  if (representativePersistenceUnobservableOnly(result)) {
+    return outcome("verified", diagnosticCode, editorUrl, false, false);
+  }
+
   if (draftSaveConfirmed(result)) {
     return outcome("saved_unverified", diagnosticCode, editorUrl, true, false);
   }
@@ -84,6 +88,27 @@ function representativeUiWarningOnly(result: TistoryDraftSaveResult): boolean {
     && step.warning === true
     && step.diagnosticCode === "tistory_representative_ui_not_rehydrated",
   );
+}
+
+function representativePersistenceUnobservableOnly(result: TistoryDraftSaveResult): boolean {
+  if (!["partial_failure", "partially_verified"].includes(result.status)) return false;
+  if (!draftSaveConfirmed(result)) return false;
+
+  const steps = result.steps ?? [];
+  const requiredBeforeSave = [
+    "category_verified",
+    "title_verified",
+    "body_verified",
+    "tags_verified",
+    "representative_image_verified",
+    "draft_save_confirmed",
+  ] as const;
+  if (!requiredBeforeSave.every((key) => steps.some((step) => step.key === key && step.passed === true))) return false;
+
+  const blockingFailures = steps.filter((step) => !step.passed && step.warning !== true);
+  return blockingFailures.length === 1
+    && blockingFailures[0]?.key === "representative_persisted_verified"
+    && blockingFailures[0]?.diagnosticCode === "representative_persisted_thumbnail_missing";
 }
 
 function draftSaveConfirmed(result: TistoryDraftSaveResult): boolean {
