@@ -15,19 +15,23 @@ export function isBrightComponentPurpose(purpose: ImageBlockPurpose | undefined)
   return purpose ? componentPurposes.has(purpose) : false;
 }
 
+/** Automatic paid generation is reserved for one unique representative image. */
 export function selectAutomaticImageBlock(document: ContentDocument): ImageBlock | undefined {
-  const candidates = document.blocks.filter((block): block is ImageBlock => block.type === "image"
+  return document.blocks.find((block): block is ImageBlock => block.type === "image"
+    && block.purpose === "hero"
     && !block.source.trim()
-    && (block.sourceType ?? "planned") === "planned"
-    && !isBrightComponentPurpose(block.purpose));
-  return candidates.find((block) => block.purpose === "hero") ?? candidates[0];
+    && (block.sourceType ?? "planned") === "planned");
 }
 
-/** Removes only recommendations whose information belongs in a Bright component. Other planned images remain available for explicit user generation. */
+/**
+ * Keeps a source-empty hero recommendation only. Body visual information must use
+ * a table/Bright component, Project media, or a user upload instead of paid AI generation.
+ * Existing connected images are always preserved.
+ */
 export function applyGeneratedImageCostPolicy(document: ContentDocument): ContentDocument {
   const blocks = document.blocks.filter((block) => {
     if (block.type !== "image" || block.source.trim() || (block.sourceType ?? "planned") !== "planned") return true;
-    return !isBrightComponentPurpose(block.purpose);
+    return block.purpose === "hero";
   });
   if (blocks.length === document.blocks.length) return document;
   return Object.freeze({
@@ -40,13 +44,26 @@ export function applyGeneratedImageCostPolicy(document: ContentDocument): Conten
   });
 }
 
+/**
+ * Representative images are never reused across posts. Assets that have ever been
+ * used as a representative image are also excluded from automatic body reuse.
+ */
+export function isProjectImageReusableForBlock(asset: ProjectMediaAsset, block: ImageBlock): boolean {
+  if (block.purpose === "hero") return false;
+  if (asset.kind !== "image" || !asset.source.trim()) return false;
+  if (asset.metadata.purpose === "hero") return false;
+  return !asset.references.some((reference) => reference.purpose === "hero");
+}
+
 export function findReusableProjectImage(
   assets: readonly ProjectMediaAsset[],
   block: ImageBlock,
 ): ProjectMediaAsset | undefined {
+  if (block.purpose === "hero") return undefined;
   const targetTerms = terms(`${block.alt} ${block.prompt ?? ""}`);
   const targetText = comparable(`${block.alt} ${block.prompt ?? ""}`);
   return assets
+    .filter((asset) => isProjectImageReusableForBlock(asset, block))
     .map((asset) => ({ asset, score: reuseScore(asset, block, targetText, targetTerms) }))
     .filter((candidate) => candidate.score >= 0)
     .sort((left, right) => right.score - left.score
@@ -66,13 +83,12 @@ function reuseScore(
   targetText: string,
   targetTerms: readonly string[],
 ): number {
-  if (asset.kind !== "image" || !asset.source.trim()) return -1;
   const assetText = comparable(`${asset.metadata.alt ?? ""} ${asset.metadata.prompt ?? ""}`);
   if (targetText && assetText && targetText === assetText) return 100;
   const assetTerms = terms(assetText);
   const overlap = targetTerms.filter((term) => assetTerms.some((candidate) => candidate === term || candidate.includes(term) || term.includes(candidate))).length;
   const purposeMatch = Boolean(block.purpose && asset.metadata.purpose === block.purpose);
-  if (overlap < 2 && !(block.purpose === "hero" && purposeMatch && overlap >= 1)) return -1;
+  if (overlap < 2) return -1;
   return overlap * 10 + (purposeMatch ? 6 : 0) + Math.min(asset.referenceCount, 5);
 }
 
