@@ -15,11 +15,11 @@ const context = {
 };
 
 describe("Tistory draft outcome UI", () => {
-  it("describes representative persistence in the verified success modal", () => {
+  it("describes the verified pre-save checks without claiming an unavailable draft thumbnail response", () => {
     const presentation = draftOutcomePresentation("verified");
     expect(presentation.tone).toBe("success");
     expect(presentation.title).toBe("Tistory 임시저장이 완료되었습니다.");
-    expect(presentation.message).toBe("제목, 본문, 이미지, 카테고리, 태그와 대표이미지 저장 데이터를 확인했습니다.");
+    expect(presentation.message).toBe("임시저장 완료 신호와 저장 전 제목, 본문, 이미지, 카테고리, 태그, 대표이미지 설정을 확인했습니다.");
   });
 
   it("warns against a duplicate save when the Draft was saved but not reopened", () => {
