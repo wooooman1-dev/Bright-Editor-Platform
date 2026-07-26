@@ -15,6 +15,13 @@ const context = {
 };
 
 describe("Tistory draft outcome UI", () => {
+  it("describes representative persistence in the verified success modal", () => {
+    const presentation = draftOutcomePresentation("verified");
+    expect(presentation.tone).toBe("success");
+    expect(presentation.title).toBe("Tistory 임시저장이 완료되었습니다.");
+    expect(presentation.message).toBe("제목, 본문, 이미지, 카테고리, 태그와 대표이미지 저장 데이터를 확인했습니다.");
+  });
+
   it("warns against a duplicate save when the Draft was saved but not reopened", () => {
     const presentation = draftOutcomePresentation("saved_unverified");
     expect(presentation.primaryAction).toBe("reverify");

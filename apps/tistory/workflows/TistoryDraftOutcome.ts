@@ -16,8 +16,9 @@ export type TistoryDraftOutcome = Readonly<{
 }>;
 
 export function classifyTistoryDraftOutcome(result: TistoryDraftSaveResult): TistoryDraftOutcome {
-  const failedRecord = result.steps?.find((step) => !step.passed);
-  const diagnosticCode = failedRecord?.diagnosticCode;
+  const failedRecord = result.steps?.find((step) => !step.passed && step.warning !== true);
+  const warningRecord = result.steps?.find((step) => !step.passed && step.warning === true);
+  const diagnosticCode = failedRecord?.diagnosticCode ?? warningRecord?.diagnosticCode;
   const editorUrl = safeTistoryEditorUrl(result.editorUrl ?? result.diagnostic?.currentUrl);
 
   if (result.status === "diagnosed") {
@@ -32,7 +33,11 @@ export function classifyTistoryDraftOutcome(result: TistoryDraftSaveResult): Tis
     && result.titleMatched === true
     && result.bodyMatched === true
     && result.publicPostCreated === false;
-  if ((result.status === "saved" || result.status === "verified") && reopenedVerified) {
+  if ((result.status === "saved" || result.status === "verified") && reopenedVerified && representativeVerificationPassed(result)) {
+    return outcome("verified", diagnosticCode, editorUrl, false, false);
+  }
+
+  if (representativeUiWarningOnly(result)) {
     return outcome("verified", diagnosticCode, editorUrl, false, false);
   }
 
@@ -41,6 +46,44 @@ export function classifyTistoryDraftOutcome(result: TistoryDraftSaveResult): Tis
   }
 
   return outcome("failed", diagnosticCode, editorUrl, false, true);
+}
+
+function representativeVerificationPassed(result: TistoryDraftSaveResult): boolean {
+  const steps = result.steps ?? [];
+  const representativeRequired = steps.some((step) =>
+    step.key === "representative_image_verified"
+    || step.key === "representative_persisted_verified"
+    || step.key === "representative_reverified"
+    || Boolean(step.evidence?.representative && typeof step.evidence.representative === "object" && !(step.evidence.representative as { skipped?: unknown }).skipped),
+  );
+  if (!representativeRequired) return true;
+  return steps.some((step) => step.key === "representative_image_verified" && step.passed === true)
+    && steps.some((step) => step.key === "representative_persisted_verified" && step.passed === true);
+}
+
+function representativeUiWarningOnly(result: TistoryDraftSaveResult): boolean {
+  if (!["partial_failure", "partially_verified"].includes(result.status)) return false;
+  const steps = result.steps ?? [];
+  const required = [
+    "draft_save_confirmed",
+    "title_reverified",
+    "body_reverified",
+    "media_reverified",
+    "representative_image_verified",
+    "representative_persisted_verified",
+    "category_reverified",
+    "tags_reverified",
+    "structure_verified",
+    "publication_state_verified",
+    "draft_verified",
+  ] as const;
+  if (!required.every((key) => steps.some((step) => step.key === key && step.passed === true))) return false;
+  const failures = steps.filter((step) => !step.passed);
+  return failures.length > 0 && failures.every((step) =>
+    step.key === "representative_reverified"
+    && step.warning === true
+    && step.diagnosticCode === "tistory_representative_ui_not_rehydrated",
+  );
 }
 
 function draftSaveConfirmed(result: TistoryDraftSaveResult): boolean {

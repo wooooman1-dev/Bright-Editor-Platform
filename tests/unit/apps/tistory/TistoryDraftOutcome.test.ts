@@ -63,6 +63,88 @@ describe("Tistory Draft outcome classification", () => {
     });
   });
 
+  it("shows success when only the reopened Tistory representative UI was not rehydrated", () => {
+    const passed = (key: NonNullable<TistoryDraftSaveResult["steps"]>[number]["key"]) => ({ key, passed: true, message: key });
+    const outcome = classifyTistoryDraftOutcome({
+      ...base,
+      status: "partial_failure",
+      saveClicked: true,
+      draftCountBefore: 3,
+      draftCountAfter: 4,
+      steps: [
+        passed("draft_save_confirmed"),
+        passed("title_reverified"),
+        passed("body_reverified"),
+        passed("media_reverified"),
+        passed("representative_image_verified"),
+        passed("representative_persisted_verified"),
+        { key: "representative_reverified", passed: false, warning: true, diagnosticCode: "tistory_representative_ui_not_rehydrated", message: "not rehydrated" },
+        passed("category_reverified"),
+        passed("tags_reverified"),
+        passed("structure_verified"),
+        passed("publication_state_verified"),
+        passed("draft_verified"),
+      ],
+    });
+
+    expect(outcome).toMatchObject({
+      status: "verified",
+      diagnosticCode: "tistory_representative_ui_not_rehydrated",
+      canReverify: false,
+      canRetrySave: false,
+    });
+  });
+
+  it("does not show success when representative persistence or another required verification failed", () => {
+    const persistedMissing = classifyTistoryDraftOutcome({
+      ...base,
+      status: "partial_failure",
+      saveClicked: true,
+      draftCountBefore: 3,
+      draftCountAfter: 4,
+      steps: [
+        { key: "draft_save_confirmed", passed: true, message: "confirmed" },
+        { key: "representative_image_verified", passed: true, message: "active" },
+        { key: "representative_persisted_verified", passed: false, diagnosticCode: "representative_persisted_thumbnail_missing", message: "missing" },
+      ],
+    });
+    const bodyFailed = classifyTistoryDraftOutcome({
+      ...base,
+      status: "partial_failure",
+      saveClicked: true,
+      draftCountBefore: 3,
+      draftCountAfter: 4,
+      steps: [
+        { key: "draft_save_confirmed", passed: true, message: "confirmed" },
+        { key: "body_reverified", passed: false, diagnosticCode: "reopened_body_empty", message: "empty" },
+      ],
+    });
+
+    expect(persistedMissing.status).not.toBe("verified");
+    expect(bodyFailed.status).not.toBe("verified");
+  });
+
+  it("does not infer representative success from an evidence object without explicit verification steps", () => {
+    const outcome = classifyTistoryDraftOutcome({
+      ...base,
+      status: "saved",
+      saveClicked: true,
+      saveNotificationDetected: true,
+      draftListVerified: true,
+      reopenedDraftVerified: true,
+      titleMatched: true,
+      bodyMatched: true,
+      steps: [{
+        key: "tags_reverified",
+        passed: true,
+        message: "tags",
+        evidence: { representative: { state: { className: "mce-represent-image-btn active" } } },
+      }],
+    });
+
+    expect(outcome.status).not.toBe("verified");
+  });
+
   it("does not treat a click without confirmed count growth as a saved Draft", () => {
     const outcome = classifyTistoryDraftOutcome({
       ...base,

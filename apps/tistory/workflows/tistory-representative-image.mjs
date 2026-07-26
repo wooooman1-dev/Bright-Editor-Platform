@@ -5,18 +5,56 @@ const representativeControlSelector = ".mce-represent-image-btn";
 
 export function representativeControlLooksSelected(state) {
   if (!state || typeof state !== "object") return false;
-  const label = String(state.label ?? "").replace(/\s+/gu, " ").trim();
   const className = String(state.className ?? "");
-  const dataState = String(state.dataState ?? "");
-  return state.checked === true
-    || state.ariaPressed === "true"
-    || state.ariaChecked === "true"
-    || state.ariaSelected === "true"
-    || state.dataSelected === "true"
-    || state.dataActive === "true"
-    || /^(?:active|selected|checked|on)$/iu.test(dataState)
-    || /해제|선택됨|설정됨/u.test(label)
-    || /(?:^|\s)(?:active|selected|checked|on)(?:\s|$)/iu.test(className);
+  return /(?:^|\s)active(?:\s|$)/u.test(className);
+}
+
+export function verifyTistoryRepresentativePersistence(persistedThumbnail, selectedImageUrl) {
+  const persisted = typeof persistedThumbnail === "string" ? persistedThumbnail.trim() : "";
+  const expected = tistoryDraftThumbnailForImageUrl(selectedImageUrl);
+  const evidence = {
+    persistedThumbnailPresent: persisted.length > 0,
+    expectedThumbnailResolved: expected.length > 0,
+    persistedHasQuery: persisted.includes("?"),
+    expectedHasQuery: expected.includes("?"),
+    exactMatch: Boolean(persisted && expected && persisted === expected),
+  };
+
+  if (!persisted) {
+    return representativePersistenceFailure(
+      "representative_persisted_thumbnail_missing",
+      "The saved Tistory draft does not contain a representative thumbnail.",
+      evidence,
+    );
+  }
+  if (!expected) {
+    return representativePersistenceFailure(
+      "representative_persisted_expected_url_invalid",
+      "The selected representative image URL could not be converted to Tistory's draft thumbnail format.",
+      evidence,
+    );
+  }
+  if (persisted !== expected) {
+    return representativePersistenceFailure(
+      "representative_persisted_thumbnail_mismatch",
+      "The saved Tistory draft thumbnail does not exactly match the selected representative image.",
+      evidence,
+    );
+  }
+
+  return { passed: true, verified: true, evidence };
+}
+
+function tistoryDraftThumbnailForImageUrl(value) {
+  const source = typeof value === "string" ? value.trim() : "";
+  if (!source) return "";
+  if (/^kage@\S+$/u.test(source)) return source;
+  const match = source.match(/^https?:\/\/[^\s?#]+\.kakaocdn\.net\/(?:dna|dn)\/(\w+\/\w+\/[\w-]+)\/([\w-]+\.\w+)(\?[^\s#]*)?$/u);
+  return match ? `kage@${match[1]}/${match[2]}${match[3] ?? ""}` : "";
+}
+
+function representativePersistenceFailure(code, message, evidence) {
+  return { passed: false, verified: false, code, message, evidence };
 }
 
 export async function ensureFirstTistoryImageRepresentative(page, remoteUrl) {
@@ -49,26 +87,39 @@ export async function ensureFirstTistoryImageRepresentative(page, remoteUrl) {
   }
 
   const before = await readRepresentativeControlState(located.locator);
-  if (representativeControlLooksSelected(before)) {
-    return {
-      passed: true,
-      attempted: true,
-      verified: true,
-      evidence: {
-        selection,
-        trustedClick,
-        selector: representativeControlSelector,
-        context: located.context,
-        before,
-        after: before,
-        action: "already_selected",
-      },
+  const alreadySelected = representativeControlLooksSelected(before);
+  const selectionReset = alreadySelected
+    ? await located.locator.click({ timeout: 5000 })
+      .then(async () => ({
+        passed: true,
+        clickExecuted: true,
+        state: await waitForRepresentativeDeselection(page, located.locator),
+      }))
+      .catch((error) => ({ passed: false, clickExecuted: false, error: serializeError(error) }))
+    : { passed: true, clickExecuted: false, skipped: true };
+
+  if (!selectionReset.passed || selectionReset.state?.verified === false) {
+    const diagnostic = {
+      selection,
+      trustedClick,
+      selector: representativeControlSelector,
+      context: located.context,
+      before,
+      selectionReset,
+      controls: await representativeControlDiagnostics(page),
+      screenshot: await captureRepresentativeScreenshot(page, "selection-reset-failed"),
     };
+    writeRepresentativeDiagnostic("representative_selection_reset_not_verified", diagnostic);
+    return representativeFailure(
+      "representative_selection_reset_not_verified",
+      "The existing representative selection could not be cleared before reactivation.",
+      diagnostic,
+    );
   }
 
   const controlClick = await located.locator.click({ timeout: 5000 })
-    .then(() => ({ passed: true }))
-    .catch((error) => ({ passed: false, error: serializeError(error) }));
+    .then(() => ({ passed: true, skipped: false, clickExecuted: true }))
+    .catch((error) => ({ passed: false, skipped: false, clickExecuted: false, error: serializeError(error) }));
 
   if (!controlClick.passed) {
     const diagnostic = {
@@ -96,8 +147,13 @@ export async function ensureFirstTistoryImageRepresentative(page, remoteUrl) {
     selector: representativeControlSelector,
     context: located.context,
     before,
+    selectionReset,
     after: selected.state,
-    action: selected.verified ? "selected_and_verified" : "control_clicked_unverified",
+    stateTimeline: selected.timeline,
+    controlClick,
+    action: selected.verified
+      ? alreadySelected ? "selection_reactivated_and_verified" : "selected_and_verified"
+      : alreadySelected ? "selection_reactivation_unverified" : "control_clicked_unverified",
   };
 
   if (!selected.verified) {
@@ -113,6 +169,8 @@ export async function ensureFirstTistoryImageRepresentative(page, remoteUrl) {
       diagnostic,
     );
   }
+
+  evidence.screenshot = await captureRepresentativeScreenshot(page, "active-before-save");
 
   return { passed: true, attempted: true, verified: true, evidence };
 }
@@ -441,14 +499,53 @@ async function waitForRepresentativeSelection(page, locator, attempts = 30) {
   let state;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     state = await readRepresentativeControlState(locator);
-    if (representativeControlLooksSelected(state)) return { verified: true, state };
+    if (representativeControlLooksSelected(state)) break;
     await page.waitForTimeout(100);
   }
-  return { verified: false, state };
+  if (!representativeControlLooksSelected(state)) return { verified: false, state, timeline: [{ elapsedMs: 0, state }] };
+
+  const timeline = [{ elapsedMs: 0, state }];
+  const startedAt = Date.now();
+  for (const elapsedMs of [100, 500, 1000]) {
+    const remaining = elapsedMs - (Date.now() - startedAt);
+    if (remaining > 0) await page.waitForTimeout(remaining);
+    state = await readRepresentativeControlState(locator);
+    timeline.push({ elapsedMs, state });
+  }
+  return {
+    verified: timeline.every((entry) => representativeControlLooksSelected(entry.state)),
+    state,
+    timeline,
+  };
+}
+
+async function waitForRepresentativeDeselection(page, locator, attempts = 30) {
+  let state;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    state = await readRepresentativeControlState(locator);
+    if (!representativeControlLooksSelected(state)) break;
+    await page.waitForTimeout(100);
+  }
+  if (representativeControlLooksSelected(state)) return { verified: false, state, timeline: [{ elapsedMs: 0, state }] };
+
+  const timeline = [{ elapsedMs: 0, state }];
+  const startedAt = Date.now();
+  for (const elapsedMs of [100, 250]) {
+    const remaining = elapsedMs - (Date.now() - startedAt);
+    if (remaining > 0) await page.waitForTimeout(remaining);
+    state = await readRepresentativeControlState(locator);
+    timeline.push({ elapsedMs, state });
+  }
+  return {
+    verified: timeline.every((entry) => !representativeControlLooksSelected(entry.state)),
+    state,
+    timeline,
+  };
 }
 
 async function readRepresentativeControlState(locator) {
   return locator.evaluate((element) => ({
+    outerHTML: element.outerHTML,
     label: String(element.textContent ?? "").replace(/\s+/g, " ").trim(),
     tagName: element.tagName.toLowerCase(),
     className: String(element.className ?? ""),
@@ -460,6 +557,7 @@ async function readRepresentativeControlState(locator) {
     dataActive: element.getAttribute?.("data-active") ?? "",
     dataState: element.getAttribute?.("data-state") ?? "",
   })).catch(() => ({
+    outerHTML: "",
     label: "",
     tagName: "",
     className: "",

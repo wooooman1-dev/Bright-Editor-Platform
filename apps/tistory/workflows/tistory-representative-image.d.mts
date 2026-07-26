@@ -21,4 +21,8 @@ export type TistoryRepresentativeImageResult = Readonly<{
 }>;
 
 export function representativeControlLooksSelected(state: RepresentativeControlState | undefined): boolean;
+export function verifyTistoryRepresentativePersistence(
+  persistedThumbnail: unknown,
+  selectedImageUrl: unknown,
+): TistoryRepresentativeImageResult;
 export function ensureFirstTistoryImageRepresentative(page: unknown, remoteUrl: string): Promise<TistoryRepresentativeImageResult>;

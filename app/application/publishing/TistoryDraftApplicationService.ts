@@ -134,7 +134,7 @@ function runWorker(commandPath: string): Promise<TistoryDraftSaveResult> {
 export function normalizeTistoryDraftWorkerResult(result: TistoryDraftSaveResult, stderr: string): TistoryDraftSaveResult {
   const semantic = readSemanticHtmlDiagnostic(stderr);
   const normalizedSemantic = semantic ? normalizeSemanticFailure(result, semantic) : result;
-  return normalizeExplicitWorkflowSteps(normalizedSemantic);
+  return normalizeRepresentativeUiWarning(normalizeExplicitWorkflowSteps(normalizedSemantic));
 }
 
 function normalizeSemanticFailure(result: TistoryDraftSaveResult, semantic: SemanticHtmlDiagnostic): TistoryDraftSaveResult {
@@ -171,23 +171,17 @@ function normalizeExplicitWorkflowSteps(result: TistoryDraftSaveResult): Tistory
       if (!has("media_prepared") && hasEvidence(evidence.upload)) {
         expanded.push(Object.freeze({ key: "media_prepared", passed: true, message: "Tistory 네이티브 이미지 업로드와 본문 배치를 확인했습니다.", evidence: asEvidence(evidence.upload) }));
       }
-      if (!has("representative_image_verified") && hasEvidence(evidence.representative)) {
-        expanded.push(Object.freeze({ key: "representative_image_verified", passed: true, message: "첫 번째 이미지의 Tistory 대표이미지 지정 상태를 저장 전에 확인했습니다.", evidence: asEvidence(evidence.representative) }));
-      }
     }
     if (step.passed && step.key === "tags_reverified") {
       const evidence = step.evidence ?? {};
       if (!has("media_reverified") && hasEvidence(evidence.media)) {
         expanded.push(Object.freeze({ key: "media_reverified", passed: true, message: "다시 연 Tistory 임시글에서 네이티브 이미지와 ALT 상태를 확인했습니다.", evidence: asEvidence(evidence.media) }));
       }
-      if (!has("representative_reverified") && hasEvidence(evidence.representative)) {
-        expanded.push(Object.freeze({ key: "representative_reverified", passed: true, message: "다시 연 Tistory 임시글에서 대표이미지 지정 상태가 유지됨을 확인했습니다.", evidence: asEvidence(evidence.representative) }));
-      }
     }
     expanded.push(step);
   }
 
-  const failedIndex = expanded.findIndex((step) => !step.passed);
+  const failedIndex = expanded.findIndex((step) => !step.passed && step.warning !== true);
   if (failedIndex >= 0) {
     const failedRecord = expanded[failedIndex];
     const mapped = explicitFailureStep(result.failedStep, failedRecord.diagnosticCode);
@@ -206,12 +200,76 @@ function explicitFailureStep(
   diagnosticCode?: string,
 ): TistoryDraftWorkflowStep["key"] | undefined {
   if (!diagnosticCode) return failedStep;
+  if (diagnosticCode.startsWith("representative_persisted_")) return "representative_persisted_verified";
+  if (diagnosticCode === "tistory_representative_ui_not_rehydrated") return "representative_reverified";
   if (diagnosticCode.startsWith("representative_persistence_")) return "representative_reverified";
   if (diagnosticCode.startsWith("representative_")) return "representative_image_verified";
   if (diagnosticCode.startsWith("media_persistence_")) return "media_reverified";
   if (diagnosticCode.startsWith("media_")) return "media_prepared";
   if (failedStep === "tags_reverified" && diagnosticCode.startsWith("category_")) return "category_reverified";
   return failedStep;
+}
+
+const REPRESENTATIVE_UI_DIAGNOSTIC_CODES = new Set([
+  "tistory_representative_ui_not_rehydrated",
+  "representative_persistence_control_not_found",
+  "representative_persistence_not_selected",
+  "representative_persistence_image_click_failed",
+]);
+
+const REQUIRED_REPRESENTATIVE_DRAFT_STEPS: readonly TistoryDraftWorkflowStep["key"][] = [
+  "draft_save_confirmed",
+  "title_reverified",
+  "body_reverified",
+  "media_reverified",
+  "representative_image_verified",
+  "representative_persisted_verified",
+  "category_reverified",
+  "tags_reverified",
+  "structure_verified",
+  "publication_state_verified",
+  "draft_verified",
+];
+
+function normalizeRepresentativeUiWarning(result: TistoryDraftSaveResult): TistoryDraftSaveResult {
+  const existing = result.steps ?? [];
+  const requiredStepsPassed = REQUIRED_REPRESENTATIVE_DRAFT_STEPS.every((key) =>
+    existing.some((step) => step.key === key && step.passed === true),
+  );
+  if (!requiredStepsPassed) return result;
+
+  let changed = false;
+  const steps = existing.map((step) => {
+    if (step.passed || !REPRESENTATIVE_UI_DIAGNOSTIC_CODES.has(step.diagnosticCode ?? "")) return step;
+    changed = true;
+    return Object.freeze({
+      ...step,
+      key: "representative_reverified" as const,
+      warning: true,
+      diagnosticCode: "tistory_representative_ui_not_rehydrated",
+      message: "대표이미지 데이터는 저장됐지만 Tistory 임시글 편집기가 재열기 시 대표 버튼 활성 UI를 복원하지 않았습니다.",
+    });
+  });
+  if (!changed) return result;
+
+  const blockingFailure = steps.some((step) => !step.passed && step.warning !== true);
+  if (blockingFailure || !["partial_failure", "partially_verified"].includes(result.status)) {
+    return Object.freeze({ ...result, steps: Object.freeze(steps) });
+  }
+
+  const normalized = {
+    ...result,
+    status: "saved",
+    saveNotificationDetected: true,
+    draftListVerified: true,
+    reopenedDraftVerified: true,
+    titleMatched: true,
+    bodyMatched: true,
+    steps: Object.freeze(steps),
+  } as TistoryDraftSaveResult & { failedStep?: TistoryDraftWorkflowStep["key"]; error?: string };
+  delete normalized.failedStep;
+  delete normalized.error;
+  return Object.freeze(normalized);
 }
 
 function hasEvidence(value: unknown): boolean {

@@ -67,7 +67,11 @@ function writeSemanticDiagnostic(code, evidence) {
   }
 }
 
-export function automationClicksAllowed(clicks) { return clicks?.draft === 1 && clicks.complete === 0 && clicks.publish === 0; }
+export function automationClicksAllowed(clicks) {
+  return Boolean(clicks
+    && clicks.draft === 1
+    && ["complete", "publish", "schedule", "delete"].every((key) => clicks[key] === 0));
+}
 
 export function readOnlyClicksAllowed(clicks) {
   return Boolean(clicks && ["draft", "complete", "publish", "schedule", "delete"].every((key) => clicks[key] === 0));

@@ -57,8 +57,9 @@ export type TistoryBodyEditorProbeResult = Readonly<{
   restrictedControlClicks: number;
 }>;
 export type TistoryDraftWorkflowStep = Readonly<{
-  key: "session_loaded" | "editor_opened" | "editor_ready" | "draft_preflight" | "body_editor_identified" | "probe_applied" | "probe_verified" | "probe_restored" | "category_applied" | "category_verified" | "title_filled" | "title_verified" | "html_mode_opened" | "body_filled" | "body_verified" | "media_prepared" | "representative_image_verified" | "tags_filled" | "tags_verified" | "draft_save_clicked" | "draft_save_confirmed" | "draft_list_opened" | "draft_item_identified" | "draft_reopened" | "title_reverified" | "body_reverified" | "media_reverified" | "representative_reverified" | "category_reverified" | "tags_reverified" | "structure_verified" | "publication_state_verified" | "draft_verified";
+  key: "session_loaded" | "editor_opened" | "editor_ready" | "draft_preflight" | "body_editor_identified" | "probe_applied" | "probe_verified" | "probe_restored" | "category_applied" | "category_verified" | "title_filled" | "title_verified" | "html_mode_opened" | "body_filled" | "body_verified" | "media_prepared" | "representative_image_verified" | "representative_persisted_verified" | "tags_filled" | "tags_verified" | "draft_save_clicked" | "draft_save_confirmed" | "draft_list_opened" | "draft_item_identified" | "draft_reopened" | "title_reverified" | "body_reverified" | "media_reverified" | "representative_reverified" | "category_reverified" | "tags_reverified" | "structure_verified" | "publication_state_verified" | "draft_verified";
   passed: boolean;
+  warning?: boolean;
   diagnosticCode?: string;
   message: string;
   evidence?: Readonly<Record<string, unknown>>;

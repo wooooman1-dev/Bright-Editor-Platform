@@ -3,6 +3,7 @@ import { chromium } from "playwright";
 import { automationClicksAllowed, editorStateSynchronized, looksAuxiliary, readOnlyClicksAllowed, reopenedDraftVerified, selectCodeMirrorCandidate, selectDraftCandidate, semanticHtmlVerified, verifyCategoryEvidence } from "./tistory-body-editor.mjs";
 import { tistoryCategoryControlSelector } from "./tistory-category-locators.mjs";
 import { prepareReopenedTistoryCategoryEvidence } from "./tistory-category-persistence.mjs";
+import { ensureFirstTistoryImageRepresentative, verifyTistoryRepresentativePersistence } from "./tistory-representative-image.mjs";
 import { fillTistoryTags, verifyTistoryTags } from "./tistory-tags.mjs";
 
 const [commandPath] = process.argv.slice(2);
@@ -89,6 +90,7 @@ try {
 
     const reopenedTags = await verifyTistoryTags(page, command.tags);
     if (!reopenedTags.passed) fail("tags_reverified", reopenedTags.code, reopenedTags.message);
+    recordRepresentativeReopenDiagnostic(reopenedTags);
     step("tags_reverified", `다시 연 임시글에서 태그 ${reopenedTags.tags.length}개를 확인했습니다.`, reopenedTags.evidence);
 
     const category = await verifyReopenedCategory(page, command.categoryId, command.categoryName);
@@ -162,6 +164,14 @@ try {
     );
   }
 
+  if (tags.representativeRemoteUrl) {
+    const representativeBeforeSave = await ensureFirstTistoryImageRepresentative(page, tags.representativeRemoteUrl);
+    if (!representativeBeforeSave.passed || representativeBeforeSave.verified !== true) {
+      fail("representative_image_verified", representativeBeforeSave.code ?? "representative_selection_not_verified", representativeBeforeSave.message ?? "임시저장 직전 첫 이미지의 대표 버튼 active 상태를 확인하지 못했습니다.");
+    }
+    step("representative_image_verified", "임시저장 직전 첫 이미지를 다시 선택하고 대표 버튼의 active 상태가 안정적으로 유지됨을 확인했습니다.", representativeBeforeSave.evidence);
+  }
+
   const saveButton = await visibleDraftButton(page);
   if (!saveButton) fail("draft_save_clicked", "draft_button_not_found", "Tistory 임시저장 버튼을 찾지 못했습니다.");
   const saveLabel = (await saveButton.innerText().catch(() => "")).replace(/\s+/g, " ").trim();
@@ -187,6 +197,25 @@ try {
   step("draft_item_identified", "목록 내부에서 방금 생성한 임시글 항목을 식별했습니다.", reopened.item);
   step("draft_reopened", "저장된 임시글을 다시 열었습니다.");
 
+  if (tags.representativeRemoteUrl) {
+    const representativePersistence = verifyTistoryRepresentativePersistence(
+      reopened.persistedThumbnail,
+      tags.representativeRemoteUrl,
+    );
+    if (!representativePersistence.passed || representativePersistence.verified !== true) {
+      fail(
+        "representative_persisted_verified",
+        representativePersistence.code ?? "representative_persisted_thumbnail_mismatch",
+        representativePersistence.message ?? "저장된 Tistory draft thumbnail과 선택한 대표이미지가 일치하지 않습니다.",
+      );
+    }
+    step(
+      "representative_persisted_verified",
+      "저장된 Tistory draft thumbnail이 선택한 첫 번째 대표이미지 URL과 정확히 일치합니다.",
+      representativePersistence.evidence,
+    );
+  }
+
   const reopenedTitle = await visibleTitle(page);
   const reopenedTitleMatched = Boolean(reopenedTitle) && await readTitle(reopenedTitle) === command.title.trim();
   if (!reopenedTitleMatched) fail("title_reverified", "reopened_title_mismatch", "다시 연 임시글의 제목이 현재 Content 제목과 일치하지 않습니다.");
@@ -198,6 +227,7 @@ try {
 
   const reopenedTags = await verifyTistoryTags(page, command.tags);
   if (!reopenedTags.passed) fail("tags_reverified", reopenedTags.code, reopenedTags.message);
+  recordRepresentativeReopenDiagnostic(reopenedTags);
   step("tags_reverified", `다시 연 임시글에서 태그 ${reopenedTags.tags.length}개를 확인했습니다.`, reopenedTags.evidence);
 
   const reopenedCategory = await verifyReopenedCategory(page, command.categoryId, command.categoryName);
@@ -209,7 +239,7 @@ try {
   if (!structure.passed) fail("structure_verified", "structure_verification_failed", "다시 연 임시글의 목차, H2, 내부링크 또는 관련 글 구조가 일치하지 않습니다.");
   step("structure_verified", "목차, H2, paragraph, 내부링크, 관련 글, CTA와 이미지 상태를 의미 기반으로 확인했습니다.", structure.diagnostic);
 
-  const clickCounts = automationClickCounts ?? await readAutomationClickCounts(page);
+  const clickCounts = await readAutomationClickCounts(page);
   if (draftSaveClickCount !== 1 || !automationClicksAllowed(clickCounts)) fail("publication_state_verified", "publication_state_invalid", "임시저장 외 완료 또는 공개 발행 control 사용이 감지되었습니다.");
   step("publication_state_verified", "임시저장 1회만 실행됐고 완료·공개 발행 control은 사용되지 않았습니다.", clickCounts);
   if (!reopenedDraftVerified({ titleMatched: reopenedTitleMatched, bodyMatched: reopenedBody, categoryMatched: reopenedCategory.passed, structureMatched: structure.passed, publicPostCreated: false })) fail("draft_verified", "draft_reopen_verification_failed", "다시 연 임시글의 최종 검증 결과가 완전하지 않습니다.");
@@ -218,7 +248,7 @@ try {
   const editorUrl = page.url();
   const idMatch = editorUrl.match(/(?:postId=|\/manage\/(?:newpost|post)\/)(\d+)/);
   const savedAt = new Date().toISOString();
-  process.stdout.write(`${JSON.stringify({ ...empty, saveClicked: true, saveNotificationDetected: confirmation.confirmed, draftIdDetected: Boolean(idMatch), draftListVerified: true, reopenedDraftVerified: true, titleMatched: true, bodyMatched: true, publicPostCreated: false, ...(idMatch ? { draftId: idMatch[1] } : {}), draftCount: draftCountAfter, draftCountBefore, draftCountAfter, draftSaveClickCount, savedAt, verification: verificationEvidence, editorUrl: safeUrl(editorUrl), status: "saved", steps })}\n`);
+  process.stdout.write(`${JSON.stringify({ ...empty, saveClicked: true, saveNotificationDetected: confirmation.confirmed, draftIdDetected: Boolean(idMatch), draftListVerified: true, reopenedDraftVerified: true, titleMatched: true, bodyMatched: true, publicPostCreated: false, ...(idMatch ? { draftId: idMatch[1] } : {}), draftCount: draftCountAfter, draftCountBefore, draftCountAfter, draftSaveClickCount, clickCounts, savedAt, verification: verificationEvidence, editorUrl: safeUrl(editorUrl), status: "saved", steps })}\n`);
   await context.close();
 } catch (error) {
   runtimeFailureDiagnostic = { name: String(error?.name ?? "Error").slice(0, 80), message: String(error?.message ?? "unknown").replace(/[A-Z]:\\[^\s]+/gi, "[path]").slice(0, 240) };
@@ -226,16 +256,33 @@ try {
   const message = error?.safeMessage ?? "Tistory 임시저장 작업을 완료하지 못했습니다.";
   if (failedStep && !steps.some((item) => item.key === failedStep && !item.passed)) steps.push({ key: failedStep, passed: false, diagnosticCode: code, message });
   const diagnostic = page ? await safeDiagnostic(page, expectedHtmlForDiagnostic).catch(() => undefined) : undefined;
+  const finalClickCounts = page ? await readAutomationClickCounts(page) : undefined;
   process.stderr.write(`[tistory-draft-worker] ${failedStep ?? "startup"}:${code}\n`);
   const status = draftSaveClickCount > 0 ? "partial_failure" : "failed";
-  process.stdout.write(`${JSON.stringify({ ...empty, saveClicked: draftSaveClickCount > 0, status, steps, failedStep, error: message, draftSaveClickCount, ...(draftCountBefore !== undefined ? { draftCountBefore } : {}), ...(draftCountAfter !== undefined ? { draftCountAfter } : {}), ...(verificationEvidence ? { verification: verificationEvidence } : {}), ...(diagnostic ? { diagnostic } : {}) })}\n`);
+  process.stdout.write(`${JSON.stringify({ ...empty, saveClicked: draftSaveClickCount > 0, status, steps, failedStep, error: message, draftSaveClickCount, ...(draftCountBefore !== undefined ? { draftCountBefore } : {}), ...(draftCountAfter !== undefined ? { draftCountAfter } : {}), ...(finalClickCounts ? { clickCounts: finalClickCounts } : {}), ...(verificationEvidence ? { verification: verificationEvidence } : {}), ...(diagnostic ? { diagnostic } : {}) })}\n`);
   process.exitCode = 1;
 } finally {
   await browser?.close();
 }
 
 function step(key, message, evidence) { steps.push({ key, passed: true, message, ...(evidence ? { evidence } : {}) }); }
+function warningStep(key, diagnosticCode, message, evidence) { steps.push({ key, passed: false, warning: true, diagnosticCode, message, ...(evidence ? { evidence } : {}) }); }
 function fail(key, diagnosticCode, safeMessage) { failedStep = key; const error = new Error(safeMessage); error.diagnosticCode = diagnosticCode; error.safeMessage = safeMessage; throw error; }
+
+function recordRepresentativeReopenDiagnostic(tagResult) {
+  const representative = tagResult?.representativeUi;
+  if (!representative || representative.skipped || representative.evidence?.skipped) return;
+  if (representative.passed && representative.verified === true) {
+    step("representative_reverified", "다시 연 Tistory 임시글에서 첫 이미지 대표 버튼의 active UI 상태를 확인했습니다.", representative.evidence);
+    return;
+  }
+  warningStep(
+    "representative_reverified",
+    "tistory_representative_ui_not_rehydrated",
+    "대표이미지 데이터는 저장됐지만 Tistory 임시글 편집기가 재열기 시 대표 버튼 활성 UI를 복원하지 않았습니다.",
+    representative.evidence,
+  );
+}
 
 async function visibleTitle(targetPage) {
   const candidates = targetPage.locator('textarea[placeholder="제목을 입력하세요"], input[placeholder="제목을 입력하세요"], textarea[placeholder*="제목"], input[placeholder*="제목"], textarea[aria-label*="제목"], input[aria-label*="제목"]');
@@ -498,7 +545,19 @@ function probeFailure(failedStep, diagnosticCode, message, result) { return { pa
 
 async function installRestrictedClickMonitor(targetPage) {
   const install = () => {
-    window.__brightStudioAutomationClicks = { draft: 0, complete: 0, publish: 0, schedule: 0, delete: 0 };
+    const storageKey = "__brightStudioAutomationClicks";
+    const emptyCounts = { draft: 0, complete: 0, publish: 0, schedule: 0, delete: 0 };
+    try {
+      window.__brightStudioAutomationClicks = {
+        ...emptyCounts,
+        ...JSON.parse(window.sessionStorage.getItem(storageKey) ?? "{}"),
+      };
+    } catch {
+      window.__brightStudioAutomationClicks = { ...emptyCounts };
+    }
+    const persist = () => {
+      try { window.sessionStorage.setItem(storageKey, JSON.stringify(window.__brightStudioAutomationClicks)); } catch {}
+    };
     document.addEventListener("click", (event) => {
       const control = event.target?.closest?.("button, [role=button]");
       const label = (control?.textContent ?? control?.getAttribute?.("aria-label") ?? "").replace(/\s+/g, " ").trim();
@@ -507,7 +566,9 @@ async function installRestrictedClickMonitor(targetPage) {
       else if (/발행/.test(label)) window.__brightStudioAutomationClicks.publish += 1;
       else if (/예약/.test(label)) window.__brightStudioAutomationClicks.schedule += 1;
       else if (/삭제/.test(label)) window.__brightStudioAutomationClicks.delete += 1;
+      persist();
     }, true);
+    persist();
   };
   await targetPage.addInitScript(install);
   await targetPage.evaluate(install);
@@ -817,12 +878,19 @@ async function reopenExistingDraft(targetPage, title, preferredId) {
   });
   const openControl = openHandle.asElement();
   if (!openControl) return { ...reopenFailure("draft_item_identified", "draft_item_open_control_not_found", "식별한 임시글 항목의 열기 control을 찾지 못했습니다."), draftList };
+  const draftDetailPromise = targetPage.waitForResponse((response) => {
+    if (response.request().method() !== "GET") return false;
+    try { return /\/manage\/drafts\/\d+$/u.test(new URL(response.url()).pathname); } catch { return false; }
+  }, { timeout: 10000 })
+    .then((response) => response.ok() ? response.json().catch(() => undefined) : undefined)
+    .catch(() => undefined);
   await openControl.click({ timeout: 10000 });
   const confirmation = targetPage.locator('[role="dialog"]:visible, [role="alertdialog"]:visible').filter({ hasText: /불러오기|임시저장/ }).last();
   if (await confirmation.isVisible().catch(() => false)) {
     const confirm = confirmation.getByRole("button", { name: /불러오기|열기|확인/ }).filter({ visible: true }).last();
     if (await confirm.isVisible().catch(() => false)) await confirm.click();
   }
+  const draftDetail = await draftDetailPromise;
   let loaded = false;
   for (let attempt = 0; attempt < 60; attempt += 1) {
     const titleControl = await visibleTitle(targetPage);
@@ -832,9 +900,14 @@ async function reopenExistingDraft(targetPage, title, preferredId) {
     if (titleMatches && listClosed && bodyReady) { loaded = true; break; }
     await targetPage.waitForTimeout(250);
   }
-  const open = { listClosed: !await container.isVisible().catch(() => false), titleLoaded: loaded, currentUrl: safeUrl(targetPage.url()) };
+  const open = { listClosed: !await container.isVisible().catch(() => false), titleLoaded: loaded, currentUrl: safeUrl(targetPage.url()), draftDetailObserved: Boolean(draftDetail) };
   if (!loaded) return { ...reopenFailure("draft_reopened", "draft_reopen_timeout", "임시글 항목을 열었지만 에디터 로드를 확인하지 못했습니다."), draftList, item: safeDraftCandidate(selected.candidate), open };
-  return { passed: true, draftList, item: safeDraftCandidate(selected.candidate), open };
+  return { passed: true, draftList, item: safeDraftCandidate(selected.candidate), open, persistedThumbnail: readDraftThumbnail(draftDetail) };
+}
+
+function readDraftThumbnail(value) {
+  const thumbnail = value?.draft?.thumbnail ?? value?.data?.draft?.thumbnail;
+  return typeof thumbnail === "string" ? thumbnail : undefined;
 }
 
 function reopenFailure(failedStep, code, message) { return { passed: false, failedStep, code, message }; }

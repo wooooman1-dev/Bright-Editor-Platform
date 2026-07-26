@@ -25,8 +25,8 @@ export function draftOutcomePresentation(status: TistoryDraftOutcomeStatus): Tis
   switch (status) {
     case "verified":
       return Object.freeze({
-        title: "Tistory 임시저장 완료",
-        message: "새 임시글을 저장하고 다시 열어 제목, 본문, 카테고리와 비공개 상태를 확인했습니다.",
+        title: "Tistory 임시저장이 완료되었습니다.",
+        message: "제목, 본문, 이미지, 카테고리, 태그와 대표이미지 저장 데이터를 확인했습니다.",
         tone: "success",
         primaryAction: "continue",
         primaryLabel: "계속 편집",

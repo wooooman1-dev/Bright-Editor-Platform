@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { representativeControlLooksSelected } from "../../../../apps/tistory/workflows/tistory-representative-image.mjs";
+import { representativeControlLooksSelected, verifyTistoryRepresentativePersistence } from "../../../../apps/tistory/workflows/tistory-representative-image.mjs";
 
 const sameEditorSource = readFileSync(
   join(process.cwd(), "apps/tistory/workflows/tistory-same-editor-media.mjs"),
@@ -12,20 +12,49 @@ const representativeSource = readFileSync(
   join(process.cwd(), "apps/tistory/workflows/tistory-representative-image.mjs"),
   "utf8",
 );
+const draftWorkerSource = readFileSync(
+  join(process.cwd(), "apps/tistory/workflows/tistory-draft-worker.mjs"),
+  "utf8",
+);
 
 describe("Tistory representative image", () => {
   it("recognizes the actual Tistory active representative control state", () => {
     expect(representativeControlLooksSelected({ className: "mce-represent-image-btn active" })).toBe(true);
-    expect(representativeControlLooksSelected({ ariaPressed: "true" })).toBe(true);
-    expect(representativeControlLooksSelected({ ariaChecked: "true" })).toBe(true);
-    expect(representativeControlLooksSelected({ ariaSelected: "true" })).toBe(true);
-    expect(representativeControlLooksSelected({ checked: true })).toBe(true);
-    expect(representativeControlLooksSelected({ dataState: "selected" })).toBe(true);
+    expect(representativeControlLooksSelected({ className: "active mce-represent-image-btn" })).toBe(true);
   });
 
-  it("does not treat an inactive icon-only representative control as selected", () => {
+  it("does not infer selection from inactive or unobserved attributes", () => {
     expect(representativeControlLooksSelected({ className: "mce-represent-image-btn" })).toBe(false);
+    expect(representativeControlLooksSelected({ ariaPressed: "true" })).toBe(false);
+    expect(representativeControlLooksSelected({ ariaChecked: "true" })).toBe(false);
+    expect(representativeControlLooksSelected({ ariaSelected: "true" })).toBe(false);
+    expect(representativeControlLooksSelected({ checked: true })).toBe(false);
+    expect(representativeControlLooksSelected({ dataState: "selected" })).toBe(false);
     expect(representativeControlLooksSelected(undefined)).toBe(false);
+  });
+
+  it("verifies the saved Tistory thumbnail against the selected image including its query", () => {
+    const selected = "https://blog.kakaocdn.net/dna/abc123/def456/media/image.png?credential=value&expires=1";
+    const persisted = "kage@abc123/def456/media/image.png?credential=value&expires=1";
+    expect(verifyTistoryRepresentativePersistence(persisted, selected)).toMatchObject({
+      passed: true,
+      verified: true,
+      evidence: { exactMatch: true, persistedHasQuery: true, expectedHasQuery: true },
+    });
+  });
+
+  it("fails when the saved representative thumbnail is missing or mismatched", () => {
+    const selected = "https://blog.kakaocdn.net/dna/abc123/def456/media/image.png?credential=value";
+    expect(verifyTistoryRepresentativePersistence(undefined, selected)).toMatchObject({
+      passed: false,
+      verified: false,
+      code: "representative_persisted_thumbnail_missing",
+    });
+    expect(verifyTistoryRepresentativePersistence("kage@abc123/def456/media/other.png?credential=value", selected)).toMatchObject({
+      passed: false,
+      verified: false,
+      code: "representative_persisted_thumbnail_mismatch",
+    });
   });
 
   it("sets the representative image only for the first uploaded media item", () => {
@@ -74,6 +103,8 @@ describe("Tistory representative image", () => {
     expect(representativeSource).toContain("[tistory-representative-diagnostic]");
     expect(representativeSource).toContain("captureRepresentativeScreenshot");
     expect(representativeSource).toContain('page.screenshot({ path: screenshotPath, fullPage: false })');
+    expect(representativeSource).toContain('captureRepresentativeScreenshot(page, "active-before-save")');
+    expect(representativeSource).toContain("outerHTML: element.outerHTML");
     expect(representativeSource).toContain("representative_image_click_failed");
   });
 
@@ -85,5 +116,36 @@ describe("Tistory representative image", () => {
     expect(representativeSource).toContain("representative_control_not_found");
     expect(representativeSource).toContain("representative_control_not_clickable");
     expect(representativeSource).toContain("representative_selection_not_verified");
+    expect(representativeSource).toContain("stateTimeline");
+    expect(draftWorkerSource).toContain("!representativeBeforeSave.passed || representativeBeforeSave.verified !== true");
+  });
+
+  it("reactivates an existing active selection so the real Tistory callback runs before save", () => {
+    expect(representativeSource).toContain("waitForRepresentativeDeselection(page, located.locator)");
+    expect(representativeSource).toContain('action: selected.verified');
+    expect(representativeSource).toContain('"selection_reactivated_and_verified"');
+    expect(representativeSource).toContain("clickExecuted: true");
+    expect(representativeSource).toContain("const controlClick = await located.locator.click");
+  });
+
+  it("reselects and verifies the first image immediately before draft save", () => {
+    const finalBodyIndex = draftWorkerSource.indexOf("const finalBody = await verifyRenderedHtml(page, command.html)");
+    const representativeIndex = draftWorkerSource.indexOf("const representativeBeforeSave = await ensureFirstTistoryImageRepresentative(page, tags.representativeRemoteUrl)");
+    const saveButtonIndex = draftWorkerSource.indexOf("const saveButton = await visibleDraftButton(page)");
+    expect(representativeIndex).toBeGreaterThan(finalBodyIndex);
+    expect(saveButtonIndex).toBeGreaterThan(representativeIndex);
+    expect(draftWorkerSource).toContain('step("representative_image_verified"');
+  });
+
+  it("requires explicit persisted-thumbnail verification after reopening the saved draft", () => {
+    const reopenIndex = draftWorkerSource.indexOf("const reopened = await reopenExistingDraft(page, command.title)", draftWorkerSource.indexOf("const saveButton = await visibleDraftButton(page)"));
+    const persistedIndex = draftWorkerSource.indexOf("const representativePersistence = verifyTistoryRepresentativePersistence", reopenIndex);
+    const reopenedTagsIndex = draftWorkerSource.indexOf("const reopenedTags = await verifyTistoryTags(page, command.tags)", reopenIndex);
+    expect(persistedIndex).toBeGreaterThan(reopenIndex);
+    expect(reopenedTagsIndex).toBeGreaterThan(persistedIndex);
+    expect(draftWorkerSource).toContain('fail(\n        "representative_persisted_verified"');
+    expect(draftWorkerSource).toContain('step(\n      "representative_persisted_verified"');
+    expect(draftWorkerSource).toContain("response.request().method() !== \"GET\"");
+    expect(draftWorkerSource).toContain("readDraftThumbnail(draftDetail)");
   });
 });

@@ -38,9 +38,11 @@ describe("Tistory body editor identification", () => {
   });
 
   it("requires one draft click and forbids complete or publish controls", () => {
-    expect(automationClicksAllowed({ draft: 1, complete: 0, publish: 0 })).toBe(true);
-    expect(automationClicksAllowed({ draft: 2, complete: 0, publish: 0 })).toBe(false);
-    expect(automationClicksAllowed({ draft: 1, complete: 1, publish: 0 })).toBe(false);
+    expect(automationClicksAllowed({ draft: 1, complete: 0, publish: 0, schedule: 0, delete: 0 })).toBe(true);
+    expect(automationClicksAllowed({ draft: 2, complete: 0, publish: 0, schedule: 0, delete: 0 })).toBe(false);
+    expect(automationClicksAllowed({ draft: 1, complete: 1, publish: 0, schedule: 0, delete: 0 })).toBe(false);
+    expect(automationClicksAllowed({ draft: 1, complete: 0, publish: 0, schedule: 1, delete: 0 })).toBe(false);
+    expect(automationClicksAllowed({ draft: 1, complete: 0, publish: 0, schedule: 0, delete: 1 })).toBe(false);
   });
 
   it("requires every restricted click count to remain zero during read-only reopen", () => {

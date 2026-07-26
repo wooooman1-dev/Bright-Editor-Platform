@@ -1,3 +1,5 @@
+import { basename, dirname, extname, join } from "node:path";
+
 const nativeImageSelector = [
   "body#tinymce figure.imageblock img",
   'body#tinymce figure[data-ke-type="image"] img',
@@ -12,54 +14,21 @@ const representativeControlSelector = ".mce-represent-image-btn";
 export function reopenedRepresentativeLooksSelected(state) {
   if (!state || typeof state !== "object") return false;
   const className = String(state.className ?? "");
-  const dataState = String(state.dataState ?? "");
-  return state.ariaPressed === "true"
-    || state.ariaChecked === "true"
-    || state.ariaSelected === "true"
-    || state.dataSelected === "true"
-    || state.dataActive === "true"
-    || /^(?:active|selected|checked|on)$/iu.test(dataState)
-    || /(?:^|\s)(?:active|selected|checked|on)(?:\s|$)/iu.test(className);
-}
-
-export function tistoryRepresentativeMediaKey(value) {
-  if (!value) return "";
-  let path = String(value).trim();
-  try { path = new URL(path, "https://blog.kakaocdn.net").pathname; } catch { path = path.split("?")[0]; }
-  try { path = decodeURIComponent(path); } catch { /* Keep the observable encoded path. */ }
-  return path
-    .replace(/^\/+/, "")
-    .replace(/^dna\//iu, "")
-    .replace(/^kage@/iu, "")
-    .split("?")[0];
+  return /(?:^|\s)active(?:\s|$)/u.test(className);
 }
 
 export async function verifyReopenedTistoryRepresentativeImage(page, expectedMediaCount) {
   const target = await firstReopenedNativeImage(page);
   if (!target) {
     if (!(expectedMediaCount > 0)) {
-      return { passed: true, evidence: { skipped: true, expectedMediaCount: 0, nativeImageFound: false } };
+      return { passed: true, verified: true, skipped: true, evidence: { skipped: true, expectedMediaCount: 0, nativeImageFound: false } };
     }
     return {
       passed: false,
-      code: "representative_persistence_image_not_found",
+      verified: false,
+      code: "tistory_representative_ui_not_rehydrated",
       message: "다시 연 Tistory 본문에서 대표이미지 후보인 첫 번째 네이티브 이미지를 찾지 못했습니다.",
-      evidence: { expectedMediaCount, selector: nativeImageSelector },
-    };
-  }
-
-  const persisted = await readPersistedRepresentativeEvidence(page, target);
-  if (persisted.passed) {
-    return {
-      passed: true,
-      evidence: {
-        expectedMediaCount,
-        nativeImageFound: true,
-        context: target.context,
-        imageIndex: target.imageIndex,
-        stateSource: "draft_detail_thumbnail",
-        draftDetail: persisted.evidence,
-      },
+      evidence: { expectedMediaCount, selector: nativeImageSelector, uiDiagnosticCode: "representative_persistence_image_not_found" },
     };
   }
 
@@ -77,9 +46,10 @@ export async function verifyReopenedTistoryRepresentativeImage(page, expectedMed
   if (!click.passed) {
     return {
       passed: false,
-      code: "representative_persistence_image_click_failed",
+      verified: false,
+      code: "tistory_representative_ui_not_rehydrated",
       message: "다시 연 Tistory 본문의 첫 번째 이미지를 대표이미지 확인 대상으로 선택하지 못했습니다.",
-      evidence: { expectedMediaCount, context: target.context, imageIndex: target.imageIndex, click, draftDetail: persisted.evidence },
+      evidence: { expectedMediaCount, context: target.context, imageIndex: target.imageIndex, click, uiDiagnosticCode: "representative_persistence_image_click_failed" },
     };
   }
 
@@ -87,7 +57,8 @@ export async function verifyReopenedTistoryRepresentativeImage(page, expectedMed
   if (!located) {
     return {
       passed: false,
-      code: "representative_persistence_control_not_found",
+      verified: false,
+      code: "tistory_representative_ui_not_rehydrated",
       message: "다시 연 Tistory 편집기에서 대표이미지 control을 찾지 못했습니다.",
       evidence: {
         expectedMediaCount,
@@ -95,16 +66,18 @@ export async function verifyReopenedTistoryRepresentativeImage(page, expectedMed
         imageIndex: target.imageIndex,
         selector: representativeControlSelector,
         controlCount: await page.locator(representativeControlSelector).count().catch(() => 0),
-        draftDetail: persisted.evidence,
+        uiDiagnosticCode: "representative_persistence_control_not_found",
       },
     };
   }
 
-  const state = await readRepresentativeControlState(located.locator);
-  if (!reopenedRepresentativeLooksSelected(state)) {
+  const stable = await readStableRepresentativeControlState(page, located.locator);
+  const screenshot = await captureReopenedRepresentativeScreenshot(page);
+  if (!stable.verified) {
     return {
       passed: false,
-      code: "representative_persistence_not_selected",
+      verified: false,
+      code: "tistory_representative_ui_not_rehydrated",
       message: "다시 연 Tistory 임시글에서 첫 번째 이미지의 대표이미지 지정 상태가 유지되지 않았습니다.",
       evidence: {
         expectedMediaCount,
@@ -112,14 +85,17 @@ export async function verifyReopenedTistoryRepresentativeImage(page, expectedMed
         imageIndex: target.imageIndex,
         selector: representativeControlSelector,
         controlContext: located.context,
-        state,
-        draftDetail: persisted.evidence,
+        state: stable.state,
+        stateTimeline: stable.timeline,
+        screenshot,
+        uiDiagnosticCode: "representative_persistence_not_selected",
       },
     };
   }
 
   return {
     passed: true,
+    verified: true,
     evidence: {
       expectedMediaCount,
       nativeImageFound: true,
@@ -127,73 +103,12 @@ export async function verifyReopenedTistoryRepresentativeImage(page, expectedMed
       imageIndex: target.imageIndex,
       selector: representativeControlSelector,
       controlContext: located.context,
-      state,
-      draftDetail: persisted.evidence,
+      stateSource: "representative_control_dom",
+      state: stable.state,
+      stateTimeline: stable.timeline,
+      screenshot,
     },
   };
-}
-
-async function readPersistedRepresentativeEvidence(page, target) {
-  const detailUrl = await page.evaluate(() => performance.getEntriesByType("resource")
-    .map((entry) => String(entry.name ?? ""))
-    .filter((value) => {
-      try { return /^\/manage\/drafts\/\d+$/u.test(new URL(value).pathname); } catch { return false; }
-    })
-    .at(-1) ?? "").catch(() => "");
-  if (!detailUrl) return { passed: false, evidence: { detailRequestObserved: false } };
-
-  try {
-    const response = await page.context().request.get(detailUrl, { timeout: 5000 });
-    const payload = await response.json().catch(() => undefined);
-    const draft = payload?.draft;
-    const currentTitle = await readCurrentTitle(page);
-    const imageValues = await target.locator.evaluate((image) => [
-      image.currentSrc,
-      image.getAttribute("src"),
-      image.getAttribute("data-url"),
-      image.getAttribute("data-phocus"),
-    ].filter(Boolean)).catch(() => []);
-    const thumbnailKey = tistoryRepresentativeMediaKey(draft?.thumbnail);
-    const targetKeys = [...new Set(imageValues.map(tistoryRepresentativeMediaKey).filter(Boolean))];
-    const titleMatched = Boolean(currentTitle && draft?.title === currentTitle);
-    const thumbnailMatched = Boolean(thumbnailKey && targetKeys.includes(thumbnailKey));
-    const evidence = {
-      detailRequestObserved: true,
-      detailPath: safePath(detailUrl),
-      status: response.status(),
-      responseSucceeded: response.ok() && payload?.success === true,
-      titleMatched,
-      thumbnailPresent: Boolean(thumbnailKey),
-      thumbnailMatched,
-      thumbnailMediaKey: thumbnailKey,
-      targetMediaKeys: targetKeys,
-    };
-    return { passed: evidence.responseSucceeded && titleMatched && thumbnailMatched, evidence };
-  } catch (error) {
-    return {
-      passed: false,
-      evidence: {
-        detailRequestObserved: true,
-        detailPath: safePath(detailUrl),
-        requestError: String(error?.message ?? error ?? "unknown").slice(0, 500),
-      },
-    };
-  }
-}
-
-async function readCurrentTitle(page) {
-  const titles = page.locator('textarea[placeholder*="제목"], input[placeholder*="제목"], textarea[aria-label*="제목"], input[aria-label*="제목"]');
-  for (let index = 0; index < await titles.count(); index += 1) {
-    const title = titles.nth(index);
-    if (!await title.isVisible().catch(() => false)) continue;
-    const value = await title.inputValue().catch(() => "");
-    if (value.trim()) return value.trim();
-  }
-  return "";
-}
-
-function safePath(value) {
-  try { return new URL(value).pathname; } catch { return "unknown"; }
 }
 
 async function firstReopenedNativeImage(page) {
@@ -231,6 +146,7 @@ async function waitForRepresentativeControl(page, attempts = 30) {
 
 async function readRepresentativeControlState(locator) {
   return locator.evaluate((element) => ({
+    outerHTML: element.outerHTML,
     tagName: element.tagName.toLowerCase(),
     className: String(element.className ?? ""),
     ariaPressed: element.getAttribute?.("aria-pressed") ?? "",
@@ -240,6 +156,7 @@ async function readRepresentativeControlState(locator) {
     dataActive: element.getAttribute?.("data-active") ?? "",
     dataState: element.getAttribute?.("data-state") ?? "",
   })).catch(() => ({
+    outerHTML: "",
     tagName: "",
     className: "",
     ariaPressed: "",
@@ -249,4 +166,37 @@ async function readRepresentativeControlState(locator) {
     dataActive: "",
     dataState: "",
   }));
+}
+
+async function captureReopenedRepresentativeScreenshot(page) {
+  const commandPath = process.argv[2];
+  const basePath = commandPath || join(process.cwd(), "tistory-command.json");
+  const extension = extname(basePath);
+  const stem = basename(basePath, extension).replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80) || "tistory";
+  const screenshotPath = join(dirname(basePath), `${stem}-representative-active-after-reopen.png`);
+  return page.screenshot({ path: screenshotPath, fullPage: false })
+    .then(() => ({ captured: true, path: screenshotPath }))
+    .catch((error) => ({
+      captured: false,
+      path: screenshotPath,
+      error: {
+        name: String(error?.name ?? "Error").slice(0, 120),
+        message: String(error?.message ?? error ?? "unknown").slice(0, 1200),
+      },
+    }));
+}
+
+async function readStableRepresentativeControlState(page, locator) {
+  const timeline = [];
+  const startedAt = Date.now();
+  for (const elapsedMs of [0, 100, 500, 1000]) {
+    const remaining = elapsedMs - (Date.now() - startedAt);
+    if (remaining > 0) await page.waitForTimeout(remaining);
+    timeline.push({ elapsedMs, state: await readRepresentativeControlState(locator) });
+  }
+  return {
+    verified: timeline.every((entry) => reopenedRepresentativeLooksSelected(entry.state)),
+    state: timeline.at(-1)?.state,
+    timeline,
+  };
 }

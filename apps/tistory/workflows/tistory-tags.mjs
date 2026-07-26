@@ -89,6 +89,7 @@ export async function fillTistoryTags(page, values) {
 
   return {
     ...verification,
+    representativeRemoteUrl: media?.representativeMedia?.remoteUrl,
     evidence: {
       ...(verification.evidence ?? {}),
       upload,
@@ -118,21 +119,17 @@ export async function verifyTistoryTags(page, values, resolvedInput) {
   }
 
   const representative = await verifyReopenedTistoryRepresentativeImage(page, workflow.mediaCount);
-  evidence.representative = representative.evidence;
-  if (!representative.passed) {
-    return {
-      passed: false,
-      code: representative.code,
-      message: representative.message,
-      tags: expected,
-      evidence,
-    };
-  }
+  evidence.representative = {
+    ...(representative.evidence ?? {}),
+    verified: representative.verified === true,
+    ...(representative.code ? { diagnosticCode: representative.code } : {}),
+  };
 
   return {
     passed: true,
     tags: expected,
     skipped: expected.length === 0,
+    representativeUi: representative,
     evidence,
   };
 }

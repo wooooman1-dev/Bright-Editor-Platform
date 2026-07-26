@@ -24,6 +24,8 @@ export type ReopenedTistoryRepresentativeEvidence = Readonly<{
 
 export type ReopenedTistoryRepresentativeResult = Readonly<{
   passed: boolean;
+  verified?: boolean;
+  skipped?: boolean;
   code?: string;
   message?: string;
   evidence?: ReopenedTistoryRepresentativeEvidence;
@@ -32,8 +34,6 @@ export type ReopenedTistoryRepresentativeResult = Readonly<{
 export function reopenedRepresentativeLooksSelected(
   state: ReopenedRepresentativeControlState | undefined,
 ): boolean;
-
-export function tistoryRepresentativeMediaKey(value: unknown): string;
 
 export function verifyReopenedTistoryRepresentativeImage(
   page: unknown,

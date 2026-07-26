@@ -21,7 +21,7 @@ export function editorStateSynchronized(state: Readonly<{ instanceContainsProbe:
 export function looksAuxiliary(value: string): boolean;
 export function semanticHtmlDiagnosticCode(evidence: Readonly<Record<string, unknown>> | undefined): string | undefined;
 export function semanticHtmlVerified(evidence: Readonly<Record<string, unknown>> | undefined): boolean;
-export function automationClicksAllowed(clicks: Readonly<{ draft: number; complete: number; publish: number }> | undefined): boolean;
+export function automationClicksAllowed(clicks: Readonly<{ draft: number; complete: number; publish: number; schedule: number; delete: number }> | undefined): boolean;
 export function readOnlyClicksAllowed(clicks: Readonly<{ draft: number; complete: number; publish: number; schedule: number; delete: number }> | undefined): boolean;
 export type DraftCandidate = Readonly<{ scope: string; visible: boolean; tagName: string; title: string; id?: string; [key: string]: unknown }>;
 export function selectDraftCandidate(candidates: readonly DraftCandidate[], title: string, preferredId?: string): Readonly<{ candidate?: DraftCandidate; code?: "duplicate_draft_candidates" | "draft_item_not_found" }>;

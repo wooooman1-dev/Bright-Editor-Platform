@@ -1,4 +1,5 @@
 import type { Page } from "playwright";
+import type { ReopenedTistoryRepresentativeResult } from "./tistory-reopened-evidence.mjs";
 
 export type TistoryTagResult = Readonly<{
   passed: boolean;
@@ -6,6 +7,8 @@ export type TistoryTagResult = Readonly<{
   skipped?: boolean;
   code?: string;
   message?: string;
+  representativeRemoteUrl?: string;
+  representativeUi?: ReopenedTistoryRepresentativeResult;
   evidence?: Readonly<Record<string, unknown>>;
 }>;
 
