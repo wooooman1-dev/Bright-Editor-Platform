@@ -13,15 +13,85 @@ on:
       - reopened
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: Checkout
+      - name: Checkout branch
         uses: actions/checkout@v4
+        with:
+          ref: fix/canonical-table-and-image-cost-policy
+
+      - name: Restrict free cards to explicit Bright purposes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          replacements = {
+            "apps/tistory/publishing/TistoryHtmlRenderer.ts": [
+              (
+                'import { ensureFreeBodyVisuals, renderBrightBodyVisualHtml } from "../../../core/media";',
+                'import { ensureFreeBodyVisuals, isFreeBodyVisualBlock, renderBrightBodyVisualHtml } from "../../../core/media";',
+              ),
+              (
+                '        if (block.purpose !== "hero" && block.purpose !== "inline") return [...before, renderBrightBodyVisualHtml(block)];',
+                '        if (isFreeBodyVisualBlock(block)) return [...before, renderBrightBodyVisualHtml(block)];',
+              ),
+            ],
+            "apps/wordpress/WordPressHtmlRenderer.ts": [
+              (
+                'import { ensureFreeBodyVisuals, renderBrightBodyVisualHtml } from "../../core/media";',
+                'import { ensureFreeBodyVisuals, isFreeBodyVisualBlock, renderBrightBodyVisualHtml } from "../../core/media";',
+              ),
+              (
+                '        if (block.purpose !== "hero" && block.purpose !== "inline") return renderBrightBodyVisualHtml(block);',
+                '        if (isFreeBodyVisualBlock(block)) return renderBrightBodyVisualHtml(block);',
+              ),
+            ],
+            "app/user-flow/ContentDocumentEditor.tsx": [
+              (
+                'import { brightBodyVisualContent, ensureFreeBodyVisuals } from "../../core/media";',
+                'import { brightBodyVisualContent, ensureFreeBodyVisuals, isFreeBodyVisualBlock } from "../../core/media";',
+              ),
+              (
+                '{block.type === "image" ? block.source || block.purpose === "hero" || block.purpose === "inline"',
+                '{block.type === "image" ? block.source || !isFreeBodyVisualBlock(block)',
+              ),
+              (
+                'function blockLabel(block: ContentBlock) { if (block.type === "heading") return `H${block.level}`; if (block.type === "paragraph") return "문단"; if (block.type === "table") return "표"; if (block.type === "image") return block.source ? "이미지" : block.purpose !== "hero" && block.purpose !== "inline" ? "무료 시각 카드" : "추천 이미지"; if (block.type === "button") return purposeLabel(block.purpose ?? "cta"); return "비디오"; }',
+                'function blockLabel(block: ContentBlock) { if (block.type === "heading") return `H${block.level}`; if (block.type === "paragraph") return "문단"; if (block.type === "table") return "표"; if (block.type === "image") return block.source ? "이미지" : isFreeBodyVisualBlock(block) ? "무료 시각 카드" : "추천 이미지"; if (block.type === "button") return purposeLabel(block.purpose ?? "cta"); return "비디오"; }',
+              ),
+            ],
+          }
+
+          changed = False
+          for file_name, pairs in replacements.items():
+              path = Path(file_name)
+              text = path.read_text(encoding="utf-8-sig")
+              for old, new in pairs:
+                  if new in text:
+                      continue
+                  if old not in text:
+                      raise SystemExit(f"Expected patch target missing in {file_name}: {old}")
+                  text = text.replace(old, new, 1)
+                  changed = True
+              path.write_text(text, encoding="utf-8")
+
+          if not changed:
+              print("Explicit free visual policy already applied.")
+          PY
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet; then
+            git add app/user-flow/ContentDocumentEditor.tsx apps/tistory/publishing/TistoryHtmlRenderer.ts apps/wordpress/WordPressHtmlRenderer.ts
+            git commit -m "fix: preserve generic image placeholders"
+            git push origin HEAD:fix/canonical-table-and-image-cost-policy
+          fi
 
       - name: Setup Node
         uses: actions/setup-node@v4
