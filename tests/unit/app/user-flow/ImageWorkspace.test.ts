@@ -21,21 +21,22 @@ const freeVisualSource = readFileSync(join(process.cwd(), "core/media/BrightBody
     expect(imageEditorSource).toContain('accept="image/png,image/jpeg,image/webp"');
   });
 
-  it("offers paid AI generation only for a unique representative image", () => {
+  it("keeps automatic AI generation hero-only while offering explicit paid replacement for every free card", () => {
     expect(imageEditorSource).toContain("대표이미지 AI 생성");
     expect(imageEditorSource).toContain("대표이미지 중복 방지");
     expect(imageEditorSource).toContain("AI 이미지로 교체 · 유료");
-    expect(editorSource).toContain("Project 이미지·파일·AI로 교체");
+    expect(documentEditorSource).toContain("Project 이미지·파일·AI로 교체");
     expect(mediaRouteSource).toContain('owner.block.purpose !== "hero"');
     expect(openAIProviderSource).toContain('purpose: { type: "string", enum: ["hero"] }');
     expect(imageCostPolicySource).toContain('block.purpose === "hero"');
+    expect(imageCostPolicySource).toContain('"infographic"');
   });
 
   it("shows up to two zero-cost body visual cards in the existing editor", () => {
     expect(documentEditorSource).toContain("ensureFreeBodyVisuals");
     expect(documentEditorSource).toContain("FreeBodyVisualCard");
     expect(documentEditorSource).toContain('data-free-visual="true"');
-    expect(documentEditorSource).toContain("Project 이미지 또는 파일로 교체");
+    expect(documentEditorSource).toContain("Project 이미지·파일·AI로 교체");
     expect(freeVisualSource).toContain("const bodyVisualLimit = 2");
     expect(freeVisualSource).toContain("renderBrightBodyVisualHtml");
   });
