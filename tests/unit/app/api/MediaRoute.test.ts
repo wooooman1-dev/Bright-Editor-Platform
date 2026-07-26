@@ -4,7 +4,10 @@ const storeMocks = vi.hoisted(() => ({ get: vi.fn(), update: vi.fn() }));
 const providerMocks = vi.hoisted(() => ({ generate: vi.fn() }));
 const storageMocks = vi.hoisted(() => ({ save: vi.fn(), remove: vi.fn() }));
 
-vi.mock("../../../../app/application/studio-store", () => ({ studioStore: storeMocks }));
+vi.mock("../../../../app/application/studio-store", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../../../../app/application/studio-store")>();
+  return { ...original, studioStore: storeMocks };
+});
 vi.mock("../../../../app/application/media/OpenAIImageProvider", () => ({
   OpenAIImageProvider: class {
     generate = providerMocks.generate;
