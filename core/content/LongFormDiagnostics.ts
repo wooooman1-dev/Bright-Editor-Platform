@@ -7,6 +7,7 @@ import {
 } from "./ContentDepthPolicy";
 import {
   normalizeStructuredText,
+  serializeStructuredTable,
   structuredListItems,
   structuredProseText,
   structuredTableCount,
@@ -108,10 +109,13 @@ export function analyzeLongFormDocument(document: ContentDocument, requestedTarg
   const paragraphs = document.blocks
     .filter((block) => block.type === "paragraph")
     .map((block) => normalizeStructuredText(block.text));
-  const total = paragraphs.reduce((sum, text) => sum + withoutWhitespace(text), 0);
-  const fullText = document.blocks
-    .flatMap((block) => block.type === "paragraph" || block.type === "heading" ? [normalizeStructuredText(block.text)] : [])
-    .join("\n");
+  const contentTexts = document.blocks.flatMap((block) => {
+    if (block.type === "paragraph") return [normalizeStructuredText(block.text)];
+    if (block.type === "table") return [serializeStructuredTable(block)];
+    return [];
+  });
+  const total = contentTexts.reduce((sum, text) => sum + withoutWhitespace(text), 0);
+  const fullText = document.blocks.map(blockStructuredText).filter(Boolean).join("\n");
   const requiredContentElements = target.requiredContentElements.map((element) => {
     const status = requirementStatus(element, fullText, introductionText, conclusionText, sectionDetails);
     return Object.freeze({ element, status, satisfied: status === "sufficient" });
@@ -213,8 +217,8 @@ function inferSections(document: ContentDocument, target: ContentPlanQualityTarg
       flush();
       heading = normalizeStructuredText(block.text);
       text = [];
-    } else if (heading && block.type === "paragraph") {
-      text.push(normalizeStructuredText(block.text));
+    } else if (heading && (block.type === "paragraph" || block.type === "table")) {
+      text.push(blockStructuredText(block));
     }
   }
   flush();
@@ -331,7 +335,7 @@ function chunks(value: string, size: number): string[] {
 function textForIds(ids: readonly string[], blocks: ReadonlyMap<string, ContentDocument["blocks"][number]>): string {
   return ids.flatMap((id) => {
     const block = blocks.get(id);
-    return block?.type === "paragraph" ? [normalizeStructuredText(block.text)] : [];
+    return block ? [blockStructuredText(block)].filter(Boolean) : [];
   }).join("\n");
 }
 function headingForId(id: string, blocks: ReadonlyMap<string, ContentDocument["blocks"][number]>): string {
@@ -341,8 +345,14 @@ function headingForId(id: string, blocks: ReadonlyMap<string, ContentDocument["b
 function textBeforeFirstH2(document: ContentDocument): string {
   const index = document.blocks.findIndex((block) => block.type === "heading" && block.level === 2);
   return document.blocks.slice(0, index < 0 ? document.blocks.length : index)
-    .flatMap((block) => block.type === "paragraph" ? [normalizeStructuredText(block.text)] : [])
+    .map(blockStructuredText)
+    .filter(Boolean)
     .join("\n");
+}
+function blockStructuredText(block: ContentDocument["blocks"][number]): string {
+  if (block.type === "heading" || block.type === "paragraph") return normalizeStructuredText(block.text);
+  if (block.type === "table") return serializeStructuredTable(block);
+  return "";
 }
 function withoutWhitespace(value: string): number { return value.replace(/\s/g, "").length; }
 function count(value: string, pattern: RegExp): number { return [...value.matchAll(pattern)].length; }
