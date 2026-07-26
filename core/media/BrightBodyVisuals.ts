@@ -10,14 +10,20 @@ const freeBodyPurposes = new Set<ImageBlockPurpose>([
 
 const bodyVisualLimit = 2;
 
+type FreeBodyVisualPurpose = Exclude<ImageBlockPurpose, "hero" | "inline">;
+
 export type BrightBodyVisualContent = Readonly<{
   items: readonly string[];
   label: string;
-  purpose: Exclude<ImageBlockPurpose, "hero" | "inline">;
+  purpose: FreeBodyVisualPurpose;
   title: string;
 }>;
 
-export function isFreeBodyVisualBlock(block: ContentBlock): block is ImageBlock {
+export type FreeBodyVisualImageBlock = ImageBlock & Readonly<{
+  purpose: FreeBodyVisualPurpose;
+}>;
+
+export function isFreeBodyVisualBlock(block: ContentBlock): block is FreeBodyVisualImageBlock {
   return block.type === "image" && Boolean(block.purpose && freeBodyPurposes.has(block.purpose));
 }
 
@@ -91,7 +97,7 @@ export function ensureFreeBodyVisuals(document: ContentDocument): ContentDocumen
 
 export function brightBodyVisualContent(block: ImageBlock): BrightBodyVisualContent {
   const purpose = freeBodyPurposes.has(block.purpose ?? "inline")
-    ? block.purpose as BrightBodyVisualContent["purpose"]
+    ? block.purpose as FreeBodyVisualPurpose
     : "infographic";
   const raw = block.caption?.trim() || block.alt.trim() || block.prompt?.trim() || "핵심 내용";
   const lines = raw.split(/\n+/).map(cleanItem).filter(Boolean).slice(0, 4);
@@ -178,7 +184,7 @@ function sectionScore(type: ContentSectionType, hasTable: boolean): number {
   return 60;
 }
 
-function purposeForSection(type: ContentSectionType): BrightBodyVisualContent["purpose"] {
+function purposeForSection(type: ContentSectionType): FreeBodyVisualPurpose {
   if (type === "warning") return "warning";
   if (type === "checklist") return "checklist";
   if (type === "summary") return "summary";
@@ -196,7 +202,7 @@ function inferSectionType(heading: string): ContentSectionType {
   return "explanation";
 }
 
-function purposeLabel(purpose: BrightBodyVisualContent["purpose"]): string {
+function purposeLabel(purpose: FreeBodyVisualPurpose): string {
   return ({
     comparison: "한눈에 비교",
     checklist: "체크리스트",
@@ -206,7 +212,7 @@ function purposeLabel(purpose: BrightBodyVisualContent["purpose"]): string {
   })[purpose];
 }
 
-function visualPalette(purpose: BrightBodyVisualContent["purpose"]) {
+function visualPalette(purpose: FreeBodyVisualPurpose) {
   if (purpose === "warning") return { background: "#fff8e8", border: "#f2cf72", badge: "#fff0bf", text: "#8a5400" };
   if (purpose === "checklist") return { background: "#f1fbf5", border: "#9ed8b5", badge: "#dcf6e6", text: "#17623a" };
   if (purpose === "summary") return { background: "#f7f3ff", border: "#cdbcf1", badge: "#ece4ff", text: "#594099" };
