@@ -63,7 +63,7 @@ export function TistoryDraftOutcomeOverlay() {
   if (!card) return null;
 
   const presentation = draftOutcomePresentation(card.outcome.status);
-  const detail = outcomeDetail(card.result, card.outcome.diagnosticCode);
+  const detail = card.outcome.status === "verified" ? "" : outcomeDetail(card.result, card.outcome.diagnosticCode);
   const tone = toneClasses(presentation.tone);
 
   const executePrimary = async () => {
