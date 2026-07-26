@@ -84,6 +84,15 @@ describe("integration infrastructure", () => {
                 maxItems: 8,
                 items: { type: "string" },
               },
+              images: {
+                maxItems: 1,
+                items: {
+                  properties: {
+                    afterSection: { type: "integer", enum: [0] },
+                    purpose: { type: "string", enum: ["hero"] },
+                  },
+                },
+              },
             },
           },
         },
@@ -127,15 +136,15 @@ describe("integration infrastructure", () => {
     fetchSpy.mockRestore();
   });
 
-  it("converts one AI JSON response into canonical blocks", () => {
+  it("converts one AI JSON response into canonical blocks without forcing an image", () => {
     const strategy = new EditorialGenerationStrategy();
     const prose = "A complete and useful explanation for the reader with concrete context, actions, examples, and outcomes. ".repeat(20);
     const document = strategy.parse(JSON.stringify({ title: "Guide", blocks: [{ type: "paragraph", text: prose }, ...Array.from({ length: 5 }, (_, index) => [{ type: "heading", level: 2, text: `Step ${index + 1}` }, { type: "paragraph", text: prose }]).flat(), { type: "button", purpose: "cta", label: "Start", targetUrl: "https://example.com", target: "_blank" }] }), {
       contentType: "article" as never, keywords: ["guide"], platform: "tistory" as never, projectId: "project-1",
     });
     expect(document.blocks.map((block) => block.type)).toContain("button");
-    expect(document.blocks.map((block) => block.type)).toContain("image");
-    expect(document.blocks).toHaveLength(13);
+    expect(document.blocks.map((block) => block.type)).not.toContain("image");
+    expect(document.blocks).toHaveLength(12);
     expect(document.blocks.at(-1)).toMatchObject({ type: "button", purpose: "cta", target: "_blank" });
   });
 
@@ -146,23 +155,19 @@ describe("integration infrastructure", () => {
     expect(strategy.parse(JSON.stringify(wrapped), { contentType: "article" as never, keywords: ["guide"], platform: "tistory" as never, projectId: "project-1" }).title).toBe("Wrapped guide");
   });
 
-  it("differentiates duplicate image prompts during canonical parsing", () => {
+  it("removes source-empty body image recommendations during canonical parsing", () => {
     const strategy = new EditorialGenerationStrategy();
     const prose = "독자가 실제로 따라 할 수 있도록 준비 기준과 동작, 확인 지점, 주의사항을 구체적으로 설명합니다. ".repeat(18);
     const response = { title: "중년 아침 운동 가이드", blocks: [
       { type: "paragraph", text: prose },
       { type: "heading", level: 2, text: "호흡과 어깨 준비" }, { type: "paragraph", text: prose }, { type: "image", source: "", purpose: "inline", alt: "호흡과 어깨 준비 자세", prompt: "중년 여성이 거실에서 스트레칭하는 모습" },
-      { type: "heading", level: 2, text: "허리와 골반 위치" }, { type: "paragraph", text: prose }, { type: "image", source: "", purpose: "inline", alt: "허리와 골반의 올바른 위치", prompt: "중년 여성이 거실에서 스트레칭하는 모습" },
+      { type: "heading", level: 2, text: "허리와 골반 위치" }, { type: "paragraph", text: prose }, { type: "image", source: "", purpose: "infographic", alt: "허리와 골반의 올바른 위치", prompt: "중년 여성이 거실에서 스트레칭하는 모습" },
       ...Array.from({ length: 3 }, (_, index) => [{ type: "heading", level: 2, text: `추가 실천 기준 ${index + 1}` }, { type: "paragraph", text: prose }]).flat(),
       { type: "paragraph", text: prose },
     ] };
 
     const document = strategy.parse(JSON.stringify(response), { contentId: "image-context", contentType: "article" as never, keywords: ["중년 아침 운동"], platform: "tistory" as never, projectId: "project-1" });
-    const prompts = document.blocks.flatMap((block) => block.type === "image" ? [block.prompt] : []);
-    expect(prompts).toHaveLength(2);
-    expect(prompts[0]).toContain("호흡과 어깨 준비");
-    expect(prompts[1]).toContain("허리와 골반 위치");
-    expect(prompts[0]).not.toBe(prompts[1]);
+    expect(document.blocks.some((block) => block.type === "image")).toBe(false);
   });
 
   it("lets a complete but shallow first pass reach the bounded final editorial review", () => {

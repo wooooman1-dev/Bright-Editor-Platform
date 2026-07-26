@@ -1,4 +1,4 @@
-import type { ContentDocument, ImageBlock } from "../content";
+import type { ContentDocument, ImageBlock, ImageBlockPurpose } from "../content";
 import type { MediaAsset, MediaSourceType } from "./Media";
 
 export type ProjectMediaContent = Readonly<{
@@ -6,18 +6,27 @@ export type ProjectMediaContent = Readonly<{
   projectId: string;
   title: string;
   updatedAt: string;
+  status?: string;
   document?: ContentDocument;
+}>;
+
+export type ProjectMediaPublishingRecord = Readonly<{
+  contentId: string;
+  status: "saved" | "partially_verified" | "failed";
 }>;
 
 export type ProjectMediaReference = Readonly<{
   blockId: string;
   contentId: string;
   contentTitle: string;
+  purpose?: ImageBlockPurpose;
+  sentToDraft?: boolean;
   updatedAt: string;
 }>;
 
 export type ProjectMediaAsset = MediaAsset & Readonly<{
   lastReferencedAt?: string;
+  originSentToDraft?: boolean;
   referenceCount: number;
   references: readonly ProjectMediaReference[];
 }>;
@@ -26,8 +35,15 @@ export function buildProjectMediaLibrary(input: Readonly<{
   assets?: readonly MediaAsset[];
   contents: readonly ProjectMediaContent[];
   projectId: string;
+  publishingRecords?: readonly ProjectMediaPublishingRecord[];
 }>): readonly ProjectMediaAsset[] {
   const contents = input.contents.filter((content) => content.projectId === input.projectId);
+  const sentContentIds = new Set([
+    ...contents.filter((content) => content.status === "draft_saved").map((content) => content.id),
+    ...(input.publishingRecords ?? [])
+      .filter((record) => record.status === "saved" || record.status === "partially_verified")
+      .map((record) => record.contentId),
+  ]);
   const known = new Map<string, MediaAsset>();
 
   for (const asset of input.assets ?? []) {
@@ -53,6 +69,7 @@ export function buildProjectMediaLibrary(input: Readonly<{
           mimeType: block.mimeType,
           projectId: input.projectId,
           prompt: block.prompt,
+          purpose: block.purpose,
           sourceType: legacySourceType(block),
         }),
         source: block.source,
@@ -61,18 +78,27 @@ export function buildProjectMediaLibrary(input: Readonly<{
   }
 
   return Object.freeze([...known.values()].map((asset) => {
-    const references = contents.flatMap((content) => imageBlocks(content.document)
+    const matchingBlocks = contents.flatMap((content) => imageBlocks(content.document)
       .filter((block) => block.assetId === asset.id || block.source === asset.source)
-      .map((block) => Object.freeze({
-        blockId: block.id,
-        contentId: content.id,
-        contentTitle: content.title,
-        updatedAt: content.updatedAt,
-      })));
+      .map((block) => ({ block, content })));
+    const references = matchingBlocks.map(({ block, content }) => Object.freeze({
+      blockId: block.id,
+      contentId: content.id,
+      contentTitle: content.title,
+      ...(block.purpose ? { purpose: block.purpose } : {}),
+      sentToDraft: sentContentIds.has(content.id),
+      updatedAt: content.updatedAt,
+    }));
     const lastReferencedAt = references.map((reference) => reference.updatedAt).sort().at(-1);
+    const referencedPurpose = matchingBlocks.find(({ block }) => block.purpose)?.block.purpose;
+    const metadata = asset.metadata.purpose || !referencedPurpose
+      ? asset.metadata
+      : Object.freeze({ ...asset.metadata, purpose: referencedPurpose });
     return Object.freeze({
       ...asset,
+      metadata,
       ...(lastReferencedAt ? { lastReferencedAt } : {}),
+      originSentToDraft: asset.metadata.contentId ? sentContentIds.has(asset.metadata.contentId) : false,
       referenceCount: references.length,
       references: Object.freeze(references),
     });

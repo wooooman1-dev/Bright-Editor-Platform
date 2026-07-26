@@ -1,6 +1,7 @@
 export const contentBlockTypes = [
   "heading",
   "paragraph",
+  "table",
   "image",
   "video",
   "button",

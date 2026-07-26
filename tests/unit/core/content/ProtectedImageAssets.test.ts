@@ -63,13 +63,25 @@ describe("restoreProtectedImageAssets", () => {
     expect(restored.blocks.map((block) => block.id)).toEqual(["heading-1", "image-1", "paragraph-1"]);
   });
 
-  it("does not force source-empty recommendations back into a candidate", () => {
+  it("reinserts an existing source-empty recommendation when AI omits the block", () => {
     const planned: ContentDocument = {
       ...original,
       blocks: [{ id: "image-planned", type: "image", source: "", alt: "추천", prompt: "추천 프롬프트", sourceType: "planned" }],
     };
     const candidate: ContentDocument = { ...planned, blocks: [] };
-    expect(restoreProtectedImageAssets(planned, candidate).blocks).toEqual([]);
+    expect(restoreProtectedImageAssets(planned, candidate).blocks).toEqual(planned.blocks);
+  });
+
+  it("allows AI to improve a source-empty recommendation when the block remains", () => {
+    const planned: ContentDocument = {
+      ...original,
+      blocks: [{ id: "image-planned", type: "image", source: "", alt: "추천", prompt: "기존 프롬프트", sourceType: "planned", purpose: "inline" }],
+    };
+    const candidate: ContentDocument = {
+      ...planned,
+      blocks: [{ id: "image-planned", type: "image", source: "", alt: "개선 ALT", prompt: "개선 프롬프트", sourceType: "planned", purpose: "inline" }],
+    };
+    expect(restoreProtectedImageAssets(planned, candidate).blocks[0]).toMatchObject({ alt: "개선 ALT", prompt: "개선 프롬프트" });
   });
 
   it("protects an attached external image and the user's ALT and prompt", () => {

@@ -80,6 +80,54 @@ describe("LongFormDiagnostics information sufficiency", () => {
 
     expect(diagnostic.requiredContentElements[0]?.status).toBe("mentioned");
   });
+
+  it("counts a canonical table as structured comparison information", () => {
+    const target = targetFor(["운동 선택 비교 기준"]);
+    const source: ContentDocument = {
+      id: "table-document",
+      title: "운동 선택",
+      blocks: [
+        { id: "intro", type: "paragraph", text: "운동 목적과 현재 상태를 먼저 확인하면 선택 범위를 줄일 수 있습니다. 자신의 일정도 함께 확인합니다." },
+        { id: "heading", type: "heading", level: 2, text: "운동 선택 비교 기준" },
+        { id: "explanation", type: "paragraph", text: "비교 기준은 목표와 가능한 시간을 함께 보는 것입니다. 표의 차이를 자신의 조건에 맞춰 해석합니다." },
+        {
+          id: "comparison-table",
+          type: "table",
+          headers: ["비교 기준", "근력운동", "유산소운동"],
+          rows: [
+            ["주된 목표", "힘과 기능", "지구력과 활동량"],
+            ["선택 조건", "저항 운동이 가능한 경우", "지속 활동이 가능한 경우"],
+          ],
+        },
+        { id: "conclusion", type: "paragraph", text: "자신의 목표와 가능한 조건을 확인한 뒤 한 가지부터 실행합니다. 통증이나 위험 신호가 있으면 전문가에게 확인합니다." },
+      ],
+      metadata: {
+        buttonCount: 0,
+        createdAt: "now",
+        generator: "test",
+        imageCount: 0,
+        language: "ko",
+        readingTime: 1,
+        source: "test",
+        updatedAt: "now",
+        version: 1,
+        videoCount: 0,
+        wordCount: 1,
+        qualityTarget: target,
+        longFormStructure: {
+          introductionBlockIds: ["intro"],
+          sections: [{ headingBlockId: "heading", paragraphBlockIds: ["explanation", "comparison-table"], sectionType: "comparison" }],
+          conclusionBlockIds: ["conclusion"],
+        },
+      },
+    };
+
+    const diagnostic = analyzeLongFormDocument(source, target);
+
+    expect(diagnostic.sections[0]).toMatchObject({ tableCount: 1, completeness: "sufficient" });
+    expect(diagnostic.requiredContentElements[0]?.status).toBe("sufficient");
+    expect(diagnostic.actualTotalProseCharacters).toBeGreaterThan(0);
+  });
 });
 
 function targetFor(requiredContentElements: readonly string[]): ContentPlanQualityTarget {

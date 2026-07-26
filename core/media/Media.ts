@@ -2,6 +2,7 @@ import type { ContentDocument } from "../content";
 
 export type MediaKind = "image" | "video" | "embed";
 export type MediaSourceType = "upload" | "ai_generated" | "external";
+export type ImagePurpose = "hero" | "comparison" | "checklist" | "infographic" | "summary" | "warning" | "inline";
 export type MediaMetadata = Readonly<{
   alt?: string;
   blockId?: string;
@@ -13,6 +14,7 @@ export type MediaMetadata = Readonly<{
   model?: string;
   projectId?: string;
   prompt?: string;
+  purpose?: ImagePurpose;
   sizeBytes?: number;
   sourceType?: MediaSourceType;
   width?: number;
@@ -24,7 +26,6 @@ export type MediaAsset = Readonly<{
   metadata: MediaMetadata;
   source: string;
 }>;
-export type ImagePurpose = "hero" | "comparison" | "checklist" | "infographic" | "summary" | "warning" | "inline";
 export type ImagePlan = Readonly<{
   alt: string;
   placement: number;

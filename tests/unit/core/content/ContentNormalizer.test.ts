@@ -114,6 +114,103 @@ describe("ContentNormalizer", () => {
     ]);
   });
 
+  it("converts a Markdown table paragraph into an ordered canonical table block", () => {
+    const document: ContentDocument = {
+      id: "document",
+      title: "비교표",
+      blocks: [{
+        id: "comparison",
+        type: "paragraph",
+        text: "비교 전에 확인합니다.\n\n| 비교 기준 | 근력운동 | 유산소운동 |\n|:---|---:|---|\n| 주된 자극 | 근육 | 심폐 |\n| 시간 | 짧게 | 길게 | 추가 셀 |\n\n표를 보고 선택합니다.",
+      }],
+    };
+
+    const result = new ContentNormalizer().normalize(document);
+
+    expect(result.blocks.map((block) => block.type)).toEqual(["paragraph", "table", "paragraph"]);
+    expect(result.blocks[1]).toEqual({
+      id: "comparison-table-2",
+      type: "table",
+      headers: ["비교 기준", "근력운동", "유산소운동", ""],
+      rows: [
+        ["주된 자극", "근육", "심폐", ""],
+        ["시간", "짧게", "길게", "추가 셀"],
+      ],
+    });
+    expect(result.blocks.flatMap((block) => block.type === "paragraph" ? [block.text] : [])).toEqual([
+      "비교 전에 확인합니다.",
+      "표를 보고 선택합니다.",
+    ]);
+  });
+
+  it("converts an HTML table and decodes escaped cells", () => {
+    const document: ContentDocument = {
+      id: "document",
+      title: "HTML 표",
+      blocks: [{
+        id: "html-table",
+        type: "paragraph",
+        text: "<table><caption>선택 기준</caption><tr><th>조건</th><th>해석</th></tr><tr><td>A &amp; B</td><td>&lt;주의&gt;</td></tr></table>",
+      }],
+    };
+
+    const result = new ContentNormalizer().normalize(document);
+
+    expect(result.blocks).toEqual([{
+      id: "html-table",
+      type: "table",
+      caption: "선택 기준",
+      headers: ["조건", "해석"],
+      rows: [["A & B", "<주의>"]],
+    }]);
+  });
+
+  it("remaps long-form structure ids when one paragraph expands into text and table blocks", () => {
+    const document: ContentDocument = {
+      id: "document",
+      title: "구조 복구",
+      blocks: [
+        { id: "heading", type: "heading", level: 2, text: "비교" },
+        { id: "mixed", type: "paragraph", text: "설명 문장입니다.\n\n| 기준 | 선택 |\n|---|---|\n| 상태 | 실행 |" },
+      ],
+      metadata: {
+        buttonCount: 0,
+        createdAt: "now",
+        generator: "test",
+        imageCount: 0,
+        language: "ko",
+        readingTime: 1,
+        source: "test",
+        updatedAt: "now",
+        version: 1,
+        videoCount: 0,
+        wordCount: 1,
+        longFormStructure: {
+          introductionBlockIds: [],
+          sections: [{ headingBlockId: "heading", sectionType: "comparison", paragraphBlockIds: ["mixed"] }],
+          conclusionBlockIds: [],
+        },
+      },
+    };
+
+    const result = new ContentNormalizer().normalize(document);
+
+    expect(result.metadata?.longFormStructure?.sections[0].paragraphBlockIds).toEqual([
+      "mixed",
+      "mixed-table-2",
+    ]);
+  });
+
+  it("drops empty canonical tables", () => {
+    const document: ContentDocument = {
+      id: "document",
+      title: "빈 표",
+      blocks: [{ id: "empty-table", type: "table", headers: ["항목"], rows: [[""]] }],
+    };
+
+    expect(new ContentNormalizer().normalize(document).blocks).toEqual([]);
+  });
+
   it("returns the original value instead of throwing for malformed runtime input", () => {
     const malformed = {
       blocks: null,

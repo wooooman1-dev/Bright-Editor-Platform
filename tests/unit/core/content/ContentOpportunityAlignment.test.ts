@@ -59,6 +59,113 @@ describe("Content Opportunity manuscript alignment", () => {
     expect(alignment.review.contentOpportunityConsistency.pass).toBe(true);
   });
 
+  it("counts canonical table cells as body and expected-coverage evidence", () => {
+    const article: ContentDocument = {
+      id: "content-1",
+      title: "장 건강 관리 방법 실천 가이드",
+      blocks: [
+        { id: "intro", type: "paragraph", text: "장 건강 관리 방법은 현재 상태를 확인하고 음식과 생활습관을 함께 조정하는 과정입니다." },
+        { id: "heading", type: "heading", level: 2, text: "장 건강 관리 기준" },
+        { id: "paragraph", type: "paragraph", text: "장 건강 관리 기준을 세운 뒤 매일 같은 조건으로 변화를 확인합니다." },
+        { id: "table", type: "table", headers: ["확인 항목", "실천 기준"], rows: [["유산균", "섭취 후 반응 기록"], ["식이섬유", "식사별 섭취 확인"], ["장내 환경", "배변과 불편 기록"], ["생활습관", "수면과 활동량 점검"]] },
+      ],
+    };
+    const alignment = analyzeContentOpportunityAlignment(article, opportunity);
+    expect(alignment.review.secondaryKeywordSupport.pass).toBe(true);
+    expect(alignment.review.bodyCoverage.pass).toBe(true);
+  });
+
+  it("scores the confirmed exercise-intensity intent from the actual reader problem rather than generic fallback planning prose", () => {
+    const confirmedSearchIntent = "독자가 자신의 체력과 운동 목표에 맞춰 운동을 어느 정도 힘들게 해야 하는지, 심박수 기기 없이도 안전하게 강도를 조절하는 방법을 알고 싶어 한다.";
+    const exerciseBase = createContentOpportunityCandidate({
+      sourceRequest: "유산소운동 강도 조절 방법",
+      selectionMode: "automatic",
+      selectedTopic: "심박수 기기 없이 유산소운동 강도 조절하기",
+      primaryKeyword: "유산소운동 강도",
+      secondaryKeywords: ["RPE", "대화 테스트", "운동 강도 조절"],
+      searchIntent: confirmedSearchIntent,
+      audience: "유산소운동 강도를 정하기 어려운 성인",
+      contentType: "guide",
+      contentAngle: "RPE와 대화 테스트 중심의 실행 가이드",
+      readerProblem: confirmedSearchIntent,
+      expectedCoverage: ["체력", "운동 목표", "RPE", "대화 테스트", "안전한 강도 조절"],
+      selectionRationale: "운동 강도 판단 기준 제공",
+      opportunityEvidence: [{ source: "unknown", summary: "내부 기획" }],
+      confidence: 0.8,
+      cautions: [],
+      projectId: "project-1",
+    });
+    const exerciseOpportunity = confirmContentOpportunity(createContentOpportunityCandidate({
+      ...exerciseBase,
+      qualityTarget: {
+        ...exerciseBase.qualityTarget,
+        coreQuestions: [
+          ...exerciseBase.qualityTarget.coreQuestions,
+          "노래 가능, 짧은 문장 가능, 단어 몇 개만 가능한 상태를 대화 테스트 강도 기준으로 어떻게 구분하는가",
+        ],
+      },
+    }), { workspaceId: "workspace-1", projectId: "project-1", contentId: "exercise", confirmedAt: "now" });
+    const article: ContentDocument = {
+      id: "exercise",
+      title: "유산소운동 강도: 심박수 기기 없이 RPE와 대화 테스트로 조절하는 방법",
+      blocks: [
+        { id: "intro", type: "paragraph", text: "자신의 체력과 운동 목표에 맞는 유산소운동 강도는 숨찬 정도와 동작 상태를 함께 보며 정해야 합니다. 심박수 기기가 없어도 RPE와 대화 테스트를 사용하면 안전하게 조절할 수 있습니다." },
+        { id: "h-rpe", type: "heading", level: 2, text: "RPE로 체력과 운동 목표에 맞는 강도 정하기" },
+        { id: "p-rpe", type: "paragraph", text: "RPE 1은 매우 편안하고 10은 더 이어가기 어려운 수준입니다. 초보자는 RPE 4에서 6 사이로 시작하고 운동 목표와 당일 체력에 따라 한 단계씩 조절합니다. 숨이 지나치게 차거나 자세가 무너지면 즉시 강도를 낮춥니다." },
+        { id: "h-talk", type: "heading", level: 2, text: "대화 테스트로 기기 없이 강도 확인하기" },
+        { id: "p-talk", type: "paragraph", text: "대화 테스트를 RPE와 함께 사용하면 장비 없이도 호흡 부담을 확인할 수 있습니다." },
+        { id: "talk-card", type: "image", source: "", sourceType: "planned", purpose: "infographic", alt: "대화 테스트 운동으로 유산소운동 강도 확인하기", caption: "노래를 부를 수 있을 만큼 편안하면 낮은 강도입니다. 짧은 문장을 말할 수 있으면 중간 강도입니다. 단어 몇 개만 겨우 말할 수 있으면 높은 강도이므로 속도나 저항을 낮춥니다." },
+        { id: "h-warning", type: "heading", level: 2, text: "강도를 낮추거나 운동을 중단해야 하는 신호" },
+        { id: "p-warning", type: "paragraph", text: "가슴 통증과 심한 호흡 곤란, 실신할 것 같은 어지러움이 생기면 운동을 중단해야 합니다. 증상이 지속되면 의료기관의 평가를 받아야 합니다." },
+        { id: "conclusion", type: "paragraph", text: "오늘 운동에서는 시작 5분에서 10분 뒤 RPE를 기록하고 한 문장을 말해 보세요. 결과에 따라 속도나 저항을 한 단계 조절하면 심박수 기기 없이도 안전한 강도를 선택할 수 있습니다." },
+      ],
+    };
+    const alignment = analyzeContentOpportunityAlignment(article, exerciseOpportunity);
+    expect(alignment.review.searchIntentFulfillment.pass).toBe(true);
+    expect(alignment.review.searchIntentFulfillment.score).toBe(100);
+    expect(alignment.review.searchIntentFulfillment.evidence).toContain("의도 요구사항 충분: 2/2");
+  });
+
+  it("aggregates one confirmed intent across intro, table, free card, safety section, and conclusion", () => {
+    const confirmedSearchIntent = "독자가 자신의 체력과 운동 목표에 맞춰 운동을 어느 정도 힘들게 해야 하는지, 심박수 기기 없이도 안전하게 강도를 조절하는 방법을 알고 싶어 한다.";
+    const distributedOpportunity = confirmContentOpportunity(createContentOpportunityCandidate({
+      sourceRequest: "유산소운동 강도 조절 방법",
+      selectionMode: "automatic",
+      selectedTopic: "심박수 기기 없이 유산소운동 강도 조절하기",
+      primaryKeyword: "유산소운동 강도",
+      secondaryKeywords: ["RPE", "대화 테스트", "운동 강도 조절"],
+      searchIntent: confirmedSearchIntent,
+      audience: "유산소운동 강도를 정하기 어려운 성인",
+      contentType: "guide",
+      contentAngle: "RPE와 대화 테스트 중심의 실행 가이드",
+      readerProblem: confirmedSearchIntent,
+      expectedCoverage: ["체력", "운동 목표", "RPE", "대화 테스트", "안전한 강도 조절"],
+      selectionRationale: "운동 강도 판단 기준 제공",
+      opportunityEvidence: [{ source: "unknown", summary: "내부 기획" }],
+      confidence: 0.8,
+      cautions: [],
+      projectId: "project-1",
+    }), { workspaceId: "workspace-1", projectId: "project-1", contentId: "distributed-exercise", confirmedAt: "now" });
+    const article: ContentDocument = {
+      id: "distributed-exercise",
+      title: "유산소운동 강도: RPE와 대화 테스트로 안전하게 조절하기",
+      blocks: [
+        { id: "intro", type: "paragraph", text: "운동 목표와 현재 체력은 시작 강도를 정하는 출발점입니다." },
+        { id: "h-table", type: "heading", level: 2, text: "현재 상태별 시작 기준" },
+        { id: "table", type: "table", headers: ["현재 상태", "시작 기준"], rows: [["초보자", "RPE 4에서 5"], ["익숙한 사람", "RPE 5에서 6"], ["피로한 날", "평소보다 한 단계 낮게"]] },
+        { id: "h-talk", type: "heading", level: 2, text: "심박수 기기 없는 대화 테스트" },
+        { id: "talk-card", type: "image", source: "", sourceType: "planned", purpose: "infographic", alt: "대화 테스트로 유산소운동 강도 확인", caption: "노래가 편하면 낮은 강도입니다. 짧은 문장이 가능하면 중간 강도입니다. 단어 몇 개만 가능하면 속도나 저항을 낮춥니다." },
+        { id: "h-safety", type: "heading", level: 2, text: "안전 신호" },
+        { id: "p-safety", type: "paragraph", text: "가슴 통증이나 실신할 것 같은 어지러움이 생기면 즉시 중단합니다." },
+        { id: "conclusion", type: "paragraph", text: "오늘은 RPE와 말하기 상태를 함께 보고 결과에 따라 강도를 한 단계 조절합니다." },
+      ],
+    };
+    const alignment = analyzeContentOpportunityAlignment(article, distributedOpportunity);
+    expect(alignment.review.searchIntentFulfillment.pass).toBe(true);
+    expect(alignment.review.searchIntentFulfillment.score).toBe(100);
+    expect(alignment.review.searchIntentFulfillment.evidence).toContain("의도 요구사항 충분: 1/1");
+  });
+
   it("corrects a semantically aligned title that only omitted the exact keyword", () => {
     const original = document("음식과 생활습관으로 장을 건강하게 지키는 실천 가이드", [
       ["장내 환경을 이해하는 기준", "장 건강은 장내 환경과 식이섬유 섭취를 함께 살펴야 합니다. 유산균 선택과 생활습관을 실천하는 방법을 설명합니다."],

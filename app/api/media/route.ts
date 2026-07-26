@@ -2,7 +2,18 @@ import { randomUUID } from "node:crypto";
 
 import { NextResponse } from "next/server";
 
-import { buildProjectMediaLibrary, type MediaAsset, type ImageGenerationQuality, type ImageGenerationSize } from "../../../core/media";
+import type { ImageBlock } from "../../../core/content";
+import {
+  automaticAIImageLimit,
+  buildProjectMediaLibrary,
+  generatedImageCountForContent,
+  isBrightComponentPurpose,
+  isProjectImageReusableForBlock,
+  selectAutomaticImageBlock,
+  type ImageGenerationQuality,
+  type ImageGenerationSize,
+  type MediaAsset,
+} from "../../../core/media";
 import { studioStore } from "../../application/studio-store";
 import { LocalMediaStorage, assertImageSignature, imageTypeFromMimeType } from "../../application/media/LocalMediaStorage";
 import { OpenAIImageProvider } from "../../application/media/OpenAIImageProvider";
@@ -14,16 +25,31 @@ const defaultMaxUploadBytes = 10 * 1024 * 1024;
 
 export async function GET(request: Request) {
   try {
-    const contentId = requiredText(new URL(request.url).searchParams.get("contentId"), "Content is required.");
+    const searchParams = new URL(request.url).searchParams;
+    const contentId = requiredText(searchParams.get("contentId"), "Content is required.");
+    const blockId = text(searchParams.get("blockId"));
     const data = await studioStore.get<UserData>(collection, stateId);
     const content = data?.contents.find((item) => item.id === contentId);
     if (!data || !content) throw new Error("프로젝트 이미지 목록을 불러올 콘텐츠를 찾지 못했습니다.");
-    const assets = buildProjectMediaLibrary({
+    const block = blockId
+      ? content.document?.blocks.find((item): item is ImageBlock => item.id === blockId && item.type === "image")
+      : undefined;
+    if (blockId && !block) throw new Error("이미지 블록을 찾지 못했습니다.");
+    const projectAssets = buildProjectMediaLibrary({
       assets: data.mediaMetadata,
       contents: data.contents,
       projectId: content.projectId,
+      publishingRecords: data.publishingRecords,
     });
-    return NextResponse.json({ assets, projectId: content.projectId });
+    const assets = block
+      ? projectAssets.filter((asset) => isProjectImageReusableForBlock(asset, block))
+      : projectAssets;
+    return NextResponse.json({
+      assets,
+      projectId: content.projectId,
+      reuseAllowed: true,
+      reusePolicy: block?.purpose === "hero" ? "unused_hero" : "body_only",
+    });
   } catch (error) {
     return NextResponse.json({ error: message(error) }, { status: statusCode(error) });
   }
@@ -32,8 +58,8 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const contentType = request.headers.get("content-type") ?? "";
-    if (contentType.includes("multipart/form-data")) return uploadImage(request);
-    return generateImage(request);
+    if (contentType.includes("multipart/form-data")) return await uploadImage(request);
+    return await generateImage(request);
   } catch (error) {
     return NextResponse.json({ error: message(error) }, { status: statusCode(error) });
   }
@@ -43,7 +69,7 @@ async function uploadImage(request: Request) {
   const form = await request.formData();
   const contentId = requiredText(form.get("contentId"), "Content is required.");
   const blockId = requiredText(form.get("blockId"), "Image block is required.");
-  const owner = await assertOwnedImageBlock(contentId, blockId);
+  const owner = await resolveOwnedImageBlock(contentId, blockId);
 
   const file = form.get("file");
   if (!(file instanceof File)) throw new Error("불러올 이미지 파일을 선택해 주세요.");
@@ -64,6 +90,7 @@ async function uploadImage(request: Request) {
     mimeType: imageType.mimeType,
     projectId: owner.projectId,
     prompt: text(form.get("prompt")),
+    purpose: owner.block.purpose,
     sizeBytes: bytes.byteLength,
     source: stored.source,
     sourceType: "upload",
@@ -80,11 +107,39 @@ async function uploadImage(request: Request) {
 
 async function generateImage(request: Request) {
   const body = await request.json() as Record<string, unknown>;
+  if (body.action !== undefined && body.action !== "generate") throw new Error("지원하지 않는 이미지 작업입니다.");
   const contentId = requiredText(body.contentId, "Content is required.");
   const blockId = requiredText(body.blockId, "Image block is required.");
   const prompt = requiredText(body.prompt, "이미지 프롬프트를 입력해 주세요.");
-  const owner = await assertOwnedImageBlock(contentId, blockId);
+  const mode = body.mode === "manual" ? "manual" : "automatic";
+  const owner = await resolveOwnedImageBlock(contentId, blockId);
 
+  const manualBrightReplacement = mode === "manual" && isBrightComponentPurpose(owner.block.purpose);
+  if (mode === "automatic" && owner.block.purpose !== "hero") {
+    throw new Error("자동 AI 이미지는 원고의 대표이미지 한 개에만 허용됩니다.");
+  }
+  if (owner.block.purpose !== "hero" && !manualBrightReplacement) {
+    throw new Error("일반 본문 이미지는 비용 없는 Project 이미지 재사용 또는 파일 업로드를 사용합니다. 무료 Bright 카드는 사용자가 명시적으로 요청한 수동 AI 교체만 허용됩니다.");
+  }
+
+  if (mode === "automatic") {
+    const selected = selectAutomaticImageBlock(owner.content.document!);
+    if (!selected || selected.id !== blockId) {
+      throw new Error("자동 AI 이미지는 원고의 대표이미지 한 개에만 허용됩니다.");
+    }
+    const generatedCount = generatedImageCountForContent(owner.data.mediaMetadata, contentId);
+    if (generatedCount >= automaticAIImageLimit) {
+      throw new Error(`자동 AI 이미지는 원고당 최대 ${automaticAIImageLimit}장입니다. 대표이미지를 다시 만들려면 편집기에서 직접 생성해 주세요.`);
+    }
+  }
+
+  console.info("[image-cost-policy] calling OpenAI image provider", {
+    blockId,
+    contentId,
+    mode,
+    projectId: owner.projectId,
+    purpose: owner.block.purpose ?? null,
+  });
   const generated = await new OpenAIImageProvider().generate({
     prompt,
     quality: normalizeQuality(body.quality),
@@ -102,6 +157,7 @@ async function generateImage(request: Request) {
     model: generated.model,
     projectId: owner.projectId,
     prompt,
+    purpose: owner.block.purpose,
     sizeBytes: generated.bytes.byteLength,
     source: stored.source,
     sourceType: "ai_generated",
@@ -113,17 +169,26 @@ async function generateImage(request: Request) {
     await storage.remove(stored.storageKey);
     throw error;
   }
-  return NextResponse.json({ asset, generation: { model: generated.model, quality: generated.quality, size: generated.size } });
+  return NextResponse.json({ asset, generation: { model: generated.model, quality: generated.quality, size: generated.size }, reused: false });
 }
 
-async function assertOwnedImageBlock(contentId: string, blockId: string): Promise<Readonly<{ projectId: string; workspaceId: string }>> {
+type OwnedImageBlock = Readonly<{
+  block: ImageBlock;
+  content: UserData["contents"][number];
+  data: UserData;
+  projectId: string;
+  workspaceId: string;
+}>;
+
+async function resolveOwnedImageBlock(contentId: string, blockId: string): Promise<OwnedImageBlock> {
   const data = await studioStore.get<UserData>(collection, stateId);
   const content = data?.contents.find((item) => item.id === contentId);
-  if (!content?.document) throw new Error("이미지를 연결할 콘텐츠를 찾지 못했습니다.");
-  if (!content.document.blocks.some((block) => block.id === blockId && block.type === "image")) throw new Error("이미지 블록을 찾지 못했습니다.");
-  const workspaceId = content.workspaceId ?? data?.workspace?.id;
+  if (!data || !content?.document) throw new Error("이미지를 연결할 콘텐츠를 찾지 못했습니다.");
+  const block = content.document.blocks.find((item): item is ImageBlock => item.id === blockId && item.type === "image");
+  if (!block) throw new Error("이미지 블록을 찾지 못했습니다.");
+  const workspaceId = content.workspaceId ?? data.workspace?.id;
   if (!workspaceId) throw new Error("이미지 소유 작업 공간을 확인하지 못했습니다.");
-  return Object.freeze({ projectId: content.projectId, workspaceId });
+  return Object.freeze({ block, content, data, projectId: content.projectId, workspaceId });
 }
 
 async function persistMediaAsset(asset: MediaAsset): Promise<void> {
@@ -148,6 +213,7 @@ function createAsset(input: Readonly<{
   model?: string;
   projectId: string;
   prompt: string;
+  purpose?: ImageBlock["purpose"];
   sizeBytes: number;
   source: string;
   sourceType: "upload" | "ai_generated";
@@ -166,6 +232,7 @@ function createAsset(input: Readonly<{
       ...(input.model ? { model: input.model } : {}),
       projectId: input.projectId,
       prompt: input.prompt,
+      ...(input.purpose ? { purpose: input.purpose } : {}),
       sizeBytes: input.sizeBytes,
       sourceType: input.sourceType,
       workspaceId: input.workspaceId,
@@ -205,6 +272,7 @@ function statusCode(error: unknown): number {
   const value = message(error);
   if (/OPENAI_API_KEY|required to generate images/i.test(value)) return 503;
   if (/OpenAI image request failed|timed out/i.test(value)) return 502;
+  if (/자동 AI 이미지|대표이미지|본문 이미지|Bright HTML\/SVG 컴포넌트/.test(value)) return 409;
   return 400;
 }
 

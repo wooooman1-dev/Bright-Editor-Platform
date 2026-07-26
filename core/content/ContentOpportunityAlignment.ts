@@ -1,7 +1,8 @@
+import type { ContentBlock } from "./ContentBlock";
 import type { ContentDocument } from "./ContentDocument";
 import type { ConfirmedContentOpportunity } from "./ContentOpportunity";
 import { ensureSeoKeywordPlacement, titleContainsPrimaryKeyword } from "./SeoKeywordPlacement";
-import { normalizeStructuredText, structuredListItems, structuredTableCount } from "./StructuredText";
+import { normalizeStructuredText, serializeStructuredTable, structuredListItems, structuredTableCount } from "./StructuredText";
 
 export type OpportunityAlignmentStatus = "aligned" | "title_only_missing" | "mismatch";
 export type OpportunityAlignmentSignal = Readonly<{
@@ -36,7 +37,10 @@ export function analyzeContentOpportunityAlignment(
   opportunity: ConfirmedContentOpportunity,
 ): ContentOpportunityAlignment {
   const headings = document.blocks.filter((block) => block.type === "heading").map((block) => normalizeStructuredText(block.text)).join(" ");
-  const body = document.blocks.filter((block) => block.type === "paragraph").map((block) => normalizeStructuredText(block.text)).join(" ");
+  const body = document.blocks.flatMap((block) => {
+    const text = readableIntentBlockText(block);
+    return block.type === "heading" || !text ? [] : [normalizeStructuredText(text)];
+  }).join(" ");
   const allText = `${document.title} ${headings} ${body}`;
   const topicTerms = distinctiveTerms(opportunity.selectedTopic);
   const keywordTerms = distinctiveTerms(opportunity.primaryKeyword);
@@ -155,29 +159,63 @@ export function applyContentOpportunityPolicy(
 }
 
 function intentRequirements(opportunity: ConfirmedContentOpportunity): readonly string[] {
+  const readerProblem = opportunity.readerProblem.trim();
   const planned = [
-    opportunity.readerProblem,
-    ...opportunity.qualityTarget.coreQuestions,
-    ...opportunity.qualityTarget.actionableNextSteps,
+    readerProblem,
+    ...opportunity.qualityTarget.coreQuestions.filter((item) => !isGenericIntentRequirement(item, readerProblem)),
+    ...opportunity.qualityTarget.actionableNextSteps.filter((item) => !isGenericIntentRequirement(item, readerProblem)),
   ].map((item) => item.trim()).filter(Boolean);
-  return Object.freeze([...new Set(planned.length ? planned : [opportunity.searchIntent.trim()].filter(Boolean))]);
+  const unique: string[] = [];
+  for (const requirement of (planned.length ? planned : [opportunity.searchIntent.trim()].filter(Boolean))) {
+    if (unique.some((existing) => sameIntentRequirement(existing, requirement))) continue;
+    unique.push(requirement);
+  }
+  return Object.freeze(unique);
+}
+
+function isGenericIntentRequirement(value: string, readerProblem: string): boolean {
+  const normalized = normalize(value);
+  const normalizedProblem = normalize(readerProblem);
+  if (normalizedProblem && normalized.startsWith(normalizedProblem) && /직접 답은 무엇인가$/.test(normalized)) return true;
+  return normalized === "독자가 이해하거나 실행하기 위해 반드시 알아야 할 것은 무엇인가"
+    || normalized === "독자가 콘텐츠를 읽은 뒤 실행할 다음 행동";
+}
+
+function sameIntentRequirement(left: string, right: string): boolean {
+  const normalizedLeft = normalize(left);
+  const normalizedRight = normalize(right);
+  if (!normalizedLeft || !normalizedRight) return normalizedLeft === normalizedRight;
+  if (normalizedLeft.includes(normalizedRight) || normalizedRight.includes(normalizedLeft)) return true;
+  const leftTerms = intentConceptTerms(left);
+  const rightTerms = intentConceptTerms(right);
+  const denominator = Math.min(leftTerms.length, rightTerms.length);
+  if (!denominator) return false;
+  const overlap = leftTerms.filter((term) => rightTerms.some((candidate) => candidate.includes(term) || term.includes(candidate))).length;
+  return overlap / denominator >= 0.8;
 }
 
 function intentRequirementStatus(requirement: string, document: ContentDocument): InformationSufficiencyStatus {
   const normalizedRequirement = normalize(requirement);
   const terms = intentConceptTerms(requirement);
   const sections = contentSections(document);
-  const fullText = normalizeStructuredText(document.blocks.flatMap((block) => block.type === "heading" || block.type === "paragraph" ? [block.text] : []).join("\n"));
+  const fullText = normalizeStructuredText(document.blocks.flatMap((block) => { const text = readableIntentBlockText(block); return text ? [text] : []; }).join("\n"));
   const fullCoverage = conceptCoverage(terms, fullText);
   const semanticWhole = semanticIntentSignal(requirement, fullText);
-  const matching = sections.filter((section) => {
-    const normalizedSection = normalize(section.text);
-    return (normalizedRequirement && normalizedSection.includes(normalizedRequirement))
-      || conceptCoverage(terms, section.text) >= 0.5
-      || semanticIntentSignal(requirement, section.text);
-  });
-  if (!matching.length) return fullCoverage >= 0.34 || semanticWhole ? "mentioned" : "missing";
-  return matching.some((section) => section.informationElements >= 2) ? "sufficient" : "mentioned";
+  const sectionDiagnostics = sections.map((section) => Object.freeze({
+    ...section,
+    coverage: conceptCoverage(terms, section.text),
+    directMatch: Boolean(normalizedRequirement && normalize(section.text).includes(normalizedRequirement)),
+    semanticMatch: semanticIntentSignal(requirement, section.text),
+  }));
+  const matching = sectionDiagnostics.filter((section) => section.directMatch || section.coverage >= 0.5 || section.semanticMatch);
+  const matchingInformationElements = matching.reduce((sum, section) => sum + section.informationElements, 0);
+  const documentInformationElements = sectionDiagnostics.reduce((sum, section) => sum + section.informationElements, 0);
+  const distributedEvidenceSections = sectionDiagnostics.filter((section) => section.coverage >= 0.2 || section.semanticMatch).length;
+  const documentWideSufficient = fullCoverage >= 0.34
+    && documentInformationElements >= 3
+    && distributedEvidenceSections >= 2;
+  if (matchingInformationElements >= 2 || documentWideSufficient) return "sufficient";
+  return matching.length || fullCoverage >= 0.34 || semanticWhole ? "mentioned" : "missing";
 }
 
 function contentSections(document: ContentDocument): readonly Readonly<{ text: string; informationElements: number }>[] {
@@ -196,10 +234,24 @@ function contentSections(document: ContentDocument): readonly Readonly<{ text: s
       texts = [];
     } else if (block.type === "paragraph") {
       texts.push(block.text);
+    } else {
+      const text = readableIntentBlockText(block);
+      if (text) texts.push(text);
     }
   }
   flush();
   return Object.freeze(sections.map((section) => Object.freeze(section)));
+}
+
+const freeVisualPurposes = new Set(["comparison", "checklist", "infographic", "summary", "warning"]);
+
+function readableIntentBlockText(block: ContentBlock): string {
+  if (block.type === "heading" || block.type === "paragraph") return block.text;
+  if (block.type === "table") return serializeStructuredTable(block);
+  if (block.type === "image" && !block.source.trim() && block.purpose && freeVisualPurposes.has(block.purpose)) {
+    return [block.alt, block.caption ?? ""].filter(Boolean).join("\n");
+  }
+  return "";
 }
 
 function informationElements(text: string): number {
