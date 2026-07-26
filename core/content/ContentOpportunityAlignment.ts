@@ -201,14 +201,21 @@ function intentRequirementStatus(requirement: string, document: ContentDocument)
   const fullText = normalizeStructuredText(document.blocks.flatMap((block) => { const text = readableIntentBlockText(block); return text ? [text] : []; }).join("\n"));
   const fullCoverage = conceptCoverage(terms, fullText);
   const semanticWhole = semanticIntentSignal(requirement, fullText);
-  const matching = sections.filter((section) => {
-    const normalizedSection = normalize(section.text);
-    return (normalizedRequirement && normalizedSection.includes(normalizedRequirement))
-      || conceptCoverage(terms, section.text) >= 0.5
-      || semanticIntentSignal(requirement, section.text);
-  });
-  if (!matching.length) return fullCoverage >= 0.34 || semanticWhole ? "mentioned" : "missing";
-  return matching.some((section) => section.informationElements >= 2) ? "sufficient" : "mentioned";
+  const sectionDiagnostics = sections.map((section) => Object.freeze({
+    ...section,
+    coverage: conceptCoverage(terms, section.text),
+    directMatch: Boolean(normalizedRequirement && normalize(section.text).includes(normalizedRequirement)),
+    semanticMatch: semanticIntentSignal(requirement, section.text),
+  }));
+  const matching = sectionDiagnostics.filter((section) => section.directMatch || section.coverage >= 0.5 || section.semanticMatch);
+  const matchingInformationElements = matching.reduce((sum, section) => sum + section.informationElements, 0);
+  const documentInformationElements = sectionDiagnostics.reduce((sum, section) => sum + section.informationElements, 0);
+  const distributedEvidenceSections = sectionDiagnostics.filter((section) => section.coverage >= 0.2 || section.semanticMatch).length;
+  const documentWideSufficient = fullCoverage >= 0.34
+    && documentInformationElements >= 3
+    && distributedEvidenceSections >= 2;
+  if (matchingInformationElements >= 2 || documentWideSufficient) return "sufficient";
+  return matching.length || fullCoverage >= 0.34 || semanticWhole ? "mentioned" : "missing";
 }
 
 function contentSections(document: ContentDocument): readonly Readonly<{ text: string; informationElements: number }>[] {
