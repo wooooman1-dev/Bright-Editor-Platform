@@ -23,12 +23,11 @@ export function selectAutomaticImageBlock(document: ContentDocument): ImageBlock
   return candidates.find((block) => block.purpose === "hero") ?? candidates[0];
 }
 
-/** Applies only to newly generated source-empty recommendations. Existing placed media is preserved. */
+/** Removes only recommendations whose information belongs in a Bright component. Other planned images remain available for explicit user generation. */
 export function applyGeneratedImageCostPolicy(document: ContentDocument): ContentDocument {
-  const selected = selectAutomaticImageBlock(document);
   const blocks = document.blocks.filter((block) => {
     if (block.type !== "image" || block.source.trim() || (block.sourceType ?? "planned") !== "planned") return true;
-    return selected?.id === block.id;
+    return !isBrightComponentPurpose(block.purpose);
   });
   if (blocks.length === document.blocks.length) return document;
   return Object.freeze({
