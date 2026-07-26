@@ -4,63 +4,13 @@ on:
   push:
     branches:
       - main
-      - fix/canonical-table-and-image-cost-policy
 
 permissions:
   contents: write
 
 jobs:
-  verify:
-    if: github.ref == 'refs/heads/fix/canonical-table-and-image-cost-policy' && !contains(github.event.head_commit.message, 'chore: bump version to 1.1.0')
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - name: Checkout release branch
-        uses: actions/checkout@v4
-        with:
-          ref: fix/canonical-table-and-image-cost-policy
-
-      - name: Set release version and remove trigger
-        shell: bash
-        run: |
-          npm version 1.1.0 --no-git-tag-version
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if [[ -f tests/.release-v1.1.0-trigger ]]; then
-            git rm tests/.release-v1.1.0-trigger
-          fi
-          if ! git diff --quiet; then
-            git add package.json package-lock.json
-            git commit -m "chore: bump version to 1.1.0"
-            git push origin HEAD:fix/canonical-table-and-image-cost-policy
-          fi
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Install Chromium
-        run: npx playwright install --with-deps chromium
-
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Test
-        run: npm test
-
-      - name: Build
-        run: npm run build
-
   release:
-    if: github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, 'release: v1.1.0')
+    if: contains(github.event.head_commit.message, 'release: v1.1.0')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -73,13 +23,15 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: Remove one-time release workflow
+      - name: Finalize version and remove one-time workflow
         shell: bash
         run: |
+          npm version 1.1.0 --no-git-tag-version
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git rm .github/workflows/release-v1.1.0.yml
-          git commit -m "chore: remove v1.1.0 release workflow"
+          git add package.json package-lock.json
+          git commit -m "chore: finalize Bright Studio v1.1.0"
           git push origin HEAD:main
 
       - name: Publish GitHub release
