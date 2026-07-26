@@ -1,22 +1,17 @@
 name: Bright Studio v1.1.0 Release
 
 on:
-  pull_request:
-    branches:
-      - main
-    types:
-      - reopened
-      - synchronize
   push:
     branches:
       - main
+      - fix/canonical-table-and-image-cost-policy
 
 permissions:
   contents: write
 
 jobs:
   verify:
-    if: github.event_name == 'pull_request'
+    if: github.ref == 'refs/heads/fix/canonical-table-and-image-cost-policy' && !contains(github.event.head_commit.message, 'chore: bump version to 1.1.0')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -25,12 +20,15 @@ jobs:
         with:
           ref: fix/canonical-table-and-image-cost-policy
 
-      - name: Set release version
+      - name: Set release version and remove trigger
         shell: bash
         run: |
           npm version 1.1.0 --no-git-tag-version
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [[ -f tests/.release-v1.1.0-trigger ]]; then
+            git rm tests/.release-v1.1.0-trigger
+          fi
           if ! git diff --quiet; then
             git add package.json package-lock.json
             git commit -m "chore: bump version to 1.1.0"
@@ -62,7 +60,7 @@ jobs:
         run: npm run build
 
   release:
-    if: github.event_name == 'push' && contains(github.event.head_commit.message, 'release: v1.1.0')
+    if: github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, 'release: v1.1.0')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
