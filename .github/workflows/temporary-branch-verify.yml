@@ -39,7 +39,45 @@ jobs:
         run: npm run lint
 
       - name: Test
-        run: npm test
+        id: tests
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          npm test 2>&1 | tee test.log
+          status=${PIPESTATUS[0]}
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit "$status"
 
       - name: Build
-        run: npm run build
+        id: build
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          npm run build 2>&1 | tee build.log
+          status=${PIPESTATUS[0]}
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit "$status"
+
+      - name: Upload verification logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: temporary-branch-verification-logs
+          path: |
+            test.log
+            build.log
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Fail when verification fails
+        if: always()
+        shell: bash
+        run: |
+          test_status="${{ steps.tests.outputs.status }}"
+          build_status="${{ steps.build.outputs.status }}"
+          if [[ "$test_status" != "0" || "$build_status" != "0" ]]; then
+            echo "Verification failed: tests=$test_status build=$build_status"
+            exit 1
+          fi
