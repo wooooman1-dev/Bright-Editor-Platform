@@ -71,9 +71,10 @@ describe("Bright Studio image workspace", () => {
     expect(imageProviderSource).toContain('fetch("https://api.openai.com/v1/images/generations"');
   });
 
-  it("creates at most one optional representative prompt in the existing editorial generation call", () => {
-    expect(generationSource).toContain("Return no more than one source-empty image recommendation block");
-    expect(generationSource).toContain("return zero when an image is not materially needed");
+  it("creates at most one optional unique hero prompt in the existing editorial generation call", () => {
+    expect(generationSource).toContain("Return no more than one source-empty representative hero image recommendation block");
+    expect(generationSource).toContain("must never be satisfied by reusing another post's Project image");
+    expect(generationSource).toContain("Do not return source-empty inline or infographic image blocks");
     expect(generationSource).toContain("standalone production prompt");
     expect(generationSource).toContain("applyGeneratedImageCostPolicy");
     expect(generationSource).toContain("ensureDistinctImagePrompts");
