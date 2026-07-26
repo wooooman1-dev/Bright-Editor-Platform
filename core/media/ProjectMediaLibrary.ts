@@ -26,6 +26,7 @@ export type ProjectMediaReference = Readonly<{
 
 export type ProjectMediaAsset = MediaAsset & Readonly<{
   lastReferencedAt?: string;
+  originSentToDraft?: boolean;
   referenceCount: number;
   references: readonly ProjectMediaReference[];
 }>;
@@ -97,6 +98,7 @@ export function buildProjectMediaLibrary(input: Readonly<{
       ...asset,
       metadata,
       ...(lastReferencedAt ? { lastReferencedAt } : {}),
+      originSentToDraft: asset.metadata.contentId ? sentContentIds.has(asset.metadata.contentId) : false,
       referenceCount: references.length,
       references: Object.freeze(references),
     });

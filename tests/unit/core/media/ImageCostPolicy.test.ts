@@ -65,7 +65,6 @@ describe("ImageCostPolicy", () => {
       alt: "근력운동 유산소운동 비교 대표 이미지",
       prompt: "근력운동과 유산소운동을 나란히 비교한 장면",
       purpose: "hero",
-      references: [{ blockId: "old-hero", contentId: "old", contentTitle: "미전송 글", purpose: "hero", sentToDraft: false, updatedAt: "2026-07-25T00:00:00.000Z" }],
     });
     const sentHero = projectAsset({
       id: "sent-hero",
@@ -75,7 +74,16 @@ describe("ImageCostPolicy", () => {
       references: [{ blockId: "sent-hero", contentId: "sent", contentTitle: "임시저장 글", purpose: "hero", sentToDraft: true, updatedAt: "2026-07-25T01:00:00.000Z" }],
     });
 
+    const linkedUnsentHero = projectAsset({
+      id: "linked-unsent-hero",
+      alt: "근력운동 유산소운동 비교 대표 이미지",
+      prompt: "근력운동과 유산소운동을 나란히 비교한 장면",
+      purpose: "hero",
+      references: [{ blockId: "linked-hero", contentId: "linked", contentTitle: "다른 미전송 글", purpose: "hero", sentToDraft: false, updatedAt: "2026-07-25T00:30:00.000Z" }],
+    });
+
     expect(isProjectImageReusableForBlock(unusedHero, hero)).toBe(true);
+    expect(isProjectImageReusableForBlock(linkedUnsentHero, hero)).toBe(false);
     expect(isProjectImageReusableForBlock(sentHero, hero)).toBe(false);
     expect(findReusableProjectImage([unusedHero], hero)).toBeUndefined();
   });

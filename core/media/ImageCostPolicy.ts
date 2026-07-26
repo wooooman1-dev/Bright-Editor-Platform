@@ -55,7 +55,9 @@ export function isProjectImageReusableForBlock(asset: ProjectMediaAsset, block: 
   const heroReferences = asset.references.filter((reference) => reference.purpose === "hero");
   if (block.purpose === "hero") {
     const isHeroAsset = asset.metadata.purpose === "hero" || heroReferences.length > 0;
-    return isHeroAsset && !heroReferences.some((reference) => reference.sentToDraft === true);
+    return isHeroAsset
+      && asset.originSentToDraft !== true
+      && heroReferences.length === 0;
   }
   if (asset.metadata.purpose === "hero") return false;
   return heroReferences.length === 0;

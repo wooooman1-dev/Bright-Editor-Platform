@@ -203,7 +203,7 @@ export function ImageBlockEditor({
     <details className="mt-4 rounded-xl border bg-white/85 p-4" onToggle={(event) => { if (event.currentTarget.open && libraryState === "idle") void loadLibrary(); }}>
       <summary className="cursor-pointer text-sm font-semibold">{isHero ? "미사용 대표이미지 재사용" : "Project 이미지 재사용"}</summary>
       <p className="mt-2 text-xs leading-5 text-[#77777f]">{isHero
-        ? "같은 Project에서 생성했지만 Tistory 임시저장에 보내지 않은 대표이미지만 표시합니다. 선택해도 파일 복사본은 만들지 않습니다."
+        ? "같은 Project에서 생성했지만 Tistory 임시저장에 보내지 않았고 현재 다른 원고에도 연결되지 않은 대표이미지만 표시합니다. 선택해도 파일 복사본은 만들지 않습니다."
         : "같은 Project의 본문용 이미지 중 대표이미지 사용 이력이 없는 자산만 표시합니다. 선택해도 파일 복사본은 만들지 않습니다."}</p>
       {libraryState === "loading" ? <p className="mt-4 text-sm text-[#66666f]">Project 이미지를 불러오는 중입니다.</p> : null}
       {libraryState === "error" ? <button className="mt-4 rounded-lg border px-3 py-2 text-sm font-semibold" disabled={busy} onClick={() => void loadLibrary()} type="button">다시 불러오기</button> : null}
