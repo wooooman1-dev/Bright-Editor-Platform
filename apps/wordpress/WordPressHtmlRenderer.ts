@@ -1,11 +1,13 @@
-import type { ContentDocument } from "../../core/content";
+import { ContentNormalizer, type ContentDocument, type TableBlock } from "../../core/content";
 
 export class WordPressHtmlRenderer {
-  render(document: ContentDocument): string {
+  render(input: ContentDocument): string {
+    const document = new ContentNormalizer().normalize(input);
     const related = document.blocks.filter((block) => block.type === "button" && block.purpose === "related_post" && Boolean(block.targetUrl));
     const body = document.blocks.filter((block) => !(block.type === "button" && block.purpose === "related_post")).map((block) => {
       if (block.type === "heading") return `<h${block.level}>${escapeHtml(block.text)}</h${block.level}>`;
       if (block.type === "paragraph") return `<p>${escapeHtml(block.text).replace(/\n/g, "<br>")}</p>`;
+      if (block.type === "table") return renderTable(block);
       if (block.type === "image") return block.source ? `<figure class="wp-block-image"><img src="${attribute(block.source)}" alt="${attribute(block.alt)}"></figure>` : `<!-- image: ${escapeHtml(block.alt)} -->`;
       if (block.type === "video") return `<p><a href="${attribute(block.source)}">${escapeHtml(block.source)}</a></p>`;
       const target = block.target === "_blank" ? ' target="_blank" rel="noopener noreferrer"' : "";
@@ -15,5 +17,13 @@ export class WordPressHtmlRenderer {
     return [body, relatedHtml].filter(Boolean).join("\n");
   }
 }
+
+function renderTable(block: TableBlock): string {
+  const caption = block.caption ? `<figcaption>${escapeHtml(block.caption)}</figcaption>` : "";
+  const headers = block.headers.map((cell) => `<th scope="col">${escapeHtml(cell)}</th>`).join("");
+  const rows = block.rows.map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`).join("");
+  return `<figure class="wp-block-table">${caption}<table><thead><tr>${headers}</tr></thead><tbody>${rows}</tbody></table></figure>`;
+}
+
 function escapeHtml(value: string) { return value.replace(/[&<>]/g, (value) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[value]!); }
 function attribute(value: string) { return escapeHtml(value).replace(/"/g, "&quot;"); }
