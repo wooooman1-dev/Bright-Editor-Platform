@@ -7,6 +7,7 @@ export const automaticAIImageLimit = 1;
 const componentPurposes = new Set<ImageBlockPurpose>([
   "comparison",
   "checklist",
+  "infographic",
   "summary",
   "warning",
 ]);
