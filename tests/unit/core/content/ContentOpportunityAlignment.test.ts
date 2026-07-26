@@ -77,7 +77,7 @@ describe("Content Opportunity manuscript alignment", () => {
 
   it("scores the confirmed exercise-intensity intent from the actual reader problem rather than generic fallback planning prose", () => {
     const confirmedSearchIntent = "독자가 자신의 체력과 운동 목표에 맞춰 운동을 어느 정도 힘들게 해야 하는지, 심박수 기기 없이도 안전하게 강도를 조절하는 방법을 알고 싶어 한다.";
-    const exerciseOpportunity = confirmContentOpportunity(createContentOpportunityCandidate({
+    const exerciseBase = createContentOpportunityCandidate({
       sourceRequest: "유산소운동 강도 조절 방법",
       selectionMode: "automatic",
       selectedTopic: "심박수 기기 없이 유산소운동 강도 조절하기",
@@ -94,6 +94,16 @@ describe("Content Opportunity manuscript alignment", () => {
       confidence: 0.8,
       cautions: [],
       projectId: "project-1",
+    });
+    const exerciseOpportunity = confirmContentOpportunity(createContentOpportunityCandidate({
+      ...exerciseBase,
+      qualityTarget: {
+        ...exerciseBase.qualityTarget,
+        coreQuestions: [
+          ...exerciseBase.qualityTarget.coreQuestions,
+          "노래 가능, 짧은 문장 가능, 단어 몇 개만 가능한 상태를 대화 테스트 강도 기준으로 어떻게 구분하는가",
+        ],
+      },
     }), { workspaceId: "workspace-1", projectId: "project-1", contentId: "exercise", confirmedAt: "now" });
     const article: ContentDocument = {
       id: "exercise",
@@ -103,7 +113,8 @@ describe("Content Opportunity manuscript alignment", () => {
         { id: "h-rpe", type: "heading", level: 2, text: "RPE로 체력과 운동 목표에 맞는 강도 정하기" },
         { id: "p-rpe", type: "paragraph", text: "RPE 1은 매우 편안하고 10은 더 이어가기 어려운 수준입니다. 초보자는 RPE 4에서 6 사이로 시작하고 운동 목표와 당일 체력에 따라 한 단계씩 조절합니다. 숨이 지나치게 차거나 자세가 무너지면 즉시 강도를 낮춥니다." },
         { id: "h-talk", type: "heading", level: 2, text: "대화 테스트로 기기 없이 강도 확인하기" },
-        { id: "p-talk", type: "paragraph", text: "편안하게 노래할 수 있으면 강도가 낮고 짧은 문장을 말할 수 있으면 중간 강도입니다. 단어 몇 개만 겨우 말할 수 있으면 강도가 높은 상태이므로 속도나 저항을 낮춥니다. RPE와 대화 상태를 함께 기록하면 다음 운동의 기준을 정할 수 있습니다." },
+        { id: "p-talk", type: "paragraph", text: "대화 테스트를 RPE와 함께 사용하면 장비 없이도 호흡 부담을 확인할 수 있습니다." },
+        { id: "talk-card", type: "image", source: "", sourceType: "planned", purpose: "infographic", alt: "대화 테스트 운동으로 유산소운동 강도 확인하기", caption: "노래를 부를 수 있을 만큼 편안하면 낮은 강도입니다. 짧은 문장을 말할 수 있으면 중간 강도입니다. 단어 몇 개만 겨우 말할 수 있으면 높은 강도이므로 속도나 저항을 낮춥니다." },
         { id: "h-warning", type: "heading", level: 2, text: "강도를 낮추거나 운동을 중단해야 하는 신호" },
         { id: "p-warning", type: "paragraph", text: "가슴 통증과 심한 호흡 곤란, 실신할 것 같은 어지러움이 생기면 운동을 중단해야 합니다. 증상이 지속되면 의료기관의 평가를 받아야 합니다." },
         { id: "conclusion", type: "paragraph", text: "오늘 운동에서는 시작 5분에서 10분 뒤 RPE를 기록하고 한 문장을 말해 보세요. 결과에 따라 속도나 저항을 한 단계 조절하면 심박수 기기 없이도 안전한 강도를 선택할 수 있습니다." },
@@ -112,7 +123,7 @@ describe("Content Opportunity manuscript alignment", () => {
     const alignment = analyzeContentOpportunityAlignment(article, exerciseOpportunity);
     expect(alignment.review.searchIntentFulfillment.pass).toBe(true);
     expect(alignment.review.searchIntentFulfillment.score).toBe(100);
-    expect(alignment.review.searchIntentFulfillment.evidence).toContain("의도 요구사항 충분: 1/1");
+    expect(alignment.review.searchIntentFulfillment.evidence).toContain("의도 요구사항 충분: 2/2");
   });
 
   it("corrects a semantically aligned title that only omitted the exact keyword", () => {

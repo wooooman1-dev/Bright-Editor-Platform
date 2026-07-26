@@ -1,3 +1,4 @@
+import type { ContentBlock } from "./ContentBlock";
 import type { ContentDocument } from "./ContentDocument";
 import type { ConfirmedContentOpportunity } from "./ContentOpportunity";
 import { ensureSeoKeywordPlacement, titleContainsPrimaryKeyword } from "./SeoKeywordPlacement";
@@ -36,7 +37,10 @@ export function analyzeContentOpportunityAlignment(
   opportunity: ConfirmedContentOpportunity,
 ): ContentOpportunityAlignment {
   const headings = document.blocks.filter((block) => block.type === "heading").map((block) => normalizeStructuredText(block.text)).join(" ");
-  const body = document.blocks.flatMap((block) => block.type === "paragraph" ? [normalizeStructuredText(block.text)] : block.type === "table" ? [normalizeStructuredText(serializeStructuredTable(block))] : []).join(" ");
+  const body = document.blocks.flatMap((block) => {
+    const text = readableIntentBlockText(block);
+    return block.type === "heading" || !text ? [] : [normalizeStructuredText(text)];
+  }).join(" ");
   const allText = `${document.title} ${headings} ${body}`;
   const topicTerms = distinctiveTerms(opportunity.selectedTopic);
   const keywordTerms = distinctiveTerms(opportunity.primaryKeyword);
@@ -161,7 +165,12 @@ function intentRequirements(opportunity: ConfirmedContentOpportunity): readonly 
     ...opportunity.qualityTarget.coreQuestions.filter((item) => !isGenericIntentRequirement(item, readerProblem)),
     ...opportunity.qualityTarget.actionableNextSteps.filter((item) => !isGenericIntentRequirement(item, readerProblem)),
   ].map((item) => item.trim()).filter(Boolean);
-  return Object.freeze([...new Set(planned.length ? planned : [opportunity.searchIntent.trim()].filter(Boolean))]);
+  const unique: string[] = [];
+  for (const requirement of (planned.length ? planned : [opportunity.searchIntent.trim()].filter(Boolean))) {
+    if (unique.some((existing) => sameIntentRequirement(existing, requirement))) continue;
+    unique.push(requirement);
+  }
+  return Object.freeze(unique);
 }
 
 function isGenericIntentRequirement(value: string, readerProblem: string): boolean {
@@ -172,11 +181,24 @@ function isGenericIntentRequirement(value: string, readerProblem: string): boole
     || normalized === "독자가 콘텐츠를 읽은 뒤 실행할 다음 행동";
 }
 
+function sameIntentRequirement(left: string, right: string): boolean {
+  const normalizedLeft = normalize(left);
+  const normalizedRight = normalize(right);
+  if (!normalizedLeft || !normalizedRight) return normalizedLeft === normalizedRight;
+  if (normalizedLeft.includes(normalizedRight) || normalizedRight.includes(normalizedLeft)) return true;
+  const leftTerms = intentConceptTerms(left);
+  const rightTerms = intentConceptTerms(right);
+  const denominator = Math.min(leftTerms.length, rightTerms.length);
+  if (!denominator) return false;
+  const overlap = leftTerms.filter((term) => rightTerms.some((candidate) => candidate.includes(term) || term.includes(candidate))).length;
+  return overlap / denominator >= 0.8;
+}
+
 function intentRequirementStatus(requirement: string, document: ContentDocument): InformationSufficiencyStatus {
   const normalizedRequirement = normalize(requirement);
   const terms = intentConceptTerms(requirement);
   const sections = contentSections(document);
-  const fullText = normalizeStructuredText(document.blocks.flatMap((block) => block.type === "heading" || block.type === "paragraph" ? [block.text] : block.type === "table" ? [serializeStructuredTable(block)] : []).join("\n"));
+  const fullText = normalizeStructuredText(document.blocks.flatMap((block) => { const text = readableIntentBlockText(block); return text ? [text] : []; }).join("\n"));
   const fullCoverage = conceptCoverage(terms, fullText);
   const semanticWhole = semanticIntentSignal(requirement, fullText);
   const matching = sections.filter((section) => {
@@ -205,12 +227,24 @@ function contentSections(document: ContentDocument): readonly Readonly<{ text: s
       texts = [];
     } else if (block.type === "paragraph") {
       texts.push(block.text);
-    } else if (block.type === "table") {
-      texts.push(serializeStructuredTable(block));
+    } else {
+      const text = readableIntentBlockText(block);
+      if (text) texts.push(text);
     }
   }
   flush();
   return Object.freeze(sections.map((section) => Object.freeze(section)));
+}
+
+const freeVisualPurposes = new Set(["comparison", "checklist", "infographic", "summary", "warning"]);
+
+function readableIntentBlockText(block: ContentBlock): string {
+  if (block.type === "heading" || block.type === "paragraph") return block.text;
+  if (block.type === "table") return serializeStructuredTable(block);
+  if (block.type === "image" && !block.source.trim() && block.purpose && freeVisualPurposes.has(block.purpose)) {
+    return [block.alt, block.caption ?? ""].filter(Boolean).join("\n");
+  }
+  return "";
 }
 
 function informationElements(text: string): number {
