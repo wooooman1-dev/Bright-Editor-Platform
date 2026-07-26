@@ -95,6 +95,33 @@ describe("Tistory Draft outcome classification", () => {
     });
   });
 
+  it("shows success when Tistory omits the draft thumbnail after every pre-save check passed", () => {
+    const passed = (key: NonNullable<TistoryDraftSaveResult["steps"]>[number]["key"]) => ({ key, passed: true, message: key });
+    const outcome = classifyTistoryDraftOutcome({
+      ...base,
+      status: "partial_failure",
+      saveClicked: true,
+      draftCountBefore: 4,
+      draftCountAfter: 5,
+      steps: [
+        passed("category_verified"),
+        passed("title_verified"),
+        passed("body_verified"),
+        passed("tags_verified"),
+        passed("representative_image_verified"),
+        passed("draft_save_confirmed"),
+        { key: "representative_persisted_verified", passed: false, diagnosticCode: "representative_persisted_thumbnail_missing", message: "missing" },
+      ],
+    });
+
+    expect(outcome).toEqual({
+      status: "verified",
+      diagnosticCode: "representative_persisted_thumbnail_missing",
+      canReverify: false,
+      canRetrySave: false,
+    });
+  });
+
   it("does not show success when representative persistence or another required verification failed", () => {
     const persistedMissing = classifyTistoryDraftOutcome({
       ...base,
