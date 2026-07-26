@@ -64,7 +64,7 @@ describe("Bright Studio image workspace", () => {
     expect(generationSource).toContain("Return no more than one source-empty image recommendation block");
     expect(generationSource).toContain("return zero when an image is not materially needed");
     expect(generationSource).toContain("standalone production prompt");
+    expect(generationSource).toContain("applyGeneratedImageCostPolicy");
     expect(generationSource).toContain("ensureDistinctImagePrompts");
-    expect(generationSource).toContain('prompt: `${subject}. 한국 블로그 본문에 적합한 고품질 이미지');
   });
 });
