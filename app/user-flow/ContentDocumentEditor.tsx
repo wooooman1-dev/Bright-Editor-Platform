@@ -2,13 +2,13 @@
 
 import { Fragment, useMemo, useState, type ReactNode } from "react";
 
-import { createContentOutline, type ContentBlock, type ContentDocument, type ContentOutlineEntry, type PublicPostCandidate } from "../../core/content";
+import { ContentNormalizer, createContentOutline, type ContentBlock, type ContentDocument, type ContentOutlineEntry, type PublicPostCandidate } from "../../core/content";
 import { ImageBlockEditor } from "./ImageBlockEditor";
 
 type ButtonPurpose = "cta" | "internal_link" | "monetization" | "related_post";
 
 export function ContentDocumentEditor({
-  document,
+  document: inputDocument,
   candidates,
   disabled,
   onChange,
@@ -19,6 +19,7 @@ export function ContentDocumentEditor({
   onChange: (document: ContentDocument, message: string) => Promise<void>;
 }) {
   const [draggedId, setDraggedId] = useState<string>();
+  const document = useMemo(() => new ContentNormalizer().normalize(inputDocument), [inputDocument]);
   const outline = useMemo(() => createContentOutline(document), [document]);
   const firstOutlineBlockId = outline[0]?.id;
 
@@ -60,7 +61,7 @@ export function ContentDocumentEditor({
       id: `${document.id}-table-${Date.now()}`,
       type: "table",
       headers: ["항목", "내용"],
-      rows: [["", ""]],
+      rows: [["비교 항목", "설명"]],
     }],
   }, "새 표를 추가했습니다.");
   const addCandidate = async (purpose: "internal_link" | "related_post", candidate: PublicPostCandidate) => {
