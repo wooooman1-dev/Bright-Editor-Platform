@@ -155,12 +155,21 @@ export function applyContentOpportunityPolicy(
 }
 
 function intentRequirements(opportunity: ConfirmedContentOpportunity): readonly string[] {
+  const readerProblem = opportunity.readerProblem.trim();
   const planned = [
-    opportunity.readerProblem,
-    ...opportunity.qualityTarget.coreQuestions,
-    ...opportunity.qualityTarget.actionableNextSteps,
+    readerProblem,
+    ...opportunity.qualityTarget.coreQuestions.filter((item) => !isGenericIntentRequirement(item, readerProblem)),
+    ...opportunity.qualityTarget.actionableNextSteps.filter((item) => !isGenericIntentRequirement(item, readerProblem)),
   ].map((item) => item.trim()).filter(Boolean);
   return Object.freeze([...new Set(planned.length ? planned : [opportunity.searchIntent.trim()].filter(Boolean))]);
+}
+
+function isGenericIntentRequirement(value: string, readerProblem: string): boolean {
+  const normalized = normalize(value);
+  const normalizedProblem = normalize(readerProblem);
+  if (normalizedProblem && normalized.startsWith(normalizedProblem) && /직접 답은 무엇인가$/.test(normalized)) return true;
+  return normalized === "독자가 이해하거나 실행하기 위해 반드시 알아야 할 것은 무엇인가"
+    || normalized === "독자가 콘텐츠를 읽은 뒤 실행할 다음 행동";
 }
 
 function intentRequirementStatus(requirement: string, document: ContentDocument): InformationSufficiencyStatus {

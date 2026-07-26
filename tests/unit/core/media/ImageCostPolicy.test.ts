@@ -5,6 +5,7 @@ import {
   applyGeneratedImageCostPolicy,
   findReusableProjectImage,
   generatedImageCountForContent,
+  isBrightComponentPurpose,
   isProjectImageReusableForBlock,
   selectAutomaticImageBlock,
   type MediaAsset,
@@ -12,6 +13,12 @@ import {
 } from "../../../../core/media";
 
 describe("ImageCostPolicy", () => {
+  it("treats every zero-cost Bright card purpose, including infographic, as an explicit replacement target", () => {
+    expect(["comparison", "checklist", "infographic", "summary", "warning"].every((purpose) => isBrightComponentPurpose(purpose as ImageBlockPurpose))).toBe(true);
+    expect(isBrightComponentPurpose("inline")).toBe(false);
+    expect(isBrightComponentPurpose("hero")).toBe(false);
+  });
+
   it("selects only one source-empty hero block for automatic paid generation", () => {
     const document = imageDocument([
       planned("inline", "inline", "본문 운동 자세"),

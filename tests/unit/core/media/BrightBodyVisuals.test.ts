@@ -19,18 +19,24 @@ describe("BrightBodyVisuals", () => {
     expect(visuals.every((block) => block.type === "image" && block.source === "" && block.sourceType === "planned")).toBe(true);
   });
 
-  it("keeps all related posts after every body visual", () => {
+  it("keeps all related posts after a missing final warning card is derived", () => {
     const base = article();
+    const firstHeadingIndex = base.blocks.findIndex((block) => block.type === "heading");
+    const firstParagraphIndex = base.blocks.findIndex((block, index) => index > firstHeadingIndex && block.type === "paragraph");
+    const existingInfographic = { id: "existing-infographic", type: "image" as const, source: "", sourceType: "planned" as const, purpose: "infographic" as const, alt: "운동 목표 핵심 안내", caption: "체력과 목표를 먼저 확인합니다." };
+    const blocksWithEarlierCard = [...base.blocks];
+    blocksWithEarlierCard.splice(firstParagraphIndex + 1, 0, existingInfographic);
     const withRelated: ContentDocument = {
       ...base,
       blocks: [
-        ...base.blocks,
+        ...blocksWithEarlierCard,
         ...Array.from({ length: 3 }, (_, index) => ({ id: `related-${index}`, type: "button" as const, purpose: "related_post" as const, label: `관련 글 ${index + 1}`, targetUrl: `https://bright-health.tistory.com/entry/related-${index + 1}` })),
-        { id: "existing-warning", type: "image", source: "", sourceType: "planned", purpose: "warning", alt: "운동 중단 신호", caption: "통증이 생기면 중단합니다." },
       ],
     };
-    const blocks = ensureFreeBodyVisuals(withRelated).blocks;
-    expect(blocks.slice(-3).every((block) => block.type === "button" && block.purpose === "related_post")).toBe(true);
+    const result = ensureFreeBodyVisuals(withRelated).blocks;
+    expect(result.filter((block) => block.type === "image" && block.purpose !== "hero")).toHaveLength(2);
+    expect(result.at(-4)).toMatchObject({ type: "image", purpose: "warning" });
+    expect(result.slice(-3).map((block) => block.type === "button" ? block.purpose : block.type)).toEqual(["related_post", "related_post", "related_post"]);
   });
 
   it("renders escaped HTML instead of a missing-image placeholder", () => {

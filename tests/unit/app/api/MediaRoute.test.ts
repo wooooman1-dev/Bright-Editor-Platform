@@ -133,10 +133,10 @@ describe("media route image cost policy", () => {
     expect(providerMocks.generate).not.toHaveBeenCalled();
   });
 
-  it("allows an explicit paid AI replacement for a free Bright card", async () => {
-    current = userData([planned("comparison", "comparison", "운동 비교 카드")]);
+  it("allows an explicit paid AI replacement for an infographic Bright card", async () => {
+    current = userData([planned("infographic", "infographic", "대화 테스트 운동 인포그래픽")]);
 
-    const response = await POST(postRequest({ action: "generate", mode: "manual", contentId: "content-1", blockId: "comparison", prompt: "운동 비교 카드", alt: "운동 비교 카드" }));
+    const response = await POST(postRequest({ action: "generate", mode: "manual", contentId: "content-1", blockId: "infographic", prompt: "대화 테스트 운동 인포그래픽", alt: "대화 테스트 운동 인포그래픽" }));
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({ reused: false, generation: { model: "test-image-model" } });

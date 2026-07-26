@@ -75,6 +75,46 @@ describe("Content Opportunity manuscript alignment", () => {
     expect(alignment.review.bodyCoverage.pass).toBe(true);
   });
 
+  it("scores the confirmed exercise-intensity intent from the actual reader problem rather than generic fallback planning prose", () => {
+    const confirmedSearchIntent = "독자가 자신의 체력과 운동 목표에 맞춰 운동을 어느 정도 힘들게 해야 하는지, 심박수 기기 없이도 안전하게 강도를 조절하는 방법을 알고 싶어 한다.";
+    const exerciseOpportunity = confirmContentOpportunity(createContentOpportunityCandidate({
+      sourceRequest: "유산소운동 강도 조절 방법",
+      selectionMode: "automatic",
+      selectedTopic: "심박수 기기 없이 유산소운동 강도 조절하기",
+      primaryKeyword: "유산소운동 강도",
+      secondaryKeywords: ["RPE", "대화 테스트", "운동 강도 조절"],
+      searchIntent: confirmedSearchIntent,
+      audience: "유산소운동 강도를 정하기 어려운 성인",
+      contentType: "guide",
+      contentAngle: "RPE와 대화 테스트 중심의 실행 가이드",
+      readerProblem: confirmedSearchIntent,
+      expectedCoverage: ["체력", "운동 목표", "RPE", "대화 테스트", "안전한 강도 조절"],
+      selectionRationale: "운동 강도 판단 기준 제공",
+      opportunityEvidence: [{ source: "unknown", summary: "내부 기획" }],
+      confidence: 0.8,
+      cautions: [],
+      projectId: "project-1",
+    }), { workspaceId: "workspace-1", projectId: "project-1", contentId: "exercise", confirmedAt: "now" });
+    const article: ContentDocument = {
+      id: "exercise",
+      title: "유산소운동 강도: 심박수 기기 없이 RPE와 대화 테스트로 조절하는 방법",
+      blocks: [
+        { id: "intro", type: "paragraph", text: "자신의 체력과 운동 목표에 맞는 유산소운동 강도는 숨찬 정도와 동작 상태를 함께 보며 정해야 합니다. 심박수 기기가 없어도 RPE와 대화 테스트를 사용하면 안전하게 조절할 수 있습니다." },
+        { id: "h-rpe", type: "heading", level: 2, text: "RPE로 체력과 운동 목표에 맞는 강도 정하기" },
+        { id: "p-rpe", type: "paragraph", text: "RPE 1은 매우 편안하고 10은 더 이어가기 어려운 수준입니다. 초보자는 RPE 4에서 6 사이로 시작하고 운동 목표와 당일 체력에 따라 한 단계씩 조절합니다. 숨이 지나치게 차거나 자세가 무너지면 즉시 강도를 낮춥니다." },
+        { id: "h-talk", type: "heading", level: 2, text: "대화 테스트로 기기 없이 강도 확인하기" },
+        { id: "p-talk", type: "paragraph", text: "편안하게 노래할 수 있으면 강도가 낮고 짧은 문장을 말할 수 있으면 중간 강도입니다. 단어 몇 개만 겨우 말할 수 있으면 강도가 높은 상태이므로 속도나 저항을 낮춥니다. RPE와 대화 상태를 함께 기록하면 다음 운동의 기준을 정할 수 있습니다." },
+        { id: "h-warning", type: "heading", level: 2, text: "강도를 낮추거나 운동을 중단해야 하는 신호" },
+        { id: "p-warning", type: "paragraph", text: "가슴 통증과 심한 호흡 곤란, 실신할 것 같은 어지러움이 생기면 운동을 중단해야 합니다. 증상이 지속되면 의료기관의 평가를 받아야 합니다." },
+        { id: "conclusion", type: "paragraph", text: "오늘 운동에서는 시작 5분에서 10분 뒤 RPE를 기록하고 한 문장을 말해 보세요. 결과에 따라 속도나 저항을 한 단계 조절하면 심박수 기기 없이도 안전한 강도를 선택할 수 있습니다." },
+      ],
+    };
+    const alignment = analyzeContentOpportunityAlignment(article, exerciseOpportunity);
+    expect(alignment.review.searchIntentFulfillment.pass).toBe(true);
+    expect(alignment.review.searchIntentFulfillment.score).toBe(100);
+    expect(alignment.review.searchIntentFulfillment.evidence).toContain("의도 요구사항 충분: 1/1");
+  });
+
   it("corrects a semantically aligned title that only omitted the exact keyword", () => {
     const original = document("음식과 생활습관으로 장을 건강하게 지키는 실천 가이드", [
       ["장내 환경을 이해하는 기준", "장 건강은 장내 환경과 식이섬유 섭취를 함께 살펴야 합니다. 유산균 선택과 생활습관을 실천하는 방법을 설명합니다."],

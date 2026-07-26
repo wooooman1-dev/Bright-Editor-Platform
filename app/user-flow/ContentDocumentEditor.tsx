@@ -170,7 +170,7 @@ function FreeBodyVisualCard({ block, contentId, disabled, onChange }: {
       <ul className="mt-4 list-disc space-y-2 pl-5 text-[15px] leading-7">{content.items.map((item, index) => <li key={`${block.id}-visual-${index}`}>{item}</li>)}</ul>
     </aside>
     <details className="mt-3 rounded-xl border bg-white p-4">
-      <summary className="cursor-pointer text-sm font-semibold">Project 이미지 또는 파일로 교체</summary>
+      <summary className="cursor-pointer text-sm font-semibold">Project 이미지·파일·AI로 교체</summary>
       <div className="mt-4"><ImageBlockEditor block={block} contentId={contentId} disabled={disabled} onChange={onChange} /></div>
     </details>
   </div>;

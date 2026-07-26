@@ -82,7 +82,7 @@ export function ensureFreeBodyVisuals(document: ContentDocument): ContentDocumen
   if (!insertions.size) return orderedDocument;
 
   const blocks = orderedDocument.blocks.flatMap((block, index) => [block, ...(insertions.get(index) ?? [])]);
-  return Object.freeze({
+  return relatedPostsLast(Object.freeze({
     ...orderedDocument,
     blocks: Object.freeze(blocks),
     ...(document.metadata
@@ -93,7 +93,7 @@ export function ensureFreeBodyVisuals(document: ContentDocument): ContentDocumen
         }),
       }
       : {}),
-  });
+  }));
 }
 
 export function brightBodyVisualContent(block: ImageBlock): BrightBodyVisualContent {
