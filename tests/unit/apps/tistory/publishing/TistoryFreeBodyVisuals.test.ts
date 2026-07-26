@@ -24,4 +24,17 @@ describe("Tistory free body visuals", () => {
     expect(html).toContain("중단해야 하는 신호");
     expect(html).not.toContain('class="bright-image-placeholder"');
   });
+
+  it("keeps a generic source-empty image as an upload placeholder", () => {
+    const document: ContentDocument = {
+      id: "generic-image",
+      title: "일반 이미지",
+      blocks: [{ id: "image", type: "image", source: "", alt: "업로드가 필요한 이미지" }],
+    };
+
+    const html = new TistoryHtmlRenderer().render(document);
+
+    expect(html).toContain('class="bright-image-placeholder" data-image-required="true"');
+    expect(html).not.toContain('data-free-visual="true"');
+  });
 });
