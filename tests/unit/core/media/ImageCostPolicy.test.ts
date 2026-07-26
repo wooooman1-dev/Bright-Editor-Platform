@@ -58,17 +58,26 @@ describe("ImageCostPolicy", () => {
     expect(selectAutomaticImageBlock(result)?.id).toBe("hero");
   });
 
-  it("never reuses Project media as a representative image", () => {
+  it("allows explicit reuse of an unsent hero but never selects it automatically", () => {
     const hero = planned("hero", "hero", "근력운동과 유산소운동 비교 대표 이미지");
-    const suitable = projectAsset({
-      id: "suitable",
+    const unusedHero = projectAsset({
+      id: "unused-hero",
       alt: "근력운동 유산소운동 비교 대표 이미지",
       prompt: "근력운동과 유산소운동을 나란히 비교한 장면",
-      purpose: "inline",
+      purpose: "hero",
+      references: [{ blockId: "old-hero", contentId: "old", contentTitle: "미전송 글", purpose: "hero", sentToDraft: false, updatedAt: "2026-07-25T00:00:00.000Z" }],
+    });
+    const sentHero = projectAsset({
+      id: "sent-hero",
+      alt: "근력운동 유산소운동 비교 대표 이미지",
+      prompt: "근력운동과 유산소운동을 나란히 비교한 장면",
+      purpose: "hero",
+      references: [{ blockId: "sent-hero", contentId: "sent", contentTitle: "임시저장 글", purpose: "hero", sentToDraft: true, updatedAt: "2026-07-25T01:00:00.000Z" }],
     });
 
-    expect(isProjectImageReusableForBlock(suitable, hero)).toBe(false);
-    expect(findReusableProjectImage([suitable], hero)).toBeUndefined();
+    expect(isProjectImageReusableForBlock(unusedHero, hero)).toBe(true);
+    expect(isProjectImageReusableForBlock(sentHero, hero)).toBe(false);
+    expect(findReusableProjectImage([unusedHero], hero)).toBeUndefined();
   });
 
   it("reuses suitable body media but excludes anything used as a hero", () => {

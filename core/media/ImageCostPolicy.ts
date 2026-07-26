@@ -46,14 +46,19 @@ export function applyGeneratedImageCostPolicy(document: ContentDocument): Conten
 }
 
 /**
- * Representative images are never reused across posts. Assets that have ever been
- * used as a representative image are also excluded from automatic body reuse.
+ * A representative asset can be selected manually only while it has never been sent
+ * to a platform draft. Automatic generation never calls this policy for hero reuse.
+ * Body reuse continues to exclude every asset created or referenced as a hero.
  */
 export function isProjectImageReusableForBlock(asset: ProjectMediaAsset, block: ImageBlock): boolean {
-  if (block.purpose === "hero") return false;
   if (asset.kind !== "image" || !asset.source.trim()) return false;
+  const heroReferences = asset.references.filter((reference) => reference.purpose === "hero");
+  if (block.purpose === "hero") {
+    const isHeroAsset = asset.metadata.purpose === "hero" || heroReferences.length > 0;
+    return isHeroAsset && !heroReferences.some((reference) => reference.sentToDraft === true);
+  }
   if (asset.metadata.purpose === "hero") return false;
-  return !asset.references.some((reference) => reference.purpose === "hero");
+  return heroReferences.length === 0;
 }
 
 export function findReusableProjectImage(

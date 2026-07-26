@@ -24,6 +24,8 @@ const freeVisualSource = readFileSync(join(process.cwd(), "core/media/BrightBody
   it("keeps automatic AI generation hero-only while offering explicit paid replacement for every free card", () => {
     expect(imageEditorSource).toContain("대표이미지 AI 생성");
     expect(imageEditorSource).toContain("대표이미지 중복 방지");
+    expect(imageEditorSource).toContain("미사용 대표이미지 재사용");
+    expect(imageEditorSource).toContain("Tistory 임시저장에 보내지 않은 대표이미지만 표시");
     expect(imageEditorSource).toContain("AI 이미지로 교체 · 유료");
     expect(documentEditorSource).toContain("Project 이미지·파일·AI로 교체");
     expect(mediaRouteSource).toContain('owner.block.purpose !== "hero"');
@@ -67,7 +69,7 @@ const freeVisualSource = readFileSync(join(process.cwd(), "core/media/BrightBody
     expect(mediaRouteSource).toContain("await storage.remove(stored.storageKey)");
   });
 
-  it("lists only body-reusable Project images without creating duplicate files", () => {
+  it("lists body-reusable images and unsent representative images without creating duplicate files", () => {
     expect(imageEditorSource).toContain("Project 이미지 재사용");
     expect(imageEditorSource).toContain("대표이미지 사용 이력이 없는 자산만 표시");
     expect(imageEditorSource).toContain("파일 복사본은 만들지 않습니다");

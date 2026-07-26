@@ -39,6 +39,7 @@ export async function GET(request: Request) {
       assets: data.mediaMetadata,
       contents: data.contents,
       projectId: content.projectId,
+      publishingRecords: data.publishingRecords,
     });
     const assets = block
       ? projectAssets.filter((asset) => isProjectImageReusableForBlock(asset, block))
@@ -46,8 +47,8 @@ export async function GET(request: Request) {
     return NextResponse.json({
       assets,
       projectId: content.projectId,
-      reuseAllowed: block ? block.purpose !== "hero" : true,
-      reusePolicy: block?.purpose === "hero" ? "hero_unique" : "body_only",
+      reuseAllowed: true,
+      reusePolicy: block?.purpose === "hero" ? "unused_hero" : "body_only",
     });
   } catch (error) {
     return NextResponse.json({ error: message(error) }, { status: statusCode(error) });

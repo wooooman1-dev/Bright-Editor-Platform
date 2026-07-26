@@ -78,24 +78,49 @@ describe("media route image cost policy", () => {
     expect(storageMocks.save).toHaveBeenCalledOnce();
   });
 
-  it("returns no Project reuse candidates for a hero block", async () => {
+  it("lists a generated hero that has never been sent to a platform draft", async () => {
+    const unusedHero = asset({
+      id: "unused-hero",
+      contentId: "older-content",
+      alt: "미사용 운동 대표 이미지",
+      prompt: "아직 임시저장하지 않은 대표 장면",
+      purpose: "hero",
+      sourceType: "ai_generated",
+    });
+    current = userData([planned("hero", "hero", "새 글 대표 이미지")], [unusedHero]);
+
+    const response = await GET(new Request("http://localhost/api/media?contentId=content-1&blockId=hero"));
+    const body = await response.json() as { assets: MediaAsset[]; reuseAllowed: boolean; reusePolicy: string };
+
+    expect(response.status).toBe(200);
+    expect(body.reuseAllowed).toBe(true);
+    expect(body.reusePolicy).toBe("unused_hero");
+    expect(body.assets.map((item) => item.id)).toEqual(["unused-hero"]);
+  });
+
+  it("excludes a representative image that was already sent to a platform draft", async () => {
+    const sentHero = asset({
+      id: "sent-hero",
+      contentId: "older-content",
+      alt: "임시저장 완료 대표 이미지",
+      prompt: "이미 임시저장에 사용한 대표 장면",
+      purpose: "hero",
+      sourceType: "ai_generated",
+    });
+    current = userData([planned("hero", "hero", "새 글 대표 이미지")], [sentHero]);
     current = {
       ...current,
-      mediaMetadata: [asset({
-        id: "old-inline",
-        contentId: "older-content",
-        alt: "본문 운동 이미지",
-        prompt: "운동 자세 설명 장면",
-        purpose: "inline",
-        sourceType: "upload",
-      })],
+      contents: [...current.contents, contentWithHero(sentHero)],
+      publishingRecords: [{ id: "publishing-1", contentId: "older-content", platformConnectionId: "connection-1", status: "saved", createdAt: "2026-07-26T01:00:00.000Z" }],
     };
 
     const response = await GET(new Request("http://localhost/api/media?contentId=content-1&blockId=hero"));
-    const body = await response.json();
+    const body = await response.json() as { assets: MediaAsset[]; reuseAllowed: boolean; reusePolicy: string };
 
     expect(response.status).toBe(200);
-    expect(body).toMatchObject({ assets: [], reuseAllowed: false, reusePolicy: "hero_unique" });
+    expect(body.reuseAllowed).toBe(true);
+    expect(body.reusePolicy).toBe("unused_hero");
+    expect(body.assets).toEqual([]);
   });
 
   it("lists only non-hero Project media for a body block", async () => {
@@ -223,6 +248,23 @@ function userData(blocks: ImageBlock[], mediaMetadata?: MediaAsset[]): UserData 
       document: { id: "content-1", title: "Draft", blocks },
     }],
     ...(mediaMetadata ? { mediaMetadata } : {}),
+  };
+}
+
+function contentWithHero(hero: MediaAsset): UserData["contents"][number] {
+  return {
+    id: "older-content",
+    workspaceId: "workspace-1",
+    projectId: "project-1",
+    title: "Older draft",
+    body: "",
+    status: "draft",
+    updatedAt: "2026-07-26T00:30:00.000Z",
+    document: {
+      id: "older-content",
+      title: "Older draft",
+      blocks: [{ id: "older-hero", type: "image", source: hero.source, assetId: hero.id, sourceType: "ai_generated", purpose: "hero", alt: hero.metadata.alt ?? "대표 이미지" }],
+    },
   };
 }
 

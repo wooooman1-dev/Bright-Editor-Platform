@@ -6,7 +6,13 @@ export type ProjectMediaContent = Readonly<{
   projectId: string;
   title: string;
   updatedAt: string;
+  status?: string;
   document?: ContentDocument;
+}>;
+
+export type ProjectMediaPublishingRecord = Readonly<{
+  contentId: string;
+  status: "saved" | "partially_verified" | "failed";
 }>;
 
 export type ProjectMediaReference = Readonly<{
@@ -14,6 +20,7 @@ export type ProjectMediaReference = Readonly<{
   contentId: string;
   contentTitle: string;
   purpose?: ImageBlockPurpose;
+  sentToDraft?: boolean;
   updatedAt: string;
 }>;
 
@@ -27,8 +34,15 @@ export function buildProjectMediaLibrary(input: Readonly<{
   assets?: readonly MediaAsset[];
   contents: readonly ProjectMediaContent[];
   projectId: string;
+  publishingRecords?: readonly ProjectMediaPublishingRecord[];
 }>): readonly ProjectMediaAsset[] {
   const contents = input.contents.filter((content) => content.projectId === input.projectId);
+  const sentContentIds = new Set([
+    ...contents.filter((content) => content.status === "draft_saved").map((content) => content.id),
+    ...(input.publishingRecords ?? [])
+      .filter((record) => record.status === "saved" || record.status === "partially_verified")
+      .map((record) => record.contentId),
+  ]);
   const known = new Map<string, MediaAsset>();
 
   for (const asset of input.assets ?? []) {
@@ -71,6 +85,7 @@ export function buildProjectMediaLibrary(input: Readonly<{
       contentId: content.id,
       contentTitle: content.title,
       ...(block.purpose ? { purpose: block.purpose } : {}),
+      sentToDraft: sentContentIds.has(content.id),
       updatedAt: content.updatedAt,
     }));
     const lastReferencedAt = references.map((reference) => reference.updatedAt).sort().at(-1);
