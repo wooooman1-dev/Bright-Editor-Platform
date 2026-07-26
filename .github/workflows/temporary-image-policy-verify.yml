@@ -1,6 +1,13 @@
 name: Temporary Image Policy Verify
 
 on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
   push:
     branches:
       - fix/canonical-table-and-image-cost-policy
