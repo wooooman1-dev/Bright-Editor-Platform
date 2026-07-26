@@ -21,4 +21,8 @@ describe("Tistory draft outcome overlay wiring", () => {
     expect(overlaySource).toContain("reverifyRequestBody(card.context)");
     expect(overlaySource).toContain("중복 임시글을 막기 위해 재확인 전에는 같은 원고를 다시 저장하지 않습니다.");
   });
+
+  it("does not show stale backend failure details on a verified result", () => {
+    expect(overlaySource).toContain('card.outcome.status === "verified" ? "" : outcomeDetail');
+  });
 });
