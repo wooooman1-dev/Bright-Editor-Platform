@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   draftOutcomePresentation,
+  projectOutcomeDestination,
   readDraftRequestContext,
   reverifyRequestBody,
 } from "../../../../app/user-flow/tistory-draft-outcome-ui";
@@ -20,6 +21,14 @@ describe("Tistory draft outcome UI", () => {
     expect(presentation.tone).toBe("success");
     expect(presentation.title).toBe("Tistory 임시저장이 완료되었습니다.");
     expect(presentation.message).toBe("임시저장 완료 신호와 저장 전 제목, 본문, 이미지, 카테고리, 태그, 대표이미지 설정을 확인했습니다.");
+    expect(presentation.primaryLabel).toBe("완료");
+  });
+
+  it("returns to the owning project after a verified draft is completed", () => {
+    expect(projectOutcomeDestination(
+      context,
+      "https://bright-studio.local/?view=editor&projectId=old-project&contentId=content-1&source=test",
+    )).toBe("/?view=project&projectId=project-1&source=test");
   });
 
   it("warns against a duplicate save when the Draft was saved but not reopened", () => {
