@@ -1,6 +1,7 @@
 import type { ContentBlock } from "../ContentBlock";
 import type { ContentDocument } from "../ContentDocument";
 import type { ContentMetadata } from "../ContentMetadata";
+import { normalizeStructuredTable, serializeStructuredTable } from "../StructuredText";
 
 const WORDS_PER_MINUTE = 200;
 
@@ -19,7 +20,7 @@ export class ContentOptimizer {
   }
 
   optimize(document: ContentDocument): ContentDocument {
-    const blocks = document.blocks.map(trimBlock);
+    const blocks = document.blocks.flatMap(trimBlock);
     const metadata = createMetadata(document, blocks, this.options, this.now());
 
     return Object.freeze({
@@ -31,30 +32,34 @@ export class ContentOptimizer {
   }
 }
 
-function trimBlock(block: ContentBlock): ContentBlock {
+function trimBlock(block: ContentBlock): readonly ContentBlock[] {
   switch (block.type) {
     case "heading":
     case "paragraph":
-      return Object.freeze({ ...block, text: normalizeWhitespace(block.text) });
+      return [Object.freeze({ ...block, text: normalizeWhitespace(block.text) })];
+    case "table": {
+      const table = normalizeStructuredTable(block);
+      return table ? [Object.freeze({ ...block, ...table })] : [];
+    }
     case "image":
-      return Object.freeze({
+      return [Object.freeze({
         ...block,
         alt: block.alt.trim(),
         caption: block.caption?.trim(),
         source: block.source.trim(),
-      });
+      })];
     case "video":
-      return Object.freeze({
+      return [Object.freeze({
         ...block,
         caption: block.caption?.trim(),
         source: block.source.trim(),
-      });
+      })];
     case "button":
-      return Object.freeze({
+      return [Object.freeze({
         ...block,
         label: normalizeWhitespace(block.label),
         targetUrl: block.targetUrl.trim(),
-      });
+      })];
   }
 }
 
@@ -88,6 +93,7 @@ function countWords(title: string, blocks: readonly ContentBlock[]): number {
     title,
     ...blocks.flatMap((block) => {
       if (block.type === "heading" || block.type === "paragraph") return [block.text];
+      if (block.type === "table") return [serializeStructuredTable(block)];
       if (block.type === "button") return [block.label];
       if (block.type === "image") return [block.alt, block.caption ?? ""];
       return [block.caption ?? ""];
