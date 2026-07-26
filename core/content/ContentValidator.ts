@@ -5,6 +5,7 @@ import type { ContentDocument } from "./ContentDocument";
 export type ContentValidationIssueCode =
   | "DUPLICATE_BLOCK_ID"
   | "INVALID_HEADING_HIERARCHY"
+  | "INVALID_TABLE"
   | "MISSING_IMAGE_ALT"
   | "UNSUPPORTED_BLOCK_TYPE"
   | "INVALID_VIDEO_URL";
@@ -100,6 +101,15 @@ function validateBlocks(
       previousHeadingLevel = block.level;
     }
 
+    if (block.type === "table" && (
+      !block.headers.length
+      || !block.headers.some((cell) => cell.trim())
+      || !block.rows.length
+      || block.rows.some((row) => row.length !== block.headers.length)
+    )) {
+      issues.push(createIssue("INVALID_TABLE", "error", block.id));
+    }
+
     if (block.type === "image" && block.alt.trim().length === 0) {
       issues.push(createIssue("MISSING_IMAGE_ALT", "warning", block.id));
     }
@@ -130,6 +140,7 @@ function createIssue(
     DUPLICATE_BLOCK_ID: "Block IDs must be unique.",
     INVALID_HEADING_HIERARCHY:
       "Heading levels must not skip hierarchy levels.",
+    INVALID_TABLE: "Tables must include headers, rows, and a consistent column count.",
     INVALID_VIDEO_URL: "Video sources must be valid HTTP or HTTPS URLs.",
     MISSING_IMAGE_ALT: "Images should include alternative text.",
     UNSUPPORTED_BLOCK_TYPE: "The content block type is not supported.",
