@@ -86,7 +86,7 @@ export function ImageBlockEditor({
       const response = await fetch("/api/media", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "generate", contentId, blockId: block.id, alt, prompt, purpose, quality, size }),
+        body: JSON.stringify({ action: "generate", mode: "manual", contentId, blockId: block.id, alt, prompt, purpose, quality, size }),
       });
       const result = await readImageResponse(response);
       if (!response.ok || !result.asset) throw new Error(result.error ?? "AI 이미지를 생성하지 못했습니다.");
@@ -227,7 +227,7 @@ export function ImageBlockEditor({
           <select className="mt-2 w-full rounded-lg border bg-white px-3 py-2 font-normal" disabled={busy} onChange={(event) => setQuality(event.target.value as ImageGenerationQuality)} value={quality}><option value="low">낮음 · 비용 절약</option><option value="medium">보통 · 기본</option><option value="high">높음</option></select>
         </label>
       </div>
-      <p className="mt-3 text-xs leading-5 text-[#77777f]">AI 생성은 연결된 OpenAI API 사용량과 비용이 발생할 수 있습니다. 프롬프트 복사만 사용하면 외부 이미지 도구에서 별도로 제작할 수 있습니다.</p>
+      <p className="mt-3 text-xs leading-5 text-[#77777f]">AI 생성은 연결된 OpenAI API 사용량과 비용이 발생할 수 있습니다. 자동 생성은 대표 이미지 한 장으로 제한되며, 이 버튼은 사용자가 명시적으로 요청한 추가 생성으로 처리됩니다.</p>
     </details>
 
     <div className="mt-4 flex flex-wrap gap-2">
