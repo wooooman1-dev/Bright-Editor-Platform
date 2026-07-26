@@ -29,7 +29,7 @@ export function draftOutcomePresentation(status: TistoryDraftOutcomeStatus): Tis
         message: "임시저장 완료 신호와 저장 전 제목, 본문, 이미지, 카테고리, 태그, 대표이미지 설정을 확인했습니다.",
         tone: "success",
         primaryAction: "continue",
-        primaryLabel: "계속 편집",
+        primaryLabel: "완료",
       });
     case "saved_unverified":
       return Object.freeze({
@@ -64,6 +64,17 @@ export function draftOutcomePresentation(status: TistoryDraftOutcomeStatus): Tis
         primaryLabel: "임시저장 다시 시도",
       });
   }
+}
+
+export function projectOutcomeDestination(
+  context: Pick<TistoryDraftRequestContext, "projectId">,
+  currentUrl: string,
+): string {
+  const url = new URL(currentUrl, "http://bright-studio.local");
+  url.searchParams.set("view", "project");
+  url.searchParams.set("projectId", context.projectId);
+  url.searchParams.delete("contentId");
+  return `${url.pathname}${url.search}${url.hash}`;
 }
 
 export function readDraftRequestContext(input: RequestInfo | URL, init?: RequestInit): TistoryDraftRequestContext | undefined {
