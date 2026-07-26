@@ -115,13 +115,13 @@ export function structuredGenerationFormat(target: ContentPlanQualityTarget = de
         },
       } },
       conclusion: { type: "array", minItems: 1, maxItems: 8, items: { type: "string" } },
-      images: { type: "array", items: {
+      images: { type: "array", maxItems: 1, items: {
         type: "object",
         additionalProperties: false,
         required: ["afterSection", "purpose", "alt", "prompt"],
         properties: {
           afterSection: { type: "integer" },
-          purpose: { type: "string", enum: ["hero", "inline", "comparison", "checklist", "infographic", "summary", "warning"] },
+          purpose: { type: "string", enum: ["hero", "inline", "infographic"] },
           alt: { type: "string" },
           prompt: { type: "string" },
         },
@@ -172,9 +172,12 @@ const editorialDocumentFormat = {
       relatedTerms: { type: "array", items: { type: "string" } },
       tags: { type: "array", items: { type: "string" } },
       blocks: { type: "array", items: { type: "object", required: ["type"], properties: {
-        type: { type: "string", enum: ["heading", "paragraph", "image", "button"] },
+        type: { type: "string", enum: ["heading", "paragraph", "table", "image", "button"] },
         level: { type: "integer" },
         text: { type: "string" },
+        headers: { type: "array", items: { type: "string" } },
+        rows: { type: "array", items: { type: "array", items: { type: "string" } } },
+        caption: { type: "string" },
         source: { type: "string" },
         alt: { type: "string" },
         prompt: { type: "string" },
