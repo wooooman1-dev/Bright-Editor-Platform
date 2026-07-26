@@ -122,6 +122,20 @@ describe("QualityEngine dimension scoring", () => {
     expect(dimension?.evidence).toContainEqual({ signal: "placedRelatedPosts", value: 3 });
   });
 
+  it("does not penalize one unique hero when a canonical table supplies the body visual", () => {
+    const base = structured();
+    const document: ContentDocument = {
+      ...base,
+      blocks: [
+        ...base.blocks.map((block) => block.type === "image" ? { ...block, purpose: "hero" as const } : block),
+        { id: "comparison-table", type: "table", headers: ["기준", "실행"], rows: [["현재 상태", "기록 후 비교"], ["다음 행동", "조건에 맞게 조정"]] },
+      ],
+    };
+    const dimension = new QualityEngine().review(document, { primaryKeyword: "건강 관리", searchIntent: "건강 관리 방법" }).dimensions.find((item) => item.category === "imageStrategy");
+    expect(dimension?.score).toBe(100);
+    expect(dimension?.evidence).toContainEqual({ signal: "zeroCostVisualSignals", value: 1 });
+  });
+
   it("reports duplicated image prompts as a concrete image-strategy task", () => {
     const document: ContentDocument = { id: "duplicate-images", title: "중년 운동", blocks: [
       { id: "h1", type: "heading", level: 2, text: "호흡 준비" },

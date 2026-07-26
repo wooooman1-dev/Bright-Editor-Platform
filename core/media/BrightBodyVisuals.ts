@@ -33,16 +33,17 @@ export function isFreeBodyVisualBlock(block: ContentBlock): block is FreeBodyVis
  * never replaced.
  */
 export function ensureFreeBodyVisuals(document: ContentDocument): ContentDocument {
-  const existingBodyVisuals = document.blocks.filter(
+  const orderedDocument = relatedPostsLast(document);
+  const existingBodyVisuals = orderedDocument.blocks.filter(
     (block) => block.type === "image" && block.purpose !== "hero",
   );
   const remaining = Math.max(0, bodyVisualLimit - existingBodyVisuals.length);
-  if (!remaining) return document;
+  if (!remaining) return orderedDocument;
 
-  const sections = collectSections(document);
-  if (sections.length < 3) return document;
+  const sections = collectSections(orderedDocument);
+  if (sections.length < 3) return orderedDocument;
 
-  const existingIds = new Set(document.blocks.map((block) => block.id));
+  const existingIds = new Set(orderedDocument.blocks.map((block) => block.id));
   const candidates = sections
     .filter((section) => section.paragraphs.length > 0)
     .filter((section) => !section.blocks.some((block) => block.type === "image" && block.purpose !== "hero"))
@@ -53,7 +54,7 @@ export function ensureFreeBodyVisuals(document: ContentDocument): ContentDocumen
     .sort((left, right) => right.score - left.score || left.index - right.index);
 
   const selected = candidates.slice(0, remaining);
-  if (!selected.length) return document;
+  if (!selected.length) return orderedDocument;
 
   const insertions = new Map<number, ImageBlock[]>();
   for (const section of selected) {
@@ -61,7 +62,7 @@ export function ensureFreeBodyVisuals(document: ContentDocument): ContentDocumen
     const items = keySentences(section.paragraphs);
     if (!items.length) continue;
 
-    const baseId = `${document.id}-bright-visual-${section.heading.id}`;
+    const baseId = `${orderedDocument.id}-bright-visual-${section.heading.id}`;
     const id = uniqueId(baseId, existingIds);
     existingIds.add(id);
 
@@ -78,11 +79,11 @@ export function ensureFreeBodyVisuals(document: ContentDocument): ContentDocumen
     insertions.set(section.insertAfter, [...(insertions.get(section.insertAfter) ?? []), block]);
   }
 
-  if (!insertions.size) return document;
+  if (!insertions.size) return orderedDocument;
 
-  const blocks = document.blocks.flatMap((block, index) => [block, ...(insertions.get(index) ?? [])]);
+  const blocks = orderedDocument.blocks.flatMap((block, index) => [block, ...(insertions.get(index) ?? [])]);
   return Object.freeze({
-    ...document,
+    ...orderedDocument,
     blocks: Object.freeze(blocks),
     ...(document.metadata
       ? {
@@ -217,6 +218,19 @@ function visualPalette(purpose: FreeBodyVisualPurpose) {
   if (purpose === "checklist") return { background: "#f1fbf5", border: "#9ed8b5", badge: "#dcf6e6", text: "#17623a" };
   if (purpose === "summary") return { background: "#f7f3ff", border: "#cdbcf1", badge: "#ece4ff", text: "#594099" };
   return { background: "#f3f7ff", border: "#aac5ee", badge: "#e3edff", text: "#244f91" };
+}
+
+function relatedPostsLast(document: ContentDocument): ContentDocument {
+  const related = document.blocks.filter(
+    (block) => block.type === "button" && block.purpose === "related_post",
+  );
+  if (!related.length) return document;
+  const trailing = document.blocks.slice(-related.length);
+  if (trailing.every((block) => block.type === "button" && block.purpose === "related_post")) return document;
+  const body = document.blocks.filter(
+    (block) => !(block.type === "button" && block.purpose === "related_post"),
+  );
+  return Object.freeze({ ...document, blocks: Object.freeze([...body, ...related]) });
 }
 
 function uniqueId(base: string, existing: ReadonlySet<string>): string {

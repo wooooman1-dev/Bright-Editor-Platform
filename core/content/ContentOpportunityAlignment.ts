@@ -1,7 +1,7 @@
 import type { ContentDocument } from "./ContentDocument";
 import type { ConfirmedContentOpportunity } from "./ContentOpportunity";
 import { ensureSeoKeywordPlacement, titleContainsPrimaryKeyword } from "./SeoKeywordPlacement";
-import { normalizeStructuredText, structuredListItems, structuredTableCount } from "./StructuredText";
+import { normalizeStructuredText, serializeStructuredTable, structuredListItems, structuredTableCount } from "./StructuredText";
 
 export type OpportunityAlignmentStatus = "aligned" | "title_only_missing" | "mismatch";
 export type OpportunityAlignmentSignal = Readonly<{
@@ -36,7 +36,7 @@ export function analyzeContentOpportunityAlignment(
   opportunity: ConfirmedContentOpportunity,
 ): ContentOpportunityAlignment {
   const headings = document.blocks.filter((block) => block.type === "heading").map((block) => normalizeStructuredText(block.text)).join(" ");
-  const body = document.blocks.filter((block) => block.type === "paragraph").map((block) => normalizeStructuredText(block.text)).join(" ");
+  const body = document.blocks.flatMap((block) => block.type === "paragraph" ? [normalizeStructuredText(block.text)] : block.type === "table" ? [normalizeStructuredText(serializeStructuredTable(block))] : []).join(" ");
   const allText = `${document.title} ${headings} ${body}`;
   const topicTerms = distinctiveTerms(opportunity.selectedTopic);
   const keywordTerms = distinctiveTerms(opportunity.primaryKeyword);
@@ -167,7 +167,7 @@ function intentRequirementStatus(requirement: string, document: ContentDocument)
   const normalizedRequirement = normalize(requirement);
   const terms = intentConceptTerms(requirement);
   const sections = contentSections(document);
-  const fullText = normalizeStructuredText(document.blocks.flatMap((block) => block.type === "heading" || block.type === "paragraph" ? [block.text] : []).join("\n"));
+  const fullText = normalizeStructuredText(document.blocks.flatMap((block) => block.type === "heading" || block.type === "paragraph" ? [block.text] : block.type === "table" ? [serializeStructuredTable(block)] : []).join("\n"));
   const fullCoverage = conceptCoverage(terms, fullText);
   const semanticWhole = semanticIntentSignal(requirement, fullText);
   const matching = sections.filter((section) => {
@@ -196,6 +196,8 @@ function contentSections(document: ContentDocument): readonly Readonly<{ text: s
       texts = [];
     } else if (block.type === "paragraph") {
       texts.push(block.text);
+    } else if (block.type === "table") {
+      texts.push(serializeStructuredTable(block));
     }
   }
   flush();

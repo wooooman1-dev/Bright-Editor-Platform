@@ -24,7 +24,7 @@ const freeVisualSource = readFileSync(join(process.cwd(), "core/media/BrightBody
   it("offers paid AI generation only for a unique representative image", () => {
     expect(imageEditorSource).toContain("대표이미지 AI 생성");
     expect(imageEditorSource).toContain("대표이미지 중복 방지");
-    expect(imageEditorSource).toContain("AI 생성은 글마다 고유해야 하는 대표이미지에만");
+    expect(imageEditorSource).toContain("AI 이미지로 교체 · 유료");
     expect(mediaRouteSource).toContain('owner.block.purpose !== "hero"');
     expect(openAIProviderSource).toContain('purpose: { type: "string", enum: ["hero"] }');
     expect(imageCostPolicySource).toContain('block.purpose === "hero"');

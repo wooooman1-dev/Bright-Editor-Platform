@@ -133,13 +133,23 @@ describe("media route image cost policy", () => {
     expect(providerMocks.generate).not.toHaveBeenCalled();
   });
 
-  it("blocks AI generation for Bright component purposes", async () => {
+  it("allows an explicit paid AI replacement for a free Bright card", async () => {
     current = userData([planned("comparison", "comparison", "운동 비교 카드")]);
 
     const response = await POST(postRequest({ action: "generate", mode: "manual", contentId: "content-1", blockId: "comparison", prompt: "운동 비교 카드", alt: "운동 비교 카드" }));
 
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ reused: false, generation: { model: "test-image-model" } });
+    expect(providerMocks.generate).toHaveBeenCalledOnce();
+  });
+
+  it("keeps automatic AI generation blocked for free Bright cards", async () => {
+    current = userData([planned("comparison", "comparison", "운동 비교 카드")]);
+
+    const response = await POST(postRequest({ action: "generate", contentId: "content-1", blockId: "comparison", prompt: "운동 비교 카드", alt: "운동 비교 카드" }));
+
     expect(response.status).toBe(409);
-    await expect(response.json()).resolves.toMatchObject({ error: expect.stringContaining("Bright HTML/SVG 컴포넌트") });
+    await expect(response.json()).resolves.toMatchObject({ error: expect.stringContaining("대표이미지 한 개") });
     expect(providerMocks.generate).not.toHaveBeenCalled();
   });
 

@@ -19,6 +19,20 @@ describe("BrightBodyVisuals", () => {
     expect(visuals.every((block) => block.type === "image" && block.source === "" && block.sourceType === "planned")).toBe(true);
   });
 
+  it("keeps all related posts after every body visual", () => {
+    const base = article();
+    const withRelated: ContentDocument = {
+      ...base,
+      blocks: [
+        ...base.blocks,
+        ...Array.from({ length: 3 }, (_, index) => ({ id: `related-${index}`, type: "button" as const, purpose: "related_post" as const, label: `관련 글 ${index + 1}`, targetUrl: `https://bright-health.tistory.com/entry/related-${index + 1}` })),
+        { id: "existing-warning", type: "image", source: "", sourceType: "planned", purpose: "warning", alt: "운동 중단 신호", caption: "통증이 생기면 중단합니다." },
+      ],
+    };
+    const blocks = ensureFreeBodyVisuals(withRelated).blocks;
+    expect(blocks.slice(-3).every((block) => block.type === "button" && block.purpose === "related_post")).toBe(true);
+  });
+
   it("renders escaped HTML instead of a missing-image placeholder", () => {
     const visual = ensureFreeBodyVisuals(article()).blocks.find(
       (block) => block.type === "image" && block.purpose === "warning",

@@ -59,6 +59,22 @@ describe("Content Opportunity manuscript alignment", () => {
     expect(alignment.review.contentOpportunityConsistency.pass).toBe(true);
   });
 
+  it("counts canonical table cells as body and expected-coverage evidence", () => {
+    const article: ContentDocument = {
+      id: "content-1",
+      title: "장 건강 관리 방법 실천 가이드",
+      blocks: [
+        { id: "intro", type: "paragraph", text: "장 건강 관리 방법은 현재 상태를 확인하고 음식과 생활습관을 함께 조정하는 과정입니다." },
+        { id: "heading", type: "heading", level: 2, text: "장 건강 관리 기준" },
+        { id: "paragraph", type: "paragraph", text: "장 건강 관리 기준을 세운 뒤 매일 같은 조건으로 변화를 확인합니다." },
+        { id: "table", type: "table", headers: ["확인 항목", "실천 기준"], rows: [["유산균", "섭취 후 반응 기록"], ["식이섬유", "식사별 섭취 확인"], ["장내 환경", "배변과 불편 기록"], ["생활습관", "수면과 활동량 점검"]] },
+      ],
+    };
+    const alignment = analyzeContentOpportunityAlignment(article, opportunity);
+    expect(alignment.review.secondaryKeywordSupport.pass).toBe(true);
+    expect(alignment.review.bodyCoverage.pass).toBe(true);
+  });
+
   it("corrects a semantically aligned title that only omitted the exact keyword", () => {
     const original = document("음식과 생활습관으로 장을 건강하게 지키는 실천 가이드", [
       ["장내 환경을 이해하는 기준", "장 건강은 장내 환경과 식이섬유 섭취를 함께 살펴야 합니다. 유산균 선택과 생활습관을 실천하는 방법을 설명합니다."],

@@ -113,11 +113,12 @@ async function generateImage(request: Request) {
   const mode = body.mode === "manual" ? "manual" : "automatic";
   const owner = await resolveOwnedImageBlock(contentId, blockId);
 
-  if (isBrightComponentPurpose(owner.block.purpose)) {
-    throw new Error("비교·체크리스트·요약·경고 콘텐츠는 AI 이미지 대신 Bright HTML/SVG 컴포넌트를 사용합니다.");
+  const manualBrightReplacement = mode === "manual" && isBrightComponentPurpose(owner.block.purpose);
+  if (mode === "automatic" && owner.block.purpose !== "hero") {
+    throw new Error("자동 AI 이미지는 원고의 대표이미지 한 개에만 허용됩니다.");
   }
-  if (owner.block.purpose !== "hero") {
-    throw new Error("본문 이미지는 비용 없는 Project 이미지 재사용 또는 파일 업로드를 사용합니다. AI 생성은 대표이미지에만 허용됩니다.");
+  if (owner.block.purpose !== "hero" && !manualBrightReplacement) {
+    throw new Error("일반 본문 이미지는 비용 없는 Project 이미지 재사용 또는 파일 업로드를 사용합니다. 무료 Bright 카드는 사용자가 명시적으로 요청한 수동 AI 교체만 허용됩니다.");
   }
 
   if (mode === "automatic") {

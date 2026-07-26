@@ -12,7 +12,7 @@ import {
   type ContentDocument,
   type ContentOpportunityQualityReview,
 } from "../content";
-import { analyzeImagePrompts, type ImagePromptIssue } from "../media";
+import { analyzeImagePrompts, isBrightComponentPurpose, type ImagePromptIssue } from "../media";
 import { qualityDimensionWeights } from "./QualityScoringPolicy";
 
 export type QualityCategory = "searchIntent" | "seo" | "readability" | "structure" | "completeness" | "usefulness" | "htmlQuality" | "imageStrategy" | "internalLinks" | "cta";
@@ -224,7 +224,11 @@ function evaluate(s: Signals): QualityDimensionResult[] {
   const imagePromptPenalty = actionableImageIssues.reduce((sum, item) => sum + imageIssuePenalty(item), 0);
   const imageStrategyBaseScore = !s.document.blocks.length ? 0 : imageStrategyComplete ? 94 : s.images.length ? 58 : 72;
   const repeatedImageRolePenalty = s.images.length >= 4 && new Set(s.images.map((item) => item.purpose ?? "inline")).size <= 2 ? 15 : 0;
-  const imagePurposeBonus = s.images.length >= 2 && new Set(s.images.map((item) => `${item.purpose ?? "inline"}:${item.alt.trim().slice(0, 24)}`)).size === s.images.length ? 6 : 0;
+  const zeroCostVisualSignals = s.images.filter((item) => isBrightComponentPurpose(item.purpose)).length
+    + s.contentDiagnostic.sections.reduce((sum, section) => sum + section.tableCount, 0);
+  const distinctImageRoles = s.images.length >= 2
+    && new Set(s.images.map((item) => `${item.purpose ?? "inline"}:${item.alt.trim().slice(0, 24)}`)).size === s.images.length;
+  const imagePurposeBonus = imageStrategyComplete && (zeroCostVisualSignals > 0 || distinctImageRoles) ? 6 : 0;
   const imageStrategyScore = clamp(imageStrategyBaseScore + imagePurposeBonus - imagePromptPenalty - repeatedImageRolePenalty);
   const candidateCount = s.context.availableInternalLinkCandidates;
   const placedInternalLinkCount = contextualInternalLinks.length + relatedPosts.length;
@@ -299,6 +303,7 @@ function evaluate(s: Signals): QualityDimensionResult[] {
         { signal: "sectionContextMissingImagePrompts", value: actionableImageIssues.filter((item) => item.code === "section_context_missing").length },
         { signal: "uniformImagePurpose", value: actionableImageIssues.some((item) => item.code === "uniform_purpose") },
         { signal: "repeatedImageRolePenalty", value: repeatedImageRolePenalty },
+        { signal: "zeroCostVisualSignals", value: zeroCostVisualSignals },
       ]),
     dimension("internalLinks", 100,
       internalLinkReasons.length ? internalLinkReasons : ["내부 링크와 관련 글은 생성·배치 진단 항목이며 품질 점수에는 반영하지 않습니다."],
