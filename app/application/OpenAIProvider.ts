@@ -120,8 +120,8 @@ export function structuredGenerationFormat(target: ContentPlanQualityTarget = de
         additionalProperties: false,
         required: ["afterSection", "purpose", "alt", "prompt"],
         properties: {
-          afterSection: { type: "integer" },
-          purpose: { type: "string", enum: ["hero", "inline", "infographic"] },
+          afterSection: { type: "integer", enum: [0] },
+          purpose: { type: "string", enum: ["hero"] },
           alt: { type: "string" },
           prompt: { type: "string" },
         },
