@@ -1,4 +1,4 @@
-import type { ContentDocument, ImageBlock } from "../content";
+import type { ContentDocument, ImageBlock, ImageBlockPurpose } from "../content";
 import type { MediaAsset, MediaSourceType } from "./Media";
 
 export type ProjectMediaContent = Readonly<{
@@ -13,6 +13,7 @@ export type ProjectMediaReference = Readonly<{
   blockId: string;
   contentId: string;
   contentTitle: string;
+  purpose?: ImageBlockPurpose;
   updatedAt: string;
 }>;
 
@@ -69,6 +70,7 @@ export function buildProjectMediaLibrary(input: Readonly<{
       blockId: block.id,
       contentId: content.id,
       contentTitle: content.title,
+      ...(block.purpose ? { purpose: block.purpose } : {}),
       updatedAt: content.updatedAt,
     }));
     const lastReferencedAt = references.map((reference) => reference.updatedAt).sort().at(-1);
