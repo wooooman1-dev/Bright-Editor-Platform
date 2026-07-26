@@ -136,6 +136,9 @@ function measure(document: ContentDocument, context: QualityReviewContext) {
   const buttons = document.blocks.filter((block) => block.type === "button");
   const images = document.blocks.filter((block) => block.type === "image");
   const imagePromptAnalysis = analyzeImagePrompts(document, context.primaryKeyword);
+  const promptScoredImageIds = new Set(images
+    .filter((item) => !isBrightComponentPurpose(item.purpose) || Boolean(item.source.trim()))
+    .map((item) => item.id));
   const opportunityAlignment = context.opportunity ? analyzeContentOpportunityAlignment(document, context.opportunity) : undefined;
   const unsupportedEvidenceClaims = context.opportunity ? detectUnsupportedEvidenceClaims(text, context.opportunity) : [];
   const normalized = normalizeSeoKeyword(text).toLocaleLowerCase("ko-KR");
@@ -172,7 +175,7 @@ function measure(document: ContentDocument, context: QualityReviewContext) {
   const concreteCriteriaCount = matches(text, /(?:\d+\s*(?:분|초|시간|일|회|번)|첫째|둘째|셋째|1단계|2단계|3단계|먼저|다음(?:으로)?|마지막(?:으로)?|통증|증상|조건|상태|불편|중단|확인)/g);
   const semanticHeadingOverlapCount = countSemanticHeadingOverlap(headingNames);
   const repeatedCoreAdviceCount = contentDiagnostic.repetitionWarnings.length;
-  return { document, context, text, metrics, paragraphs, headings, buttons, images, imagePromptAnalysis, opportunityAlignment, unsupportedEvidenceClaims, contentDiagnostic, hasExplicitQualityTarget, planning: planningPattern.test(text), placeholders: placeholderPattern.test(text), duplicateHeadingCount, emptyHeadings: headings.filter((item) => !item.text.trim()).length, keyword, keywordOccurrences, singleSentenceParagraphs, repeatedOpenings, clicheCount, experienceClaim, sections, shallowSections, metaDescription, titleLength, titleColonCount, titleListSeparatorCount, tistoryTags, duplicateBlockIds, emptyParagraphs, invalidButtonUrls, targetPolicyViolations, editorialInstructionCount, structuralToolSignals, practicalToolSignals, vagueInstructionCount, concreteCriteriaCount, semanticHeadingOverlapCount, repeatedCoreAdviceCount };
+  return { document, context, text, metrics, paragraphs, headings, buttons, images, imagePromptAnalysis, promptScoredImageIds, opportunityAlignment, unsupportedEvidenceClaims, contentDiagnostic, hasExplicitQualityTarget, planning: planningPattern.test(text), placeholders: placeholderPattern.test(text), duplicateHeadingCount, emptyHeadings: headings.filter((item) => !item.text.trim()).length, keyword, keywordOccurrences, singleSentenceParagraphs, repeatedOpenings, clicheCount, experienceClaim, sections, shallowSections, metaDescription, titleLength, titleColonCount, titleListSeparatorCount, tistoryTags, duplicateBlockIds, emptyParagraphs, invalidButtonUrls, targetPolicyViolations, editorialInstructionCount, structuralToolSignals, practicalToolSignals, vagueInstructionCount, concreteCriteriaCount, semanticHeadingOverlapCount, repeatedCoreAdviceCount };
 }
 
 function detectUnsupportedEvidenceClaims(text: string, opportunity: ConfirmedContentOpportunity): readonly string[] {
@@ -220,7 +223,8 @@ function evaluate(s: Signals): QualityDimensionResult[] {
   const singleSentenceThreshold = Math.max(2, Math.floor(s.paragraphs.length * 0.4));
   const singleSentenceExcess = Math.max(0, s.singleSentenceParagraphs - singleSentenceThreshold);
   const imageStrategyComplete = s.images.length > 0 && s.images.every((item) => item.alt.trim().length >= 4);
-  const actionableImageIssues = s.imagePromptAnalysis.issues.filter((item) => item.code !== "missing_prompt");
+  const actionableImageIssues = s.imagePromptAnalysis.issues.filter((item) => item.code !== "missing_prompt"
+    && item.blockIds.every((blockId) => s.promptScoredImageIds.has(blockId)));
   const imagePromptPenalty = actionableImageIssues.reduce((sum, item) => sum + imageIssuePenalty(item), 0);
   const imageStrategyBaseScore = !s.document.blocks.length ? 0 : imageStrategyComplete ? 94 : s.images.length ? 58 : 72;
   const repeatedImageRolePenalty = s.images.length >= 4 && new Set(s.images.map((item) => item.purpose ?? "inline")).size <= 2 ? 15 : 0;
@@ -297,6 +301,7 @@ function evaluate(s: Signals): QualityDimensionResult[] {
         { signal: "recommendedImageBlocks", value: s.images.length },
         { signal: "descriptiveImageBlocks", value: s.images.filter((item) => item.alt.trim().length >= 4).length },
         { signal: "uploadedImageBlocks", value: s.images.filter((item) => Boolean(item.source.trim())).length },
+        { signal: "promptScoredImageBlocks", value: s.promptScoredImageIds.size },
         { signal: "duplicateImagePrompts", value: actionableImageIssues.filter((item) => item.code === "duplicate_prompt").length },
         { signal: "highSimilarityImagePrompts", value: actionableImageIssues.filter((item) => item.code === "high_similarity").length },
         { signal: "purposeMismatchedImagePrompts", value: actionableImageIssues.filter((item) => item.code === "purpose_mismatch").length },
