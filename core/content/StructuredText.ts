@@ -178,7 +178,7 @@ function normalizeColumns(cells: readonly string[], columnCount: number): string
 function normalizePlainText(value: string): string {
   const normalized = value.normalize("NFKC");
   if (!htmlPattern.test(normalized) && !entityPattern.test(normalized)) return normalized.trim();
-  let text = normalized
+  const text = normalized
     .replace(/<ol\b[^>]*>([\s\S]*?)<\/ol>/gi, (_, body: string) => listBody(body, true))
     .replace(/<ul\b[^>]*>([\s\S]*?)<\/ul>/gi, (_, body: string) => listBody(body, false))
     .replace(/<p\b[^>]*>([\s\S]*?)<\/p>/gi, (_, body: string) => `${inlineText(body)}\n`)
