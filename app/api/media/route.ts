@@ -6,9 +6,9 @@ import type { ImageBlock } from "../../../core/content";
 import {
   automaticAIImageLimit,
   buildProjectMediaLibrary,
-  findReusableProjectImage,
   generatedImageCountForContent,
   isBrightComponentPurpose,
+  isProjectImageReusableForBlock,
   selectAutomaticImageBlock,
   type ImageGenerationQuality,
   type ImageGenerationSize,
@@ -25,16 +25,30 @@ const defaultMaxUploadBytes = 10 * 1024 * 1024;
 
 export async function GET(request: Request) {
   try {
-    const contentId = requiredText(new URL(request.url).searchParams.get("contentId"), "Content is required.");
+    const searchParams = new URL(request.url).searchParams;
+    const contentId = requiredText(searchParams.get("contentId"), "Content is required.");
+    const blockId = text(searchParams.get("blockId"));
     const data = await studioStore.get<UserData>(collection, stateId);
     const content = data?.contents.find((item) => item.id === contentId);
     if (!data || !content) throw new Error("프로젝트 이미지 목록을 불러올 콘텐츠를 찾지 못했습니다.");
-    const assets = buildProjectMediaLibrary({
+    const block = blockId
+      ? content.document?.blocks.find((item): item is ImageBlock => item.id === blockId && item.type === "image")
+      : undefined;
+    if (blockId && !block) throw new Error("이미지 블록을 찾지 못했습니다.");
+    const projectAssets = buildProjectMediaLibrary({
       assets: data.mediaMetadata,
       contents: data.contents,
       projectId: content.projectId,
     });
-    return NextResponse.json({ assets, projectId: content.projectId });
+    const assets = block
+      ? projectAssets.filter((asset) => isProjectImageReusableForBlock(asset, block))
+      : projectAssets;
+    return NextResponse.json({
+      assets,
+      projectId: content.projectId,
+      reuseAllowed: block ? block.purpose !== "hero" : true,
+      reusePolicy: block?.purpose === "hero" ? "hero_unique" : "body_only",
+    });
   } catch (error) {
     return NextResponse.json({ error: message(error) }, { status: statusCode(error) });
   }
@@ -99,32 +113,21 @@ async function generateImage(request: Request) {
   const mode = body.mode === "manual" ? "manual" : "automatic";
   const owner = await resolveOwnedImageBlock(contentId, blockId);
 
+  if (isBrightComponentPurpose(owner.block.purpose)) {
+    throw new Error("비교·체크리스트·요약·경고 콘텐츠는 AI 이미지 대신 Bright HTML/SVG 컴포넌트를 사용합니다.");
+  }
+  if (owner.block.purpose !== "hero") {
+    throw new Error("본문 이미지는 비용 없는 Project 이미지 재사용 또는 파일 업로드를 사용합니다. AI 생성은 대표이미지에만 허용됩니다.");
+  }
+
   if (mode === "automatic") {
-    if (isBrightComponentPurpose(owner.block.purpose)) {
-      throw new Error("비교·체크리스트·요약·경고 콘텐츠는 자동 AI 이미지 대신 Bright HTML/SVG 컴포넌트를 사용합니다.");
-    }
     const selected = selectAutomaticImageBlock(owner.content.document!);
     if (!selected || selected.id !== blockId) {
-      throw new Error("자동 AI 이미지는 원고의 대표 이미지 후보 한 개에만 허용됩니다.");
-    }
-    const projectAssets = buildProjectMediaLibrary({
-      assets: owner.data.mediaMetadata,
-      contents: owner.data.contents,
-      projectId: owner.projectId,
-    });
-    const reusable = findReusableProjectImage(projectAssets, owner.block);
-    if (reusable) {
-      console.info("[image-cost-policy] reused project media without AI call", {
-        assetId: reusable.id,
-        blockId,
-        contentId,
-        projectId: owner.projectId,
-      });
-      return NextResponse.json({ asset: reusable, generationSkipped: true, reused: true });
+      throw new Error("자동 AI 이미지는 원고의 대표이미지 한 개에만 허용됩니다.");
     }
     const generatedCount = generatedImageCountForContent(owner.data.mediaMetadata, contentId);
     if (generatedCount >= automaticAIImageLimit) {
-      throw new Error(`자동 AI 이미지는 원고당 최대 ${automaticAIImageLimit}장입니다. 추가 이미지는 편집기에서 직접 생성해 주세요.`);
+      throw new Error(`자동 AI 이미지는 원고당 최대 ${automaticAIImageLimit}장입니다. 대표이미지를 다시 만들려면 편집기에서 직접 생성해 주세요.`);
     }
   }
 
@@ -267,7 +270,7 @@ function statusCode(error: unknown): number {
   const value = message(error);
   if (/OPENAI_API_KEY|required to generate images/i.test(value)) return 503;
   if (/OpenAI image request failed|timed out/i.test(value)) return 502;
-  if (/자동 AI 이미지|Bright HTML\/SVG 컴포넌트/.test(value)) return 409;
+  if (/자동 AI 이미지|대표이미지|본문 이미지|Bright HTML\/SVG 컴포넌트/.test(value)) return 409;
   return 400;
 }
 
