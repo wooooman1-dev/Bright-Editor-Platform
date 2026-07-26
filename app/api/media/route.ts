@@ -43,8 +43,8 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const contentType = request.headers.get("content-type") ?? "";
-    if (contentType.includes("multipart/form-data")) return uploadImage(request);
-    return generateImage(request);
+    if (contentType.includes("multipart/form-data")) return await uploadImage(request);
+    return await generateImage(request);
   } catch (error) {
     return NextResponse.json({ error: message(error) }, { status: statusCode(error) });
   }
