@@ -25,4 +25,10 @@ describe("Tistory draft outcome overlay wiring", () => {
   it("does not show stale backend failure details on a verified result", () => {
     expect(overlaySource).toContain('card.outcome.status === "verified" ? "" : outcomeDetail');
   });
+
+  it("navigates a verified completion to the owning project", () => {
+    expect(overlaySource).toContain('card.outcome.status === "verified"');
+    expect(overlaySource).toContain("projectOutcomeDestination(card.context, window.location.href)");
+    expect(overlaySource).toContain("window.location.assign");
+  });
 });
