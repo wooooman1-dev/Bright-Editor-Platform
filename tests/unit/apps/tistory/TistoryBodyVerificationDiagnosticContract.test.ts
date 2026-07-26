@@ -1,8 +1,15 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { normalizeTistoryDraftWorkerResult } from "../../../../app/application/publishing/TistoryDraftApplicationService";
 import { semanticHtmlDiagnosticCode, semanticHtmlVerified } from "../../../../apps/tistory/workflows/tistory-body-editor.mjs";
 import type { TistoryDraftSaveResult } from "../../../../apps/tistory/workflows/TistoryDraftSaveWorkflow";
+
+const draftWorkerSource = readFileSync(
+  join(process.cwd(), "apps/tistory/workflows/tistory-draft-worker.mjs"),
+  "utf8",
+);
 
 const completeEvidence = Object.freeze({
   textLengthWithinTolerance: true,
@@ -60,6 +67,12 @@ describe("Tistory body verification diagnostics", () => {
       expectedImageCount: 3,
       imageCount: 0,
     })).toBe("rendered_image_mismatch");
+  });
+
+  it("counts reopened native images from the TinyMCE body DOM", () => {
+    expect(draftWorkerSource).toContain('window.tinymce?.activeEditor?.getBody?.()');
+    expect(draftWorkerSource).toContain('imageEvidenceSource: actualImageEvidence.editorAvailable ? "tinymce_body_dom" : "serialized_html"');
+    expect(draftWorkerSource).toContain("const observedImages = actualImageEvidence.editorAvailable ? actualImageEvidence.images : found.images");
   });
 
   it("keeps the semantic verifier boolean contract", () => {

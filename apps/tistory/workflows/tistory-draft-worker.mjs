@@ -115,6 +115,17 @@ try {
   const existingDraftCount = await currentDraftCount(page);
   const existing = existingDraftCount ? await reopenExistingDraft(page, command.title) : undefined;
   if (existing?.passed) fail("draft_reopened", "duplicate_draft_exists", "같은 제목의 기존 Tistory 임시글이 있어 새 임시저장을 실행하지 않았습니다.");
+  if (existing) {
+    draftLookupDiagnostic = existing.draftList;
+    const dismissed = await dismissDraftListAfterExistingDraftInspection(page);
+    if (!dismissed.passed) fail("draft_preflight", dismissed.code, dismissed.message);
+    step("draft_preflight", "일치하는 기존 임시글이 없어 검사 목록을 닫고 새 임시저장 준비 상태를 확인했습니다.", {
+      existingDraftCount,
+      inspectionCode: existing.code,
+      listActuallyOpened: Boolean(existing.draftList),
+      ...dismissed.evidence,
+    });
+  }
 
   const category = await selectCategory(page, command.categoryId, command.categoryName);
   if (!category.passed) fail("category_applied", category.code, category.message);
@@ -556,7 +567,19 @@ async function waitForCodeMirrorValueStability(targetPage, index, expectedValue)
 
 async function verifyRenderedHtml(targetPage, expectedHtml) {
   const renderedHtml = await targetPage.evaluate(() => window.tinymce?.activeEditor?.getContent?.() ?? "").catch(() => "");
-  const comparison = await targetPage.evaluate(({ expected, actual }) => {
+  const renderedImageEvidence = await targetPage.evaluate(() => {
+    const body = window.tinymce?.activeEditor?.getBody?.();
+    if (!body) return { editorAvailable: false, images: [] };
+    const normalize = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
+    return {
+      editorAvailable: true,
+      images: [...body.querySelectorAll("img")].map((node) => ({
+        sourcePresent: Boolean(node.currentSrc || node.getAttribute("src") || node.getAttribute("data-url") || node.getAttribute("data-phocus")),
+        altPresent: Boolean(normalize(node.getAttribute("alt"))),
+      })),
+    };
+  }).catch(() => ({ editorAvailable: false, images: [] }));
+  const comparison = await targetPage.evaluate(({ expected, actual, actualImageEvidence }) => {
     const analyze = (html) => {
       const document = new DOMParser().parseFromString(html, "text/html");
       const normalize = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
@@ -576,6 +599,7 @@ async function verifyRenderedHtml(targetPage, expectedHtml) {
       };
     };
     const wanted = analyze(expected); const found = analyze(actual);
+    const observedImages = actualImageEvidence.editorAvailable ? actualImageEvidence.images : found.images;
     const containsAll = (actualValues, expectedValues) => expectedValues.every((value) => actualValues.includes(value));
     return {
       expectedTextLength: wanted.textLength,
@@ -600,10 +624,11 @@ async function verifyRenderedHtml(targetPage, expectedHtml) {
       ctaLinksMatched: containsAll(found.ctaUrls, wanted.ctaUrls),
       invalidPlaceholderLinks: found.invalidPlaceholderLinks,
       expectedImageCount: wanted.images.length,
-      imageCount: found.images.length,
-      imagesMatched: wanted.images.length === found.images.length && found.images.every((image) => image.sourcePresent && image.altPresent),
+      imageCount: observedImages.length,
+      imagesMatched: wanted.images.length === observedImages.length && observedImages.every((image) => image.sourcePresent && image.altPresent),
+      imageEvidenceSource: actualImageEvidence.editorAvailable ? "tinymce_body_dom" : "serialized_html",
     };
-  }, { expected: expectedHtml, actual: renderedHtml }).catch(() => undefined);
+  }, { expected: expectedHtml, actual: renderedHtml, actualImageEvidence: renderedImageEvidence }).catch(() => undefined);
   const passed = semanticHtmlVerified(comparison);
   return { passed, diagnostic: { expectedLength: expectedHtml.length, renderedLength: renderedHtml.length, ...(comparison ?? {}) } };
 }
@@ -813,6 +838,24 @@ async function reopenExistingDraft(targetPage, title, preferredId) {
 }
 
 function reopenFailure(failedStep, code, message) { return { passed: false, failedStep, code, message }; }
+
+async function dismissDraftListAfterExistingDraftInspection(targetPage) {
+  const dialogs = targetPage.locator('[role="dialog"][aria-modal="true"]:visible').filter({ hasText: /임시저장/ });
+  const dialog = dialogs.last();
+  if (!await dialog.isVisible().catch(() => false)) {
+    return { passed: true, evidence: { listDismissed: false, listContainerVisibleAfter: false } };
+  }
+  const cancel = dialog.getByRole("button", { name: "취소", exact: true }).last();
+  if (!await cancel.isVisible().catch(() => false) || !await cancel.isEnabled().catch(() => false)) {
+    return { passed: false, code: "draft_list_close_control_not_found", message: "기존 임시글 검사 후 목록을 닫는 control을 찾지 못했습니다." };
+  }
+  const clickable = await cancel.click({ trial: true, timeout: 3000 }).then(() => true).catch(() => false);
+  if (!clickable) return { passed: false, code: "draft_list_close_control_not_clickable", message: "기존 임시글 검사 후 목록 닫기 control을 클릭할 수 없습니다." };
+  await cancel.click({ timeout: 3000 });
+  const closed = await dialog.waitFor({ state: "hidden", timeout: 3000 }).then(() => true).catch(() => false);
+  if (!closed) return { passed: false, code: "draft_list_close_failed", message: "기존 임시글 검사 후 목록이 닫히지 않았습니다." };
+  return { passed: true, evidence: { listDismissed: true, listContainerVisibleAfter: false } };
+}
 
 async function waitForDraftListContainer(targetPage, title) {
   const roots = targetPage.locator('[role="dialog"], [aria-modal="true"], [role="listbox"], [id*="draft" i], [class*="draft" i], [class*="layer" i], [class*="popup" i]');

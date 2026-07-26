@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { reopenedRepresentativeLooksSelected } from "../../../../apps/tistory/workflows/tistory-reopened-evidence.mjs";
+import { reopenedRepresentativeLooksSelected, tistoryRepresentativeMediaKey } from "../../../../apps/tistory/workflows/tistory-reopened-evidence.mjs";
 
 const reopenedEvidenceSource = readFileSync(
   join(process.cwd(), "apps/tistory/workflows/tistory-reopened-evidence.mjs"),
@@ -25,11 +25,19 @@ describe("Tistory reopened evidence", () => {
     expect(reopenedRepresentativeLooksSelected({ className: "mce-represent-image-btn" })).toBe(false);
   });
 
+  it("matches Tistory draft thumbnail identity to the reopened native image", () => {
+    expect(tistoryRepresentativeMediaKey("kage@bszUGC/dJMcaasE8fU/path/img.png?credential=value")).toBe("bszUGC/dJMcaasE8fU/path/img.png");
+    expect(tistoryRepresentativeMediaKey("https://blog.kakaocdn.net/dna/bszUGC/dJMcaasE8fU/path/img.png?credential=value")).toBe("bszUGC/dJMcaasE8fU/path/img.png");
+  });
+
   it("selects only a native TinyMCE image and reads the exact Tistory control", () => {
     expect(reopenedEvidenceSource).toContain("body#tinymce figure.imageblock img");
     expect(reopenedEvidenceSource).toContain('const representativeControlSelector = ".mce-represent-image-btn"');
     expect(reopenedEvidenceSource).toContain("const target = await firstReopenedNativeImage(page)");
     expect(reopenedEvidenceSource).toContain("waitForRepresentativeControl(page)");
+    expect(reopenedEvidenceSource).toContain("page.context().request.get(detailUrl");
+    expect(reopenedEvidenceSource).toContain("draft?.thumbnail");
+    expect(reopenedEvidenceSource).toContain('stateSource: "draft_detail_thumbnail"');
   });
 
   it("checks actual reopened native content even when diagnostic media upload items are empty", () => {

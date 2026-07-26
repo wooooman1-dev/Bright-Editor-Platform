@@ -72,4 +72,16 @@ describe("Tistory category evidence", () => {
     expect(categoryLocatorSource).toContain("[role=\"button\"][aria-controls*=\"category\" i]");
     expect(categoryLocatorSource).toContain("[role=\"combobox\"]");
   });
+
+  it("dismisses a no-match draft list before category selection", () => {
+    const existingDraftInspection = draftWorkerSource.indexOf("const existing = existingDraftCount ? await reopenExistingDraft");
+    const dismissal = draftWorkerSource.indexOf("await dismissDraftListAfterExistingDraftInspection(page)");
+    const categorySelection = draftWorkerSource.indexOf("const category = await selectCategory(page, command.categoryId, command.categoryName)", dismissal);
+    expect(existingDraftInspection).toBeGreaterThan(-1);
+    expect(dismissal).toBeGreaterThan(existingDraftInspection);
+    expect(categorySelection).toBeGreaterThan(dismissal);
+    expect(draftWorkerSource).toContain('getByRole("button", { name: "취소", exact: true })');
+    expect(draftWorkerSource).toContain('dialog.waitFor({ state: "hidden", timeout: 3000 })');
+    expect(draftWorkerSource).toContain('fail("draft_preflight", dismissed.code, dismissed.message)');
+  });
 });

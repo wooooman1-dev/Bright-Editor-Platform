@@ -33,6 +33,8 @@ export function reopenedRepresentativeLooksSelected(
   state: ReopenedRepresentativeControlState | undefined,
 ): boolean;
 
+export function tistoryRepresentativeMediaKey(value: unknown): string;
+
 export function verifyReopenedTistoryRepresentativeImage(
   page: unknown,
   expectedMediaCount: number,
