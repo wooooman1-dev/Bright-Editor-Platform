@@ -33,7 +33,8 @@ describe("Bright Studio image workspace", () => {
   });
 
   it("validates image ownership and supported upload formats on the server", () => {
-    expect(mediaRouteSource).toContain("assertOwnedImageBlock(contentId, blockId)");
+    expect(mediaRouteSource).toContain("resolveOwnedImageBlock(contentId, blockId)");
+    expect(mediaRouteSource).toContain("item.id === blockId && item.type === \"image\"");
     expect(mediaRouteSource).toContain("imageTypeFromMimeType(file.type)");
     expect(mediaRouteSource).toContain("BRIGHT_STUDIO_MAX_IMAGE_BYTES");
   });
@@ -49,6 +50,7 @@ describe("Bright Studio image workspace", () => {
     expect(imageEditorSource).toContain("파일 복사본은 만들지 않습니다");
     expect(imageEditorSource).toContain("referenceCount");
     expect(mediaRouteSource).toContain("buildProjectMediaLibrary");
+    expect(mediaRouteSource).toContain("findReusableProjectImage");
     expect(mediaLibrarySource).toContain("referenceCount: references.length");
   });
 
@@ -58,8 +60,9 @@ describe("Bright Studio image workspace", () => {
     expect(imageProviderSource).toContain('fetch("https://api.openai.com/v1/images/generations"');
   });
 
-  it("creates standalone production prompts in the existing single editorial generation call", () => {
-    expect(generationSource).toContain("Every image block must include");
+  it("creates at most one optional standalone production prompt in the existing editorial generation call", () => {
+    expect(generationSource).toContain("Return no more than one source-empty image recommendation block");
+    expect(generationSource).toContain("return zero when an image is not materially needed");
     expect(generationSource).toContain("standalone production prompt");
     expect(generationSource).toContain("ensureDistinctImagePrompts");
     expect(generationSource).toContain('prompt: `${subject}. 한국 블로그 본문에 적합한 고품질 이미지');
