@@ -24,7 +24,7 @@ vi.mock("../../../../app/application/media/LocalMediaStorage", async (importOrig
   };
 });
 
-import { POST } from "../../../../app/api/media/route";
+import { GET, POST } from "../../../../app/api/media/route";
 import type { UserData } from "../../../../app/user-flow/user-data";
 import type { ImageBlock, ImageBlockPurpose } from "../../../../core/content";
 import type { MediaAsset } from "../../../../core/media";
@@ -33,7 +33,7 @@ describe("media route image cost policy", () => {
   let current: UserData;
 
   beforeEach(() => {
-    current = userData(planned("hero", "hero", "근력운동 유산소운동 비교 대표 이미지"));
+    current = userData([planned("hero", "hero", "근력운동 유산소운동 비교 대표 이미지")]);
     storeMocks.get.mockImplementation(async () => current);
     storeMocks.update.mockImplementation(async (_collection: string, _stateId: string, updater: (value: UserData | undefined) => UserData) => {
       current = updater(current);
@@ -56,11 +56,11 @@ describe("media route image cost policy", () => {
     vi.restoreAllMocks();
   });
 
-  it("reuses suitable Project media without calling the paid image provider", async () => {
+  it("creates a new hero instead of reusing another post's representative image", async () => {
     current = {
       ...current,
       mediaMetadata: [asset({
-        id: "reusable",
+        id: "old-hero",
         contentId: "older-content",
         alt: "근력운동 유산소운동 비교 대표 이미지",
         prompt: "근력운동과 유산소운동을 나란히 비교한 장면",
@@ -69,46 +69,51 @@ describe("media route image cost policy", () => {
       })],
     };
 
-    const response = await POST(request({ action: "generate", contentId: "content-1", blockId: "hero", prompt: "근력운동과 유산소운동을 나란히 비교한 장면", alt: "근력운동 유산소운동 비교 대표 이미지" }));
+    const response = await POST(postRequest({ action: "generate", contentId: "content-1", blockId: "hero", prompt: "근력운동과 유산소운동을 나란히 비교한 장면", alt: "근력운동 유산소운동 비교 대표 이미지" }));
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body).toMatchObject({ reused: true, generationSkipped: true, asset: { id: "reusable" } });
-    expect(providerMocks.generate).not.toHaveBeenCalled();
-    expect(storageMocks.save).not.toHaveBeenCalled();
+    expect(body).toMatchObject({ reused: false, generation: { model: "test-image-model" } });
+    expect(providerMocks.generate).toHaveBeenCalledOnce();
+    expect(storageMocks.save).toHaveBeenCalledOnce();
   });
 
-  it("blocks a second automatic AI image for the same content", async () => {
+  it("returns no Project reuse candidates for a hero block", async () => {
     current = {
       ...current,
       mediaMetadata: [asset({
-        id: "already-generated",
-        contentId: "content-1",
-        alt: "전혀 다른 수면 습관 사진",
-        prompt: "침실에서 수면 기록을 작성하는 장면",
+        id: "old-inline",
+        contentId: "older-content",
+        alt: "본문 운동 이미지",
+        prompt: "운동 자세 설명 장면",
         purpose: "inline",
-        sourceType: "ai_generated",
+        sourceType: "upload",
       })],
     };
 
-    const response = await POST(request({ action: "generate", contentId: "content-1", blockId: "hero", prompt: "근력운동과 유산소운동을 나란히 비교한 장면", alt: "근력운동 유산소운동 비교 대표 이미지" }));
+    const response = await GET(new Request("http://localhost/api/media?contentId=content-1&blockId=hero"));
+    const body = await response.json();
 
-    expect(response.status).toBe(409);
-    await expect(response.json()).resolves.toMatchObject({ error: expect.stringContaining("원고당 최대 1장") });
-    expect(providerMocks.generate).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({ assets: [], reuseAllowed: false, reusePolicy: "hero_unique" });
   });
 
-  it("blocks automatic generation for Bright component purposes", async () => {
-    current = userData(planned("comparison", "comparison", "운동 비교 카드"));
+  it("lists only non-hero Project media for a body block", async () => {
+    current = userData([planned("inline", "inline", "운동 자세 본문 이미지")], [
+      asset({ id: "old-hero", contentId: "older-content", alt: "운동 자세 대표 이미지", prompt: "운동 자세 본문 이미지", purpose: "hero", sourceType: "ai_generated" }),
+      asset({ id: "body-image", contentId: "older-content", alt: "운동 자세 본문 이미지", prompt: "운동 자세 본문 이미지", purpose: "inline", sourceType: "upload" }),
+    ]);
 
-    const response = await POST(request({ action: "generate", contentId: "content-1", blockId: "comparison", prompt: "운동 비교 카드", alt: "운동 비교 카드" }));
+    const response = await GET(new Request("http://localhost/api/media?contentId=content-1&blockId=inline"));
+    const body = await response.json() as { assets: MediaAsset[]; reuseAllowed: boolean; reusePolicy: string };
 
-    expect(response.status).toBe(409);
-    await expect(response.json()).resolves.toMatchObject({ error: expect.stringContaining("Bright HTML/SVG 컴포넌트") });
-    expect(providerMocks.generate).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(body.reuseAllowed).toBe(true);
+    expect(body.reusePolicy).toBe("body_only");
+    expect(body.assets.map((item) => item.id)).toEqual(["body-image"]);
   });
 
-  it("allows an additional image only when the editor explicitly sends manual mode", async () => {
+  it("blocks a second automatic AI image for the same content", async () => {
     current = {
       ...current,
       mediaMetadata: [asset({
@@ -121,7 +126,47 @@ describe("media route image cost policy", () => {
       })],
     };
 
-    const response = await POST(request({ action: "generate", mode: "manual", contentId: "content-1", blockId: "hero", prompt: "사용자가 명시적으로 요청한 추가 이미지", alt: "추가 이미지" }));
+    const response = await POST(postRequest({ action: "generate", contentId: "content-1", blockId: "hero", prompt: "새 대표 장면", alt: "새 대표 이미지" }));
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({ error: expect.stringContaining("원고당 최대 1장") });
+    expect(providerMocks.generate).not.toHaveBeenCalled();
+  });
+
+  it("blocks AI generation for Bright component purposes", async () => {
+    current = userData([planned("comparison", "comparison", "운동 비교 카드")]);
+
+    const response = await POST(postRequest({ action: "generate", mode: "manual", contentId: "content-1", blockId: "comparison", prompt: "운동 비교 카드", alt: "운동 비교 카드" }));
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({ error: expect.stringContaining("Bright HTML/SVG 컴포넌트") });
+    expect(providerMocks.generate).not.toHaveBeenCalled();
+  });
+
+  it("blocks paid AI generation for body image purposes", async () => {
+    current = userData([planned("inline", "inline", "운동 자세 본문 이미지")]);
+
+    const response = await POST(postRequest({ action: "generate", mode: "manual", contentId: "content-1", blockId: "inline", prompt: "운동 자세", alt: "운동 자세" }));
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({ error: expect.stringContaining("본문 이미지는 비용 없는") });
+    expect(providerMocks.generate).not.toHaveBeenCalled();
+  });
+
+  it("allows the editor to explicitly regenerate the current content's hero", async () => {
+    current = {
+      ...current,
+      mediaMetadata: [asset({
+        id: "already-generated",
+        contentId: "content-1",
+        alt: "기존 대표 이미지",
+        prompt: "기존 대표 장면",
+        purpose: "hero",
+        sourceType: "ai_generated",
+      })],
+    };
+
+    const response = await POST(postRequest({ action: "generate", mode: "manual", contentId: "content-1", blockId: "hero", prompt: "사용자가 명시적으로 요청한 새 대표이미지", alt: "새 대표이미지" }));
     const body = await response.json();
 
     expect(response.status).toBe(200);
@@ -132,7 +177,7 @@ describe("media route image cost policy", () => {
   });
 });
 
-function request(body: Record<string, unknown>): Request {
+function postRequest(body: Record<string, unknown>): Request {
   return new Request("http://localhost/api/media", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -140,7 +185,7 @@ function request(body: Record<string, unknown>): Request {
   });
 }
 
-function userData(block: ImageBlock): UserData {
+function userData(blocks: ImageBlock[], mediaMetadata?: MediaAsset[]): UserData {
   return {
     workspace: {
       id: "workspace-1",
@@ -165,8 +210,9 @@ function userData(block: ImageBlock): UserData {
       searchIntent: "운동 선택",
       createdAt: "now",
       updatedAt: "now",
-      document: { id: "content-1", title: "Draft", blocks: [block] },
+      document: { id: "content-1", title: "Draft", blocks },
     }],
+    ...(mediaMetadata ? { mediaMetadata } : {}),
   };
 }
 
