@@ -179,6 +179,23 @@ export function approvalPolicyPromptContext(snapshot: ApprovalPolicySnapshot): s
   ].join("\n");
 }
 
+export function approvalPolicySnapshotFromEditorialContext(
+  editorialContext: unknown,
+): ApprovalPolicySnapshot | undefined {
+  if (typeof editorialContext !== "string" || !editorialContext.includes("Content purpose: adsense_approval")) {
+    return undefined;
+  }
+  if (!editorialContext.includes("Approval policy: adsense_approval_mode@1.0")) {
+    throw new Error("Canonical editorial context contains an unsupported approval policy version.");
+  }
+  const profileId = approvalPolicyProfileIds.find((value) =>
+    editorialContext.includes(`Approval profile: ${value}@1.0`));
+  if (!profileId) {
+    throw new Error("Canonical editorial context is missing an approved policy profile.");
+  }
+  return resolveApprovalPolicySnapshot("adsense_approval", profileId);
+}
+
 export function evaluateApprovalPreparationText(
   text: string,
   snapshot: ApprovalPolicySnapshot,
