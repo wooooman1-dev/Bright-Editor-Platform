@@ -8,6 +8,7 @@ import {
   createWorkspace,
   emptyUserData,
   startContentPlanning,
+  type UserContent,
   type UserData,
 } from "../../../../../app/user-flow/user-data";
 
@@ -23,13 +24,13 @@ function projectData(): UserData {
   });
 }
 
-function planning(data: UserData): UserData {
+function planning(data: UserData, contentId = "content-1", operationId = "operation-1"): UserData {
   return startContentPlanning(data, {
-    id: "content-1",
+    id: contentId,
     projectId: "project-1",
     request: "오늘의 승인 준비 미술 감상 글을 작성해줘",
     selectionMode: "automatic",
-    operationId: "operation-1",
+    operationId,
     now: "2026-07-27T02:00:00.000Z",
   });
 }
@@ -39,6 +40,36 @@ function approvalProject(): UserData {
     contentPurpose: "adsense_approval",
     approvalProfileId: "tistory_vivarain_art_v1",
   }, "2026-07-27T01:00:00.000Z");
+}
+
+function withDocument(content: UserContent, title: string, heading: string, paragraph: string): UserContent {
+  const now = "2026-07-27T04:00:00.000Z";
+  return {
+    ...content,
+    title,
+    updatedAt: now,
+    document: {
+      id: content.id,
+      title,
+      metadata: {
+        buttonCount: 0,
+        createdAt: now,
+        generator: "test",
+        imageCount: 0,
+        language: "ko",
+        readingTime: 1,
+        source: "test",
+        updatedAt: now,
+        version: 1,
+        videoCount: 0,
+        wordCount: 20,
+      },
+      blocks: [
+        { id: `${content.id}-h1`, type: "heading", level: 2, text: heading },
+        { id: `${content.id}-p1`, type: "paragraph", text: paragraph },
+      ],
+    },
+  };
 }
 
 describe("ApprovalAwarePersistenceStore", () => {
@@ -119,5 +150,34 @@ describe("ApprovalAwarePersistenceStore", () => {
     const saved = await store.get<UserData>("application", "user-data");
     expect(saved?.contents[0]).toMatchObject({ contentPurpose: "standard" });
     expect(saved?.contents[0]).not.toHaveProperty("approvalProfileId");
+  });
+
+  it("persists deterministic duplicate snapshots for approval documents in the same Project", async () => {
+    const store = new ApprovalAwarePersistenceStore(new InMemoryPersistenceStore());
+    await store.set("application", "user-data", approvalProject());
+    await store.update<UserData>("application", "user-data", (current) => planning(current!, "content-1", "operation-1"));
+    await store.update<UserData>("application", "user-data", (current) => planning(current!, "content-2", "operation-2"));
+    const planned = (await store.get<UserData>("application", "user-data"))!;
+    const [first, second] = planned.contents;
+
+    await store.set("application", "user-data", {
+      ...planned,
+      contents: [
+        withDocument(first, "작품 감상 가이드", "색을 보는 순서", "먼저 중심 색과 주변 색을 비교합니다."),
+        withDocument(second, "작품 감상 가이드", "색을 보는 순서", "먼저 중심 색과 주변 색을 비교합니다."),
+      ],
+    });
+
+    const saved = (await store.get<UserData>("application", "user-data"))!;
+    expect(saved.contents[0].document?.metadata?.approvalDuplicateCheck).toMatchObject({
+      status: "blocked",
+      matchedContentId: "content-2",
+      highestSimilarity: 1,
+    });
+    expect(saved.contents[1].document?.metadata?.approvalDuplicateCheck).toMatchObject({
+      status: "blocked",
+      matchedContentId: "content-1",
+      highestSimilarity: 1,
+    });
   });
 });
