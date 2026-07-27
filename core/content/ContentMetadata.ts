@@ -1,3 +1,4 @@
+import type { ApprovalPolicySnapshot } from "../approval";
 import type { ContentPlanQualityTarget, ContentSectionType } from "./ContentDepthPolicy";
 import type { LongFormDiagnostic } from "./LongFormDiagnostics";
 
@@ -21,6 +22,7 @@ export type ContentMetadata = Readonly<{
   tags?: readonly string[];
   availableRelatedContentCandidates?: number;
   internalLinkCatalogStatus?: "evaluated" | "category_missing" | "catalog_unavailable";
+  approvalPolicy?: ApprovalPolicySnapshot;
   qualityTarget?: ContentPlanQualityTarget;
   generationDiagnostic?: LongFormDiagnostic;
   reviewDiagnostic?: LongFormDiagnostic;
