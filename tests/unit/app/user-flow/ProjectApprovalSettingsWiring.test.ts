@@ -9,7 +9,7 @@ describe("Project approval settings UI wiring", () => {
     expect(source).toContain('import { ProjectApprovalSettingsCard } from "./ProjectApprovalSettingsCard";');
     expect(source).toContain("<ProjectApprovalSettingsCard data={data} onPersist={onPersist} project={project} />");
 
-    const strategyIndex = source.indexOf(`${project.name} 프로젝트의 콘텐츠 전략을 사용합니다.`);
+    const strategyIndex = source.indexOf("프로젝트의 콘텐츠 전략을 사용합니다.");
     const approvalIndex = source.indexOf("<ProjectApprovalSettingsCard data={data} onPersist={onPersist} project={project} />");
     const publishingIndex = source.indexOf("<PublishingTargetSelector data={data} onPersist={onPersist} project={project}");
 
