@@ -11,7 +11,7 @@ import {
   type QualityReviewContext,
 } from "./QualityEngine";
 
-type ApprovalAwareQualityReport = QualityReport & Readonly<{
+export type ApprovalAwareQualityReport = QualityReport & Readonly<{
   approvalReadiness?: ApprovalReadinessReport;
 }>;
 
@@ -28,7 +28,7 @@ type ApprovalAwareQualityReport = QualityReport & Readonly<{
  * 100, never means the whole site is application-ready.
  */
 export class QualityEngine extends BaseQualityEngine {
-  review(document: ContentDocument, context: QualityReviewContext = {}): QualityReport {
+  review(document: ContentDocument, context: QualityReviewContext = {}): ApprovalAwareQualityReport {
     const report = super.review(document, context);
     const snapshot = document.metadata?.approvalPolicy;
     if (!snapshot) return report;
@@ -40,7 +40,7 @@ export class QualityEngine extends BaseQualityEngine {
     return Object.freeze({
       ...report,
       approvalReadiness,
-    }) as QualityReport;
+    });
   }
 }
 
