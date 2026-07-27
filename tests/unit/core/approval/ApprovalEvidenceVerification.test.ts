@@ -5,8 +5,8 @@ import {
   verifyApprovalEvidence,
   type ApprovalEvidencePack,
   type ApprovalSourcePage,
-} from "../../../../../core/approval";
-import type { ContentDocument } from "../../../../../core/content";
+} from "../../../../core/approval";
+import type { ContentDocument } from "../../../../core/content";
 
 const sourceUrl = "https://www.moma.org/collection/works/79802";
 const candidatePack: ApprovalEvidencePack = {
