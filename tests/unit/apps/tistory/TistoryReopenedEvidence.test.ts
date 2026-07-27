@@ -15,7 +15,7 @@ const tagWorkflowSource = readFileSync(
 const draftWorkerSource = readFileSync(
   join(process.cwd(), "apps/tistory/workflows/tistory-draft-worker.mjs"),
   "utf8",
-);
+).replace(/\r\n?/g, "\n");
 
 describe("Tistory reopened evidence", () => {
   it("recognizes the persisted active representative control state", () => {
