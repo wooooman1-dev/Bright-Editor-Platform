@@ -79,7 +79,7 @@ export class ApprovalReadinessApplicationService {
     const siteReadiness = await resolveSiteReadiness({
       connection: input.connection,
       checkedAt,
-      expectedTerms: siteIdentityTerms(project, content),
+      expectedTerms: siteIdentityTerms(input.data, project, content),
       fetcher: this.fetcher,
     });
 
@@ -245,9 +245,16 @@ function removeGeneratedSourceSection(document: ContentDocument): ContentDocumen
   return blocks.length === document.blocks.length ? document : { ...document, blocks: Object.freeze(blocks) };
 }
 
-function siteIdentityTerms(project: UserData["projects"][number], content: UserContent): readonly string[] {
+function siteIdentityTerms(
+  data: UserData,
+  project: UserData["projects"][number],
+  content: UserContent,
+): readonly string[] {
   const strategy = resolveProjectStrategy(project);
-  const values = [project.name, project.brandName, strategy.primaryTopic, content.document?.metadata?.approvalPolicy?.siteIdentity]
+  const brandName = project.brandId
+    ? data.brands.find((brand) => brand.id === project.brandId && brand.workspaceId === project.workspaceId)?.name
+    : undefined;
+  const values = [project.name, brandName, strategy.primaryTopic, content.document?.metadata?.approvalPolicy?.siteIdentity]
     .filter((value): value is string => typeof value === "string" && Boolean(value.trim()));
   const tokens = values.flatMap((value) => [value, ...value.split(/[\s·|,/]+/g)])
     .map((value) => value.trim())
