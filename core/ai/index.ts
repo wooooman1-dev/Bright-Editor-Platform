@@ -1,4 +1,4 @@
-export type { AIProvider, AIRequest, AIResponse } from "./AIProvider";
+export type { AIProvider, AIRequest, AIResponse, AIWebSource } from "./AIProvider";
 export {
   AIWorkflow,
   withApprovalPolicyMetadata,
