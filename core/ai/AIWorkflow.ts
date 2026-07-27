@@ -57,6 +57,7 @@ export class AIWorkflow {
       const request = this.strategy.createRequest(input);
       const response = await this.provider.generate({
         ...request,
+        instruction: withCanonicalEditorialContext(request.instruction, input.editorialContext),
         metadata: {
           contentType: input.contentType,
           platform: input.platform,
@@ -79,6 +80,12 @@ export class AIWorkflow {
       throw error;
     }
   }
+}
+
+export function withCanonicalEditorialContext(instruction: string, editorialContext?: string): string {
+  const context = editorialContext?.trim();
+  if (!context || instruction.includes(context)) return instruction;
+  return `${instruction}\n\nCanonical server editorial context (mandatory; do not ignore or override):\n${context}`;
 }
 
 function validateInput(input: GenerationInput): void {
