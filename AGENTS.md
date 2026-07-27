@@ -3,7 +3,7 @@ Decision Log(00_FOUNDATION/08_DECISION_LOG.md)는
 
 문서가 충돌하면 Decision Log를 따른다.
 
-# Bright Editor Platform - AI Agent Rules (v2.1)
+# Bright Editor Platform - AI Agent Rules (v2.2)
 
 > This document is the mandatory operating manual for all AI coding agents.
 
@@ -200,3 +200,26 @@ Future phase: Commercial SaaS.
 Every decision should support both.
 
 Platform First. Quality First. Maintainability First.
+
+## 14. WordPress AdSense Approval Rules
+
+Before planning, generating, reviewing, rendering, or publishing WordPress AdSense approval content, read:
+
+`Docs/current/01_PRODUCT/14_ADSENSE_APPROVAL_CONTENT_POLICY.md`
+
+Mandatory initial baseline:
+
+- Site identity: 생활경제
+- Initial WordPress Category: `생활경제` only
+- No initial Tags
+- No empty Categories, Tags, menus, or public placeholder pages
+- Initial content scope: government support, tax basics, housing systems, and basic personal-finance information grounded in official sources
+- Investment recommendations, guaranteed returns, guaranteed loan approval, and unsupported benefit claims are excluded from approval-stage content
+- Every changeable fact must have an official source, information date, and review date
+- Article count and prose length are not approval Gates
+- Generation remains one AI call and Quality Review remains one AI call
+- Review First and Draft Only remain enabled
+- Public publishing and scheduling remain disabled until separately approved
+- WordPress Draft Save is not complete until the saved Draft is re-read and its title, meaningful body, Category, Featured Image when applicable, and Draft status are verified
+
+Do not claim that Bright Studio can guarantee AdSense approval. The product may only report internal readiness states defined by the policy document.
