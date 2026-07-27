@@ -1,14 +1,22 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveApprovalPolicySnapshot } from "../../../../core/approval";
+import {
+  resolveApprovalPolicySnapshot,
+  type ApprovalReadinessReport,
+} from "../../../../core/approval";
 import type { ContentDocument } from "../../../../core/content";
 import {
   isApprovalApplicationReady,
   isStandardQualityApproved,
   QualityEngine,
+  type QualityReport,
 } from "../../../../core/quality";
 
 const snapshot = resolveApprovalPolicySnapshot("adsense_approval", "tistory_vivarain_art_v1")!;
+
+type ApprovalAwareReport = QualityReport & Readonly<{
+  approvalReadiness?: ApprovalReadinessReport;
+}>;
 
 function document(text: string, approval = true): ContentDocument {
   return {
@@ -38,7 +46,7 @@ function document(text: string, approval = true): ContentDocument {
 describe("approval preparation Quality policy", () => {
   it("keeps approval guarantee claims in the separate readiness report", () => {
     const text = "공식 소장처 자료를 확인했습니다. 이 글이면 애드센스 100% 승인을 보장합니다.";
-    const approvalReport = new QualityEngine().review(document(text));
+    const approvalReport = new QualityEngine().review(document(text)) as ApprovalAwareReport;
     const standardReport = new QualityEngine().review(document(text, false));
 
     expect(approvalReport).toMatchObject({
@@ -58,7 +66,7 @@ describe("approval preparation Quality policy", () => {
   it("keeps missing source requirements out of manuscript Quality tasks", () => {
     const report = new QualityEngine().review(document(
       "작품의 구도와 색채를 관찰하면 시선이 이동하는 순서를 이해할 수 있습니다.",
-    ));
+    )) as ApprovalAwareReport;
 
     expect(report.approvalReadiness?.checks).toContainEqual(expect.objectContaining({
       key: "approval_policy",
