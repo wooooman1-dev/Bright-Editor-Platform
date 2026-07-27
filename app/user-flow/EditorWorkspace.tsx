@@ -11,6 +11,7 @@ import { ContentDocumentEditor } from "./ContentDocumentEditor";
 import { ContentDangerZone } from "./ContentDangerZone";
 import { ContentSeoTitleStatus } from "./ContentSeoTitleStatus";
 import { QualityImprovementPreview } from "./QualityImprovementPreview";
+import { ApprovalReadinessActions } from "./ApprovalReadinessActions";
 
 type SafeConnection = Readonly<{ id: string; platform: "tistory" | "wordpress"; displayName: string; status: string; lastVerifiedAt?: string; publicMetadata?: Readonly<{ sessionStateAvailable?: boolean }> }>;
 type PreviewMode = "desktop" | "mobile";
@@ -68,8 +69,8 @@ export function EditorWorkspace({ content, data, project, onBack, onPersist }: {
   }, [content.document, content.id, project.workspaceId]);
   useEffect(() => { if (liveDocument && !qualityReport && !automaticQualityAttempted && operation === "idle") void Promise.resolve().then(() => { setAutomaticQualityAttempted(true); return review(); }); }, [automaticQualityAttempted, liveDocument, operation, qualityReport]); // eslint-disable-line react-hooks/exhaustive-deps
   const latestData = () => liveDocument ? applyCanonicalDocument(data, content.id, liveDocument, "manual", now()) : data;
-  const commitDocument = async (document: ContentDocument, success: string) => {
-    const next = applyCanonicalDocument(data, content.id, document, "manual", now());
+  const commitDocument = async (document: ContentDocument, success: string, baseData: UserData = data) => {
+    const next = applyCanonicalDocument(baseData, content.id, document, "manual", now());
     setSaveState("saving");
     try { await onPersist(next); setDocumentDraft(document); setTitle(document.title); setQualityReport(undefined); setAutomaticQualityAttempted(false); setPreviewHtml(""); setFinalConfirmation(false); setSaveState("saved"); setNotice(success); }
     catch (error) { setSaveState("error"); throw error; }
@@ -163,16 +164,157 @@ export function EditorWorkspace({ content, data, project, onBack, onPersist }: {
     try { const response = await fetch(`/api/tistory/categories?workspaceId=${encodeURIComponent(project.workspaceId)}&contentId=${encodeURIComponent(content.id)}&connectionId=${encodeURIComponent(accountId)}`, { cache: "no-store" }); const result = await response.json() as { categories?: SafeCategory[]; preparation?: NonNullable<UserContent["publishingPreparation"]>["tistory"] | null; data?: UserData; safeMessage?: string; error?: string; reconnectRequired?: boolean; stale?: boolean; failureCode?: string }; if (!response.ok) throw Object.assign(new Error(result.safeMessage ?? result.error ?? "카테고리 목록을 불러오지 못했습니다."), { reconnectRequired: result.reconnectRequired }); setCategories(result.categories ?? []); if (result.preparation) { setCategoryId(result.preparation.platformCategoryId ?? "__uncategorized__"); setCategoryName(result.preparation.platformCategoryName); } if (result.data) await onPersist(result.data); setCategoryState(result.stale ? "stale" : result.categories?.length ? "ready" : "empty"); setCategoryMessage(result.stale ? `마지막으로 확인된 카테고리 목록을 표시합니다. 저장된 ${result.preparation?.platformCategoryName ?? categoryName ?? "현재"} 카테고리는 계속 적용됩니다.` : ""); await loadReadiness(accountId); }
     catch (error) { setCategoryState((error as { reconnectRequired?: boolean }).reconnectRequired ? "expired" : "error"); setCategoryMessage(categoryId ? `카테고리 목록을 새로 불러오지 못했습니다. 저장된 ${categoryName ?? "현재"} 카테고리는 계속 적용됩니다.` : "카테고리 목록을 불러오지 못했습니다. 다시 시도하거나 카테고리 없음을 선택해 주세요."); } finally { setOperation("idle"); }
   }
+
+
   async function selectCategory(value: string) {
-    if (!selectedConnection) return; setCategoryState("loading"); setOperation("category-save"); setCategoryMessage("");
-    try { const result = await api("/api/tistory/categories", { workspaceId: project.workspaceId, contentId: content.id, connectionId: selectedConnection.id, categoryId: value === "__uncategorized__" ? null : value }) as { preparation?: NonNullable<UserContent["publishingPreparation"]>["tistory"]; data?: UserData }; if (!result.preparation || !result.data) throw new Error("카테고리를 저장하지 못했습니다. 다시 시도해 주세요."); setCategoryId(result.preparation.platformCategoryId ?? "__uncategorized__"); setCategoryName(result.preparation.platformCategoryName); await onPersist(result.data); await loadReadiness(selectedConnection.id); setCategoryState(categories.length ? "ready" : "empty"); setNotice(`카테고리 적용 완료: ${result.preparation.platformCategoryName ?? "카테고리 없음"}`); }
-    catch (error) { setCategoryState(message(error) === "재연결 필요" ? "expired" : "error"); setCategoryMessage("카테고리를 저장하지 못했습니다. 다시 시도해 주세요."); } finally { setOperation("idle"); }
+    if (!selectedConnection) return;
+
+    setCategoryState("loading");
+    setOperation("category-save");
+    setCategoryMessage("");
+
+    try {
+      const result = await api("/api/tistory/categories", {
+        workspaceId: project.workspaceId,
+        contentId: content.id,
+        connectionId: selectedConnection.id,
+        categoryId: value === "__uncategorized__" ? null : value,
+      }) as {
+        preparation?: NonNullable<UserContent["publishingPreparation"]>["tistory"];
+        data?: UserData;
+      };
+
+      if (!result.preparation || !result.data) {
+        throw new Error("카테고리를 저장하지 못했습니다. 다시 시도해 주세요.");
+      }
+
+      const preparation = result.preparation;
+
+      setCategoryId(preparation.platformCategoryId ?? "__uncategorized__");
+      setCategoryName(preparation.platformCategoryName);
+
+      await onPersist(result.data);
+
+      setCategoryState(categories.length ? "ready" : "empty");
+      setNotice(`카테고리 적용 완료: ${preparation.platformCategoryName ?? "카테고리 없음"} · 공개 글 후보를 자동 확인합니다.`);
+
+      await loadPostCandidates(false, {
+        categoryId: preparation.platformCategoryId,
+        categoryName: preparation.platformCategoryName,
+        data: result.data,
+      });
+
+      await loadReadiness(selectedConnection.id);
+    } catch (error) {
+      setCategoryState(
+        message(error) === "재연결 필요" ? "expired" : "error",
+      );
+      setCategoryMessage(
+        message(error) === "재연결 필요"
+          ? "Tistory 로그인 세션이 만료되었습니다. 설정에서 다시 연결해 주세요."
+          : "카테고리를 저장하지 못했습니다. 다시 시도해 주세요.",
+      );
+    } finally {
+      setOperation("idle");
+    }
   }
-  async function loadPostCandidates(refresh = false) {
-    if (!selectedConnection) return; setPostCatalogState("loading"); setPostCatalogMessage("");
-    try { const response = await fetch(`/api/tistory/posts?workspaceId=${encodeURIComponent(project.workspaceId)}&contentId=${encodeURIComponent(content.id)}&connectionId=${encodeURIComponent(selectedConnection.id)}&refresh=${refresh}`, { cache: "no-store" }); const result = await response.json() as { posts?: PublicPostCandidate[]; state?: PostCatalogState; retrievedAt?: string; diagnostic?: string; error?: string; cached?: boolean }; if (!response.ok) throw Object.assign(new Error(result.error ?? "게시글을 불러오지 못했습니다."), { state: result.state }); const posts = result.posts ?? []; const ranked = liveDocument ? rankRelatedPosts(liveDocument, posts, { primaryKeyword: content.primaryKeyword, categoryId: categoryId === "__uncategorized__" ? null : categoryId || undefined, categoryName: categoryName ?? undefined }) : []; setPostCandidates([...ranked]); setPostCatalogState(ranked.length ? "success" : "empty"); setPostsRetrievedAt(result.retrievedAt ?? ""); setPostCatalogMessage(categoryName ? `같은 카테고리 '${categoryName}'의 공개 게시글 ${ranked.length}개를 확인했습니다${result.cached ? " · 캐시 사용" : ""}.` : "카테고리가 확인되지 않아 내부 링크 자동 추천을 생략했습니다."); if (liveDocument && ranked.length) { const placed = placeRecommendedPosts(liveDocument, ranked); if (placed.blocks.length !== liveDocument.blocks.length) await commitDocument(placed, "같은 카테고리의 실제 공개 글을 사용해 내부링크와 관련 글을 자동 배치했습니다."); } }
-    catch (error) { setPostCandidates([]); setPostCatalogState((error as { state?: PostCatalogState }).state ?? "connection_error"); setPostCatalogMessage(message(error)); }
+
+  async function loadPostCandidates(
+    refresh = false,
+    syncContext?: Readonly<{
+      categoryId: string | null;
+      categoryName: string | null;
+      data: UserData;
+    }>,
+  ) {
+    if (!selectedConnection) return;
+
+    setPostCatalogState("loading");
+    setPostCatalogMessage("");
+
+    const effectiveCategoryId = syncContext
+      ? syncContext.categoryId
+      : categoryId === "__uncategorized__"
+        ? null
+        : categoryId || undefined;
+
+    const effectiveCategoryName = syncContext
+      ? syncContext.categoryName
+      : categoryName;
+
+    try {
+      const response = await fetch(
+        `/api/tistory/posts?workspaceId=${encodeURIComponent(project.workspaceId)}&contentId=${encodeURIComponent(content.id)}&connectionId=${encodeURIComponent(selectedConnection.id)}&refresh=${refresh}`,
+        { cache: "no-store" },
+      );
+
+      const result = await response.json() as {
+        posts?: PublicPostCandidate[];
+        state?: PostCatalogState;
+        retrievedAt?: string;
+        diagnostic?: string;
+        error?: string;
+        cached?: boolean;
+        reconnectRequired?: boolean;
+      };
+
+      if (!response.ok) {
+        throw Object.assign(
+          new Error(result.error ?? "게시글을 불러오지 못했습니다."),
+          {
+            state: result.state,
+            reconnectRequired: result.reconnectRequired,
+          },
+        );
+      }
+
+      const posts = result.posts ?? [];
+
+      const ranked = liveDocument
+        ? rankRelatedPosts(liveDocument, posts, {
+            primaryKeyword: content.primaryKeyword,
+            categoryId: effectiveCategoryId,
+            categoryName: effectiveCategoryName ?? undefined,
+          })
+        : [];
+
+      setPostCandidates([...ranked]);
+      setPostCatalogState(ranked.length ? "success" : "empty");
+      setPostsRetrievedAt(result.retrievedAt ?? "");
+
+      setPostCatalogMessage(
+        effectiveCategoryName
+          ? `같은 카테고리 '${effectiveCategoryName}'의 공개 게시글 ${ranked.length}개를 확인했습니다${result.cached ? " · 캐시 사용" : ""}.`
+          : "카테고리가 확인되지 않아 내부 링크 자동 추천을 생략했습니다.",
+      );
+
+      if (liveDocument && ranked.length) {
+        const placed = placeRecommendedPosts(liveDocument, ranked);
+
+        if (placed.blocks.length !== liveDocument.blocks.length) {
+          await commitDocument(
+            placed,
+            "같은 카테고리의 실제 공개 글을 사용해 내부 링크와 관련 글을 자동 배치했습니다.",
+            syncContext?.data ?? data,
+          );
+        }
+      }
+    } catch (error) {
+      const state =
+        (error as { state?: PostCatalogState }).state ??
+        "connection_error";
+
+      setPostCandidates([]);
+      setPostCatalogState(state);
+
+      setPostCatalogMessage(
+        state === "session_expired"
+          ? "Tistory 로그인 세션이 만료되었습니다. 설정에서 다시 연결해 주세요."
+          : message(error),
+      );
+    }
   }
+
   return <PageContainer className="py-8 sm:py-10 lg:py-12">
     <button className="text-sm font-semibold text-[#77777f]" onClick={onBack} type="button">← Project Dashboard</button>
     <header className="mt-6 flex flex-wrap items-end justify-between gap-4 border-b border-black/6 pb-7"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#ff6b6b]">{project.name}</p><h1 className="mt-2 text-3xl font-semibold">편집기</h1></div><p className={`text-sm ${saveState === "error" ? "text-red-700" : "text-[#77777f]"}`}>{saveState === "saving" ? "저장 중…" : saveState === "saved" ? `저장됨 · Revision ${historyCount}개` : "저장 실패"}</p></header>
@@ -186,7 +328,20 @@ export function EditorWorkspace({ content, data, project, onBack, onPersist }: {
     {editorViewMode === "html" ? <section className="mt-4 rounded-[24px] border border-black/6 bg-white p-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">현재 문서 HTML</h2><p className="mt-1 text-sm text-[#77777f]">티스토리 미리보기와 임시저장에 사용하는 읽기 전용 Renderer 결과입니다.</p></div><button className="rounded-xl border px-4 py-2 text-sm font-semibold disabled:opacity-50" disabled={!previewHtml} onClick={() => void navigator.clipboard.writeText(previewHtml).then(() => setNotice("HTML을 클립보드에 복사했습니다."))} type="button">HTML 복사</button></div><pre className="mt-4 max-h-[560px] overflow-auto whitespace-pre-wrap rounded-xl bg-[#17171a] p-4 text-xs text-white">{previewHtml || "HTML을 생성하고 있습니다. 잠시 후 다시 확인해 주세요."}</pre></section> : null}
     {editorViewMode === "visual" && !liveDocument ? <VisualEditorRecovery onReload={() => window.location.reload()} /> : null}
     <PlacementSummary blocks={liveDocument?.blocks ?? []} />
-    <section className="mt-6 rounded-[24px] border border-black/6 bg-white p-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">품질 검토</h2>{normalizedQuality.reviewedAt ? <p className="mt-1 text-sm text-[#77777f]">마지막 검토 {formatReviewTime(normalizedQuality.reviewedAt)} · 문서 {normalizedQuality.revisionId}</p> : null}</div><div className="flex gap-2"><button className="rounded-xl border px-4 py-2.5 text-sm font-semibold disabled:opacity-50" disabled={working || !normalizedQuality.actionableTasks.length} onClick={() => void requestQualityImprovement()} type="button">{operation === "improving" ? "개선안 생성 중…" : "AI 개선안 만들기"}</button><button className="rounded-xl bg-[#ff6b6b] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50" disabled={working || normalizedQuality.status === "loading"} onClick={() => void review()} type="button">{normalizedQuality.status === "loading" ? "검토 중…" : "품질 다시 검토"}</button></div></div><QualityStatus review={normalizedQuality} />{improvementFeedback ? <p aria-live="polite" className={`mt-4 rounded-xl px-4 py-3 text-sm ${improvementFeedback.tone === "error" ? "bg-red-50 text-red-800" : improvementFeedback.tone === "success" ? "bg-emerald-50 text-emerald-800" : improvementFeedback.tone === "warning" ? "bg-amber-50 text-amber-900" : "bg-blue-50 text-blue-800"}`}>{improvementFeedback.message}</p> : null}{improvementPreview && improvementBaselineQuality && improvementCandidateQuality && improvementDecision ? <QualityImprovementPreview baseline={improvementBaselineQuality} candidate={improvementCandidateQuality} disabled={working} document={improvementPreview} improvementAccepted={improvementDecision.accepted} rejectionReasons={improvementDecision.reasons} onApply={() => void approveQualityImprovement()} onCancel={() => { setImprovementPreview(undefined); setImprovementBaselineQuality(undefined); setImprovementCandidateQuality(undefined); setImprovementDecision(undefined); setImprovementFeedback(undefined); }} /> : null}{normalizedQuality.dimensions.length ? <div className="mt-5 grid gap-3 sm:grid-cols-2">{normalizedQuality.dimensions.map((dimension) => <article className="rounded-xl border border-black/6 p-4" key={dimension.category}><div className="flex items-center justify-between"><h3 className="font-semibold">{qualityLabel(dimension.category)}</h3><strong>{dimension.evaluation === "not_evaluated" ? "점수 제외" : dimension.score}</strong></div>{dimension.evaluation === "evaluated" ? <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#eeeeF2]"><div className="h-full bg-[#ff6b6b]" style={{ width: `${dimension.score}%` }} /></div> : <div className="mt-2 rounded-full bg-[#f3f4f6] px-3 py-1 text-xs font-semibold text-[#66666f]">생성·배치 진단</div>}<div className="mt-3 space-y-2 text-sm text-[#66666f]"><p className="font-medium text-[#3f3f46]">평가 이유</p><ul className="space-y-1">{dimension.reasons.map((reason, index) => <li key={`${dimension.category}-reason-${index}`}>• {reason}</li>)}</ul>{dimension.tasks.length ? <><p className="pt-1 font-medium text-[#3f3f46]">개선 방법</p><ul className="space-y-1">{dimension.tasks.map((task, index) => <li key={`${dimension.category}-task-${index}`}>→ {task}</li>)}</ul></> : null}<details className="pt-1"><summary className="cursor-pointer text-xs font-semibold text-[#77777f]">평가 근거 보기</summary><dl className="mt-2 grid gap-1 text-xs">{dimension.evidence.map((item) => <div className="flex justify-between gap-3" key={`${dimension.category}-${item.signal}`}><dt>{item.signal}</dt><dd className="max-w-[60%] break-words text-right">{String(item.value)}</dd></div>)}</dl></details></div></article>)}</div> : null}{normalizedQuality.actionableTasks.length ? <div className="mt-5"><h3 className="font-semibold">우선 개선 작업</h3><ul className="mt-3 space-y-2">{normalizedQuality.actionableTasks.slice(0, 8).map((task, index) => <li className="rounded-xl bg-[#f8f8fa] px-4 py-3 text-sm" key={`${task.category}-${index}`}>→ {task.message}</li>)}</ul></div> : null}</section>
+    <section className="mt-6 rounded-[24px] border border-black/6 bg-white p-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">품질 검토</h2>{normalizedQuality.reviewedAt ? <p className="mt-1 text-sm text-[#77777f]">마지막 검토 {formatReviewTime(normalizedQuality.reviewedAt)} · 문서 {normalizedQuality.revisionId}</p> : null}</div><div className="flex gap-2"><button className="rounded-xl border px-4 py-2.5 text-sm font-semibold disabled:opacity-50" disabled={working || !normalizedQuality.actionableTasks.length} onClick={() => void requestQualityImprovement()} type="button">{operation === "improving" ? "개선안 생성 중…" : "AI 개선안 만들기"}</button><button className="rounded-xl bg-[#ff6b6b] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50" disabled={working || normalizedQuality.status === "loading"} onClick={() => void review()} type="button">{normalizedQuality.status === "loading" ? "검토 중…" : "품질 다시 검토"}</button></div></div><QualityStatus review={normalizedQuality} />{normalizedQuality.approvalReadiness ? <div className="mt-4 flex justify-end"><ApprovalReadinessActions
+      contentId={content.id}
+      disabled={working}
+      onCompleted={async (result) => {
+        await onPersist(result.data);
+        setDocumentDraft(result.document);
+        setTitle(result.document.title);
+        setQualityReport(result.quality);
+        setPreviewHtml("");
+        setFinalConfirmation(false);
+        setNotice("공식 출처와 Tistory 사이트 승인 준비 검사를 완료했습니다.");
+      }}
+      workspaceId={project.workspaceId}
+    /></div> : null}<ApprovalReadinessStatus review={normalizedQuality} />{improvementFeedback ? <p aria-live="polite" className={`mt-4 rounded-xl px-4 py-3 text-sm ${improvementFeedback.tone === "error" ? "bg-red-50 text-red-800" : improvementFeedback.tone === "success" ? "bg-emerald-50 text-emerald-800" : improvementFeedback.tone === "warning" ? "bg-amber-50 text-amber-900" : "bg-blue-50 text-blue-800"}`}>{improvementFeedback.message}</p> : null}{improvementPreview && improvementBaselineQuality && improvementCandidateQuality && improvementDecision ? <QualityImprovementPreview baseline={improvementBaselineQuality} candidate={improvementCandidateQuality} disabled={working} document={improvementPreview} improvementAccepted={improvementDecision.accepted} rejectionReasons={improvementDecision.reasons} onApply={() => void approveQualityImprovement()} onCancel={() => { setImprovementPreview(undefined); setImprovementBaselineQuality(undefined); setImprovementCandidateQuality(undefined); setImprovementDecision(undefined); setImprovementFeedback(undefined); }} /> : null}{normalizedQuality.dimensions.length ? <div className="mt-5 grid gap-3 sm:grid-cols-2">{normalizedQuality.dimensions.map((dimension) => <article className="rounded-xl border border-black/6 p-4" key={dimension.category}><div className="flex items-center justify-between"><h3 className="font-semibold">{qualityLabel(dimension.category)}</h3><strong>{dimension.evaluation === "not_evaluated" ? "점수 제외" : dimension.score}</strong></div>{dimension.evaluation === "evaluated" ? <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#eeeeF2]"><div className="h-full bg-[#ff6b6b]" style={{ width: `${dimension.score}%` }} /></div> : <div className="mt-2 rounded-full bg-[#f3f4f6] px-3 py-1 text-xs font-semibold text-[#66666f]">생성·배치 진단</div>}<div className="mt-3 space-y-2 text-sm text-[#66666f]"><p className="font-medium text-[#3f3f46]">평가 이유</p><ul className="space-y-1">{dimension.reasons.map((reason, index) => <li key={`${dimension.category}-reason-${index}`}>• {reason}</li>)}</ul>{dimension.tasks.length ? <><p className="pt-1 font-medium text-[#3f3f46]">개선 방법</p><ul className="space-y-1">{dimension.tasks.map((task, index) => <li key={`${dimension.category}-task-${index}`}>→ {task}</li>)}</ul></> : null}<details className="pt-1"><summary className="cursor-pointer text-xs font-semibold text-[#77777f]">평가 근거 보기</summary><dl className="mt-2 grid gap-1 text-xs">{dimension.evidence.map((item) => <div className="flex justify-between gap-3" key={`${dimension.category}-${item.signal}`}><dt>{item.signal}</dt><dd className="max-w-[60%] break-words text-right">{String(item.value)}</dd></div>)}</dl></details></div></article>)}</div> : null}{normalizedQuality.actionableTasks.length ? <div className="mt-5"><h3 className="font-semibold">우선 개선 작업</h3><ul className="mt-3 space-y-2">{normalizedQuality.actionableTasks.slice(0, 8).map((task, index) => <li className="rounded-xl bg-[#f8f8fa] px-4 py-3 text-sm" key={`${task.category}-${index}`}>→ {task.message}</li>)}</ul></div> : null}</section>
     <section className="mt-6 rounded-[24px] border border-black/6 bg-white p-6"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold">티스토리 미리보기</h2><div className="relative z-10 flex flex-wrap gap-2"><button aria-pressed={previewMode === "desktop"} className="rounded-xl border px-3 py-2 text-sm" onClick={() => setPreviewMode("desktop")} type="button">데스크톱</button><button aria-pressed={previewMode === "mobile"} className="rounded-xl border px-3 py-2 text-sm" onClick={() => setPreviewMode("mobile")} type="button">모바일</button><button className="rounded-xl border px-3 py-2 text-sm" disabled={operation === "preview"} onClick={() => void refreshPreview()} type="button">미리보기 새로고침</button></div></div>
       {previewHtml ? <div className={`mx-auto mt-4 overflow-hidden rounded-xl border bg-[#f4f1eb] p-3 ${previewMode === "mobile" ? "max-w-[390px]" : "w-full"}`}><iframe className="h-[680px] w-full rounded-lg bg-white" sandbox="" srcDoc={`<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{font-family:system-ui,-apple-system,BlinkMacSystemFont,'Noto Sans KR',sans-serif;padding:clamp(22px,5vw,56px);line-height:1.82;max-width:860px;margin:auto;color:#262626;background:#fff}h1{font-size:clamp(30px,5vw,46px);line-height:1.25;margin:0 0 42px;letter-spacing:-.035em}h2{font-size:27px;margin:52px 0 20px;border-bottom:1px solid #eee;padding-bottom:12px}h3{font-size:21px;margin:36px 0 14px}p{font-size:17px;margin:0 0 22px}img{display:block;max-width:100%;height:auto;margin:30px auto;border-radius:8px}.bright-toc{margin:28px 0 42px;padding:22px 24px;border:1px solid #e7e3dc;border-radius:8px;background:#faf9f7}.bright-toc a{color:#333;text-decoration:none}.bright-toc-level-3{margin-left:18px}.bright-cta,.bright-internal_link,.bright-monetization,.bright-related_post{margin:30px 0}.bright-cta a,.bright-monetization a{display:block;padding:15px 20px;border-radius:8px;background:#ff6b6b;color:white;text-align:center;text-decoration:none;font-weight:700}.bright-image-placeholder,.bright-link-required{padding:22px;border:2px dashed #d9bc7c;border-radius:8px;background:#fffaf0}.bright-link-required span{display:block;color:#7b6537;font-size:13px}</style></head><body><article><h1>${escapeHtml(title)}</h1>${previewHtml}</article></body></html>`} title="격리된 티스토리 미리보기" /></div> : <p className="mt-4 text-sm text-[#77777f]">현재 문서의 미리보기를 자동 생성하고 있습니다. 실패하면 ‘미리보기 새로고침’을 눌러 주세요.</p>}
       <div className="mt-5 grid gap-3 sm:grid-cols-2"><label className="text-sm font-semibold">티스토리 계정<select className="mt-2 w-full rounded-xl border px-4 py-3" onChange={(event) => void selectConnection(event.target.value)} value={connectionId}><option value="">계정 선택</option>{connections.filter((item) => item.platform === "tistory").map((item) => <option disabled={item.status !== "connected"} key={item.id} value={item.id}>{item.displayName} · {item.status === "connected" ? "연결됨" : item.status}</option>)}</select>{selectedConnection ? <span className="mt-2 block font-normal text-emerald-700">연결됨 · {connections.filter((item) => item.platform === "tistory" && item.status === "connected" && item.lastVerifiedAt && item.publicMetadata?.sessionStateAvailable).length === 1 ? "자동 적용" : "적용 완료"}</span> : null}</label><label className="text-sm font-semibold">티스토리 카테고리<select aria-label="Tistory 카테고리" className="mt-2 w-full rounded-xl border px-4 py-3 font-normal" disabled={!selectedConnection || categoryState === "loading" || categoryState === "expired"} onChange={(event) => void selectCategory(event.target.value)} value={categoryId}><option value="">{categoryState === "loading" ? "카테고리 불러오는 중…" : "카테고리 선택"}</option><option value="__uncategorized__">카테고리 없음</option>{categoryOptions.map((item) => <option key={String(item.id)} value={String(item.id)}>{`${"　".repeat(item.depth)}${item.name}${categories.some((category) => String(category.id) === String(item.id)) ? "" : " · 현재 적용됨"}`}</option>)}</select>{categoryId ? <span className="mt-2 block font-normal text-emerald-700">카테고리 적용 완료: {categoryName ?? "카테고리 없음"}</span> : null}</label></div>
@@ -207,8 +362,89 @@ function QualityStatus({ review }: { review: NormalizedQualityReview }) {
   if (review.status === "no_review") return <div className="mt-4 rounded-xl bg-[#f8f8fa] p-4 text-sm"><p className="font-semibold">아직 현재 문서 버전에 대한 품질 검토가 없습니다.</p><p className="mt-1 text-[#66666f]">품질 검토를 실행하면 세부 점수가 표시됩니다.</p></div>;
   if (review.status === "stale") return <div className="mt-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-900"><p className="font-semibold">문서가 수정되어 이전 품질 검토가 만료되었습니다.</p><p className="mt-1">현재 버전을 다시 검토해야 합니다.</p></div>;
   if (review.status === "not_evaluated") return <div className="mt-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-900"><p className="font-semibold">재검토 필요</p><p className="mt-1">현재 형식에서는 세부 품질 근거를 확인할 수 없거나 평가하지 못한 항목이 있습니다.</p>{review.overallScore !== null ? <p className="mt-2">서버 검토 점수 <strong>{review.overallScore}</strong></p> : null}</div>;
-  return <div className="mt-4 flex items-end gap-3"><strong className="text-4xl">{review.overallScore}</strong><span className={`mb-1 rounded-full px-3 py-1 text-sm font-semibold ${review.status === "ready" ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"}`}>{review.status === "ready" ? "standard 품질 승인 · 게시 준비 완료" : "개선 필요"}</span></div>;
+  return <div className="mt-4 flex items-end gap-3"><strong className="text-4xl">{review.overallScore}</strong><span className={`mb-1 rounded-full px-3 py-1 text-sm font-semibold ${review.status === "ready" ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"}`}>{review.status === "ready" ? "standard 원고 품질 승인" : "원고 개선 필요"}</span></div>;
 }
+function ApprovalReadinessStatus({ review }: { review: NormalizedQualityReview }) {
+  const readiness = review.approvalReadiness;
+  if (!readiness) return null;
+
+  const labels: Readonly<Record<string, string>> = {
+    standard_quality: "원고 품질",
+    approval_policy: "승인 정책",
+    evidence: "공식 출처 검증",
+    duplicate: "기존 콘텐츠 중복",
+    internal_links: "내부 링크",
+    site_readiness: "사이트 준비 상태",
+  };
+
+  const overallLabel = readiness.applicationReady
+    ? "신청 준비 기준 충족"
+    : readiness.status === "blocked"
+      ? "승인 준비 차단 항목 있음"
+      : "승인 준비 검토 필요";
+
+  const overallTone = readiness.applicationReady
+    ? "bg-emerald-50 text-emerald-800"
+    : readiness.status === "blocked"
+      ? "bg-red-50 text-red-800"
+      : "bg-amber-50 text-amber-900";
+
+  return (
+    <section className="mt-5 rounded-[20px] border border-black/6 bg-[#fafafa] p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="font-semibold">애드센스 승인 준비 상태</h3>
+          <p className="mt-1 text-sm text-[#66666f]">
+            원고 품질 승인과 사이트 전체의 AdSense 신청 준비 상태는 별도로 판단합니다.
+          </p>
+        </div>
+        <span className={`rounded-full px-3 py-1 text-sm font-semibold ${overallTone}`}>
+          {overallLabel}
+        </span>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        {readiness.checks.map((check) => {
+          const statusLabel = check.status === "passed"
+            ? "통과"
+            : check.status === "blocked"
+              ? "차단"
+              : check.status === "needs_review"
+                ? "검토 필요"
+                : "미검사";
+
+          const statusTone = check.status === "passed"
+            ? "text-emerald-700"
+            : check.status === "blocked"
+              ? "text-red-700"
+              : "text-amber-800";
+
+          return (
+            <article className="rounded-xl border border-black/6 bg-white p-4" key={check.key}>
+              <div className="flex items-center justify-between gap-3">
+                <strong>{labels[check.key] ?? check.key}</strong>
+                <span className={`text-sm font-semibold ${statusTone}`}>
+                  {statusLabel}
+                </span>
+              </div>
+
+              <p className="mt-2 text-sm leading-6 text-[#66666f]">
+                {check.message}
+              </p>
+
+              {check.action ? (
+                <p className="mt-2 rounded-lg bg-[#f8f8fa] px-3 py-2 text-xs leading-5 text-[#55555d]">
+                  다음 조치: {check.action}
+                </p>
+              ) : null}
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function Info({ label, value }: { label: string; value: string }) { return <div><dt className="font-semibold text-[#77777f]">{label}</dt><dd>{value}</dd></div>; }
 function VisualEditorRecovery({ onReload }: { onReload: () => void }) { return <section className="mt-4 rounded-[20px] border border-amber-200 bg-amber-50 p-5"><h2 className="font-semibold">시각 편집 데이터를 불러오지 못했습니다.</h2><p className="mt-2 text-sm text-amber-900">원고 데이터는 삭제되지 않았습니다. 원고를 다시 불러오거나 복구할 수 있습니다.</p><button className="mt-3 rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-semibold" onClick={onReload} type="button">원고 다시 불러오기</button></section>; }
 function normalizeVisualDocument(value: unknown): ContentDocument | undefined { if (!value || typeof value !== "object") return undefined; const candidate = value as Partial<ContentDocument>; if (typeof candidate.id !== "string" || typeof candidate.title !== "string" || !Array.isArray(candidate.blocks)) return undefined; return candidate as ContentDocument; }
