@@ -21,7 +21,7 @@ describe("ApprovalPolicy", () => {
     expect(resolveApprovalPolicySnapshot("standard", undefined)).toBeUndefined();
   });
 
-  it("resolves the Vivarain policy snapshot and prompt context", () => {
+  it("resolves the Vivarain policy snapshot and evidence-first prompt context", () => {
     const snapshot = resolveApprovalPolicySnapshot("adsense_approval", "tistory_vivarain_art_v1");
     expect(snapshot).toMatchObject({
       contentPurpose: "adsense_approval",
@@ -30,13 +30,14 @@ describe("ApprovalPolicy", () => {
       profileId: "tistory_vivarain_art_v1",
       profileVersion: "1.0",
     });
-    expect(approvalPolicyPromptContext(snapshot!)).toContain(
-      "Docs/current/01_PRODUCT/16_TISTORY_VIVARAIN_ADSENSE_APPROVAL_PROFILE.md",
-    );
-    expect(approvalPolicyPromptContext(snapshot!)).toContain("Never claim or imply that AdSense approval is guaranteed.");
+    const context = approvalPolicyPromptContext(snapshot!);
+    expect(context).toContain("Docs/current/01_PRODUCT/16_TISTORY_VIVARAIN_ADSENSE_APPROVAL_PROFILE.md");
+    expect(context).toContain("Docs/current/01_PRODUCT/17_ADSENSE_APPROVAL_READINESS_BLUEPRINT.md");
+    expect(context).toContain("unique, non-commodity content");
+    expect(context).toContain("Never claim or imply that AdSense approval is guaranteed.");
   });
 
-  it("blocks guarantee, placeholder, fabricated experience, and missing source signals", () => {
+  it("blocks guarantee, placeholder, fabricated experience, and missing evidence details", () => {
     const snapshot = resolveApprovalPolicySnapshot("adsense_approval", "tistory_vivarain_art_v1")!;
     const issues = evaluateApprovalPreparationText(
       "이 글이면 애드센스 100% 승인됩니다. 제가 직접 미술관을 방문해 작품을 보았습니다. 내용은 추가 예정입니다.",
@@ -47,13 +48,25 @@ describe("ApprovalPolicy", () => {
       "PLACEHOLDER_CONTENT",
       "FABRICATED_EXPERIENCE",
       "PROFILE_SOURCE_REQUIREMENT_MISSING",
+      "PROFILE_SOURCE_URL_MISSING",
+      "PROFILE_REVIEW_DATE_MISSING",
     ]));
   });
 
-  it("accepts a source-aware factual review without deterministic policy violations", () => {
+  it("blocks a source label that has no verifiable URL", () => {
+    const snapshot = resolveApprovalPolicySnapshot("adsense_approval", "tistory_vivarain_art_v1")!;
+    const issues = evaluateApprovalPreparationText(
+      "공식 소장처 자료를 주요 출처로 확인했습니다. 최종 검토일: 2026-07-27",
+      snapshot,
+    );
+
+    expect(issues).toContainEqual(expect.objectContaining({ code: "PROFILE_SOURCE_URL_MISSING" }));
+  });
+
+  it("accepts a source-aware factual review with an HTTPS URL and review date", () => {
     const snapshot = resolveApprovalPolicySnapshot("adsense_approval", "tistory_vivarain_art_v1")!;
     expect(evaluateApprovalPreparationText(
-      "공식 소장처의 작품 페이지를 주요 출처로 확인했습니다. 작품의 제작연도와 재료를 구분해 설명하고, 해석은 하나의 감상 관점으로 제시합니다. 최종 검토일은 2026-07-27입니다.",
+      "공식 소장처의 작품 페이지 https://www.moma.org/collection/works/79802 를 주요 출처로 확인했습니다. 작품의 제작연도와 재료를 구분해 설명하고, 해석은 하나의 감상 관점으로 제시합니다. 최종 검토일: 2026-07-27",
       snapshot,
     )).toEqual([]);
   });
