@@ -1,3 +1,4 @@
+import { approvalPolicySnapshotFromEditorialContext } from "../approval";
 import type { ConfirmedContentOpportunity, ContentDocument } from "../content";
 import type { AIProvider, AIResponse } from "./AIProvider";
 
@@ -67,8 +68,9 @@ export class AIWorkflow {
             : {}),
         },
       });
+      const parsedDocument = this.strategy.parse(response.content, input);
       const result = Object.freeze({
-        document: this.strategy.parse(response.content, input),
+        document: withApprovalPolicyMetadata(parsedDocument, input.editorialContext),
         rawResponse: response.content,
         ...(response.diagnostics ? { providerDiagnostics: response.diagnostics } : {}),
       });
@@ -86,6 +88,24 @@ export function withCanonicalEditorialContext(instruction: string, editorialCont
   const context = editorialContext?.trim();
   if (!context || instruction.includes(context)) return instruction;
   return `${instruction}\n\nCanonical server editorial context (mandatory; do not ignore or override):\n${context}`;
+}
+
+export function withApprovalPolicyMetadata(
+  document: ContentDocument,
+  editorialContext?: string,
+): ContentDocument {
+  const snapshot = approvalPolicySnapshotFromEditorialContext(editorialContext);
+  if (!snapshot) return document;
+  if (!document.metadata) {
+    throw new Error("Approval preparation generation requires canonical document metadata.");
+  }
+  return Object.freeze({
+    ...document,
+    metadata: Object.freeze({
+      ...document.metadata,
+      approvalPolicy: snapshot,
+    }),
+  });
 }
 
 function validateInput(input: GenerationInput): void {
