@@ -1,3 +1,8 @@
+import {
+  approvalReadinessCheckKeys,
+  type ApprovalReadinessCheck,
+  type ApprovalReadinessReport,
+} from "../../core/approval";
 import type { QualityApprovalType, QualityCategory, QualityDimensionResult } from "../../core/quality";
 
 const categories: readonly QualityCategory[] = ["searchIntent", "seo", "readability", "structure", "completeness", "usefulness", "htmlQuality", "imageStrategy", "internalLinks", "cta"];
@@ -62,6 +67,7 @@ export type NormalizedQualityReview = Readonly<{
   dimensions: readonly QualityDimensionResult[];
   overallScore: number | null;
   approvalType: QualityApprovalType;
+  approvalReadiness: ApprovalReadinessReport | null;
   status: QualityUiStatus;
   revisionId: string | null;
   reviewedAt: string | null;
@@ -87,16 +93,40 @@ export function normalizeQualityReview(
   const overallScore = score(value.overallScore);
   if (!revisionId || !reviewedAt || overallScore === null) return { ...empty("not_evaluated"), dimensions: Object.freeze(dimensions) };
 
-  const issues = dimensions.flatMap((dimension) => dimension.reasons);
+  const approvalReadiness = normalizeApprovalReadiness(value.approvalReadiness);
+  const dimensionIssues = dimensions.flatMap((dimension) => dimension.reasons);
+  const readinessIssues = approvalReadiness?.checks
+    .filter((check) => check.status !== "passed")
+    .map((check) => `[승인 준비] ${check.message}`) ?? [];
   const stale = Boolean(context.currentRevisionId && revisionId !== context.currentRevisionId);
   const notEvaluated = dimensions.some((dimension) => dimension.status === "blocked" && dimension.evaluation === "not_evaluated");
   const approved = value.approved === true;
   const approvalType: QualityApprovalType = value.approvalType === "exception" ? "exception" : value.approvalType === "standard" ? "standard" : "none";
   const standardApproved = approved && approvalType === "standard";
-  const status: QualityUiStatus = stale ? "stale" : notEvaluated ? "not_evaluated" : standardApproved ? "ready" : "improvement_required";
+  const approvalPreparationReady = approvalReadiness?.applicationReady ?? true;
+  const status: QualityUiStatus = stale
+    ? "stale"
+    : notEvaluated
+      ? "not_evaluated"
+      : standardApproved && approvalPreparationReady
+        ? "ready"
+        : "improvement_required";
   const approvalTasks = standardApproved || stale || notEvaluated ? [] : qualityApprovalTasks(dimensions, overallScore);
-  const actionableTasks = [...approvalTasks, ...normalizeTasks(value.tasks, dimensions)];
-  return Object.freeze({ dimensions: Object.freeze(dimensions), overallScore, approvalType, status, revisionId, reviewedAt, issues: Object.freeze(issues), actionableTasks: Object.freeze(actionableTasks) });
+  const readinessTasks = approvalReadiness?.checks
+    .filter((check) => check.status !== "passed")
+    .map((check) => ({ category: readinessCategory(check), message: `[승인 준비] ${check.action ?? check.message}` })) ?? [];
+  const actionableTasks = [...approvalTasks, ...normalizeTasks(value.tasks, dimensions), ...readinessTasks];
+  return Object.freeze({
+    dimensions: Object.freeze(dimensions),
+    overallScore,
+    approvalType,
+    approvalReadiness,
+    status,
+    revisionId,
+    reviewedAt,
+    issues: Object.freeze([...dimensionIssues, ...readinessIssues]),
+    actionableTasks: Object.freeze(actionableTasks),
+  });
 }
 
 function normalizeDimension(value: unknown): QualityDimensionResult[] {
@@ -114,6 +144,38 @@ function normalizeDimension(value: unknown): QualityDimensionResult[] {
     tasks: Object.freeze(strings(value.tasks)),
     evidence: Object.freeze(rawEvidence.flatMap(normalizeEvidence)),
   })];
+}
+
+function normalizeApprovalReadiness(value: unknown): ApprovalReadinessReport | null {
+  if (!isRecord(value) || !["ready", "needs_review", "blocked"].includes(String(value.status)) || typeof value.applicationReady !== "boolean" || !Array.isArray(value.checks)) return null;
+  const checks = value.checks.flatMap(normalizeApprovalReadinessCheck);
+  if (checks.length !== value.checks.length || checks.length !== approvalReadinessCheckKeys.length) return null;
+  return Object.freeze({
+    status: value.status as ApprovalReadinessReport["status"],
+    applicationReady: value.applicationReady,
+    checks: Object.freeze(checks),
+  });
+}
+
+function normalizeApprovalReadinessCheck(value: unknown): ApprovalReadinessCheck[] {
+  if (!isRecord(value)
+    || !approvalReadinessCheckKeys.includes(value.key as ApprovalReadinessCheck["key"])
+    || !["passed", "needs_review", "blocked", "not_evaluated"].includes(String(value.status))
+    || typeof value.message !== "string"
+    || !value.message.trim()) return [];
+  return [Object.freeze({
+    key: value.key as ApprovalReadinessCheck["key"],
+    status: value.status as ApprovalReadinessCheck["status"],
+    message: value.message.trim(),
+    ...(typeof value.action === "string" && value.action.trim() ? { action: value.action.trim() } : {}),
+  })];
+}
+
+function readinessCategory(check: ApprovalReadinessCheck): QualityCategory {
+  if (check.key === "internal_links") return "internalLinks";
+  if (check.key === "duplicate") return "usefulness";
+  if (check.key === "approval_policy") return "searchIntent";
+  return "completeness";
 }
 
 function normalizeReasons(category: QualityCategory, value: unknown, evidence: readonly unknown[]): string[] {
@@ -175,7 +237,7 @@ function normalizeTasks(value: unknown, dimensions: readonly QualityDimensionRes
   return dimensions.flatMap((dimension) => dimension.tasks.map((message) => ({ category: dimension.category, message })));
 }
 function qualityLabel(category: QualityCategory) { return ({ searchIntent: "검색 의도", seo: "SEO", readability: "가독성", structure: "콘텐츠 구조", completeness: "정보 완성도", usefulness: "정보 유용성", htmlQuality: "HTML 품질", imageStrategy: "이미지 전략", internalLinks: "내부 링크", cta: "CTA" })[category]; }
-function empty(status: QualityUiStatus): NormalizedQualityReview { return Object.freeze({ dimensions: Object.freeze([]), overallScore: null, approvalType: "none", status, revisionId: null, reviewedAt: null, issues: Object.freeze([]), actionableTasks: Object.freeze([]) }); }
+function empty(status: QualityUiStatus): NormalizedQualityReview { return Object.freeze({ dimensions: Object.freeze([]), overallScore: null, approvalType: "none", approvalReadiness: null, status, revisionId: null, reviewedAt: null, issues: Object.freeze([]), actionableTasks: Object.freeze([]) }); }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 function text(value: unknown) { return typeof value === "string" && value.trim() ? value.trim() : null; }
 function score(value: unknown) { return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100 ? value : null; }
