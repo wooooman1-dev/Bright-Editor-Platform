@@ -43,9 +43,11 @@ export async function POST(request: Request) {
       quality: result.quality,
       evidence: {
         status: result.evidence.pack.status,
+        reviewedAt: result.evidence.pack.reviewedAt,
         verifiedSourceCount: result.evidence.verifiedSourceCount,
         rejectedSourceCount: result.evidence.rejectedSourceCount,
         reasons: result.evidence.reasons,
+        sources: result.evidence.pack.sources,
       },
       siteReadiness: result.siteReadiness,
     });
