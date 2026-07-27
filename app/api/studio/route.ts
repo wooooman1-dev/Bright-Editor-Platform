@@ -9,6 +9,7 @@ import { OpenAIProvider } from "../../application/OpenAIProvider";
 import { openAIGenerationModel, openAIReviewModel } from "../../application/OpenAIModelPolicy";
 import { contentDocumentAIContext, EditorialQualityPipeline } from "../../application/EditorialQualityPipeline";
 import { ContentPlanningStrategy, createManualPlanningResult, projectStrategyAIContext } from "../../application/ContentPlanningStrategy";
+import { approvalAwareInstruction, contentEditorialContext, preserveContentApprovalPolicy } from "../../application/approval/ApprovalRuntimePolicy";
 import { TistoryPublishingAdapter } from "../../../apps/tistory/publishing/TistoryPublishingAdapter";
 import { analyzeLongFormDocument, applyContentDepthPolicy, applyContentOpportunityPolicy, calculateContentMetrics, contentOpportunityKeywords, deriveContentTags, detectContentOpportunitySelectionMode, ensureSeoKeywordPlacement, LongFormValidationError, placeRecommendedPosts, rankRelatedPosts, requiresLongFormValidation, restoreProtectedImageAssets, restoreVerifiedEditorialLinks, type ConfirmedContentOpportunity, type ContentDocument, type LongFormDiagnostic } from "../../../core/content";
 import { ContentDeletionService } from "../../application/content/ContentDeletionService";
@@ -105,6 +106,7 @@ export async function POST(request: Request) {
         keywords: input.keywords,
       });
       const { keywords, opportunity } = generationContract;
+      const editorialContext = contentEditorialContext(owned, existing);
       const provider = new OpenAIProvider(undefined, openAIGenerationModel());
       const workflow = new AIWorkflow(provider, new EditorialGenerationStrategy());
       const generationStartedAt = new Date();
@@ -112,7 +114,7 @@ export async function POST(request: Request) {
         contentId,
         contentType: opportunity.contentType as never,
         contentOpportunity: opportunity,
-        editorialContext: JSON.stringify({ projectStrategy: projectStrategyAIContext(resolveProjectStrategy(ownedProject(owned, projectId))) }),
+        editorialContext,
         keywords,
         platform: required(input.platform) as never,
         projectId,
@@ -178,11 +180,15 @@ export async function POST(request: Request) {
         const reviewStartedAt = new Date();
         const pipeline = await new EditorialQualityPipeline(new OpenAIProvider(undefined, openAIReviewModel(), reviewTimeoutMs())).run({
           document: initialDocument,
-          finalReviewInstruction: (document, quality) => finalEditInstruction(document, quality, opportunity),
+          finalReviewInstruction: (document, quality) => approvalAwareInstruction(
+            finalEditInstruction(document, quality, opportunity),
+            owned,
+            existing,
+          ),
           parseInput: { contentId, contentType: opportunity.contentType as never, contentOpportunity: opportunity, keywords, platform: required(input.platform) as never, projectId },
           placeDocument: async (document) => applyContentPolicy(await placeAvailableTistoryPosts(owned, existing, document), existing),
           qualityContext: context,
-          requiredInformation: [...opportunity.expectedCoverage, ...editorialRequirements(typeof input.editorialContext === "string" ? input.editorialContext : undefined)],
+          requiredInformation: [...opportunity.expectedCoverage, ...editorialRequirements(editorialContext)],
         });
         const reviewCompletedAt = new Date();
         const executionDiagnostics = {
@@ -298,7 +304,14 @@ export async function POST(request: Request) {
       const keywords = content.opportunity ? contentOpportunityKeywords(content.opportunity) : resolveConfirmedGenerationKeywords(content, [content.primaryKeyword]);
       const initialDocument = await placeAvailableTistoryPosts(data, content, content.document);
       const initialQuality = new QualityEngine().review(initialDocument, qualityContext(content));
-      const finalEdit = await new OpenAIProvider(undefined, openAIReviewModel(), reviewTimeoutMs()).generate({ instruction: finalEditInstruction(initialDocument, initialQuality, content.opportunity), metadata: { task: "quality-final-edit" } });
+      const finalEdit = await new OpenAIProvider(undefined, openAIReviewModel(), reviewTimeoutMs()).generate({
+        instruction: approvalAwareInstruction(
+          finalEditInstruction(initialDocument, initialQuality, content.opportunity),
+          data,
+          content,
+        ),
+        metadata: { task: "quality-final-edit" },
+      });
       let document = restoreProtectedImageAssets(content.document, new EditorialGenerationStrategy().parse(finalEdit.content, { contentId, contentType: (content.contentType ?? "article") as never, ...(content.opportunity ? { contentOpportunity: content.opportunity } : {}), keywords, platform: (content.platform ?? "tistory") as never, projectId: content.projectId }));
       document = applyContentPolicy(await placeAvailableTistoryPosts(data, content, document), content);
       const reviewedAt = new Date().toISOString();
@@ -319,7 +332,7 @@ export async function POST(request: Request) {
       const keywords = current.opportunity ? contentOpportunityKeywords(current.opportunity) : resolveConfirmedGenerationKeywords(current, [input.primaryKeyword]);
       const provider = new OpenAIProvider(undefined, openAIGenerationModel());
       const response = await provider.generate({
-        instruction: `Revise the canonical ContentDocument according to the user's instruction. The confirmed Content Opportunity is immutable: ${JSON.stringify(current.opportunity ?? { primaryKeyword: current.primaryKeyword, searchIntent: current.searchIntent })}. Keep the selected topic, primary keyword, search intent, secondary keywords, and expected coverage aligned as one article; never satisfy this by attaching a keyword to an unrelated title. Preserve unaffected blocks and every attached image source, assetId, ALT, prompt, purpose, and media field. For source-empty recommendations, keep each prompt grounded in its nearest H2 and make image scenes differ in at least two of subject, action, background, composition, viewpoint, or information expression. Never publish or invoke browser automation. Return the complete revised document as JSON only in {"title":"...","blocks":[...]} form.\nUser instruction: ${required(input.instruction)}\nCurrent document: ${JSON.stringify(input.document)}`,
+        instruction: approvalAwareInstruction(`Revise the canonical ContentDocument according to the user's instruction. The confirmed Content Opportunity is immutable: ${JSON.stringify(current.opportunity ?? { primaryKeyword: current.primaryKeyword, searchIntent: current.searchIntent })}. Keep the selected topic, primary keyword, search intent, secondary keywords, and expected coverage aligned as one article; never satisfy this by attaching a keyword to an unrelated title. Preserve unaffected blocks and every attached image source, assetId, ALT, prompt, purpose, and media field. For source-empty recommendations, keep each prompt grounded in its nearest H2 and make image scenes differ in at least two of subject, action, background, composition, viewpoint, or information expression. Never publish or invoke browser automation. Return the complete revised document as JSON only in {"title":"...","blocks":[...]} form.\nUser instruction: ${required(input.instruction)}\nCurrent document: ${JSON.stringify(input.document)}`, data, current),
         metadata: { task: "content-revision" },
       });
       const parsed = new EditorialGenerationStrategy().parse(response.content, {
@@ -339,11 +352,11 @@ export async function POST(request: Request) {
       const currentQuality = new QualityEngine().review(content.document, qualityContext(content));
       if (!currentQuality.tasks.length) throw new Error("현재 원고에는 AI로 개선할 품질 항목이 없습니다.");
       const response = await new OpenAIProvider(undefined, openAIReviewModel(), reviewTimeoutMs()).generate({
-        instruction: `This is the only quality-improvement AI call. Return a fully approved final manuscript in this response. Improve this complete canonical ContentDocument using only the Quality Review tasks below. Preserve the immutable Content Opportunity as one plan: ${JSON.stringify(content.opportunity ? contentOpportunityAIContext(content.opportunity) : { primaryKeyword: content.primaryKeyword, searchIntent: content.searchIntent })}. Correct topic drift across title, headings, body, images, links, and CTA instead of mechanically prefixing the keyword. Preserve every unaffected block ID and the user's existing block order. Do not create, remove, replace, or edit internal_link or related_post blocks; verified links are protected and restored by the server. Preserve every attached image source, assetId, ALT, prompt, purpose, and media field. For source-empty image recommendations, resolve image-strategy tasks by grounding each prompt in its nearest H2 and differentiating subject, action, background, composition, viewpoint, and information expression while keeping one brand style. Never return an empty internal-link placeholder. Do not add monetization links. Preserve existing metadata exactly unless the SEO or search-intent task requires a change. Return the complete revised document as JSON only in {"title":"...","metaDescription":"...","primarySearchIntent":"...","secondaryIntent":"...","secondaryKeywords":["..."],"relatedTerms":["..."],"blocks":[...]} form. Do not return commentary.
+        instruction: approvalAwareInstruction(`This is the only quality-improvement AI call. Return a fully approved final manuscript in this response. Improve this complete canonical ContentDocument using only the Quality Review tasks below. Preserve the immutable Content Opportunity as one plan: ${JSON.stringify(content.opportunity ? contentOpportunityAIContext(content.opportunity) : { primaryKeyword: content.primaryKeyword, searchIntent: content.searchIntent })}. Correct topic drift across title, headings, body, images, links, and CTA instead of mechanically prefixing the keyword. Preserve every unaffected block ID and the user's existing block order. Do not create, remove, replace, or edit internal_link or related_post blocks; verified links are protected and restored by the server. Preserve every attached image source, assetId, ALT, prompt, purpose, and media field. For source-empty image recommendations, resolve image-strategy tasks by grounding each prompt in its nearest H2 and differentiating subject, action, background, composition, viewpoint, and information expression while keeping one brand style. Never return an empty internal-link placeholder. Do not add monetization links. Preserve existing metadata exactly unless the SEO or search-intent task requires a change. Return the complete revised document as JSON only in {"title":"...","metaDescription":"...","primarySearchIntent":"...","secondaryIntent":"...","secondaryKeywords":["..."],"relatedTerms":["..."],"blocks":[...]} form. Do not return commentary.
 Mandatory approval contract: overallScore >= 95; searchIntent, SEO, readability, and completeness >= 95; every other dimension >= 80; no blocked finding. Do not raise completeness or usefulness by lowering readability below 95. Break long sentences and paragraphs while adding concrete criteria, sequence, examples, cautions, and alternatives.
 Current Rule Quality report: ${JSON.stringify(currentQuality)}
 Quality tasks: ${JSON.stringify(currentQuality.tasks)}
-  Current document: ${JSON.stringify(contentDocumentAIContext(content.document))}`,
+  Current document: ${JSON.stringify(contentDocumentAIContext(content.document))}`, data, content),
         metadata: { task: "quality-improvement" },
       });
       const parsed = new EditorialGenerationStrategy().parse(response.content, {
@@ -497,7 +510,7 @@ function applyContentPolicy(document: ContentDocument, content: UserData["conten
   const tags = deriveContentTags(aligned.document, content.primaryKeyword);
   const qualityTarget = content.qualityTarget ?? content.opportunity?.qualityTarget ?? aligned.document.metadata?.qualityTarget;
   const baseMetadata = aligned.document.metadata ?? content.document?.metadata;
-  return {
+  const policyApplied: ContentDocument = {
     ...aligned.document,
     ...(baseMetadata ? { metadata: {
       ...baseMetadata,
@@ -506,6 +519,7 @@ function applyContentPolicy(document: ContentDocument, content: UserData["conten
       tags,
     } } : {}),
   };
+  return preserveContentApprovalPolicy(policyApplied, content);
 }
 
 async function persistPlanningResult(data: UserData, input: Record<string, unknown> | undefined, plan: import("../../user-flow/user-data").ContentPlanningResult): Promise<UserData> {
@@ -566,12 +580,20 @@ async function performPlanning(data: UserData, project: UserData["projects"][num
     : detectContentOpportunitySelectionMode(planningRequest, input?.selectionMode === "automatic");
   const contentId = typeof input?.contentId === "string" ? input.contentId : undefined;
   const evidenceBundle = await opportunityEvidenceService.buildPlanningBundle(data, project, contentId);
+  const planningContent = contentId
+    ? data.contents.find((content) =>
+        content.id === contentId
+        && content.projectId === project.id)
+    : undefined;
+  const projectContext = planningContent
+    ? contentEditorialContext(data, planningContent)
+    : JSON.stringify(projectStrategyAIContext(resolveProjectStrategy(project)));
   const rawPlan = manual
     ? createManualPlanningResult(planningRequest, { projectId: project.id, selectionMode: "userSpecified" })
     : await new ContentPlanningStrategy(new OpenAIProvider(undefined, openAIGenerationModel())).analyze(planningRequest, resolveWorkspaceSettings(data).enabledPlatforms, {
       projectId: project.id,
       selectionMode,
-      projectContext: JSON.stringify(projectStrategyAIContext(resolveProjectStrategy(project))),
+      projectContext,
       existingContent: data.contents.filter((content) => content.projectId === project.id && content.id !== contentId).map((content) => `${content.title} | ${content.primaryKeyword ?? ""}`),
       hasVerifiedKeywordData: evidenceBundle.some((value) => value.provider !== "brightStudio" && value.verified),
       evidenceBundle,
@@ -579,7 +601,7 @@ async function performPlanning(data: UserData, project: UserData["projects"][num
   const classified = opportunityEvidenceService.classifyCandidates(rawPlan.opportunityCandidates ?? [], evidenceBundle, data, project)
     .map((candidate) => applyContentDepthPolicy(candidate, {
       domain: rawPlan.domain,
-      projectStrategy: JSON.stringify(projectStrategyAIContext(resolveProjectStrategy(project))),
+      projectStrategy: projectContext,
     }));
   const plan = withClassifiedCandidates(rawPlan, classified);
   const saved = await persistPlanningResult(data, input, plan);
