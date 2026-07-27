@@ -2,6 +2,7 @@ import type { PersistenceMutation, PersistenceStore } from "../../../core/data";
 import {
   evaluateApprovalDuplicateRisk,
   normalizeContentPurpose,
+  type ApprovalDuplicateCheckSnapshot,
 } from "../../../core/approval";
 import type { UserContent, UserData } from "../../user-flow/user-data";
 import {
@@ -190,10 +191,8 @@ function latestDocumentTimestamp(contents: readonly UserContent[], fallback: str
 }
 
 function sameDuplicateSnapshot(
-  left: NonNullable<UserContent["document"]>["metadata"] extends infer Metadata
-    ? Metadata extends { approvalDuplicateCheck?: infer Snapshot } ? Snapshot : never
-    : never,
-  right: ReturnType<typeof evaluateApprovalDuplicateRisk>,
+  left: ApprovalDuplicateCheckSnapshot | undefined,
+  right: ApprovalDuplicateCheckSnapshot,
 ): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
