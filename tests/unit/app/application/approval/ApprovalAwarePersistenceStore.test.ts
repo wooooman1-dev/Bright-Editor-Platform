@@ -63,15 +63,18 @@ describe("ApprovalAwarePersistenceStore", () => {
     await store.set("application", "user-data", approvalProject());
     await store.update<UserData>("application", "user-data", (current) => planning(current!));
     const saved = (await store.get<UserData>("application", "user-data"))!;
-    const content = saved.contents[0] as UserData["contents"][number] & Record<string, unknown>;
-    const {
-      contentPurpose: _contentPurpose,
-      approvalPolicyId: _approvalPolicyId,
-      approvalPolicyVersion: _approvalPolicyVersion,
-      approvalProfileId: _approvalProfileId,
-      approvalProfileVersion: _approvalProfileVersion,
-      ...legacyContent
-    } = content;
+    const legacyContent = {
+      ...(saved.contents[0] as UserData["contents"][number] & Record<string, unknown>),
+    };
+    for (const key of [
+      "contentPurpose",
+      "approvalPolicyId",
+      "approvalPolicyVersion",
+      "approvalProfileId",
+      "approvalProfileVersion",
+    ]) {
+      delete legacyContent[key];
+    }
 
     await store.set("application", "user-data", {
       ...saved,
