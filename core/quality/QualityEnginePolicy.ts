@@ -63,7 +63,13 @@ export class QualityEngine extends BaseQualityEngine {
 }
 
 function approvalIssueCategory(code: ApprovalPreparationIssueCode): QualityCategory {
-  return code === "PROFILE_SOURCE_REQUIREMENT_MISSING" || code === "PLACEHOLDER_CONTENT"
-    ? "completeness"
-    : "searchIntent";
+  switch (code) {
+    case "PROFILE_SOURCE_REQUIREMENT_MISSING":
+    case "PROFILE_SOURCE_URL_MISSING":
+    case "PROFILE_REVIEW_DATE_MISSING":
+    case "PLACEHOLDER_CONTENT":
+      return "completeness";
+    default:
+      return "searchIntent";
+  }
 }
