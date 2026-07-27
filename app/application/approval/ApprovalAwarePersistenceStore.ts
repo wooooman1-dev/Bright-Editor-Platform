@@ -113,20 +113,33 @@ function preserveExistingSnapshot(
   assertUnchanged("approvalProfileId", prior.approvalProfileId, incoming.approvalProfileId);
   assertUnchanged("approvalProfileVersion", prior.approvalProfileVersion, incoming.approvalProfileVersion);
 
-  const update: Partial<ApprovalAwareContent> = {
-    contentPurpose: prior.contentPurpose ?? "standard",
-    approvalPolicyId: prior.approvalPolicyId,
-    approvalPolicyVersion: prior.approvalPolicyVersion,
-    approvalProfileId: prior.approvalProfileId,
-    approvalProfileVersion: prior.approvalProfileVersion,
-  };
-
   return {
     ...data,
-    contents: data.contents.map((item) => item.id === candidate.id
-      ? { ...(item as ApprovalAwareContent), ...update } as UserContent
-      : item),
+    contents: data.contents.map((item) => {
+      if (item.id !== candidate.id) return item;
+      const sanitized = omitApprovalSnapshot(item as ApprovalAwareContent);
+      if (priorPurpose === "standard") {
+        return { ...sanitized, contentPurpose: "standard" } as UserContent;
+      }
+      return {
+        ...sanitized,
+        contentPurpose: "adsense_approval",
+        ...(prior.approvalPolicyId ? { approvalPolicyId: prior.approvalPolicyId } : {}),
+        ...(prior.approvalPolicyVersion ? { approvalPolicyVersion: prior.approvalPolicyVersion } : {}),
+        ...(prior.approvalProfileId ? { approvalProfileId: prior.approvalProfileId } : {}),
+        ...(prior.approvalProfileVersion ? { approvalProfileVersion: prior.approvalProfileVersion } : {}),
+      } as UserContent;
+    }),
   };
+}
+
+function omitApprovalSnapshot(content: ApprovalAwareContent): Partial<ApprovalAwareContent> {
+  const sanitized: Partial<ApprovalAwareContent> = { ...content };
+  delete sanitized.approvalPolicyId;
+  delete sanitized.approvalPolicyVersion;
+  delete sanitized.approvalProfileId;
+  delete sanitized.approvalProfileVersion;
+  return sanitized;
 }
 
 function assertUnchanged(label: string, previous: unknown, incoming: unknown): void {
