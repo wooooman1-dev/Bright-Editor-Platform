@@ -27,9 +27,9 @@ export type ApprovalEvidenceVerificationResult = Readonly<{
  * Verifies approval Evidence without another AI call.
  *
  * A source is marked verified only when it is reachable over HTTPS, matches the
- * active profile's official-source trust policy, and at least one factual value
- * extracted from the canonical document is also present on the source page.
- * A URL, title, or citation label by itself is never enough.
+ * active profile's official-source trust policy, and multiple factual values
+ * extracted from the canonical document are also present on the source page.
+ * A URL, title, year, or citation label by itself is never enough.
  */
 export function verifyApprovalEvidence(
   document: ContentDocument,
@@ -68,15 +68,15 @@ export function verifyApprovalEvidence(
     }
 
     const matchedFacts = facts.filter((fact) => pageContainsFact(page, fact));
-    if (!matchedFacts.length) {
-      reasons.push(`${source.url}: 원고의 작품·제도 사실과 공식 페이지의 일치를 확인하지 못했습니다.`);
+    const matchedValues = new Set(matchedFacts.map((fact) => canonicalFactValue(fact.value)));
+    if (matchedValues.size < 2) {
+      reasons.push(`${source.url}: 원고의 서로 다른 작품·제도 사실 2개 이상과 공식 페이지의 일치를 확인하지 못했습니다.`);
       return unverifiedSource(source, page);
     }
 
     verifiedSourceCount += 1;
     return Object.freeze({
       ...source,
-      url: page.finalUrl,
       title: page.title || source.title,
       publisher: page.publisher || source.publisher,
       retrievedAt: reviewedAt,
@@ -168,16 +168,27 @@ function sourcePageReachable(page: ApprovalSourcePage): boolean {
 }
 
 function pageContainsFact(page: ApprovalSourcePage, fact: ApprovalEvidenceFact): boolean {
-  const needle = normalizeFact(fact.value);
-  if (needle.length < 3) return false;
   const haystack = normalizeFact(`${page.title} ${page.publisher} ${page.text}`);
-  return haystack.includes(needle);
+  return factVariants(fact.value).some((needle) => needle.length >= 3 && haystack.includes(needle));
+}
+
+function factVariants(value: string): readonly string[] {
+  const raw = value.normalize("NFKC");
+  const variants = [
+    raw,
+    raw.replace(/(\d{4})\s*년/g, "$1"),
+    raw.replace(/센티미터|㎝/g, "cm").replace(/밀리미터/g, "mm"),
+  ].map(normalizeFact).filter(Boolean);
+  return Object.freeze([...new Set(variants)]);
+}
+
+function canonicalFactValue(value: string): string {
+  return factVariants(value)[0] ?? normalizeFact(value);
 }
 
 function unverifiedSource(source: ApprovalEvidenceSource, page?: ApprovalSourcePage): ApprovalEvidenceSource {
   return Object.freeze({
     ...source,
-    ...(page?.finalUrl ? { url: page.finalUrl } : {}),
     ...(page?.title ? { title: page.title } : {}),
     ...(page?.publisher ? { publisher: page.publisher } : {}),
     verified: false,
