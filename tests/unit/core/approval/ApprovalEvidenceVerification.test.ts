@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  canonicalizeApprovalEvidenceUrl,
   officialSourceAllowed,
   verifyApprovalEvidence,
   type ApprovalEvidencePack,
@@ -71,7 +72,7 @@ describe("ApprovalEvidenceVerification", () => {
     expect(result.pack).toMatchObject({
       status: "verified",
       reviewedAt: "2026-07-27T10:00:00.000Z",
-      sources: [{ verified: true, publisher: "The Museum of Modern Art" }],
+      sources: [{ verified: true, publisher: "The Museum of Modern Art", verificationStatus: "verified" }],
     });
     expect(result.pack.sources[0]?.facts.map((fact) => fact.value)).toEqual(expect.arrayContaining([
       "The Starry Night",
@@ -79,6 +80,65 @@ describe("ApprovalEvidenceVerification", () => {
       "The Museum of Modern Art",
     ]));
     expect(result.verifiedSourceCount).toBe(1);
+  });
+
+  it("deduplicates tracking variants while preserving the rejected candidate diagnosis", () => {
+    const trackingUrl = `${sourceUrl}?utm_source=openai`;
+    const pack: ApprovalEvidencePack = {
+      ...candidatePack,
+      sources: [
+        { ...candidatePack.sources[0]!, sourceId: "museum-tracking", url: trackingUrl },
+        { ...candidatePack.sources[0]!, sourceId: "museum-canonical", url: sourceUrl },
+      ],
+    };
+    const result = verifyApprovalEvidence(
+      { ...document(), metadata: { ...document().metadata!, approvalEvidence: pack } },
+      "tistory_vivarain_art_v1",
+      [officialPage],
+      "2026-07-27T10:00:00.000Z",
+    );
+
+    expect(result.pack.status).toBe("verified");
+    expect(result.verifiedSourceCount).toBe(1);
+    expect(result.rejectedSourceCount).toBe(1);
+    expect(result.pack.sources[0]).toMatchObject({ verified: true, canonicalUrl: sourceUrl, selected: true });
+    expect(result.pack.sources[1]).toMatchObject({ verified: false, verificationStatus: "duplicate_source", selected: false });
+    expect(result.pack.sources[1]?.failureReason).toContain("중복 후보");
+  });
+
+  it("normalizes tracking parameters and trailing slashes for candidate identity", () => {
+    expect(canonicalizeApprovalEvidenceUrl("https://www.getty.edu/news/what-is-chiaroscuro/?utm_source=openai"))
+      .toBe("https://www.getty.edu/news/what-is-chiaroscuro");
+  });
+
+  it("records official PDF candidates as unsupported instead of unreachable HTML", () => {
+    const pdfUrl = "https://www.nga.gov/content/dam/ngaweb/education/guide.pdf";
+    const pack: ApprovalEvidencePack = {
+      ...candidatePack,
+      sources: [{ ...candidatePack.sources[0]!, sourceId: "nga-pdf", url: pdfUrl }],
+    };
+    const result = verifyApprovalEvidence(
+      { ...document(), metadata: { ...document().metadata!, approvalEvidence: pack } },
+      "tistory_vivarain_art_v1",
+      [{
+        requestedUrl: pdfUrl,
+        finalUrl: pdfUrl,
+        status: 200,
+        contentType: "application/pdf",
+        title: "",
+        publisher: "www.nga.gov",
+        text: "",
+      }],
+      "2026-07-27T10:00:00.000Z",
+    );
+
+    expect(result.pack.status).toBe("needs_review");
+    expect(result.pack.sources[0]).toMatchObject({
+      verified: false,
+      official: true,
+      verificationStatus: "unsupported_content_type",
+      contentType: "application/pdf",
+    });
   });
 
   it("does not verify a user-generated blog even when the text repeats the article facts", () => {
@@ -102,7 +162,18 @@ describe("ApprovalEvidenceVerification", () => {
 
     expect(result.pack.status).toBe("needs_review");
     expect(result.pack.sources[0]?.verified).toBe(false);
+    expect(result.pack.sources[0]?.verificationStatus).toBe("unofficial_source");
     expect(result.reasons[0]).toContain("공식 출처로 확인되지 않았습니다");
+  });
+
+  it("accepts explicitly trusted Getty pages for the Vivarain art profile", () => {
+    expect(officialSourceAllowed("tistory_vivarain_art_v1", {
+      ...officialPage,
+      requestedUrl: "https://www.getty.edu/news/what-is-chiaroscuro/",
+      finalUrl: "https://www.getty.edu/news/what-is-chiaroscuro/",
+      title: "What Is Chiaroscuro?",
+      publisher: "Getty",
+    })).toBe(true);
   });
 
   it("restricts 생활경제 Evidence to approved public-sector domains", () => {
