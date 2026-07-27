@@ -60,18 +60,18 @@ function rawQuality(approvalReadiness: ApprovalReadinessReport) {
 }
 
 describe("quality review approval readiness UI", () => {
-  it("does not show a 100-point approval article as ready while site gates are unevaluated", () => {
+  it("shows a 100-point manuscript as quality-approved while site gates remain separate", () => {
     const review = normalizeQualityReview(rawQuality(readiness(false)), { currentRevisionId: "rev-current" });
 
     expect(review.overallScore).toBe(100);
     expect(review.approvalType).toBe("standard");
-    expect(review.status).toBe("improvement_required");
+    expect(review.status).toBe("ready");
     expect(review.approvalReadiness?.applicationReady).toBe(false);
-    expect(review.issues).toContainEqual(expect.stringContaining("[승인 준비] evidence 검토"));
+    expect(review.issues).not.toContainEqual(expect.stringContaining("[승인 준비]"));
     expect(review.actionableTasks).toHaveLength(0);
   });
 
-  it("shows ready only after article quality and every approval-readiness gate pass", () => {
+  it("keeps application readiness true only after every independent gate passes", () => {
     const review = normalizeQualityReview(rawQuality(readiness(true)), { currentRevisionId: "rev-current" });
 
     expect(review.status).toBe("ready");
