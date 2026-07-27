@@ -79,7 +79,7 @@ export function SettingsConnections({ connections, enabledPlatforms, onRefresh, 
 
   return <div className="space-y-6">
     {notice ? <p aria-live="polite" className={`sticky top-4 z-30 rounded-xl border px-4 py-3 text-sm font-semibold shadow-sm ${notice.tone === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-900" : notice.tone === "error" ? "border-red-200 bg-red-50 text-red-800" : "border-blue-200 bg-blue-50 text-blue-800"}`}>{notice.tone === "success" ? "✓ " : notice.tone === "error" ? "주의: " : "↻ "}{notice.message}</p> : null}
-    {enabledPlatforms.includes("tistory") ? <Platform title="Tistory" description="브라우저 로그인 후 안전한 임시저장 workflow를 사용합니다. 기존 계정은 카드의 ‘다시 연결’을 사용하면 Project와 Content 참조가 그대로 유지됩니다."><div className="grid gap-3 sm:grid-cols-[1fr_auto]"><Field label="새 Tistory 계정 연결" onChange={setBlogAddress} placeholder="https://example.tistory.com" value={blogAddress} /><button className="self-end rounded-xl bg-[#ff6b6b] px-5 py-3 text-sm font-semibold text-white" disabled={!blogAddress.trim() || Boolean(observedJobId)} onClick={() => void action({ action: "tistory-connect", blogAddress })} type="button">새 계정 연결</button></div>{observedJobId ? <button className="mt-3 rounded-xl border px-4 py-2" onClick={() => void action({ action: "cancel", connectionId: observedJobId })} type="button">연결 취소</button> : null}<AccountList connections={tistory} onAction={action} /></Platform> : null}
+    {enabledPlatforms.includes("tistory") ? <Platform title="Tistory" description="계정 등록 상태와 실제 로그인 세션 상태를 구분합니다. 저장된 세션 파일만으로 현재 로그인 상태나 임시저장 가능 여부를 확정하지 않습니다."><div className="grid gap-3 sm:grid-cols-[1fr_auto]"><Field label="새 Tistory 계정 연결" onChange={setBlogAddress} placeholder="https://example.tistory.com" value={blogAddress} /><button className="self-end rounded-xl bg-[#ff6b6b] px-5 py-3 text-sm font-semibold text-white" disabled={!blogAddress.trim() || Boolean(observedJobId)} onClick={() => void action({ action: "tistory-connect", blogAddress })} type="button">새 계정 연결</button></div>{observedJobId ? <button className="mt-3 rounded-xl border px-4 py-2" onClick={() => void action({ action: "cancel", connectionId: observedJobId })} type="button">연결 취소</button> : null}<AccountList connections={tistory} onAction={action} /></Platform> : null}
     {enabledPlatforms.includes("wordpress") ? <Platform title="WordPress" description="Application Password는 브라우저로 다시 반환하지 않습니다."><div className="grid gap-3 sm:grid-cols-2"><Field label="사이트 주소" onChange={setSiteUrl} placeholder="https://example.com" value={siteUrl} /><Field label="사용자 이름" onChange={setUsername} value={username} /></div><label className="mt-3 block text-sm font-semibold">Application Password<input autoComplete="new-password" className="mt-2 w-full rounded-xl border px-4 py-3 font-normal" onChange={(event) => setApplicationPassword(event.target.value)} type="password" value={applicationPassword} /></label><div className="mt-3 flex gap-2"><button className="rounded-xl border px-4 py-2.5 text-sm font-semibold" onClick={() => void action({ action: "wordpress-test", siteUrl, username, applicationPassword })} type="button">연결 테스트</button><button className="rounded-xl bg-[#ff6b6b] px-4 py-2.5 text-sm font-semibold text-white" onClick={() => void action({ action: "wordpress-save", siteUrl, username, applicationPassword })} type="button">안전하게 저장</button></div><AccountList connections={wordpress} onAction={action} /></Platform> : null}
     {enabledPlatforms.includes("youtube") ? <Unsupported title="YouTube" /> : null}
     {enabledPlatforms.includes("naver_cafe") ? <Unsupported title="Naver Cafe" /> : null}
@@ -102,15 +102,18 @@ function AccountList({ connections, onAction }: { connections: readonly PublicCo
     const projectReferences = connection.projectReferenceCount ?? 0;
     const contentReferences = connection.contentReferenceCount ?? 0;
     const hasReferences = projectReferences > 0 || contentReferences > 0;
-    const reconnectable = connection.platform === "tistory" && (connection.status === "disconnected" || connection.status === "failed");
+    const reconnectable = connection.platform === "tistory" && ["disconnected", "failed", "expired", "verification_required"].includes(connection.status);
     const connecting = connection.status === "connecting";
+    const disconnectable = ["connected", "failed", "expired", "verification_required"].includes(connection.status);
 
     return <article className="rounded-xl border p-4" key={connection.id}>
       <div className="flex flex-wrap justify-between gap-3">
         <div>
           <h3 className="font-semibold">{connection.displayName}</h3>
-          <p className="mt-1 text-sm text-[#77777f]">{connectionStatusLabel(connection.status)} · 임시저장 {connection.status === "connected" && connection.permissions.includes("draft.create") ? "가능" : "준비 필요"}</p>
-          <p className="mt-1 text-xs text-[#92929a]">마지막 확인: {connection.lastVerifiedAt ? new Date(connection.lastVerifiedAt).toLocaleString("ko-KR") : "기록 없음"}</p>
+          <p className="mt-1 text-sm font-medium text-[#55555d]">계정 상태 · {connectionStatusLabel(connection.status)}</p>
+          {connection.platform === "tistory" ? <p className={`mt-1 text-sm ${tistorySessionTone(connection)}`}>세션 상태 · {tistorySessionLabel(connection)}</p> : null}
+          <p className="mt-1 text-sm text-[#77777f]">권한 상태 · {connection.permissions.includes("draft.create") ? "임시저장 권한 있음" : "임시저장 권한 없음"}</p>
+          <p className="mt-1 text-xs text-[#92929a]">마지막 로그인 확인: {connection.lastVerifiedAt ? new Date(connection.lastVerifiedAt).toLocaleString("ko-KR") : "기록 없음"}</p>
           {hasReferences ? <p className={`mt-2 text-sm font-medium ${connection.status === "connected" ? "text-emerald-700" : connecting ? "text-blue-700" : "text-amber-800"}`}>{connecting
             ? `기존 Project ${projectReferences}개 · Content ${contentReferences}개 참조 유지 중`
             : connection.status === "connected"
@@ -118,8 +121,8 @@ function AccountList({ connections, onAction }: { connections: readonly PublicCo
               : `참조 Project ${projectReferences}개 · Content ${contentReferences}개`}</p> : null}
         </div>
         <div className="flex flex-wrap gap-2">
-          <button className="rounded-lg border px-3 py-2 text-sm font-semibold disabled:opacity-50" disabled={connecting} onClick={() => { if (reconnectable) setDeletion(undefined); void onAction({ action: "verify", connectionId: connection.id }); }} type="button">{connecting ? "연결 중…" : reconnectable ? "다시 연결" : "연결 확인"}</button>
-          {connection.status === "connected" || connection.status === "failed" ? <button className="rounded-lg border border-red-200 px-3 py-2 text-sm font-semibold text-red-700" onClick={() => void onAction({ action: "disconnect", connectionId: connection.id })} type="button">연결 해제</button> : connection.status === "disconnected" ? <span className="rounded-lg bg-[#f8f8fa] px-3 py-2 text-sm font-semibold text-[#77777f]">연결 해제됨</span> : <span className="rounded-lg bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700">기존 참조 유지</span>}
+          <button className="rounded-lg border px-3 py-2 text-sm font-semibold disabled:opacity-50" disabled={connecting} onClick={() => { if (reconnectable) setDeletion(undefined); void onAction({ action: "verify", connectionId: connection.id }); }} type="button">{connecting ? "연결 중…" : reconnectable ? "다시 연결" : connection.platform === "tistory" ? "세션 확인/갱신" : "연결 확인"}</button>
+          {disconnectable ? <button className="rounded-lg border border-red-200 px-3 py-2 text-sm font-semibold text-red-700" onClick={() => void onAction({ action: "disconnect", connectionId: connection.id })} type="button">연결 해제</button> : connection.status === "disconnected" ? <span className="rounded-lg bg-[#f8f8fa] px-3 py-2 text-sm font-semibold text-[#77777f]">연결 해제됨</span> : <span className="rounded-lg bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700">기존 참조 유지</span>}
           {connection.status === "disconnected" ? <button className="rounded-lg border border-red-200 px-3 py-2 text-sm font-semibold text-red-700" onClick={() => void onAction({ action: "connection-impact", connectionId: connection.id }).then((result) => { const impact = (result as { impact: { projectCount: number; contentCount: number } }).impact; setDeletion({ id: connection.id, ...impact, replacementConnectionId: "" }); })} type="button">계정 메타데이터 삭제</button> : null}
         </div>
       </div>
@@ -154,6 +157,7 @@ export function compatibleReplacementConnections(
   return connections.filter((candidate) => candidate.id !== source.id
     && candidate.platform === source.platform
     && candidate.status === "connected"
+    && (candidate.platform !== "tistory" || candidate.publicMetadata.sessionStateAvailable === true)
     && publicConnectionIdentity(candidate) === sourceIdentity);
 }
 
@@ -165,11 +169,29 @@ function publicConnectionIdentity(connection: PublicConnection): string {
 }
 
 function connectionStatusLabel(status: PublicConnection["status"]): string {
-  if (status === "connected") return "연결됨";
-  if (status === "connecting") return "연결 중";
+  if (status === "connected") return "계정 등록됨";
+  if (status === "connecting") return "연결 확인 중";
+  if (status === "verification_required") return "세션 확인 필요";
+  if (status === "expired") return "세션 만료";
   if (status === "disconnected") return "연결 해제됨";
-  if (status === "failed") return "연결 실패";
+  if (status === "failed") return "연결 확인 실패";
   return status;
+}
+
+function tistorySessionLabel(connection: PublicConnection): string {
+  if (connection.status === "connecting") return "로그인 확인 중";
+  if (connection.status === "expired") return "만료됨 · 다시 연결 필요";
+  if (connection.status === "verification_required") return "확인 필요 · 세션 확인/갱신을 실행해 주세요";
+  if (connection.status === "disconnected" || connection.status === "failed") return "사용 불가 · 다시 연결 필요";
+  return connection.publicMetadata.sessionStateAvailable === true
+    ? "저장된 로그인 정보 있음 · 현재 로그인 상태는 세션 확인/갱신으로 확인"
+    : "저장된 로그인 정보 없음 · 다시 연결 필요";
+}
+
+function tistorySessionTone(connection: PublicConnection): string {
+  if (connection.status === "expired" || connection.status === "disconnected" || connection.status === "failed") return "text-amber-800";
+  if (connection.status === "connecting" || connection.status === "verification_required") return "text-blue-700";
+  return "text-[#77777f]";
 }
 
 function Rename({ connection, onAction }: { connection: PublicConnection; onAction: (body: Record<string, unknown>) => Promise<unknown> }) {
