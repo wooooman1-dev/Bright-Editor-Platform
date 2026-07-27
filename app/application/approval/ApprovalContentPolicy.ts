@@ -130,6 +130,22 @@ export function contentApprovalPromptContext(content: UserContent): string | und
   return snapshot ? approvalPolicyPromptContext(snapshot) : undefined;
 }
 
+export function contentBoundEditorialContext(
+  projectContext: Readonly<Record<string, unknown>>,
+  content: UserContent,
+): string {
+  const stableProjectContext = Object.freeze(Object.fromEntries(
+    Object.entries(projectContext).filter(([key]) => key !== "approvalPolicy"),
+  ));
+  const approvalPolicy = contentApprovalPromptContext(content);
+  return JSON.stringify({
+    projectStrategy: {
+      ...stableProjectContext,
+      ...(approvalPolicy ? { approvalPolicy } : {}),
+    },
+  });
+}
+
 function replaceContent(
   data: UserData,
   contentId: string,
