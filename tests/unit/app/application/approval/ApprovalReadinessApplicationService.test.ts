@@ -4,6 +4,7 @@ import { ApprovalReadinessApplicationService } from "../../../../../app/applicat
 import { resolveApprovalPolicySnapshot, type ApprovalEvidencePack } from "../../../../../core/approval";
 import type { PlatformConnection } from "../../../../../core/connections";
 import type { ContentDocument } from "../../../../../core/content";
+import type { ApprovalAwareQualityReport } from "../../../../../core/quality";
 import type { UserData } from "../../../../../app/user-flow/user-data";
 
 const sourceUrl = "https://www.moma.org/collection/works/79802";
@@ -148,6 +149,7 @@ describe("ApprovalReadinessApplicationService", () => {
       fetcher(),
       () => "2026-07-27T10:30:00.000Z",
     ).execute({ data, contentId: "content-1", connection });
+    const approvalQuality = result.quality as ApprovalAwareQualityReport;
 
     expect(result.evidence.pack.status).toBe("verified");
     expect(result.siteReadiness.status).toBe("passed");
@@ -161,8 +163,8 @@ describe("ApprovalReadinessApplicationService", () => {
       id: "approval-sources-summary",
       text: expect.stringContaining(sourceUrl),
     }));
-    expect(result.quality.approvalReadiness?.checks).toContainEqual(expect.objectContaining({ key: "evidence", status: "passed" }));
-    expect(result.quality.approvalReadiness?.checks).toContainEqual(expect.objectContaining({ key: "site_readiness", status: "passed" }));
+    expect(approvalQuality.approvalReadiness?.checks).toContainEqual(expect.objectContaining({ key: "evidence", status: "passed" }));
+    expect(approvalQuality.approvalReadiness?.checks).toContainEqual(expect.objectContaining({ key: "site_readiness", status: "passed" }));
     expect(result.data.contents[0]?.quality?.reviewedRevisionId).toBe(result.quality.reviewedRevisionId);
   });
 });
