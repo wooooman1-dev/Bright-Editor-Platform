@@ -9,16 +9,6 @@ import {
 const USER_DATA_COLLECTION = "application";
 const USER_DATA_ID = "user-data";
 
-const approvalSnapshotKeys = [
-  "contentPurpose",
-  "approvalPolicyId",
-  "approvalPolicyVersion",
-  "approvalProfileId",
-  "approvalProfileVersion",
-] as const;
-
-type ApprovalSnapshotKey = (typeof approvalSnapshotKeys)[number];
-
 /**
  * Canonical persistence boundary for approval-preparation state.
  *
@@ -118,18 +108,18 @@ function preserveExistingSnapshot(
     throw new Error("Planning이 시작된 Content의 콘텐츠 목적은 변경할 수 없습니다. 현재 작업을 취소하고 새 Content로 시작해 주세요.");
   }
 
+  assertUnchanged("approvalPolicyId", prior.approvalPolicyId, incoming.approvalPolicyId);
+  assertUnchanged("approvalPolicyVersion", prior.approvalPolicyVersion, incoming.approvalPolicyVersion);
+  assertUnchanged("approvalProfileId", prior.approvalProfileId, incoming.approvalProfileId);
+  assertUnchanged("approvalProfileVersion", prior.approvalProfileVersion, incoming.approvalProfileVersion);
+
   const update: Partial<ApprovalAwareContent> = {
     contentPurpose: prior.contentPurpose ?? "standard",
+    approvalPolicyId: prior.approvalPolicyId,
+    approvalPolicyVersion: prior.approvalPolicyVersion,
+    approvalProfileId: prior.approvalProfileId,
+    approvalProfileVersion: prior.approvalProfileVersion,
   };
-
-  for (const key of approvalSnapshotKeys.slice(1) as readonly Exclude<ApprovalSnapshotKey, "contentPurpose">[]) {
-    const priorValue = prior[key];
-    const incomingValue = incoming[key];
-    if (priorValue !== undefined && incomingValue !== undefined && incomingValue !== priorValue) {
-      throw new Error("Planning이 시작된 Content의 승인 정책 snapshot은 변경할 수 없습니다.");
-    }
-    update[key] = priorValue;
-  }
 
   return {
     ...data,
@@ -137,6 +127,12 @@ function preserveExistingSnapshot(
       ? { ...(item as ApprovalAwareContent), ...update } as UserContent
       : item),
   };
+}
+
+function assertUnchanged(label: string, previous: unknown, incoming: unknown): void {
+  if (previous !== undefined && incoming !== undefined && incoming !== previous) {
+    throw new Error(`Planning이 시작된 Content의 승인 정책 snapshot은 변경할 수 없습니다. (${label})`);
+  }
 }
 
 function isUserDataKey(collection: string, id: string): boolean {
