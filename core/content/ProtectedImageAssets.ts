@@ -1,4 +1,3 @@
-import type { ContentBlock } from "./ContentBlock";
 import type { ContentDocument } from "./ContentDocument";
 import type { ImageBlock } from "./blocks/ImageBlock";
 
