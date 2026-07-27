@@ -1,5 +1,8 @@
 import type { PersistenceMutation, PersistenceStore } from "../../../core/data";
-import { normalizeContentPurpose } from "../../../core/approval";
+import {
+  evaluateApprovalDuplicateRisk,
+  normalizeContentPurpose,
+} from "../../../core/approval";
 import type { UserContent, UserData } from "../../user-flow/user-data";
 import {
   snapshotApprovalPolicyForPlanning,
@@ -15,6 +18,10 @@ const USER_DATA_ID = "user-data";
  * A new Planning Content receives one policy snapshot from its Project. Once the
  * Content exists, stale UI writes may omit the snapshot but cannot replace it
  * with a different purpose, policy, profile, or version.
+ *
+ * Approval-mode canonical documents also receive a deterministic duplicate-risk
+ * snapshot against the other documents in the same Project. This uses no AI
+ * call and never applies to standard content.
  */
 export class ApprovalAwarePersistenceStore implements PersistenceStore {
   constructor(private readonly delegate: PersistenceStore) {}
@@ -89,7 +96,7 @@ export function applyApprovalPersistencePolicy(
     }
   }
 
-  return next;
+  return attachApprovalDuplicateSnapshots(next);
 }
 
 function preserveExistingSnapshot(
@@ -131,6 +138,64 @@ function preserveExistingSnapshot(
       } as UserContent;
     }),
   };
+}
+
+function attachApprovalDuplicateSnapshots(data: UserData): UserData {
+  const documentsByProject = new Map<string, UserContent[]>();
+  for (const content of data.contents) {
+    if (!content.document) continue;
+    documentsByProject.set(content.projectId, [
+      ...(documentsByProject.get(content.projectId) ?? []),
+      content,
+    ]);
+  }
+
+  let changed = false;
+  const contents = data.contents.map((content) => {
+    const aware = content as ApprovalAwareContent;
+    if (normalizeContentPurpose(aware.contentPurpose) !== "adsense_approval" || !content.document?.metadata) return content;
+
+    const projectDocuments = documentsByProject.get(content.projectId) ?? [];
+    const checkedAt = latestDocumentTimestamp(projectDocuments, content.updatedAt);
+    const snapshot = evaluateApprovalDuplicateRisk(
+      content.document,
+      projectDocuments.flatMap((candidate) => candidate.id === content.id || !candidate.document
+        ? []
+        : [{ contentId: candidate.id, document: candidate.document }]),
+      checkedAt,
+    );
+    if (sameDuplicateSnapshot(content.document.metadata.approvalDuplicateCheck, snapshot)) return content;
+    changed = true;
+    return {
+      ...content,
+      document: {
+        ...content.document,
+        metadata: {
+          ...content.document.metadata,
+          approvalDuplicateCheck: snapshot,
+        },
+      },
+    } as UserContent;
+  });
+
+  return changed ? { ...data, contents } : data;
+}
+
+function latestDocumentTimestamp(contents: readonly UserContent[], fallback: string): string {
+  const timestamps = contents
+    .flatMap((content) => [content.updatedAt, content.document?.metadata?.updatedAt])
+    .filter((value): value is string => typeof value === "string" && Boolean(value));
+  if (!timestamps.length) return fallback;
+  return timestamps.sort().at(-1) ?? fallback;
+}
+
+function sameDuplicateSnapshot(
+  left: NonNullable<UserContent["document"]>["metadata"] extends infer Metadata
+    ? Metadata extends { approvalDuplicateCheck?: infer Snapshot } ? Snapshot : never
+    : never,
+  right: ReturnType<typeof evaluateApprovalDuplicateRisk>,
+): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function omitApprovalSnapshot(content: ApprovalAwareContent): Partial<ApprovalAwareContent> {
