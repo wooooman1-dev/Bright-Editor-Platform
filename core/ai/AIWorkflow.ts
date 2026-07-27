@@ -56,6 +56,7 @@ export class AIWorkflow {
     this.state = Object.freeze({ status: "generating" });
     try {
       const request = this.strategy.createRequest(input);
+      const approvalSnapshot = approvalPolicySnapshotFromEditorialContext(input.editorialContext);
       const response = await this.provider.generate({
         ...request,
         instruction: withCanonicalEditorialContext(request.instruction, input.editorialContext),
@@ -66,6 +67,11 @@ export class AIWorkflow {
           ...(input.contentOpportunity?.qualityTarget
             ? { qualityTarget: JSON.stringify(input.contentOpportunity.qualityTarget) }
             : {}),
+          ...(approvalSnapshot ? {
+            approvalPurpose: approvalSnapshot.contentPurpose,
+            approvalProfileId: approvalSnapshot.profileId,
+            approvalPolicyVersion: approvalSnapshot.policyVersion,
+          } : {}),
         },
       });
       const parsedDocument = this.strategy.parse(response.content, input);
