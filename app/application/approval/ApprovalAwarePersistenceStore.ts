@@ -134,12 +134,16 @@ function preserveExistingSnapshot(
 }
 
 function omitApprovalSnapshot(content: ApprovalAwareContent): Partial<ApprovalAwareContent> {
-  const sanitized: Partial<ApprovalAwareContent> = { ...content };
-  delete sanitized.approvalPolicyId;
-  delete sanitized.approvalPolicyVersion;
-  delete sanitized.approvalProfileId;
-  delete sanitized.approvalProfileVersion;
-  return sanitized;
+  const sanitized: Record<string, unknown> = { ...content };
+  for (const field of [
+    "approvalPolicyId",
+    "approvalPolicyVersion",
+    "approvalProfileId",
+    "approvalProfileVersion",
+  ] as const) {
+    Reflect.deleteProperty(sanitized, field);
+  }
+  return sanitized as Partial<ApprovalAwareContent>;
 }
 
 function assertUnchanged(label: string, previous: unknown, incoming: unknown): void {
