@@ -20,6 +20,15 @@ export type ApprovalEvidenceSourceType =
   | "official_law"
   | "official_application_page";
 
+export type ApprovalEvidenceVerificationStatus =
+  | "verified"
+  | "unreachable"
+  | "unsupported_content_type"
+  | "unofficial_source"
+  | "fact_mismatch"
+  | "duplicate_source"
+  | "excluded";
+
 export type ApprovalEvidenceFact = Readonly<{
   field: string;
   value: string;
@@ -35,6 +44,16 @@ export type ApprovalEvidenceSource = Readonly<{
   retrievedAt: string;
   verified: boolean;
   facts: readonly ApprovalEvidenceFact[];
+  canonicalUrl?: string;
+  finalUrl?: string;
+  httpStatus?: number;
+  contentType?: string;
+  official?: boolean;
+  selected?: boolean;
+  verificationStatus?: ApprovalEvidenceVerificationStatus;
+  failureReason?: string;
+  matchedFacts?: readonly ApprovalEvidenceFact[];
+  checkedAt?: string;
   rights?: Readonly<{
     status: "verified" | "unknown" | "restricted";
     note?: string;
@@ -128,8 +147,9 @@ function approvalPolicyCheck(issues: readonly ApprovalPreparationIssue[]): Appro
 
 function evidenceCheck(document: ContentDocument): ApprovalReadinessCheck {
   const pack = document.metadata?.approvalEvidence;
-  if (pack?.status === "verified" && pack.reviewedAt && pack.sources.length > 0 && pack.sources.every(validVerifiedSource)) {
-    return Object.freeze({ key: "evidence", status: "passed", message: `공식 Evidence ${pack.sources.length}개와 최종 검토일이 확인되었습니다.` });
+  const verifiedSources = pack?.sources.filter(validVerifiedSource) ?? [];
+  if (pack?.status === "verified" && pack.reviewedAt && verifiedSources.length > 0) {
+    return Object.freeze({ key: "evidence", status: "passed", message: `공식 Evidence ${verifiedSources.length}개와 최종 검토일이 확인되었습니다.` });
   }
   if (pack?.status === "missing") {
     return Object.freeze({ key: "evidence", status: "blocked", message: "승인 준비 원고에 공식 Evidence Pack이 없습니다.", action: "공식 기관 자료를 수집하고 원고의 사실과 대조하세요." });
