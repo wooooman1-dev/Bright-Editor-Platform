@@ -1,7 +1,7 @@
 import {
+  canonicalizeApprovalEvidenceUrl,
   normalizeContentPurpose,
   verifyApprovalEvidence,
-  type ApprovalEvidencePack,
   type ApprovalEvidenceVerificationResult,
   type ApprovalPolicyProfileId,
   type ApprovalSourcePage,
@@ -63,10 +63,12 @@ export class ApprovalReadinessApplicationService {
     if (!project) throw new Error("승인 준비 검사 대상 Project를 찾을 수 없습니다.");
 
     const checkedAt = this.now();
+    const candidateUrls = content.document.metadata?.approvalEvidence?.sources
+      .map((source) => canonicalizeApprovalEvidenceUrl(source.url))
+      .filter(Boolean) ?? [];
+    const uniqueCandidateUrls = [...new Set(candidateUrls)];
     const sourcePages = await Promise.all(
-      (content.document.metadata?.approvalEvidence?.sources ?? [])
-        .slice(0, 6)
-        .map((source) => fetchApprovalSourcePage(source.url, this.fetcher)),
+      uniqueCandidateUrls.map((url) => fetchApprovalSourcePage(url, this.fetcher)),
     );
     const evidence = verifyApprovalEvidence(
       content.document,
@@ -74,7 +76,7 @@ export class ApprovalReadinessApplicationService {
       sourcePages.filter((page): page is ApprovalSourcePage => Boolean(page)),
       checkedAt,
     );
-    const stableEvidence = preserveCandidateUrls(content.document.metadata?.approvalEvidence, evidence.pack);
+    const stableEvidence = evidence.pack;
 
     const siteReadiness = await resolveSiteReadiness({
       connection: input.connection,
@@ -182,19 +184,22 @@ async function fetchApprovalSourcePage(
       redirect: "follow",
       signal: controller.signal,
       headers: {
-        Accept: "text/html,application/xhtml+xml",
+        Accept: "text/html,application/xhtml+xml,application/pdf",
         "User-Agent": "BrightStudioEvidenceVerifier/1.0",
       },
     });
     const contentType = response.headers.get("content-type") ?? "";
-    const html = (await response.text()).slice(0, 1_500_000);
+    const html = /(?:text\/html|application\/xhtml\+xml)/i.test(contentType)
+      ? (await response.text()).slice(0, 1_500_000)
+      : "";
+    const finalUrl = response.url || requestedUrl;
     return Object.freeze({
       requestedUrl,
-      finalUrl: response.url || requestedUrl,
+      finalUrl,
       status: response.status,
       contentType,
       title: extractFirst(html, /<title[^>]*>([\s\S]*?)<\/title>/i),
-      publisher: extractPublisher(html, response.url || requestedUrl),
+      publisher: extractPublisher(html, finalUrl),
       text: htmlToText(html),
     });
   } catch {
@@ -204,27 +209,13 @@ async function fetchApprovalSourcePage(
   }
 }
 
-function preserveCandidateUrls(
-  previous: ApprovalEvidencePack | undefined,
-  verified: ApprovalEvidencePack,
-): ApprovalEvidencePack {
-  if (!previous?.sources.length || previous.sources.length !== verified.sources.length) return verified;
-  return Object.freeze({
-    ...verified,
-    sources: Object.freeze(verified.sources.map((source, index) => Object.freeze({
-      ...source,
-      url: previous.sources[index]?.url ?? source.url,
-    }))),
-  });
-}
-
 function upsertVerifiedSourceSection(
   document: ContentDocument,
-  pack: ApprovalEvidencePack,
+  pack: NonNullable<ContentDocument["metadata"]>["approvalEvidence"],
 ): ContentDocument {
-  const reviewedAt = pack.reviewedAt!;
+  const reviewedAt = pack!.reviewedAt!;
   const date = reviewedAt.slice(0, 10);
-  const sources = pack.sources
+  const sources = pack!.sources
     .filter((source) => source.verified)
     .map((source) => `${source.title} (${source.url})`)
     .join(" · ");
