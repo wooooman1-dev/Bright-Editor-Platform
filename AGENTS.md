@@ -3,7 +3,7 @@ Decision Log(00_FOUNDATION/08_DECISION_LOG.md)는
 
 문서가 충돌하면 Decision Log를 따른다.
 
-# Bright Editor Platform - AI Agent Rules (v2.2)
+# Bright Editor Platform - AI Agent Rules (v2.3)
 
 > This document is the mandatory operating manual for all AI coding agents.
 
@@ -201,7 +201,35 @@ Every decision should support both.
 
 Platform First. Quality First. Maintainability First.
 
-## 14. WordPress AdSense Approval Rules
+## 14. Shared AdSense Approval Preparation Rules
+
+Before planning, generating, reviewing, rendering, or preparing a Draft for any Content whose purpose is `adsense_approval`, read:
+
+`Docs/current/01_PRODUCT/15_ADSENSE_APPROVAL_MODE.md`
+
+Then read the applicable Project profile document referenced by `approvalProfileId`.
+
+Initial profiles:
+
+- `wordpress_life_economy_v1` → `Docs/current/01_PRODUCT/14_ADSENSE_APPROVAL_CONTENT_POLICY.md`
+- `tistory_vivarain_art_v1` → `Docs/current/01_PRODUCT/16_TISTORY_VIVARAIN_ADSENSE_APPROVAL_PROFILE.md`
+
+Mandatory shared rules:
+
+- AdSense approval is never guaranteed.
+- Project purpose, Content purpose, policy ID, policy version, profile ID, and profile version must remain durable across navigation and reload.
+- Planning, Generation, and Quality Review must use the same stored policy snapshot.
+- Existing Content without purpose metadata is read as `standard`.
+- Approval preparation is not measured by article count, prose length, paragraph count, or Category count.
+- Duplicate, thin, rewritten, placeholder, unsupported, exaggerated, or guarantee-style content is blocked.
+- Generation remains one AI call and Quality Review remains one AI call.
+- Review First and Draft Only remain enabled.
+- Public publishing and scheduling remain disabled until separately approved.
+- A valid canonical document that misses approval preparation policy remains preserved as `in_review` with actionable diagnostics.
+
+Do not implement approval logic only inside one platform App. Shared purpose, policy snapshots, prompt context, and Quality Gate belong in Core or platform-independent application services. Platform Apps own only their external Category, media, rendering, Draft save, and external verification behavior.
+
+## 15. WordPress AdSense Approval Rules
 
 Before planning, generating, reviewing, rendering, or publishing WordPress AdSense approval content, read:
 
