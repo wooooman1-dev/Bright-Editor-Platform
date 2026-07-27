@@ -18,5 +18,6 @@ export {
   isApprovalApplicationReady,
   isApprovalAwareStandardQualityApproved as isStandardQualityApproved,
 } from "./QualityEnginePolicy";
+export type { ApprovalAwareQualityReport } from "./QualityEnginePolicy";
 export * from "./QualityImprovementGate";
 export * from "./QualityScoringPolicy";
