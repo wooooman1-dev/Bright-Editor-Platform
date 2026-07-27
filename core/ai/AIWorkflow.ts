@@ -1,4 +1,7 @@
-import { approvalPolicySnapshotFromEditorialContext } from "../approval";
+import {
+  approvalPolicySnapshotFromEditorialContext,
+  type ApprovalPolicySnapshot,
+} from "../approval";
 import type { ConfirmedContentOpportunity, ContentDocument } from "../content";
 import type { AIProvider, AIResponse } from "./AIProvider";
 
@@ -57,9 +60,10 @@ export class AIWorkflow {
     try {
       const request = this.strategy.createRequest(input);
       const approvalSnapshot = approvalPolicySnapshotFromEditorialContext(input.editorialContext);
+      const canonicalInstruction = withCanonicalEditorialContext(request.instruction, input.editorialContext);
       const response = await this.provider.generate({
         ...request,
-        instruction: withCanonicalEditorialContext(request.instruction, input.editorialContext),
+        instruction: withApprovalEvidenceSearchInstruction(canonicalInstruction, approvalSnapshot),
         metadata: {
           contentType: input.contentType,
           platform: input.platform,
@@ -112,6 +116,22 @@ export function withApprovalPolicyMetadata(
       approvalPolicy: snapshot,
     }),
   });
+}
+
+function withApprovalEvidenceSearchInstruction(
+  instruction: string,
+  snapshot: ApprovalPolicySnapshot | undefined,
+): string {
+  if (!snapshot) return instruction;
+  return `${instruction}\n\nApproval evidence search contract (mandatory):
+- Use the attached web search tool during this same Generation call.
+- Prefer official primary sources required by the active profile. Do not use a secondary blog, copied article, community post, or search-result snippet when an official institution page is available.
+- Use only facts supported by the official pages you actually opened or searched in this response.
+- Include the official HTTPS source URL in the reader-visible source section and include an information date or final review date.
+- For changeable policy or financial facts, state the applicable date and tell the reader where to re-check the current rule.
+- For art content, distinguish confirmed artwork metadata from editorial interpretation and give a usable observation order rather than a generic biography summary.
+- If an official source cannot be found, do not invent a URL, quote, date, institution, artwork fact, amount, rate, deadline, or eligibility rule. State the limitation and leave the manuscript in review instead of pretending it is verified.
+- Web-search results are evidence candidates. Do not claim that Bright Studio or the article guarantees AdSense approval.`;
 }
 
 function validateInput(input: GenerationInput): void {
