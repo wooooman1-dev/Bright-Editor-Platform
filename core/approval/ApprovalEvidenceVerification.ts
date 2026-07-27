@@ -3,6 +3,7 @@ import type {
   ApprovalEvidenceFact,
   ApprovalEvidencePack,
   ApprovalEvidenceSource,
+  ApprovalEvidenceVerificationStatus,
 } from "./ApprovalReadiness";
 import type { ApprovalPolicyProfileId } from "./ApprovalPolicy";
 
@@ -29,7 +30,8 @@ export type ApprovalEvidenceVerificationResult = Readonly<{
  * A source is marked verified only when it is reachable over HTTPS, matches the
  * active profile's official-source trust policy, and multiple factual values
  * extracted from the canonical document are also present on the source page.
- * A URL, title, year, or citation label by itself is never enough.
+ * Duplicate, unreachable, unsupported, unofficial, and mismatched candidates
+ * remain in the Evidence Pack with deterministic diagnostics.
  */
 export function verifyApprovalEvidence(
   document: ContentDocument,
@@ -48,30 +50,98 @@ export function verifyApprovalEvidence(
   }
 
   const facts = extractApprovalFacts(document);
-  const pagesByRequestedUrl = new Map(pages.map((page) => [normalizeUrl(page.requestedUrl), page]));
+  const pagesByCanonicalUrl = new Map<string, ApprovalSourcePage>();
+  for (const page of pages) {
+    const requested = canonicalizeApprovalEvidenceUrl(page.requestedUrl);
+    const final = canonicalizeApprovalEvidenceUrl(page.finalUrl);
+    if (!pagesByCanonicalUrl.has(requested)) pagesByCanonicalUrl.set(requested, page);
+    if (!pagesByCanonicalUrl.has(final)) pagesByCanonicalUrl.set(final, page);
+  }
+
   const reasons: string[] = [];
+  const seenCanonicalUrls = new Set<string>();
   let verifiedSourceCount = 0;
 
   const sources = existing.sources.map((source) => {
-    const page = pagesByRequestedUrl.get(normalizeUrl(source.url));
+    const canonicalUrl = canonicalizeApprovalEvidenceUrl(source.url);
+    if (seenCanonicalUrls.has(canonicalUrl)) {
+      const reason = `${source.url}: 동일한 canonical 출처가 이미 검사되어 중복 후보에서 제외했습니다.`;
+      reasons.push(reason);
+      return diagnosticSource(source, reviewedAt, "duplicate_source", reason, {
+        canonicalUrl,
+        selected: false,
+      });
+    }
+    seenCanonicalUrls.add(canonicalUrl);
+
+    const page = pagesByCanonicalUrl.get(canonicalUrl);
     if (!page) {
-      reasons.push(`${source.url}: 출처 페이지를 불러오지 못했습니다.`);
-      return unverifiedSource(source);
+      const reason = `${source.url}: 출처 페이지를 불러오지 못했습니다.`;
+      reasons.push(reason);
+      return diagnosticSource(source, reviewedAt, "unreachable", reason, {
+        canonicalUrl,
+        selected: false,
+      });
     }
-    if (!sourcePageReachable(page)) {
-      reasons.push(`${source.url}: HTTPS 공개 페이지로 정상 응답하지 않았습니다.`);
-      return unverifiedSource(source, page);
+
+    const pageDetails = {
+      canonicalUrl,
+      finalUrl: page.finalUrl,
+      httpStatus: page.status,
+      contentType: page.contentType,
+    } as const;
+
+    if (!sourcePageProtocolAndStatusValid(page)) {
+      const reason = `${source.url}: HTTPS 공개 페이지로 정상 응답하지 않았습니다 (HTTP ${page.status}, ${page.contentType || "content-type 없음"}).`;
+      reasons.push(reason);
+      return diagnosticSource(source, reviewedAt, "unreachable", reason, {
+        ...pageDetails,
+        selected: false,
+      }, page);
     }
-    if (!officialSourceAllowed(profileId, page)) {
-      reasons.push(`${source.url}: 적용 프로필의 공식 출처로 확인되지 않았습니다.`);
-      return unverifiedSource(source, page);
+
+    const official = officialSourceAllowed(profileId, page);
+    if (!isSupportedHtmlPage(page)) {
+      const reason = `${source.url}: 현재 Evidence 검증에서 지원하지 않는 콘텐츠 형식입니다 (${page.contentType || "content-type 없음"}).`;
+      reasons.push(reason);
+      return diagnosticSource(source, reviewedAt, "unsupported_content_type", reason, {
+        ...pageDetails,
+        official,
+        selected: false,
+      }, page);
+    }
+
+    if (page.text.trim().length < 200) {
+      const reason = `${source.url}: 공개 페이지 본문이 너무 짧아 사실 대조를 수행하지 못했습니다.`;
+      reasons.push(reason);
+      return diagnosticSource(source, reviewedAt, "unreachable", reason, {
+        ...pageDetails,
+        official,
+        selected: false,
+      }, page);
+    }
+
+    if (!official) {
+      const reason = `${source.url}: 적용 프로필의 공식 출처로 확인되지 않았습니다.`;
+      reasons.push(reason);
+      return diagnosticSource(source, reviewedAt, "unofficial_source", reason, {
+        ...pageDetails,
+        official: false,
+        selected: false,
+      }, page);
     }
 
     const matchedFacts = facts.filter((fact) => pageContainsFact(page, fact));
     const matchedValues = new Set(matchedFacts.map((fact) => canonicalFactValue(fact.value)));
     if (matchedValues.size < 2) {
-      reasons.push(`${source.url}: 원고의 서로 다른 작품·제도 사실 2개 이상과 공식 페이지의 일치를 확인하지 못했습니다.`);
-      return unverifiedSource(source, page);
+      const reason = `${source.url}: 원고의 서로 다른 작품·제도 사실 2개 이상과 공식 페이지의 일치를 확인하지 못했습니다.`;
+      reasons.push(reason);
+      return diagnosticSource(source, reviewedAt, "fact_mismatch", reason, {
+        ...pageDetails,
+        official: true,
+        selected: false,
+        matchedFacts: Object.freeze(matchedFacts),
+      }, page);
     }
 
     verifiedSourceCount += 1;
@@ -82,10 +152,19 @@ export function verifyApprovalEvidence(
       retrievedAt: reviewedAt,
       verified: true,
       facts: Object.freeze(matchedFacts),
+      canonicalUrl,
+      finalUrl: page.finalUrl,
+      httpStatus: page.status,
+      contentType: page.contentType,
+      official: true,
+      selected: true,
+      verificationStatus: "verified" as const,
+      matchedFacts: Object.freeze(matchedFacts),
+      checkedAt: reviewedAt,
     } satisfies ApprovalEvidenceSource);
   });
 
-  const verified = sources.length > 0 && sources.every((source) => source.verified);
+  const verified = verifiedSourceCount > 0;
   const pack: ApprovalEvidencePack = Object.freeze({
     version: "1.0",
     status: verified ? "verified" : "needs_review",
@@ -152,19 +231,66 @@ export function officialSourceAllowed(
 
   if (vivaRainDeniedDomains.some((domain) => host === domain || host.endsWith(`.${domain}`))) return false;
   if (host.endsWith(".museum") || host.endsWith(".gov") || host.endsWith(".go.kr")) return true;
+  if (vivaRainOfficialDomains.some((domain) => host === domain || host.endsWith(`.${domain}`))) return true;
 
   const institutionalText = normalizeFact(`${host} ${page.title} ${page.publisher} ${page.text.slice(0, 5000)}`);
   const hasInstitutionSignal = vivaRainInstitutionSignals.some((signal) => institutionalText.includes(normalizeFact(signal)));
-  const hasInstitutionalDomain = /(?:museum|musee|gallery|gallerie|kunst|archive|foundation|collection|artinstitut|nga|moma|metmuseum|tate|rijksmuseum)/i.test(host);
+  const hasInstitutionalDomain = /(?:museum|musee|gallery|gallerie|kunst|archive|foundation|collection|artinstitut|nga|moma|metmuseum|tate|rijksmuseum|getty)/i.test(host);
   return hasInstitutionSignal && (hasInstitutionalDomain || host.endsWith(".org") || host.endsWith(".edu") || host.endsWith(".ac.kr"));
 }
 
-function sourcePageReachable(page: ApprovalSourcePage): boolean {
+export function canonicalizeApprovalEvidenceUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    url.hash = "";
+    for (const key of [...url.searchParams.keys()]) {
+      if (trackingParameter(key)) url.searchParams.delete(key);
+    }
+    url.searchParams.sort();
+    if (url.pathname.length > 1) url.pathname = url.pathname.replace(/\/+$/g, "");
+    return url.toString();
+  } catch {
+    return value.trim();
+  }
+}
+
+function diagnosticSource(
+  source: ApprovalEvidenceSource,
+  checkedAt: string,
+  verificationStatus: ApprovalEvidenceVerificationStatus,
+  failureReason: string,
+  details: Readonly<{
+    canonicalUrl?: string;
+    finalUrl?: string;
+    httpStatus?: number;
+    contentType?: string;
+    official?: boolean;
+    selected?: boolean;
+    matchedFacts?: readonly ApprovalEvidenceFact[];
+  }>,
+  page?: ApprovalSourcePage,
+): ApprovalEvidenceSource {
+  return Object.freeze({
+    ...source,
+    ...(page?.title ? { title: page.title } : {}),
+    ...(page?.publisher ? { publisher: page.publisher } : {}),
+    verified: false,
+    facts: Object.freeze([]),
+    ...details,
+    verificationStatus,
+    failureReason,
+    checkedAt,
+  });
+}
+
+function sourcePageProtocolAndStatusValid(page: ApprovalSourcePage): boolean {
   return page.status >= 200
     && page.status < 400
-    && page.finalUrl.startsWith("https://")
-    && /(?:text\/html|application\/xhtml\+xml)/i.test(page.contentType)
-    && page.text.trim().length >= 200;
+    && page.finalUrl.startsWith("https://");
+}
+
+function isSupportedHtmlPage(page: ApprovalSourcePage): boolean {
+  return /(?:text\/html|application\/xhtml\+xml)/i.test(page.contentType);
 }
 
 function pageContainsFact(page: ApprovalSourcePage, fact: ApprovalEvidenceFact): boolean {
@@ -184,16 +310,6 @@ function factVariants(value: string): readonly string[] {
 
 function canonicalFactValue(value: string): string {
   return factVariants(value)[0] ?? normalizeFact(value);
-}
-
-function unverifiedSource(source: ApprovalEvidenceSource, page?: ApprovalSourcePage): ApprovalEvidenceSource {
-  return Object.freeze({
-    ...source,
-    ...(page?.title ? { title: page.title } : {}),
-    ...(page?.publisher ? { publisher: page.publisher } : {}),
-    verified: false,
-    facts: Object.freeze([]),
-  });
 }
 
 function documentText(document: ContentDocument): string {
@@ -221,15 +337,20 @@ function normalizeFact(value: string): string {
     .replace(/[\s\p{P}\p{S}]+/gu, "");
 }
 
-function normalizeUrl(value: string): string {
-  try {
-    const url = new URL(value);
-    url.hash = "";
-    return url.toString();
-  } catch {
-    return value;
-  }
+function trackingParameter(value: string): boolean {
+  return /^utm_/i.test(value) || trackingParameters.has(value.toLocaleLowerCase("en-US"));
 }
+
+const trackingParameters = new Set([
+  "fbclid",
+  "gclid",
+  "dclid",
+  "msclkid",
+  "mc_cid",
+  "mc_eid",
+  "ref",
+  "ref_src",
+]);
 
 const wordpressOfficialDomains = Object.freeze([
   "gov.kr",
@@ -259,6 +380,19 @@ const vivaRainDeniedDomains = Object.freeze([
   "facebook.com",
   "instagram.com",
   "pinterest.com",
+]);
+
+const vivaRainOfficialDomains = Object.freeze([
+  "metmuseum.org",
+  "nga.gov",
+  "getty.edu",
+  "moma.org",
+  "tate.org.uk",
+  "rijksmuseum.nl",
+  "artic.edu",
+  "guggenheim.org",
+  "louvre.fr",
+  "musee-orsay.fr",
 ]);
 
 const vivaRainInstitutionSignals = Object.freeze([
