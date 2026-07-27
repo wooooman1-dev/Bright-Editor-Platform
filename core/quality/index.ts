@@ -15,6 +15,7 @@ export type {
 } from "./QualityEngine";
 export {
   QualityEngine,
+  isApprovalApplicationReady,
   isApprovalAwareStandardQualityApproved as isStandardQualityApproved,
 } from "./QualityEnginePolicy";
 export * from "./QualityImprovementGate";
