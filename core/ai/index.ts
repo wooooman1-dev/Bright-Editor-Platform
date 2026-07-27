@@ -1,5 +1,9 @@
 export type { AIProvider, AIRequest, AIResponse } from "./AIProvider";
-export { AIWorkflow } from "./AIWorkflow";
+export {
+  AIWorkflow,
+  withApprovalPolicyMetadata,
+  withCanonicalEditorialContext,
+} from "./AIWorkflow";
 export type {
   AIWorkflowState,
   AIWorkflowStatus,
