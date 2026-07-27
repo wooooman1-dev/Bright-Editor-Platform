@@ -1,4 +1,8 @@
-import { evaluateApprovalPreparationText, type ApprovalPreparationIssueCode } from "../approval";
+import {
+  evaluateApprovalPreparationText,
+  evaluateApprovalReadiness,
+  type ApprovalPreparationIssueCode,
+} from "../approval";
 import { canonicalDocumentText, type ContentDocument } from "../content";
 import {
   QualityEngine as BaseQualityEngine,
@@ -14,8 +18,9 @@ import {
  * based on intent alignment, information sufficiency, safety, structure, and
  * usefulness. Prose character counts remain telemetry only.
  *
- * Approval preparation adds deterministic blocking findings without changing
- * the existing score calculation or adding another AI call.
+ * Approval preparation adds deterministic policy findings and a separate
+ * approval-readiness report without adding another AI call. A standard Quality
+ * score, including 100, never means the whole site is application-ready.
  */
 export class QualityEngine extends BaseQualityEngine {
   review(document: ContentDocument, context: QualityReviewContext = {}): QualityReport {
@@ -24,7 +29,15 @@ export class QualityEngine extends BaseQualityEngine {
     if (!snapshot) return report;
 
     const issues = evaluateApprovalPreparationText(canonicalDocumentText(document), snapshot);
-    if (!issues.length) return report;
+    const standardQualityApproved = report.approved === true && report.approvalType === "standard";
+    const approvalReadiness = evaluateApprovalReadiness(document, issues, standardQualityApproved);
+
+    if (!issues.length) {
+      return Object.freeze({
+        ...report,
+        approvalReadiness,
+      }) as QualityReport;
+    }
 
     const findings = issues.map((issue) => ({
       category: approvalIssueCategory(issue.code),
@@ -44,7 +57,8 @@ export class QualityEngine extends BaseQualityEngine {
       approvalState: "blocked" as const,
       findings: Object.freeze([...report.findings, ...findings]),
       tasks: Object.freeze([...report.tasks, ...tasks]),
-    });
+      approvalReadiness,
+    }) as QualityReport;
   }
 }
 
