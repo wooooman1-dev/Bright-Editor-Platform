@@ -94,22 +94,18 @@ export function normalizeQualityReview(
   if (!revisionId || !reviewedAt || overallScore === null) return { ...empty("not_evaluated"), dimensions: Object.freeze(parsedDimensions) };
 
   const approvalReadiness = normalizeApprovalReadiness(value.approvalReadiness);
-  const dimensions = decorateDimensionsWithReadiness(parsedDimensions, approvalReadiness);
+  const dimensions = parsedDimensions;
   const dimensionIssues = dimensions.flatMap((dimension) => dimension.reasons);
-  const readinessIssues = approvalReadiness?.checks
-    .filter((check) => check.status !== "passed")
-    .map((check) => `[승인 준비] ${check.message}`) ?? [];
   const stale = Boolean(context.currentRevisionId && revisionId !== context.currentRevisionId);
   const notEvaluated = dimensions.some((dimension) => dimension.status === "blocked" && dimension.evaluation === "not_evaluated");
   const approved = value.approved === true;
   const approvalType: QualityApprovalType = value.approvalType === "exception" ? "exception" : value.approvalType === "standard" ? "standard" : "none";
   const standardApproved = approved && approvalType === "standard";
-  const approvalPreparationReady = approvalReadiness?.applicationReady ?? true;
   const status: QualityUiStatus = stale
     ? "stale"
     : notEvaluated
       ? "not_evaluated"
-      : standardApproved && approvalPreparationReady
+      : standardApproved
         ? "ready"
         : "improvement_required";
   const approvalTasks = standardApproved || stale || notEvaluated ? [] : qualityApprovalTasks(dimensions, overallScore);
@@ -122,7 +118,7 @@ export function normalizeQualityReview(
     status,
     revisionId,
     reviewedAt,
-    issues: Object.freeze([...dimensionIssues, ...readinessIssues]),
+    issues: Object.freeze(dimensionIssues),
     actionableTasks: Object.freeze(actionableTasks),
   });
 }
@@ -167,34 +163,6 @@ function normalizeApprovalReadinessCheck(value: unknown): ApprovalReadinessCheck
     message: value.message.trim(),
     ...(typeof value.action === "string" && value.action.trim() ? { action: value.action.trim() } : {}),
   })];
-}
-
-function decorateDimensionsWithReadiness(
-  dimensions: readonly QualityDimensionResult[],
-  readiness: ApprovalReadinessReport | null,
-): readonly QualityDimensionResult[] {
-  if (!readiness) return dimensions;
-  const messagesByCategory = new Map<QualityCategory, string[]>();
-  for (const check of readiness.checks) {
-    if (check.status === "passed") continue;
-    const category = readinessCategory(check);
-    messagesByCategory.set(category, [...(messagesByCategory.get(category) ?? []), `[승인 준비] ${check.message}`]);
-  }
-  return Object.freeze(dimensions.map((dimension) => {
-    const messages = messagesByCategory.get(dimension.category);
-    if (!messages?.length) return dimension;
-    return Object.freeze({
-      ...dimension,
-      reasons: Object.freeze([...dimension.reasons, ...messages]),
-    });
-  }));
-}
-
-function readinessCategory(check: ApprovalReadinessCheck): QualityCategory {
-  if (check.key === "internal_links") return "internalLinks";
-  if (check.key === "duplicate") return "usefulness";
-  if (check.key === "approval_policy") return "searchIntent";
-  return "completeness";
 }
 
 function normalizeReasons(category: QualityCategory, value: unknown, evidence: readonly unknown[]): string[] {
@@ -250,7 +218,7 @@ function qualityApprovalTasks(dimensions: readonly QualityDimensionResult[], ove
 
 function normalizeTasks(value: unknown, dimensions: readonly QualityDimensionResult[]) {
   if (Array.isArray(value)) {
-    const tasks = value.flatMap((item) => isRecord(item) && categories.includes(item.category as QualityCategory) && typeof item.message === "string" && item.message.trim() ? [{ category: item.category as QualityCategory, message: item.message.trim() }] : []);
+    const tasks = value.flatMap((item) => isRecord(item) && categories.includes(item.category as QualityCategory) && typeof item.message === "string" && item.message.trim() && !item.message.startsWith("[승인 준비 정책]") ? [{ category: item.category as QualityCategory, message: item.message.trim() }] : []);
     if (tasks.length) return tasks;
   }
   return dimensions.flatMap((dimension) => dimension.tasks.map((message) => ({ category: dimension.category, message })));
