@@ -3,28 +3,31 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { UserData } from "../../../../app/user-flow/user-data";
 import type { PlatformConnection } from "../../../../core/connections";
 
-const initialConnection: PlatformConnection = {
-  id: "account-1",
-  workspaceId: "workspace-1",
-  platform: "wordpress",
-  displayName: "Site",
-  status: "connected",
-  publicMetadata: {
-    siteUrl: "https://example.com",
-    username: "owner",
-    applicationPassword: "must-not-leak",
-    cookie: "must-not-leak",
-  },
-  secretReference: "secret-file",
-  createdAt: "now",
-  updatedAt: "now",
-  selectedAsDefault: false,
-  version: 1,
-};
-
 const runtime = vi.hoisted(() => {
-  const initial: UserData = { workspace: { id: "workspace-1", name: "Studio" }, brands: [], projects: [], contents: [] };
-  return { data: initial, connections: [initialConnection] as PlatformConnection[] };
+  const initialData: UserData = { workspace: { id: "workspace-1", name: "Studio" }, brands: [], projects: [], contents: [] };
+  const initialConnection: PlatformConnection = {
+    id: "account-1",
+    workspaceId: "workspace-1",
+    platform: "wordpress",
+    displayName: "Site",
+    status: "connected",
+    publicMetadata: {
+      siteUrl: "https://example.com",
+      username: "owner",
+      applicationPassword: "must-not-leak",
+      cookie: "must-not-leak",
+    },
+    secretReference: "secret-file",
+    createdAt: "now",
+    updatedAt: "now",
+    selectedAsDefault: false,
+    version: 1,
+  };
+  return {
+    data: initialData,
+    connections: [initialConnection] as PlatformConnection[],
+    initialConnection,
+  };
 });
 
 vi.mock("../../../../app/application/studio-store", () => ({
@@ -44,7 +47,7 @@ import { GET, POST } from "../../../../app/api/settings/route";
 describe("Settings API", () => {
   beforeEach(() => {
     runtime.data = { workspace: { id: "workspace-1", name: "Studio" }, brands: [], projects: [], contents: [] };
-    runtime.connections = [initialConnection];
+    runtime.connections = [runtime.initialConnection];
   });
 
   it("rejects another Workspace and never returns credentials or session material", async () => {
