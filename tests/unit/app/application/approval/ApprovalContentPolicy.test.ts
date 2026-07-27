@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   contentApprovalPromptContext,
+  contentBoundEditorialContext,
   resolveContentApprovalSnapshot,
   resolveProjectApprovalSettings,
   snapshotApprovalPolicyForPlanning,
@@ -19,6 +20,22 @@ function projectData() {
     brandIdFactory: () => "brand-1",
     now: "2026-07-27T00:00:00.000Z",
   });
+}
+
+function approvalPlanningData() {
+  const configured = updateProjectApprovalSettings(projectData(), "project-1", {
+    contentPurpose: "adsense_approval",
+    approvalProfileId: "tistory_vivarain_art_v1",
+  }, "2026-07-27T01:00:00.000Z");
+  const planning = startContentPlanning(configured, {
+    id: "content-1",
+    projectId: "project-1",
+    request: "오늘의 승인 준비 미술 감상 글을 작성해줘",
+    selectionMode: "automatic",
+    operationId: "operation-1",
+    now: "2026-07-27T02:00:00.000Z",
+  });
+  return snapshotApprovalPolicyForPlanning(planning, "project-1", "content-1");
 }
 
 describe("ApprovalContentPolicy", () => {
@@ -45,19 +62,7 @@ describe("ApprovalContentPolicy", () => {
   });
 
   it("snapshots the exact policy contract into the Planning Content", () => {
-    const configured = updateProjectApprovalSettings(projectData(), "project-1", {
-      contentPurpose: "adsense_approval",
-      approvalProfileId: "tistory_vivarain_art_v1",
-    }, "2026-07-27T01:00:00.000Z");
-    const planning = startContentPlanning(configured, {
-      id: "content-1",
-      projectId: "project-1",
-      request: "오늘의 승인 준비 미술 감상 글을 작성해줘",
-      selectionMode: "automatic",
-      operationId: "operation-1",
-      now: "2026-07-27T02:00:00.000Z",
-    });
-    const snapshotted = snapshotApprovalPolicyForPlanning(planning, "project-1", "content-1");
+    const snapshotted = approvalPlanningData();
     const content = snapshotted.contents[0]!;
     expect(content).toMatchObject({
       contentPurpose: "adsense_approval",
@@ -82,5 +87,36 @@ describe("ApprovalContentPolicy", () => {
     const snapshotted = snapshotApprovalPolicyForPlanning(planning, "project-1", "content-1");
     expect(snapshotted.contents[0]).toMatchObject({ contentPurpose: "standard" });
     expect(resolveContentApprovalSnapshot(snapshotted.contents[0]!)).toBeUndefined();
+  });
+
+  it("uses the immutable Content snapshot instead of the current Project approval policy", () => {
+    const data = approvalPlanningData();
+    const context = contentBoundEditorialContext({
+      primaryTopic: "미술 감상",
+      approvalPolicy: "stale project policy",
+    }, data.contents[0]!);
+
+    expect(context).toContain("Approval profile: tistory_vivarain_art_v1@1.0");
+    expect(context).not.toContain("stale project policy");
+  });
+
+  it("removes a later Project approval default from existing standard Content", () => {
+    const planning = startContentPlanning(projectData(), {
+      id: "content-1",
+      projectId: "project-1",
+      request: "일반 글 작성",
+      selectionMode: "userSpecified",
+      operationId: "operation-1",
+      now: "2026-07-27T02:00:00.000Z",
+    });
+    const standard = snapshotApprovalPolicyForPlanning(planning, "project-1", "content-1");
+    const context = contentBoundEditorialContext({
+      primaryTopic: "미술 감상",
+      approvalPolicy: "later project approval policy",
+    }, standard.contents[0]!);
+
+    expect(context).toContain("미술 감상");
+    expect(context).not.toContain("approvalPolicy");
+    expect(context).not.toContain("later project approval policy");
   });
 });
