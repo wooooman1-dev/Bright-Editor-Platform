@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import type {
   ApprovalPolicyProfileId,
@@ -38,12 +38,6 @@ export function ProjectApprovalSettingsCard({
   );
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const profileOptions = useMemo(() => compatibleApprovalProfiles(project, persisted.approvalProfileId), [project, persisted.approvalProfileId]);
-
-  useEffect(() => {
-    setContentPurpose(persisted.contentPurpose);
-    setApprovalProfileId(persisted.approvalProfileId ?? defaultProfileId);
-    setSaveState("idle");
-  }, [defaultProfileId, persisted.approvalProfileId, persisted.contentPurpose, project.id]);
 
   const save = async () => {
     setSaveState("saving");
