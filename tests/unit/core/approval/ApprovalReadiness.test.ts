@@ -100,6 +100,37 @@ describe("ApprovalReadiness", () => {
     expect(report.checks).toContainEqual(expect.objectContaining({ key: "internal_links", status: "blocked" }));
   });
 
+  it("accepts verified core sources while preserving rejected candidate diagnostics", () => {
+    const mixedEvidence: ApprovalEvidencePack = {
+      ...evidence,
+      sources: [
+        evidence.sources[0]!,
+        {
+          sourceId: "museum-duplicate",
+          url: "https://www.moma.org/collection/works/79802?utm_source=openai",
+          title: "The Starry Night",
+          publisher: "www.moma.org",
+          sourceType: "official_institution",
+          retrievedAt: "2026-07-27T00:00:00.000Z",
+          verified: false,
+          facts: [],
+          selected: false,
+          verificationStatus: "duplicate_source",
+          failureReason: "동일한 canonical 출처입니다.",
+        },
+      ],
+    };
+    const report = evaluateApprovalReadiness(document({
+      approvalEvidence: mixedEvidence,
+      approvalDuplicateCheck: duplicate,
+      siteApprovalReadiness: site,
+      internalLinkCatalogStatus: "evaluated",
+      availableRelatedContentCandidates: 0,
+    }), [], true);
+
+    expect(report.checks).toContainEqual(expect.objectContaining({ key: "evidence", status: "passed" }));
+  });
+
   it("marks the site application-ready only after every independent gate passes", () => {
     const report = evaluateApprovalReadiness(document({
       approvalEvidence: evidence,
