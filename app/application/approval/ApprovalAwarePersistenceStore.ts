@@ -3,7 +3,10 @@ import {
   evaluateApprovalDuplicateRisk,
   normalizeContentPurpose,
   type ApprovalDuplicateCheckSnapshot,
+  type ApprovalEvidencePack,
+  type ApprovalEvidenceSourceType,
 } from "../../../core/approval";
+import type { ContentDocument } from "../../../core/content";
 import type { UserContent, UserData } from "../../user-flow/user-data";
 import {
   snapshotApprovalPolicyForPlanning,
@@ -20,9 +23,9 @@ const USER_DATA_ID = "user-data";
  * Content exists, stale UI writes may omit the snapshot but cannot replace it
  * with a different purpose, policy, profile, or version.
  *
- * Approval-mode canonical documents also receive a deterministic duplicate-risk
- * snapshot against the other documents in the same Project. This uses no AI
- * call and never applies to standard content.
+ * Approval-mode canonical documents also receive deterministic Evidence
+ * candidates and duplicate-risk snapshots. Neither process uses another AI
+ * call and neither applies to standard content.
  */
 export class ApprovalAwarePersistenceStore implements PersistenceStore {
   constructor(private readonly delegate: PersistenceStore) {}
@@ -97,6 +100,7 @@ export function applyApprovalPersistencePolicy(
     }
   }
 
+  next = attachApprovalEvidenceCandidatePacks(next);
   return attachApprovalDuplicateSnapshots(next);
 }
 
@@ -139,6 +143,117 @@ function preserveExistingSnapshot(
       } as UserContent;
     }),
   };
+}
+
+function attachApprovalEvidenceCandidatePacks(data: UserData): UserData {
+  let changed = false;
+  const contents = data.contents.map((content) => {
+    const aware = content as ApprovalAwareContent;
+    if (normalizeContentPurpose(aware.contentPurpose) !== "adsense_approval" || !content.document?.metadata) return content;
+
+    const candidates = collectEvidenceCandidates(content.document);
+    const existing = content.document.metadata.approvalEvidence;
+    const sourceUrls = candidates.map((candidate) => candidate.url).sort();
+    const existingUrls = existing?.sources.map((source) => normalizeSourceUrl(source.url)).filter(Boolean).sort() ?? [];
+    if (existing?.status === "verified" && JSON.stringify(sourceUrls) === JSON.stringify(existingUrls)) return content;
+
+    const retrievedAt = latestDocumentTimestamp([content], content.updatedAt);
+    const sourceType = approvalEvidenceSourceType(aware.approvalProfileId);
+    const pack: ApprovalEvidencePack = candidates.length
+      ? Object.freeze({
+          version: "1.0",
+          status: "needs_review",
+          sources: Object.freeze(candidates.map((candidate) => Object.freeze({
+            sourceId: evidenceSourceId(candidate.url),
+            url: candidate.url,
+            title: candidate.title,
+            publisher: candidate.publisher,
+            sourceType,
+            retrievedAt,
+            verified: false,
+            facts: Object.freeze([Object.freeze({
+              field: "citedContext",
+              value: candidate.context,
+            })]),
+            rights: Object.freeze({ status: "unknown" as const }),
+          }))),
+        })
+      : Object.freeze({
+          version: "1.0",
+          status: "missing",
+          sources: Object.freeze([]),
+        });
+
+    if (JSON.stringify(existing) === JSON.stringify(pack)) return content;
+    changed = true;
+    return {
+      ...content,
+      document: {
+        ...content.document,
+        metadata: {
+          ...content.document.metadata,
+          approvalEvidence: pack,
+        },
+      },
+    } as UserContent;
+  });
+
+  return changed ? { ...data, contents } : data;
+}
+
+function collectEvidenceCandidates(document: ContentDocument): readonly Readonly<{
+  url: string;
+  title: string;
+  publisher: string;
+  context: string;
+}>[] {
+  const found = new Map<string, { url: string; title: string; publisher: string; context: string }>();
+  const texts = document.blocks.flatMap((block) => {
+    if (block.type === "paragraph" || block.type === "heading") return [block.text];
+    if (block.type === "table") return [block.caption ?? "", ...block.headers, ...block.rows.flat()];
+    return [];
+  });
+
+  for (const text of texts) {
+    for (const match of text.matchAll(/https:\/\/[^\s<>)"'\]}]+/gi)) {
+      const normalized = normalizeSourceUrl(match[0]);
+      if (!normalized) continue;
+      const url = new URL(normalized);
+      const context = text.replace(/\s+/g, " ").trim().slice(0, 800);
+      const previous = found.get(normalized);
+      found.set(normalized, {
+        url: normalized,
+        title: previous?.title ?? url.hostname,
+        publisher: previous?.publisher ?? url.hostname,
+        context: previous?.context && previous.context.length >= context.length ? previous.context : context,
+      });
+    }
+  }
+  return Object.freeze([...found.values()]);
+}
+
+function approvalEvidenceSourceType(profileId: ApprovalAwareContent["approvalProfileId"]): ApprovalEvidenceSourceType {
+  return profileId === "wordpress_life_economy_v1" ? "public_agency" : "official_institution";
+}
+
+function normalizeSourceUrl(value: string): string | undefined {
+  try {
+    const url = new URL(value.replace(/[.,;:!?]+$/g, ""));
+    if (url.protocol !== "https:") return undefined;
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return undefined;
+  }
+}
+
+function evidenceSourceId(url: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < url.length; index += 1) {
+    hash ^= url.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `approval-source-${(hash >>> 0).toString(16).padStart(8, "0")}`;
 }
 
 function attachApprovalDuplicateSnapshots(data: UserData): UserData {
