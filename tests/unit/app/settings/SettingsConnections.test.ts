@@ -23,7 +23,7 @@ function tistory(
 }
 
 describe("SettingsConnections migration UI", () => {
-  it("offers only a connected account for the same platform and publishing site", () => {
+  it("offers only a connected account with stored session state for the same platform and publishing site", () => {
     const source = tistory("old", "disconnected", "bright-healthy");
     const replacement = tistory("new", "connected", "bright-healthy");
     const candidates = compatibleReplacementConnections([
@@ -62,6 +62,16 @@ describe("SettingsConnections migration UI", () => {
     expect(source).toContain("sticky top-4");
     expect(source).toContain("bg-emerald-50");
     expect(source).toContain('aria-live="polite"');
+  });
+
+  it("distinguishes account registration, stored session state, and actual session verification", () => {
+    const source = readFileSync(join(process.cwd(), "app/settings/SettingsConnections.tsx"), "utf8");
+    expect(source).toContain("계정 상태 ·");
+    expect(source).toContain("세션 상태 ·");
+    expect(source).toContain("저장된 로그인 정보 있음 · 현재 로그인 상태는 세션 확인/갱신으로 확인");
+    expect(source).toContain("세션 만료");
+    expect(source).toContain("세션 확인/갱신");
+    expect(source).not.toContain("연결됨 · 임시저장 가능");
   });
 
   it("distinguishes same-ID reconnect from duplicate-account migration", () => {
