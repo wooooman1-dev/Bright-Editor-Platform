@@ -154,11 +154,13 @@ export async function calculateTistoryReadiness(input: Readonly<{
   const longFormReady = content.document && hasDynamicTarget ? analyzeLongFormDocument(content.document, content.qualityTarget ?? content.opportunity?.qualityTarget) : undefined;
   const longFormPassed = !content.document || !hasDynamicTarget
     || Boolean(longFormReady && longFormReady.violations.length === 0);
-  const qualityPassed = Boolean(isStandardQualityApproved(content.quality)
+  const qualityPassed = Boolean(content.quality
+    && currentRuleQuality
+    && isStandardQualityApproved(content.quality)
     && isStandardQualityApproved(currentRuleQuality)
     && longFormPassed
     && currentRevision
-    && content.quality?.reviewedRevisionId === currentRevision);
+    && content.quality.reviewedRevisionId === currentRevision);
   const localImageCount = content.document?.blocks.filter((block) => block.type === "image" && /^\/api\/media\//i.test(block.source)).length ?? 0;
   let permissionPassed = false;
   let mediaPermissionPassed = localImageCount === 0;
