@@ -1,5 +1,11 @@
 import type { AIProvider } from "../../core/ai";
 import {
+  approvalPolicyPromptContext,
+  resolveApprovalPolicySnapshot,
+  type ApprovalPolicyProfileId,
+  type ContentPurpose,
+} from "../../core/approval";
+import {
   createContentOpportunityCandidate,
   determineContentPlanQualityTarget,
   type ContentOpportunityCandidate,
@@ -11,7 +17,17 @@ import type { OpportunityEvidenceRecord } from "../../core/intelligence";
 
 const DISCLOSURE = "Keyword competition and opportunity are AI estimates, not measured search-volume, CPC, or competition data.";
 
+type ApprovalAwareStrategy = ProjectContentStrategy & Readonly<{
+  defaultContentPurpose?: ContentPurpose;
+  approvalProfileId?: ApprovalPolicyProfileId;
+}>;
+
 export function projectStrategyAIContext(strategy: ProjectContentStrategy) {
+  const approvalAware = strategy as ApprovalAwareStrategy;
+  const approvalSnapshot = resolveApprovalPolicySnapshot(
+    approvalAware.defaultContentPurpose,
+    approvalAware.approvalProfileId,
+  );
   return Object.freeze({
     primaryTopic: strategy.primaryTopic,
     subtopics: Object.freeze([...strategy.subtopics]),
@@ -25,6 +41,9 @@ export function projectStrategyAIContext(strategy: ProjectContentStrategy) {
     ctaPolicy: strategy.ctaPolicy,
     imageStrategy: strategy.imageStrategy,
     seoPolicy: strategy.seoPolicy,
+    ...(approvalSnapshot ? {
+      approvalPolicy: approvalPolicyPromptContext(approvalSnapshot),
+    } : {}),
     ...(strategy.defaultTistoryCategory ? {
       category: Object.freeze({
         id: strategy.defaultTistoryCategory.id,

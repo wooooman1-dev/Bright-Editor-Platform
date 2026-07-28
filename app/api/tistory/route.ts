@@ -67,6 +67,7 @@ export async function POST(request: Request) {
     if (isRetryableDraftStartupFailure(result)) result = normalizeDraftStartupFailure(result, attempts);
 
     const outcome = classifyTistoryDraftOutcome(result);
+    await synchronizeTistorySessionState(connectionId, outcome.status, outcome.diagnosticCode);
     const failed = outcome.status === "failed";
     const failedRecord = result.steps?.find((step) => !step.passed);
     return NextResponse.json({
@@ -124,6 +125,38 @@ async function prepare(data: UserData, projectId: string, contentId: string, req
   }
   await studioStore.set("application", "user-data", next);
   return NextResponse.json({ data: next, connectionId: connection.id, automaticallyApplied: !requestedConnectionId && available.length === 1, readiness: await calculateTistoryReadiness({ data: next, project, content, connection, selectedTarget: true, finalConfirmation: false }) });
+}
+
+async function synchronizeTistorySessionState(connectionId: string, outcomeStatus: string, diagnosticCode?: string): Promise<void> {
+  const connection = await connectionRepository.findById(connectionId);
+  if (!connection || connection.platform !== "tistory") return;
+  const checkedAt = new Date().toISOString();
+  if (diagnosticCode === "session_expired") {
+    await connectionRepository.save({
+      ...connection,
+      status: "expired",
+      updatedAt: checkedAt,
+      publicMetadata: {
+        ...connection.publicMetadata,
+        sessionStateAvailable: false,
+        safeError: "Tistory 로그인 세션이 만료되었습니다. 다시 연결해 주세요.",
+      },
+    });
+    return;
+  }
+  if (outcomeStatus === "verified" || outcomeStatus === "saved_unverified") {
+    await connectionRepository.save({
+      ...connection,
+      status: "connected",
+      lastVerifiedAt: checkedAt,
+      updatedAt: checkedAt,
+      publicMetadata: {
+        ...connection.publicMetadata,
+        sessionStateAvailable: true,
+        safeError: undefined,
+      },
+    });
+  }
 }
 
 async function hasSelectedTarget(projectId: string, content: UserData["contents"][number], project: UserData["projects"][number], connectionId: string) {

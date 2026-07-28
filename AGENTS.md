@@ -3,7 +3,7 @@ Decision Log(00_FOUNDATION/08_DECISION_LOG.md)는
 
 문서가 충돌하면 Decision Log를 따른다.
 
-# Bright Editor Platform - AI Agent Rules (v2.2)
+# Bright Editor Platform - AI Agent Rules (v2.4)
 
 > This document is the mandatory operating manual for all AI coding agents.
 
@@ -201,7 +201,47 @@ Every decision should support both.
 
 Platform First. Quality First. Maintainability First.
 
-## 14. WordPress AdSense Approval Rules
+## 14. Shared AdSense Approval Preparation Rules
+
+Before planning, generating, reviewing, rendering, or preparing a Draft for any Content whose purpose is `adsense_approval`, read:
+
+`Docs/current/01_PRODUCT/15_ADSENSE_APPROVAL_MODE.md`
+
+Then read:
+
+`Docs/current/01_PRODUCT/17_ADSENSE_APPROVAL_READINESS_BLUEPRINT.md`
+
+Then read the applicable Project profile document referenced by `approvalProfileId`.
+
+Initial profiles:
+
+- `wordpress_life_economy_v1` → `Docs/current/01_PRODUCT/14_ADSENSE_APPROVAL_CONTENT_POLICY.md`
+- `tistory_vivarain_art_v1` → `Docs/current/01_PRODUCT/16_TISTORY_VIVARAIN_ADSENSE_APPROVAL_PROFILE.md`
+
+Mandatory shared rules:
+
+- The real product objective is to maximize verified AdSense approval readiness, not merely generate prose that looks approval-oriented.
+- AdSense approval is never guaranteed.
+- Project purpose, Content purpose, policy ID, policy version, profile ID, and profile version must remain durable across navigation and reload.
+- Planning, Generation, and Quality Review must use the same stored policy snapshot.
+- Existing Content without purpose metadata is read as `standard`.
+- Approval preparation is not measured by article count, prose length, paragraph count, or Category count.
+- Duplicate, thin, rewritten, placeholder, unsupported, exaggerated, or guarantee-style content is blocked.
+- Generation remains one AI call and Quality Review remains one AI call.
+- Review First and Draft Only remain enabled.
+- Public publishing and scheduling remain disabled until separately approved.
+- A valid canonical document that misses approval preparation policy remains preserved as `in_review` with actionable diagnostics.
+- Tistory and WordPress use the same Core approval architecture. Do not create a weaker Tistory approval path or a separate WordPress-only quality model.
+- Shared approval architecture must include Article Approval Gate, Evidence Verification, Duplicate Risk Check, and Site Approval Readiness Gate.
+- A source label or the word `출처` is not evidence verification. Stored official Evidence and article claims must agree.
+- Article quality score, including a score of 100, does not mean the site is ready for AdSense application.
+- Standard Quality approval, approval-policy status, source verification, duplicate verification, internal-link diagnostics, and site readiness must be represented as separate states.
+- Internal links are not forced when no qualified public candidate exists. Missing Category, unavailable catalog, eligible-candidate absence, placement failure, and successful placement must be distinguished.
+- Site-wide readiness applies to both Tistory and WordPress, including navigation, trust pages, empty or broken surfaces, mobile readability, public accessibility, copyright safety, and topic-quality consistency.
+
+Do not implement approval logic only inside one platform App. Shared purpose, policy snapshots, prompt context, Evidence contracts, duplicate checks, Quality Gate, and site-readiness rules belong in Core or platform-independent application services. Platform Apps own only their external Category, media, rendering, Draft save, crawler/platform checks, and external verification behavior.
+
+## 15. WordPress AdSense Approval Rules
 
 Before planning, generating, reviewing, rendering, or publishing WordPress AdSense approval content, read:
 
@@ -221,5 +261,24 @@ Mandatory initial baseline:
 - Review First and Draft Only remain enabled
 - Public publishing and scheduling remain disabled until separately approved
 - WordPress Draft Save is not complete until the saved Draft is re-read and its title, meaningful body, Category, Featured Image when applicable, and Draft status are verified
+- The new WordPress site must be designed approval-first from the beginning: working navigation, required trust pages, no empty archives, no broken pages, mobile readability, crawler accessibility, sitemap, HTTPS, and theme/plugin stability.
+- Do not mark the site application-ready until Article Approval Gate, Evidence Verification, Duplicate Risk Check, and Site Approval Readiness Gate have all passed.
 
-Do not claim that Bright Studio can guarantee AdSense approval. The product may only report internal readiness states defined by the policy document.
+Do not claim that Bright Studio can guarantee AdSense approval. The product may only report internal readiness states defined by the policy documents.
+
+## 16. Tistory AdSense Approval Rules
+
+Tistory approval preparation uses the same shared readiness blueprint as WordPress.
+
+Mandatory Tistory baseline:
+
+- Apply the applicable Tistory approval profile, initially `tistory_vivarain_art_v1`.
+- Verify official artwork or artist Evidence instead of checking only for source wording.
+- Compare article facts with the stored Evidence Pack.
+- Check existing Tistory public and canonical content for duplicate topic, intent, structure, claims, and repeated value.
+- Resolve and diagnose Category, public-post catalog, eligible related-post candidates, contextual internal-link placement, and related-post placement.
+- Do not force unrelated internal links or fill related-post slots with irrelevant content.
+- Verify site navigation, Category structure, trust pages, mobile public rendering, accessibility, copyright and image-use safety, broken links, and topic-quality consistency.
+- Do not mark Tistory application-ready because a single article has a standard Quality score of 100.
+
+Tistory platform-managed infrastructure may reduce some technical work, but it does not remove the shared Article, Evidence, Duplicate, Internal Navigation, and Site Readiness obligations.

@@ -1,10 +1,33 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { UserData } from "../../../../app/user-flow/user-data";
+import type { PlatformConnection } from "../../../../core/connections";
 
 const runtime = vi.hoisted(() => {
-  const initial: UserData = { workspace: { id: "workspace-1", name: "Studio" }, brands: [], projects: [], contents: [] };
-  return { data: initial, connections: [{ id: "account-1", workspaceId: "workspace-1", platform: "wordpress", displayName: "Site", status: "connected", publicMetadata: { siteUrl: "https://example.com", username: "owner", applicationPassword: "must-not-leak", cookie: "must-not-leak" }, secretReference: "secret-file", createdAt: "now", updatedAt: "now", selectedAsDefault: false, version: 1 }] };
+  const initialData: UserData = { workspace: { id: "workspace-1", name: "Studio" }, brands: [], projects: [], contents: [] };
+  const initialConnection: PlatformConnection = {
+    id: "account-1",
+    workspaceId: "workspace-1",
+    platform: "wordpress",
+    displayName: "Site",
+    status: "connected",
+    publicMetadata: {
+      siteUrl: "https://example.com",
+      username: "owner",
+      applicationPassword: "must-not-leak",
+      cookie: "must-not-leak",
+    },
+    secretReference: "secret-file",
+    createdAt: "now",
+    updatedAt: "now",
+    selectedAsDefault: false,
+    version: 1,
+  };
+  return {
+    data: initialData,
+    connections: [initialConnection] as PlatformConnection[],
+    initialConnection,
+  };
 });
 
 vi.mock("../../../../app/application/studio-store", () => ({
@@ -15,12 +38,17 @@ vi.mock("../../../../app/application/studio-store", () => ({
 }));
 vi.mock("../../../../app/application/connections/connection-runtime", () => ({
   connectionRepository: { listByWorkspace: vi.fn(async (workspaceId: string) => runtime.connections.filter((item) => item.workspaceId === workspaceId)) },
+  connectionJobRunner: { statusByConnection: vi.fn(() => undefined) },
+  connectionRoot: "test-connection-root",
 }));
 
 import { GET, POST } from "../../../../app/api/settings/route";
 
 describe("Settings API", () => {
-  beforeEach(() => { runtime.data = { workspace: { id: "workspace-1", name: "Studio" }, brands: [], projects: [], contents: [] }; });
+  beforeEach(() => {
+    runtime.data = { workspace: { id: "workspace-1", name: "Studio" }, brands: [], projects: [], contents: [] };
+    runtime.connections = [runtime.initialConnection];
+  });
 
   it("rejects another Workspace and never returns credentials or session material", async () => {
     const denied = await GET(new Request("http://localhost/api/settings?workspaceId=other"));
@@ -55,6 +83,49 @@ describe("Settings API", () => {
     const restored = await POST(request({ action: "save-enabled-platforms", workspaceId: "workspace-1", enabledPlatforms: ["tistory", "wordpress"] }));
     const restoredBody = await restored.json() as { connections: Array<{ id: string }> };
     expect(restoredBody.connections).toEqual([expect.objectContaining({ id: "account-1" })]);
+  });
+
+  it("does not expose a Tistory connection as active when its stored session file is missing", async () => {
+    runtime.data = {
+      workspace: {
+        id: "workspace-1",
+        name: "Studio",
+        settings: {
+          enabledPlatforms: ["tistory"],
+          publishing: { reviewFirst: true, draftOnly: true, publicPublish: false, sequentialDraftSave: true, qualityApprovalRequired: true },
+          appearance: { theme: "system" },
+        },
+      },
+      brands: [],
+      projects: [],
+      contents: [],
+    };
+    runtime.connections = [{
+      id: "tistory-1",
+      workspaceId: "workspace-1",
+      platform: "tistory",
+      displayName: "viva-rain",
+      status: "connected",
+      publicMetadata: {
+        blogId: "viva-rain",
+        blogUrl: "https://viva-rain.tistory.com",
+        sessionStateAvailable: true,
+      },
+      createdAt: "now",
+      updatedAt: "now",
+      lastVerifiedAt: "now",
+      selectedAsDefault: false,
+      version: 1,
+    }];
+
+    const response = await GET(new Request("http://localhost/api/settings?workspaceId=workspace-1"));
+    const body = await response.json() as { connections: Array<{ status: string; publicMetadata: { sessionStateAvailable: boolean } }> };
+
+    expect(response.status).toBe(200);
+    expect(body.connections[0]).toMatchObject({
+      status: "disconnected",
+      publicMetadata: { sessionStateAvailable: false },
+    });
   });
 
   it("rejects a cross-Workspace enabled-platform update", async () => {

@@ -1,3 +1,9 @@
+import type {
+  ApprovalDuplicateCheckSnapshot,
+  ApprovalEvidencePack,
+  ApprovalPolicySnapshot,
+  SiteApprovalReadinessSnapshot,
+} from "../approval";
 import type { ContentPlanQualityTarget, ContentSectionType } from "./ContentDepthPolicy";
 import type { LongFormDiagnostic } from "./LongFormDiagnostics";
 
@@ -21,6 +27,10 @@ export type ContentMetadata = Readonly<{
   tags?: readonly string[];
   availableRelatedContentCandidates?: number;
   internalLinkCatalogStatus?: "evaluated" | "category_missing" | "catalog_unavailable";
+  approvalPolicy?: ApprovalPolicySnapshot;
+  approvalEvidence?: ApprovalEvidencePack;
+  approvalDuplicateCheck?: ApprovalDuplicateCheckSnapshot;
+  siteApprovalReadiness?: SiteApprovalReadinessSnapshot;
   qualityTarget?: ContentPlanQualityTarget;
   generationDiagnostic?: LongFormDiagnostic;
   reviewDiagnostic?: LongFormDiagnostic;

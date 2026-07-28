@@ -3,6 +3,12 @@ export type AIRequest = Readonly<{
   metadata?: Readonly<Record<string, string>>;
 }>;
 
+export type AIWebSource = Readonly<{
+  url: string;
+  title?: string;
+  excerpt?: string;
+}>;
+
 export type AIResponse = Readonly<{
   content: string;
   model: string;
@@ -13,6 +19,7 @@ export type AIResponse = Readonly<{
     outputTokens?: number;
     requestTimeoutMs?: number;
     elapsedMs?: number;
+    webSources?: readonly AIWebSource[];
   }>;
 }>;
 

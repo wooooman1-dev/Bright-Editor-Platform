@@ -101,6 +101,7 @@ describe("Tistory publishing preparation", () => {
     expect(readiness.ready).toBe(true);
     expect(readiness.checks.find((check) => check.key === "publishing_account")?.passed).toBe(true);
     expect(readiness.checks.find((check) => check.key === "category")?.message).toContain("건강운동");
+    expect(readiness.checks.find((check) => check.key === "quality")?.message).toContain(`${quality.overallScore}점`);
     expect(readiness.checks.find((check) => check.key === "final_confirmation")?.passed).toBe(false);
   });
 });

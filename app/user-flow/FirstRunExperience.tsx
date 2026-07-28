@@ -13,6 +13,7 @@ import { resolveContentOpenDestination } from "./content-navigation";
 import { DangerZone } from "./DangerZone";
 import { EditorWorkspace } from "./EditorWorkspace";
 import { ProjectCardActions } from "./ProjectCardActions";
+import { ProjectApprovalSettingsCard } from "./ProjectApprovalSettingsCard";
 import { contentRevisionId } from "../../core/quality";
 import { normalizeQualityReview } from "./quality-review-ui";
 import {
@@ -279,6 +280,7 @@ function ProjectScreen({ data, onBack, onCreateContent, onDeleted, onOpenContent
       {renameState === "error" ? <p className="w-full text-sm text-red-700">프로젝트 이름을 저장하지 못했습니다. 이름을 확인한 뒤 다시 시도해 주세요.</p> : null}{renameState === "saved" ? <p className="w-full text-sm text-emerald-700">프로젝트 이름을 저장했습니다.</p> : null}
       </header>
       <section className="mt-6 rounded-[20px] border border-black/6 bg-white p-5"><h2 className="font-semibold">{project.name} 프로젝트의 콘텐츠 전략을 사용합니다.</h2><dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4"><div><dt className="text-[#77777f]">대표 주제</dt><dd className="mt-1 font-semibold">{strategy.primaryTopic}</dd></div><div><dt className="text-[#77777f]">기본 플랫폼</dt><dd className="mt-1 font-semibold">{strategy.defaultPlatform === "tistory" ? "티스토리" : strategy.defaultPlatform}</dd></div><div><dt className="text-[#77777f]">기본 카테고리</dt><dd className="mt-1 font-semibold">{strategy.defaultTistoryCategory?.name ?? "첫 임시저장 준비에서 선택"}</dd></div><div><dt className="text-[#77777f]">품질 원칙</dt><dd className="mt-1 font-semibold">독자 문제 해결과 정보 충분성</dd></div></dl></section>
+      <ProjectApprovalSettingsCard data={data} key={project.id} onPersist={onPersist} project={project} />
       <PublishingTargetSelector data={data} onPersist={onPersist} project={project} workspaceId={data.workspace!.id} />
       <section className="mt-8">
         <h2 className="text-lg font-semibold">콘텐츠</h2>

@@ -9,8 +9,9 @@ import { rankRelatedPosts } from "../../../../core/content";
 import { TistoryPostWorkflowError } from "../../../../apps/tistory/workflows/TistoryPostReadWorkflow";
 
 export async function GET(request: Request) {
+  let connectionId: string | undefined;
   try {
-    const url = new URL(request.url); const workspaceId = required(url.searchParams.get("workspaceId")); const contentId = required(url.searchParams.get("contentId")); const connectionId = required(url.searchParams.get("connectionId"));
+    const url = new URL(request.url); const workspaceId = required(url.searchParams.get("workspaceId")); const contentId = required(url.searchParams.get("contentId")); connectionId = required(url.searchParams.get("connectionId"));
     const data = await studioStore.get<UserData>("application", "user-data");
     if (!data?.workspace || data.workspace.id !== workspaceId || !isPlatformEnabled(data, "tistory")) throw new Error("Workspace 또는 Tistory 설정을 찾을 수 없습니다.");
     const content = data.contents.find((item) => item.id === contentId && item.workspaceId === workspaceId); const project = content ? data.projects.find((item) => item.id === content.projectId && item.workspaceId === workspaceId) : undefined; const connection = await connectionRepository.findById(connectionId);
@@ -21,8 +22,29 @@ export async function GET(request: Request) {
     const posts = content.document ? rankRelatedPosts(content.document, eligible, { primaryKeyword: content.primaryKeyword, categoryId: content.publishingPreparation?.tistory?.platformCategoryId, categoryName: content.publishingPreparation?.tistory?.platformCategoryName ?? undefined }) : eligible;
     return NextResponse.json({ ...result, posts });
   } catch (error) {
-    if (error instanceof TistoryPostWorkflowError) return NextResponse.json({ state: error.code, error: error.message, remediation: error.remediation }, { status: 400 });
-    const message = error instanceof Error ? error.message : "게시글을 불러오지 못했습니다."; return NextResponse.json({ state: /permission|allow/i.test(message) ? "permission_denied" : message === "재연결 필요" ? "session_expired" : "connection_error", error: message }, { status: 400 });
+    if (error instanceof TistoryPostWorkflowError) {
+      if (error.code === "session_expired" && connectionId) await markSessionExpired(connectionId);
+      return NextResponse.json({ state: error.code, error: error.message, remediation: error.remediation, reconnectRequired: error.code === "session_expired" }, { status: 400 });
+    }
+    const message = error instanceof Error ? error.message : "게시글을 불러오지 못했습니다.";
+    if (message === "재연결 필요" && connectionId) await markSessionExpired(connectionId);
+    return NextResponse.json({ state: /permission|allow/i.test(message) ? "permission_denied" : message === "재연결 필요" ? "session_expired" : "connection_error", error: message, reconnectRequired: message === "재연결 필요" }, { status: 400 });
   }
 }
+
+async function markSessionExpired(connectionId: string): Promise<void> {
+  const connection = await connectionRepository.findById(connectionId);
+  if (!connection) return;
+  await connectionRepository.save({
+    ...connection,
+    status: "expired",
+    updatedAt: new Date().toISOString(),
+    publicMetadata: {
+      ...connection.publicMetadata,
+      sessionStateAvailable: false,
+      safeError: "Tistory 로그인 세션이 만료되었습니다. 다시 연결해 주세요.",
+    },
+  });
+}
+
 function required(value: unknown) { if (typeof value !== "string" || !value.trim()) throw new Error("필수 게시글 조회 정보가 없습니다."); return value.trim(); }

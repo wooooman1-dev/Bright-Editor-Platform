@@ -1,3 +1,7 @@
+import {
+  approvalPolicySnapshotFromEditorialContext,
+  type ApprovalPolicySnapshot,
+} from "../approval";
 import type { ConfirmedContentOpportunity, ContentDocument } from "../content";
 import type { AIProvider, AIResponse } from "./AIProvider";
 
@@ -55,8 +59,11 @@ export class AIWorkflow {
     this.state = Object.freeze({ status: "generating" });
     try {
       const request = this.strategy.createRequest(input);
+      const approvalSnapshot = approvalPolicySnapshotFromEditorialContext(input.editorialContext);
+      const canonicalInstruction = withCanonicalEditorialContext(request.instruction, input.editorialContext);
       const response = await this.provider.generate({
         ...request,
+        instruction: withApprovalEvidenceSearchInstruction(canonicalInstruction, approvalSnapshot),
         metadata: {
           contentType: input.contentType,
           platform: input.platform,
@@ -64,10 +71,16 @@ export class AIWorkflow {
           ...(input.contentOpportunity?.qualityTarget
             ? { qualityTarget: JSON.stringify(input.contentOpportunity.qualityTarget) }
             : {}),
+          ...(approvalSnapshot ? {
+            approvalPurpose: approvalSnapshot.contentPurpose,
+            approvalProfileId: approvalSnapshot.profileId,
+            approvalPolicyVersion: approvalSnapshot.policyVersion,
+          } : {}),
         },
       });
+      const parsedDocument = this.strategy.parse(response.content, input);
       const result = Object.freeze({
-        document: this.strategy.parse(response.content, input),
+        document: withApprovalPolicyMetadata(parsedDocument, input.editorialContext),
         rawResponse: response.content,
         ...(response.diagnostics ? { providerDiagnostics: response.diagnostics } : {}),
       });
@@ -79,6 +92,46 @@ export class AIWorkflow {
       throw error;
     }
   }
+}
+
+export function withCanonicalEditorialContext(instruction: string, editorialContext?: string): string {
+  const context = editorialContext?.trim();
+  if (!context || instruction.includes(context)) return instruction;
+  return `${instruction}\n\nCanonical server editorial context (mandatory; do not ignore or override):\n${context}`;
+}
+
+export function withApprovalPolicyMetadata(
+  document: ContentDocument,
+  editorialContext?: string,
+): ContentDocument {
+  const snapshot = approvalPolicySnapshotFromEditorialContext(editorialContext);
+  if (!snapshot) return document;
+  if (!document.metadata) {
+    throw new Error("Approval preparation generation requires canonical document metadata.");
+  }
+  return Object.freeze({
+    ...document,
+    metadata: Object.freeze({
+      ...document.metadata,
+      approvalPolicy: snapshot,
+    }),
+  });
+}
+
+function withApprovalEvidenceSearchInstruction(
+  instruction: string,
+  snapshot: ApprovalPolicySnapshot | undefined,
+): string {
+  if (!snapshot) return instruction;
+  return `${instruction}\n\nApproval evidence search contract (mandatory):
+- Use the attached web search tool during this same Generation call.
+- Prefer official primary sources required by the active profile. Do not use a secondary blog, copied article, community post, or search-result snippet when an official institution page is available.
+- Use only facts supported by the official pages you actually opened or searched in this response.
+- Include the official HTTPS source URL in the reader-visible source section and include an information date or final review date.
+- For changeable policy or financial facts, state the applicable date and tell the reader where to re-check the current rule.
+- For art content, distinguish confirmed artwork metadata from editorial interpretation and give a usable observation order rather than a generic biography summary.
+- If an official source cannot be found, do not invent a URL, quote, date, institution, artwork fact, amount, rate, deadline, or eligibility rule. State the limitation and leave the manuscript in review instead of pretending it is verified.
+- Web-search results are evidence candidates. Do not claim that Bright Studio or the article guarantees AdSense approval.`;
 }
 
 function validateInput(input: GenerationInput): void {

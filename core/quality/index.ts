@@ -1,7 +1,6 @@
 export {
   PublishingGate,
   contentRevisionId,
-  isStandardQualityApproved,
   resolveQualityApproval,
 } from "./QualityEngine";
 export type {
@@ -14,6 +13,11 @@ export type {
   QualityReport,
   QualityReviewContext,
 } from "./QualityEngine";
-export { QualityEngine } from "./QualityEnginePolicy";
+export {
+  QualityEngine,
+  isApprovalApplicationReady,
+  isApprovalAwareStandardQualityApproved as isStandardQualityApproved,
+} from "./QualityEnginePolicy";
+export type { ApprovalAwareQualityReport } from "./QualityEnginePolicy";
 export * from "./QualityImprovementGate";
 export * from "./QualityScoringPolicy";

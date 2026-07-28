@@ -1,4 +1,4 @@
-import type { AIProvider, AIRequest, AIResponse } from "../../core/ai";
+import type { AIProvider, AIRequest, AIResponse, AIWebSource } from "../../core/ai";
 import {
   contentSectionTypes,
   determineContentPlanQualityTarget,
@@ -27,9 +27,14 @@ export class OpenAIProvider implements AIProvider {
       throw new AIConfigurationError("OPENAI_API_KEY must contain only printable ASCII characters without whitespace.");
     }
     const editorialOutput = editorialOutputPolicy(request.metadata);
+    const webSearch = approvalWebSearchPolicy(request.metadata);
     const requestBody = new TextEncoder().encode(JSON.stringify({
       model: this.model,
       input: request.instruction,
+      ...(webSearch ? {
+        tools: [webSearch],
+        include: ["web_search_call.action.sources"],
+      } : {}),
       ...(editorialOutput ? { max_output_tokens: editorialOutput.maxOutputTokens, text: { format: editorialOutput.format, verbosity: editorialOutput.verbosity } } : {}),
     }));
     const controller = new AbortController();
@@ -50,7 +55,9 @@ export class OpenAIProvider implements AIProvider {
       clearTimeout(timeout);
     }
     if (!response.ok) throw new Error(`OpenAI request failed (${response.status}).`);
-    const responseBody = await response.json() as { id?: string; model?: string; status?: string; incomplete_details?: { reason?: string }; usage?: { output_tokens?: number }; output_text?: string; output?: Array<{ content?: Array<{ text?: string }> }> };
+    const responseBody = await response.json() as OpenAIResponseBody;
+    const content = responseBody.output_text ?? responseBody.output?.flatMap((item) => item.content ?? []).map((item) => item.text ?? "").join("");
+    const webSources = extractWebSources(responseBody.output ?? []);
     const diagnostics = Object.freeze({
       ...(responseBody.id ? { responseId: responseBody.id } : {}),
       ...(responseBody.status ? { status: responseBody.status } : {}),
@@ -58,13 +65,102 @@ export class OpenAIProvider implements AIProvider {
       ...(typeof responseBody.usage?.output_tokens === "number" ? { outputTokens: responseBody.usage.output_tokens } : {}),
       requestTimeoutMs: this.timeoutMs,
       elapsedMs: Date.now() - startedAt,
+      ...(webSources.length ? { webSources } : {}),
     });
-    console.info("[openai-response]", { ...diagnostics, model: responseBody.model ?? this.model });
+    console.info("[openai-response]", {
+      ...diagnostics,
+      model: responseBody.model ?? this.model,
+      webSourceCount: webSources.length,
+    });
     if (responseBody.status === "incomplete") throw new Error(`OpenAI response was incomplete${responseBody.incomplete_details?.reason ? `: ${responseBody.incomplete_details.reason}` : "."}`);
-    const content = responseBody.output_text ?? responseBody.output?.flatMap((item) => item.content ?? []).map((item) => item.text ?? "").join("");
     if (!content?.trim()) throw new Error("OpenAI returned an empty response.");
     return Object.freeze({ content, model: responseBody.model ?? this.model, diagnostics });
   }
+}
+
+type OpenAIResponseBody = Readonly<{
+  id?: string;
+  model?: string;
+  status?: string;
+  incomplete_details?: Readonly<{ reason?: string }>;
+  usage?: Readonly<{ output_tokens?: number }>;
+  output_text?: string;
+  output?: readonly OpenAIOutputItem[];
+}>;
+
+type OpenAIOutputItem = Readonly<{
+  type?: string;
+  action?: Readonly<{
+    sources?: readonly Readonly<{ type?: string; url?: string; title?: string }>[];
+  }>;
+  content?: readonly Readonly<{
+    text?: string;
+    annotations?: readonly Readonly<{
+      type?: string;
+      url?: string;
+      title?: string;
+      start_index?: number;
+      end_index?: number;
+    }>[];
+  }>[];
+}>;
+
+function approvalWebSearchPolicy(metadata?: Readonly<Record<string, string>>) {
+  if (metadata?.task !== "content-generation" || metadata.approvalPurpose !== "adsense_approval") return undefined;
+  const domains = metadata.approvalProfileId === "wordpress_life_economy_v1"
+    ? wordpressOfficialDomains
+    : undefined;
+  return {
+    type: "web_search" as const,
+    search_context_size: "high" as const,
+    ...(domains ? { filters: { allowed_domains: domains } } : {}),
+  };
+}
+
+function extractWebSources(output: readonly OpenAIOutputItem[]): readonly AIWebSource[] {
+  const sources = new Map<string, AIWebSource>();
+  for (const item of output) {
+    for (const source of item.action?.sources ?? []) {
+      if (!source.url) continue;
+      addWebSource(sources, {
+        url: source.url,
+        ...(source.title ? { title: source.title } : {}),
+      });
+    }
+    for (const part of item.content ?? []) {
+      const text = part.text ?? "";
+      for (const annotation of part.annotations ?? []) {
+        if (annotation.type !== "url_citation" || !annotation.url) continue;
+        const start = typeof annotation.start_index === "number" ? annotation.start_index : 0;
+        const end = typeof annotation.end_index === "number" ? annotation.end_index : 0;
+        const excerpt = end > start ? text.slice(start, end).trim() : "";
+        addWebSource(sources, {
+          url: annotation.url,
+          ...(annotation.title ? { title: annotation.title } : {}),
+          ...(excerpt ? { excerpt } : {}),
+        });
+      }
+    }
+  }
+  return Object.freeze([...sources.values()]);
+}
+
+function addWebSource(sources: Map<string, AIWebSource>, source: AIWebSource): void {
+  let url: URL;
+  try {
+    url = new URL(source.url);
+  } catch {
+    return;
+  }
+  if (url.protocol !== "https:") return;
+  url.hash = "";
+  const key = url.toString();
+  const previous = sources.get(key);
+  sources.set(key, Object.freeze({
+    url: key,
+    ...(source.title || previous?.title ? { title: source.title ?? previous?.title } : {}),
+    ...(source.excerpt || previous?.excerpt ? { excerpt: source.excerpt ?? previous?.excerpt } : {}),
+  }));
 }
 
 function isHeaderSafeApiKey(value: string): boolean {
@@ -194,3 +290,21 @@ const editorialDocumentFormat = {
     },
   },
 } as const;
+
+const wordpressOfficialDomains = Object.freeze([
+  "gov.kr",
+  "go.kr",
+  "korea.kr",
+  "law.go.kr",
+  "nts.go.kr",
+  "fsc.go.kr",
+  "fss.or.kr",
+  "bok.or.kr",
+  "molit.go.kr",
+  "moel.go.kr",
+  "mohw.go.kr",
+  "mois.go.kr",
+  "lh.or.kr",
+  "hf.go.kr",
+  "nhuf.molit.go.kr",
+]);

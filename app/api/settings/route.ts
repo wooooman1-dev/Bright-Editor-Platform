@@ -1,11 +1,15 @@
-import { readdir, stat } from "node:fs/promises";
+import { access, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
 
 import type { PlatformConnection } from "../../../core/connections";
 import type { UserData, WorkspacePlatform } from "../../user-flow/user-data";
 import { LocalSafeBackupWriter } from "../../application/SafeDeletionService";
-import { connectionRepository } from "../../application/connections/connection-runtime";
+import { connectionJobRunner, connectionRepository, connectionRoot } from "../../application/connections/connection-runtime";
+import {
+  publicConnectionRuntimeState,
+  type PublicConnectionRuntimeState,
+} from "../../application/connections/ConnectionPublicState";
 import {
   aiProviderStatus, automationStatus, connectionSummary, resolveWorkspaceSettings,
   updateAppearance, updateEnabledPlatforms, updatePublishingPolicy, updateWorkspaceName,
@@ -62,23 +66,51 @@ export async function POST(request: Request) {
 
 async function snapshot(data: UserData) {
   const workspace = data.workspace!;
-  const connections = await connectionRepository.listByWorkspace(workspace.id);
+  const storedConnections = await connectionRepository.listByWorkspace(workspace.id);
+  const runtimeConnections = await Promise.all(storedConnections.map((connection) => resolveConnectionRuntime(connection, data)));
+  const effectiveConnections = runtimeConnections.map(({ connection, runtime }) => ({
+    ...connection,
+    status: runtime.status,
+    publicMetadata: {
+      ...connection.publicMetadata,
+      sessionStateAvailable: runtime.sessionStateAvailable,
+    },
+  } satisfies PlatformConnection));
   const settings = resolveWorkspaceSettings(data);
-  const enabledConnections = connections.filter((connection) => settings.enabledPlatforms.includes(connection.platform));
+  const enabledRuntimeConnections = runtimeConnections.filter(({ connection }) => settings.enabledPlatforms.includes(connection.platform));
   const [automation, backup] = await Promise.all([automationStatus(), latestBackup(workspace.id)]);
-  const platformStatus = Object.fromEntries(settings.enabledPlatforms.map((platform) => [platform, platformSummary(platform, connections)]));
+  const platformStatus = Object.fromEntries(settings.enabledPlatforms.map((platform) => [platform, platformSummary(platform, effectiveConnections)]));
   return {
-    workspace: { id: workspace.id, name: workspace.name, createdAt: workspace.createdAt, updatedAt: workspace.updatedAt, projectCount: data.projects.length, contentCount: data.contents.length, publishingAccountCount: connections.length },
+    workspace: { id: workspace.id, name: workspace.name, createdAt: workspace.createdAt, updatedAt: workspace.updatedAt, projectCount: data.projects.length, contentCount: data.contents.length, publishingAccountCount: storedConnections.length },
     settings,
     ai: aiProviderStatus(),
     platforms: platformStatus,
-    connections: enabledConnections.map(publicConnection),
-    automation: { ...automation, tistorySessionReady: settings.enabledPlatforms.includes("tistory") && enabledConnections.some((connection) => connection.platform === "tistory" && connection.status === "connected" && connection.publicMetadata.sessionStateAvailable === true) },
+    connections: enabledRuntimeConnections.map(({ connection, runtime, activeJobId }) => publicConnection(connection, runtime, activeJobId)),
+    automation: { ...automation, tistorySessionReady: settings.enabledPlatforms.includes("tistory") && enabledRuntimeConnections.some(({ connection, runtime }) => connection.platform === "tistory" && runtime.status === "connected" && runtime.sessionStateAvailable) },
     backup,
     persistence: { status: "ready", message: "로컬 데이터 저장소를 정상적으로 읽었습니다." },
     publishing: { status: "ready", message: "검토 후 임시저장 정책이 서버에서 적용됩니다." },
     projects: data.projects.map((project) => ({ id: project.id, name: project.name })),
   };
+}
+
+async function resolveConnectionRuntime(connection: PlatformConnection, data: UserData) {
+  const storedSessionExists = connection.platform !== "tistory" || await tistorySessionExists(connection.id);
+  const activeJob = connection.platform === "tistory" ? connectionJobRunner.statusByConnection(connection.id) : undefined;
+  return {
+    connection,
+    runtime: publicConnectionRuntimeState(connection, data, storedSessionExists, Boolean(activeJob)),
+    activeJobId: activeJob?.id,
+  };
+}
+
+async function tistorySessionExists(connectionId: string): Promise<boolean> {
+  try {
+    await access(path.join(connectionRoot, "tistory", connectionId, "storage-state.json"));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function platformSummary(platform: WorkspacePlatform, connections: readonly PlatformConnection[]) {
@@ -101,22 +133,35 @@ async function latestBackup(workspaceId: string) {
   } catch { return { status: "configuration_required", message: "아직 생성된 워크스페이스 백업이 없습니다." }; }
 }
 
-function publicConnection(connection: PlatformConnection) {
+function publicConnection(connection: PlatformConnection, runtime: PublicConnectionRuntimeState, activeJobId?: string) {
   return {
-    id: connection.id, platform: connection.platform, displayName: connection.displayName, status: connection.status,
-    lastVerifiedAt: connection.lastVerifiedAt, updatedAt: connection.updatedAt,
+    id: connection.id,
+    platform: connection.platform,
+    displayName: connection.displayName,
+    status: runtime.status,
+    lastVerifiedAt: connection.lastVerifiedAt,
+    updatedAt: connection.updatedAt,
     permissions: connection.automationPermissions ?? [],
     publishingPolicy: connection.publishingPolicy ?? "review_first",
-    publicMetadata: safePublicMetadata(connection),
+    publicMetadata: safePublicMetadata(connection, runtime),
+    projectReferenceCount: runtime.projectReferenceCount,
+    contentReferenceCount: runtime.contentReferenceCount,
+    ...(activeJobId ? { activeJobId } : {}),
   };
 }
-function safePublicMetadata(connection: PlatformConnection) {
+
+function safePublicMetadata(connection: PlatformConnection, runtime?: PublicConnectionRuntimeState) {
   const value = connection.publicMetadata;
   return connection.platform === "tistory"
-    ? { blogId: value.blogId, blogUrl: value.blogUrl, sessionStateAvailable: value.sessionStateAvailable === true }
-    : { siteUrl: value.siteUrl, siteTitle: value.siteTitle, username: value.username };
+    ? {
+        blogId: value.blogId,
+        blogUrl: value.blogUrl,
+        sessionStateAvailable: runtime?.sessionStateAvailable ?? value.sessionStateAvailable === true,
+        safeError: value.safeError,
+      }
+    : { siteUrl: value.siteUrl, siteTitle: value.siteTitle, username: value.username, safeError: value.safeError };
 }
-function safeConnection(connection: PlatformConnection) { return { ...publicConnection(connection), workspaceId: connection.workspaceId }; }
+function safeConnection(connection: PlatformConnection) { return { ...publicConnection(connection, publicConnectionRuntimeState(connection, { workspace: undefined, brands: [], projects: [], contents: [] }, connection.platform !== "tistory" || connection.publicMetadata.sessionStateAvailable === true)), workspaceId: connection.workspaceId }; }
 function safeName(value: string) { return value.replace(/[^a-z0-9_-]/gi, "-").slice(0, 60); }
 function required(value: unknown, error: string): string { if (typeof value !== "string" || !value.trim()) throw new Error(error); return value.trim(); }
 function failure(error: unknown) { return NextResponse.json({ error: error instanceof Error ? safeError(error.message) : "설정을 처리하지 못했습니다." }, { status: 400 }); }
