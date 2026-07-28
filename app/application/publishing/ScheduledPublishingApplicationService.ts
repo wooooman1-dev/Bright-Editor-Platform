@@ -87,7 +87,10 @@ export class ScheduledPublishingApplicationService {
       const owned = assertOwnedData(current, identity.workspaceId, projectId, identity.contentId);
       const records = owned.scheduledPublishing ?? [];
       const identical = records.find((record): record is ScheduledPublication => (
-        isScheduledPublication(record) && record.requestFingerprint === requestFingerprint
+        isScheduledPublication(record)
+        && record.requestFingerprint === requestFingerprint
+        && record.status !== "cancelled"
+        && record.status !== "published"
       ));
       if (identical) {
         reservation = identical;
@@ -159,14 +162,22 @@ export class ScheduledPublishingApplicationService {
 
   async transition(input: ScheduleTransitionInput): Promise<ScheduledPublication> {
     const now = normalizedTimestamp(input.now ?? this.now().toISOString(), "예약 상태 변경 시각");
+    if (input.status === "scheduled_verified" && (!input.registeredAt || !input.verifiedAt)) {
+      throw new ScheduledPublicationError(
+        "SCHEDULE_VERIFICATION_EVIDENCE_REQUIRED",
+        "예약 검증 완료에는 외부 등록 시각과 검증 시각이 필요합니다.",
+      );
+    }
     let updated: ScheduledPublication | undefined;
     await this.store.update<ScheduleAwareUserData>(USER_DATA_COLLECTION, USER_DATA_ID, (current) => {
       const data = assertWorkspaceData(current, input.workspaceId);
       const record = findScheduledPublication(data, input.scheduleId);
       assertScheduledPublicationTransition(record.status, input.status);
+      const keepsFailure = input.status === "failed" || input.status === "scheduled_unverified";
       updated = Object.freeze({
         ...record,
         status: input.status,
+        ...(!keepsFailure ? { failureCode: undefined, lastError: undefined } : {}),
         ...(input.registeredAt ? { registeredAt: normalizedTimestamp(input.registeredAt, "예약 등록 시각") } : {}),
         ...(input.verifiedAt ? { verifiedAt: normalizedTimestamp(input.verifiedAt, "예약 검증 시각") } : {}),
         ...(input.externalPostId ? { externalPostId: input.externalPostId } : {}),
