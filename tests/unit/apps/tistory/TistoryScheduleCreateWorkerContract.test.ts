@@ -34,6 +34,14 @@ describe("Tistory schedule create worker contract", () => {
     expect(source).not.toContain("async function fillTags");
   });
 
+  it("uses the proven visible editor-mode role locator instead of a fixed Tistory element id", () => {
+    expect(source).toContain('async function editorModeControl');
+    expect(source).toContain('getByRole("button", { name: /기본모드|HTML|마크다운|에디터 모드/ })');
+    expect(source).toContain('const button = await editorModeControl(targetPage)');
+    expect(source).not.toContain('locator("#editor-mode-layer-btn")');
+    expect(source).toContain('await confirmModeTransition(targetPage, targetMode)');
+  });
+
   it("verifies editor mode from the actual CodeMirror and TinyMCE state instead of the mode-button label alone", () => {
     expect(source).toContain("async function editorModeEvidence");
     expect(source).toContain("const htmlEditorReady = htmlEditors.some");
