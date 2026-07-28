@@ -1,4 +1,5 @@
 import type { MediaAsset } from "../../../core/media";
+import { scheduledPublicationStorageKey } from "../../../core/publishing";
 import { assertConfirmedContentOpportunity, hasCurrentContentOpportunityFingerprint } from "../../../core/content";
 import type { UserContent, UserData, UserProject } from "../../user-flow/user-data";
 
@@ -61,7 +62,7 @@ export function mergeServerMutationSnapshot(current: UserData | undefined, base:
     mediaMetadata: mergeChangedMediaAssets(current.mediaMetadata, base.mediaMetadata, next.mediaMetadata),
     publishingRecords: mergeChangedByKey(current.publishingRecords, base.publishingRecords, next.publishingRecords, (item) => item.id),
     qualityReports: mergeChangedByKey(current.qualityReports, base.qualityReports, next.qualityReports, (item) => item.contentId),
-    scheduledPublishing: mergeChangedByKey(current.scheduledPublishing, base.scheduledPublishing, next.scheduledPublishing, (item) => `${item.contentId}:${item.platform}`),
+    scheduledPublishing: mergeChangedByKey(current.scheduledPublishing, base.scheduledPublishing, next.scheduledPublishing, scheduledPublicationStorageKey),
   });
 }
 
