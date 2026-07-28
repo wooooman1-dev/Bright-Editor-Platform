@@ -62,12 +62,12 @@ export type ScheduleRequestIdentity = Readonly<{
 }>;
 
 const TRANSITIONS: Readonly<Record<ScheduledPublicationStatus, readonly ScheduledPublicationStatus[]>> = Object.freeze({
-  registering: Object.freeze(["scheduled_verified", "scheduled_unverified", "failed"]),
-  scheduled_verified: Object.freeze(["cancelled", "published"]),
-  scheduled_unverified: Object.freeze(["scheduled_verified", "cancelled", "published"]),
-  failed: Object.freeze(["registering"]),
-  cancelled: Object.freeze([]),
-  published: Object.freeze([]),
+  registering: transitionList("scheduled_verified", "scheduled_unverified", "failed"),
+  scheduled_verified: transitionList("cancelled", "published"),
+  scheduled_unverified: transitionList("scheduled_verified", "cancelled", "published"),
+  failed: transitionList("registering"),
+  cancelled: transitionList(),
+  published: transitionList(),
 });
 
 export function isScheduledPublication(record: unknown): record is ScheduledPublication {
@@ -183,6 +183,10 @@ export class ScheduledPublicationError extends Error {
     super(message);
     this.name = "ScheduledPublicationError";
   }
+}
+
+function transitionList(...statuses: ScheduledPublicationStatus[]): readonly ScheduledPublicationStatus[] {
+  return Object.freeze(statuses);
 }
 
 function isValidTimeZone(value: string): boolean {
