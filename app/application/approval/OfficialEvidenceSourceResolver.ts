@@ -28,123 +28,211 @@ export function resolveOfficialEvidenceSourceFallback(
   if (host !== "nga.gov" && host !== "www.nga.gov") return undefined;
 
   const artworkMatch = /^\/artworks\/(\d+)(?:-|\/|$)/i.exec(url.pathname);
-  const artworkId = artworkMatch?.[1];
-  if (!artworkId) return undefined;
-
-  const manifestUrl = new URL("https://www.nga.gov/api/v1/iiif/presentation/manifest.json");
-  manifestUrl.searchParams.set("cultObj:id", artworkId);
-  const requestUrl = manifestUrl.toString();
+  const artworkId = Number(artworkMatch?.[1]);
+  if (!Number.isSafeInteger(artworkId) || artworkId < 0) return undefined;
 
   return Object.freeze({
-    requestUrl,
-    accept: "application/ld+json,application/json;q=0.9,*/*;q=0.8",
-    normalize: (response, originalUrl) => normalizeNgaIiifManifest(response, originalUrl, requestUrl),
+    requestUrl: ngaObjectsDatasetUrl,
+    accept: "text/csv,text/plain;q=0.9,*/*;q=0.8",
+    normalize: (response, originalUrl) => normalizeNgaOpenDataRecord(
+      response,
+      originalUrl,
+      artworkId,
+    ),
   });
 }
 
-async function normalizeNgaIiifManifest(
+async function normalizeNgaOpenDataRecord(
   response: Response,
   requestedUrl: string,
-  fallbackUrl: string,
+  artworkId: number,
 ): Promise<ApprovalSourcePage | undefined> {
   if (!response.ok) return undefined;
 
-  const raw = (await response.text()).slice(0, 1_500_000);
-  let manifest: unknown;
-  try {
-    manifest = JSON.parse(raw);
-  } catch {
-    return undefined;
-  }
+  const record = await findNgaObjectRecord(response, artworkId);
+  if (!record) return undefined;
 
-  const text = flattenStructuredValues(manifest).join(" ").replace(/\s+/g, " ").trim();
+  const title = record.title?.trim() || "National Gallery of Art collection record";
+  const date = record.displaydate?.trim() || yearRange(record.beginyear, record.endyear);
+  const datasetUrl = response.url || ngaObjectsDatasetUrl;
+  const text = [
+    `Object ID: ${record.objectid ?? artworkId}`,
+    `Title: ${title}`,
+    `Date: ${date}`,
+    `Begin Year: ${record.beginyear ?? ""}`,
+    `End Year: ${record.endyear ?? ""}`,
+    `Medium: ${record.medium ?? ""}`,
+    `Dimensions: ${record.dimensions ?? ""}`,
+    `Artist: ${record.attribution ?? ""}`,
+    `Accession Number: ${record.accessionnum ?? ""}`,
+    `Credit Line: ${record.creditline ?? ""}`,
+    `Classification: ${record.classification ?? ""}`,
+    "Institution: National Gallery of Art",
+    `Official Open Data: ${datasetUrl}`,
+  ].filter((value) => !value.endsWith(": ")).join(" ").replace(/\s+/g, " ").trim();
+
   if (text.length < 80) return undefined;
-
-  const title = structuredLabel(manifest) || "National Gallery of Art collection record";
-  const finalUrl = response.url || fallbackUrl;
-  const rawContentType = response.headers.get("content-type") ?? "application/ld+json";
 
   return Object.freeze({
     requestedUrl,
-    finalUrl,
+    // The fetched record comes from the NGA-owned Open Data repository and
+    // describes the canonical artwork URL supplied by the manuscript.
+    finalUrl: requestedUrl,
     status: response.status,
-    // The verifier consumes normalized text. Preserve the actual official
-    // payload format in the diagnostic while marking the normalized page as
-    // text so the existing deterministic fact matcher can evaluate it.
-    contentType: `text/html; normalized-from=${rawContentType.split(";")[0]}`,
+    contentType: "text/html; normalized-from=text/csv",
     title,
-    publisher: "National Gallery of Art",
+    publisher: "National Gallery of Art Open Data",
     text,
   });
 }
 
-function structuredLabel(value: unknown): string {
-  if (!value || typeof value !== "object") return "";
-  const label = (value as Record<string, unknown>).label;
-  if (typeof label === "string") return label.trim();
-  if (!label || typeof label !== "object") return "";
+async function findNgaObjectRecord(
+  response: Response,
+  artworkId: number,
+): Promise<Readonly<Record<string, string>> | undefined> {
+  const scanner = new CsvObjectRecordScanner(artworkId);
+  const reader = response.body?.getReader();
 
-  const languageMap = label as Record<string, unknown>;
-  for (const preferred of ["en", "none", "@none"]) {
-    const entry = languageMap[preferred];
-    if (typeof entry === "string" && entry.trim()) return entry.trim();
-    if (Array.isArray(entry)) {
-      const first = entry.find((item): item is string => typeof item === "string" && Boolean(item.trim()));
-      if (first) return first.trim();
+  if (!reader) {
+    const text = (await response.text()).slice(0, ngaCsvReadLimitBytes);
+    scanner.push(text);
+    scanner.finish();
+    return scanner.result;
+  }
+
+  const decoder = new TextDecoder("utf-8");
+  let bytesRead = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytesRead += value.byteLength;
+      if (bytesRead > ngaCsvReadLimitBytes) return undefined;
+
+      scanner.push(decoder.decode(value, { stream: true }));
+      if (scanner.result || scanner.stopped) {
+        await reader.cancel();
+        return scanner.result;
+      }
+    }
+
+    scanner.push(decoder.decode());
+    scanner.finish();
+    return scanner.result;
+  } finally {
+    if (!scanner.result && !scanner.stopped) {
+      try {
+        await reader.cancel();
+      } catch {
+        // The stream may already be closed.
+      }
     }
   }
-  return "";
 }
 
-function flattenStructuredValues(value: unknown): readonly string[] {
-  const result: string[] = [];
-  const stack: unknown[] = [value];
-  let visited = 0;
-  let collectedCharacters = 0;
+class CsvObjectRecordScanner {
+  result: Readonly<Record<string, string>> | undefined;
+  stopped = false;
 
-  while (stack.length && visited < 4_000 && collectedCharacters < 300_000) {
-    visited += 1;
-    const current = stack.pop();
-    if (typeof current === "string") {
-      const normalized = current.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-      if (normalized) {
-        result.push(normalized);
-        collectedCharacters += normalized.length;
-      }
-      continue;
+  private header: string[] | undefined;
+  private fields: string[] = [];
+  private field = "";
+  private inQuotes = false;
+  private pendingQuote = false;
+
+  constructor(private readonly targetObjectId: number) {}
+
+  push(chunk: string): void {
+    for (const character of chunk) {
+      if (this.result || this.stopped) return;
+      this.consume(character);
     }
-    if (typeof current === "number" || typeof current === "boolean") {
-      const normalized = String(current);
-      result.push(normalized);
-      collectedCharacters += normalized.length;
-      continue;
+  }
+
+  finish(): void {
+    if (this.result || this.stopped) return;
+    if (this.pendingQuote) {
+      this.pendingQuote = false;
+      this.inQuotes = false;
     }
-    if (Array.isArray(current)) {
-      for (let index = current.length - 1; index >= 0; index -= 1) stack.push(current[index]);
-      continue;
-    }
-    if (current && typeof current === "object") {
-      const entries = Object.entries(current as Record<string, unknown>);
-      for (let index = entries.length - 1; index >= 0; index -= 1) {
-        const [key, nested] = entries[index]!;
-        if (!technicalStructuredKeys.has(key)) {
-          result.push(key);
-          collectedCharacters += key.length;
+    if (this.field.length || this.fields.length) this.completeRecord();
+  }
+
+  private consume(character: string): void {
+    if (this.inQuotes) {
+      if (this.pendingQuote) {
+        if (character === '"') {
+          this.field += '"';
+          this.pendingQuote = false;
+          return;
         }
-        stack.push(nested);
+        this.pendingQuote = false;
+        this.inQuotes = false;
+        this.consumeOutsideQuotes(character);
+        return;
       }
+      if (character === '"') {
+        this.pendingQuote = true;
+        return;
+      }
+      this.field += character;
+      return;
     }
+
+    this.consumeOutsideQuotes(character);
   }
 
-  return Object.freeze(result);
+  private consumeOutsideQuotes(character: string): void {
+    if (character === '"' && this.field.length === 0) {
+      this.inQuotes = true;
+      return;
+    }
+    if (character === ",") {
+      this.fields.push(this.field);
+      this.field = "";
+      return;
+    }
+    if (character === "\n") {
+      this.completeRecord();
+      return;
+    }
+    if (character !== "\r") this.field += character;
+  }
+
+  private completeRecord(): void {
+    const record = [...this.fields, this.field];
+    this.fields = [];
+    this.field = "";
+
+    if (record.length === 1 && !record[0]?.trim()) return;
+    if (!this.header) {
+      this.header = record.map((value, index) => index === 0
+        ? value.replace(/^\uFEFF/, "").trim()
+        : value.trim());
+      return;
+    }
+
+    const objectId = Number(record[0]);
+    if (!Number.isFinite(objectId)) return;
+    if (objectId > this.targetObjectId) {
+      this.stopped = true;
+      return;
+    }
+    if (objectId !== this.targetObjectId) return;
+
+    this.result = Object.freeze(Object.fromEntries(
+      this.header.map((name, index) => [name, record[index] ?? ""]),
+    ));
+  }
 }
 
-const technicalStructuredKeys = new Set([
-  "@context",
-  "@id",
-  "id",
-  "type",
-  "profile",
-  "service",
-  "thumbnail",
-]);
+function yearRange(beginYear: string | undefined, endYear: string | undefined): string {
+  const begin = beginYear?.trim() ?? "";
+  const end = endYear?.trim() ?? "";
+  if (begin && end && begin !== end) return `${begin}/${end}`;
+  return begin || end;
+}
+
+const ngaObjectsDatasetUrl = "https://raw.githubusercontent.com/NationalGalleryOfArt/opendata/main/data/objects.csv";
+const ngaCsvReadLimitBytes = 8_000_000;
