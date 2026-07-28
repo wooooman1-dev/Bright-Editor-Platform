@@ -6,6 +6,7 @@ import {
   assertValidScheduleTime,
   createScheduleRequestFingerprint,
   hasActiveScheduledPublication,
+  isScheduledPublication,
   scheduledPublicationStorageKey,
   type ScheduledPublication,
 } from "../../../../core/publishing";
@@ -86,6 +87,12 @@ describe("ScheduledPublication", () => {
     expect(scheduledPublicationStorageKey(schedule)).toBe("schedule-1");
     expect(scheduledPublicationStorageKey({ contentId: "content-1", platform: "tistory", scheduledFor: "2026-08-03T00:00:00.000Z" }))
       .toBe("legacy:content-1:tistory:2026-08-03T00:00:00.000Z");
+  });
+
+  it("treats malformed persisted values as non-schedule records without throwing", () => {
+    expect(isScheduledPublication(null)).toBe(false);
+    expect(isScheduledPublication("schedule-1")).toBe(false);
+    expect(isScheduledPublication({ id: "schedule-1", status: "unknown", scheduledAt: "bad" })).toBe(false);
   });
 
   it("allows verified and unverified registration outcomes but blocks terminal changes", () => {
