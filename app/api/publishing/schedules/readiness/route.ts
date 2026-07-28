@@ -32,6 +32,9 @@ export async function POST(request: Request) {
     const project = data.projects.find((item) => item.id === projectId)!;
     const content = data.contents.find((item) => item.id === contentId)!;
     const connection = await connectionRepository.findById(connectionId);
+    if (connection && (connection.workspaceId !== workspaceId || connection.platform !== "tistory")) {
+      throw new Error("Tistory 예약 발행 계정이 현재 Workspace와 일치하지 않습니다.");
+    }
     const selectedTarget = connection ? await hasSelectedTarget(projectId, content, project, connection.id) : false;
     const readiness = await calculateTistoryScheduleReadiness({
       data,
