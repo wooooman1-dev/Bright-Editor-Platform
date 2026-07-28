@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import type { UserData } from "../../../../user-flow/user-data";
 import { TistoryPublishingAdapter } from "../../../../../apps/tistory/publishing/TistoryPublishingAdapter";
 import { contentRevisionId } from "../../../../../core/quality";
-import { isScheduledPublication, type ScheduledPublication, type ScheduledPublishingRecord } from "../../../../../core/publishing";
+import type { ScheduledPublication, ScheduledPublishingRecord } from "../../../../../core/publishing";
 import { connectionRepository, connectionStore, targetRepository } from "../../../../application/connections/connection-runtime";
 import { resolveWorkspaceSettings, isPlatformEnabled } from "../../../../application/settings/WorkspaceSettingsService";
 import { ScheduledPublishingApplicationService } from "../../../../application/publishing/ScheduledPublishingApplicationService";
@@ -221,8 +221,13 @@ async function hasSelectedTarget(
 }
 
 function rawStoredPublishingPolicy(data: unknown): Readonly<Record<string, unknown>> {
-  if (!isRecord(data) || !isRecord(data.workspace) || !isRecord(data.workspace.settings) || !isRecord(data.workspace.settings.publishing)) return Object.freeze({});
-  return data.workspace.settings.publishing;
+  if (!isRecord(data)) return Object.freeze({});
+  const workspace = data.workspace;
+  if (!isRecord(workspace)) return Object.freeze({});
+  const settings = workspace.settings;
+  if (!isRecord(settings)) return Object.freeze({});
+  const publishing = settings.publishing;
+  return isRecord(publishing) ? publishing : Object.freeze({});
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
