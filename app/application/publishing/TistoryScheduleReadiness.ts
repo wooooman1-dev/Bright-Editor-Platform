@@ -68,6 +68,15 @@ export async function calculateTistoryScheduleReadiness(input: Readonly<{
       : "이 계정의 예약 등록 권한을 설정에서 명시적으로 허용해 주세요.",
   });
 
+  const timezonePolicyPassed = input.timezone.trim() === "Asia/Seoul";
+  checks.push({
+    key: "schedule_timezone_policy",
+    passed: timezonePolicyPassed,
+    message: timezonePolicyPassed
+      ? "Tistory 예약 발행 MVP의 Asia/Seoul 시간대가 적용되었습니다."
+      : "Tistory 예약 발행 MVP는 Asia/Seoul 시간대만 사용할 수 있습니다.",
+  });
+
   let scheduleTimePassed = false;
   let scheduleTimeMessage = "예약 시각을 확인해 주세요.";
   try {
