@@ -19,6 +19,7 @@ const adapterMocks = vi.hoisted(() => ({ prepare: vi.fn() }));
 const qualityMocks = vi.hoisted(() => ({ revision: vi.fn() }));
 
 vi.mock("../../../../../../app/application/studio-store", () => ({
+  studioDataPath: "test-studio.json",
   studioStore: storeMocks,
 }));
 vi.mock("../../../../../../app/application/connections/connection-runtime", () => ({
