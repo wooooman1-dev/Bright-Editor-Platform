@@ -1,6 +1,15 @@
 import { safeDraftPermissions, type AutomationPermission, type PlatformConnection } from "../connections";
 
-export type RegisteredPublishingWorkflow = "connection.verify" | "category.read" | "category.select" | "post.read" | "media.upload" | "draft.create" | "draft.verify";
+export type RegisteredPublishingWorkflow =
+  | "connection.verify"
+  | "category.read"
+  | "category.select"
+  | "post.read"
+  | "media.upload"
+  | "draft.create"
+  | "draft.verify"
+  | "schedule.create"
+  | "schedule.verify";
 
 export type PublishingAuthorizationRequest = Readonly<{
   workspaceId: string;
@@ -17,7 +26,7 @@ export class PublishingPermissionGate {
     if (connection.status !== "connected") throw new PublishingPermissionError("ACCOUNT_NOT_VERIFIED", "A verified publishing account is required.");
     const permission = workflowPermission(request.workflow);
     if (!(connection.automationPermissions ?? safeDraftPermissions).includes(permission)) throw new PublishingPermissionError("PERMISSION_DENIED", `The account does not allow ${permission}.`);
-    if ((request.workflow === "draft.create" || request.workflow === "draft.verify") && !request.finalConfirmation) {
+    if (requiresFinalConfirmation(request.workflow) && !request.finalConfirmation) {
       throw new PublishingPermissionError("CONFIRMATION_REQUIRED", "Final user confirmation is required.");
     }
     return permission;
@@ -29,8 +38,23 @@ export class PublishingPermissionError extends Error {
 }
 
 function workflowPermission(workflow: string): AutomationPermission {
-  const allowed: readonly RegisteredPublishingWorkflow[] = ["connection.verify", "category.read", "category.select", "post.read", "media.upload", "draft.create", "draft.verify"];
+  const allowed: readonly RegisteredPublishingWorkflow[] = [
+    "connection.verify",
+    "category.read",
+    "category.select",
+    "post.read",
+    "media.upload",
+    "draft.create",
+    "draft.verify",
+    "schedule.create",
+    "schedule.verify",
+  ];
   if (!allowed.includes(workflow as RegisteredPublishingWorkflow)) throw new PublishingPermissionError("WORKFLOW_NOT_REGISTERED", "The requested publishing workflow is not registered.");
   if (workflow === "post.read") return "category.read";
+  if (workflow === "schedule.verify") return "schedule.create";
   return workflow as AutomationPermission;
+}
+
+function requiresFinalConfirmation(workflow: string): boolean {
+  return workflow === "draft.create" || workflow === "draft.verify" || workflow === "schedule.create";
 }
