@@ -49,7 +49,7 @@ export function verifyApprovalEvidence(
     });
   }
 
-  const facts = extractApprovalFacts(document);
+  const baseFacts = extractApprovalFacts(document);
   const pagesByCanonicalUrl = new Map<string, ApprovalSourcePage>();
   for (const page of pages) {
     const requested = canonicalizeApprovalEvidenceUrl(page.requestedUrl);
@@ -131,7 +131,11 @@ export function verifyApprovalEvidence(
       }, page);
     }
 
-    const matchedFacts = facts.filter((fact) => pageContainsFact(page, fact));
+    const sourceFacts = mergeApprovalFacts(
+      baseFacts,
+      extractApprovalCitationFacts(document, canonicalUrl),
+    );
+    const matchedFacts = sourceFacts.filter((fact) => pageContainsFact(page, fact));
     const matchedValues = new Set(matchedFacts.map((fact) => canonicalFactValue(fact.value)));
     if (matchedValues.size < 2) {
       const reason = `${source.url}: 원고의 서로 다른 작품·제도 사실 2개 이상과 공식 페이지의 일치를 확인하지 못했습니다.`;
@@ -196,22 +200,50 @@ export function extractApprovalFacts(document: ContentDocument): readonly Approv
 
   for (const { field, pattern } of patterns) {
     for (const match of text.matchAll(pattern)) {
-      const value = cleanFactValue(match[1] ?? "");
-      if (value.length < 2) continue;
-      found.set(`${field}:${normalizeFact(value)}`, Object.freeze({ field, value }));
+      addApprovalFact(found, field, match[1] ?? "");
     }
   }
 
   for (const year of text.matchAll(/\b(?:1[3-9]\d{2}|20\d{2})\b/g)) {
-    const value = year[0];
-    found.set(`yearSignal:${value}`, Object.freeze({ field: "yearSignal", value }));
+    addApprovalFact(found, "yearSignal", year[0]);
   }
   for (const dimensions of text.matchAll(/\b\d+(?:[.,]\d+)?\s*(?:×|x|X)\s*\d+(?:[.,]\d+)?(?:\s*(?:cm|㎝|mm|m))?/g)) {
-    const value = cleanFactValue(dimensions[0]);
-    found.set(`dimensionSignal:${normalizeFact(value)}`, Object.freeze({ field: "dimensionSignal", value }));
+    addApprovalFact(found, "dimensionSignal", dimensions[0]);
   }
 
   return Object.freeze([...found.values()].slice(0, 24));
+}
+
+/**
+ * Extracts only the bibliographic facts attached to one canonical source URL.
+ * This prevents an institution, artwork, or author from a different source line
+ * from being used to verify the current candidate.
+ */
+export function extractApprovalCitationFacts(
+  document: ContentDocument,
+  sourceUrl: string,
+): readonly ApprovalEvidenceFact[] {
+  const canonicalSourceUrl = canonicalizeApprovalEvidenceUrl(sourceUrl);
+  const found = new Map<string, ApprovalEvidenceFact>();
+
+  for (const blockText of documentBlockTexts(document)) {
+    for (const line of blockText.split(/\r?\n/g)) {
+      const trimmed = line.trim();
+      if (!/^(?:[-*•]|\d+[.)])\s+/.test(trimmed)) continue;
+
+      for (const match of trimmed.matchAll(/https:\/\/[^\s)\]]+/gi)) {
+        const rawUrl = trimCitationUrl(match[0]);
+        if (canonicalizeApprovalEvidenceUrl(rawUrl) !== canonicalSourceUrl) continue;
+
+        const prefix = trimmed.slice(0, match.index ?? 0);
+        const label = cleanCitationLabel(prefix);
+        if (!label) continue;
+        addCitationLabelFacts(found, label, trimmed);
+      }
+    }
+  }
+
+  return Object.freeze([...found.values()].slice(0, 12));
 }
 
 export function officialSourceAllowed(
@@ -312,17 +344,82 @@ function canonicalFactValue(value: string): string {
   return factVariants(value)[0] ?? normalizeFact(value);
 }
 
+function mergeApprovalFacts(
+  first: readonly ApprovalEvidenceFact[],
+  second: readonly ApprovalEvidenceFact[],
+): readonly ApprovalEvidenceFact[] {
+  const found = new Map<string, ApprovalEvidenceFact>();
+  for (const fact of [...first, ...second]) {
+    const key = `${fact.field}:${normalizeFact(fact.value)}`;
+    if (!found.has(key)) found.set(key, fact);
+  }
+  return Object.freeze([...found.values()]);
+}
+
+function addCitationLabelFacts(
+  found: Map<string, ApprovalEvidenceFact>,
+  label: string,
+  excerpt: string,
+): void {
+  const institutionAndWork = /^([^,]{2,160}),\s*(.+)$/i.exec(label);
+  if (!institutionAndWork) return;
+
+  const institution = institutionAndWork[1] ?? "";
+  const workAndArtist = institutionAndWork[2] ?? "";
+  const byArtist = /^(.+?)\s+by\s+(.+)$/i.exec(workAndArtist);
+
+  addApprovalFact(found, "holdingInstitution", institution, excerpt);
+  if (byArtist) {
+    addApprovalFact(found, "artworkTitle", byArtist[1] ?? "", excerpt);
+    addApprovalFact(found, "artist", byArtist[2] ?? "", excerpt);
+    return;
+  }
+  addApprovalFact(found, "artworkTitle", workAndArtist, excerpt);
+}
+
+function addApprovalFact(
+  found: Map<string, ApprovalEvidenceFact>,
+  field: string,
+  rawValue: string,
+  excerpt?: string,
+): void {
+  const value = cleanFactValue(rawValue);
+  if (value.length < 2) return;
+  const key = `${field}:${normalizeFact(value)}`;
+  if (!found.has(key)) {
+    found.set(key, Object.freeze({
+      field,
+      value,
+      ...(excerpt ? { excerpt } : {}),
+    }));
+  }
+}
+
+function cleanCitationLabel(value: string): string {
+  return value
+    .replace(/^(?:[-*•]|\d+[.)])\s+/, "")
+    .replace(/[\s:：]+$/g, "")
+    .replace(/^\[|\]\($/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function trimCitationUrl(value: string): string {
+  return value.replace(/[.,;:]+$/g, "");
+}
+
 function documentText(document: ContentDocument): string {
-  return [
-    document.title,
-    ...document.blocks.flatMap((block) => {
-      if (block.type === "heading" || block.type === "paragraph") return [block.text];
-      if (block.type === "table") return [block.caption ?? "", ...block.headers, ...block.rows.flat()];
-      if (block.type === "button") return [block.label, block.targetUrl];
-      if (block.type === "image") return [block.alt, block.prompt ?? ""];
-      return [];
-    }),
-  ].join("\n");
+  return [document.title, ...documentBlockTexts(document)].join("\n");
+}
+
+function documentBlockTexts(document: ContentDocument): readonly string[] {
+  return Object.freeze(document.blocks.flatMap((block) => {
+    if (block.type === "heading" || block.type === "paragraph") return [block.text];
+    if (block.type === "table") return [block.caption ?? "", ...block.headers, ...block.rows.flat()];
+    if (block.type === "button") return [block.label, block.targetUrl];
+    if (block.type === "image") return [block.alt, block.prompt ?? ""];
+    return [];
+  }));
 }
 
 function cleanFactValue(value: string): string {
