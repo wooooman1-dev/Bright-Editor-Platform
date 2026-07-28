@@ -27,11 +27,14 @@ describe("Tistory schedule panel probe worker contract", () => {
     expect(source).toContain("clickCounts.restricted !== 0");
     expect(source).toContain('clickCounts.targets[0]?.id !== "publish-layer-btn"');
     expect(source).toContain('probeStage: "publication-panel"');
-    expect(source).toContain('readOnly: true');
+    expect(source).toContain("readOnly: true");
   });
 
   it("captures only bounded panel evidence and unchanged editor state", () => {
     expect(source).toContain("newlyVisibleControlCount");
+    expect(source).toContain("changedVisibleControlCount");
+    expect(source).toContain("ancestorCandidates");
+    expect(source).toContain("commonAncestorCandidate");
     expect(source).toContain("panelRoot");
     expect(source).toContain("characterSet");
     expect(source).toContain("textBase64");
@@ -39,5 +42,15 @@ describe("Tistory schedule panel probe worker contract", () => {
     expect(source).toContain("bodyTextLengthBefore");
     expect(source).toContain("await context.close()");
     expect(source).not.toContain("activeEditor?.getContent");
+    expect(source).not.toContain("innerHTML");
+  });
+
+  it("preserves click, state, and bounded DOM evidence when isolation fails", () => {
+    expect(source).toContain("let failureEvidence");
+    expect(source).toContain("...(failureEvidence ?? {})");
+    expect(source).toContain("newlyVisibleControls");
+    expect(source).toContain("changedVisibleControls");
+    expect(source).toContain("panelLikeContainers");
+    expect(source).toContain("openerAfter");
   });
 });
