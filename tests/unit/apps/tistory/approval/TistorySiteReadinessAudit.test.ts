@@ -25,10 +25,10 @@ const homepage = `<!doctype html>
 </body>
 </html>`;
 
-function successfulFetcher() {
+function successfulFetcher(html = homepage) {
   return vi.fn(async (_input: string | URL, init?: RequestInit) => {
     if (init?.method === "HEAD") return new Response("", { status: 200 });
-    return new Response(homepage, {
+    return new Response(html, {
       status: 200,
       headers: { "content-type": "text/html; charset=utf-8" },
     });
@@ -47,32 +47,43 @@ describe("TistorySiteReadinessAudit", () => {
     expect(result.status).toBe("passed");
     expect(result.checks.every((check) => check.passed)).toBe(true);
     expect(result.checks).toContainEqual(expect.objectContaining({ key: "privacy", passed: true }));
-    expect(result.checks).toContainEqual(expect.objectContaining({ key: "about_contact", passed: true }));
+    expect(result.checks).toContainEqual(expect.objectContaining({ key: "about_contact", passed: true, requirement: "recommended" }));
     expect(result.checks).toContainEqual(expect.objectContaining({ key: "broken_links", passed: true }));
   });
 
-  it("keeps the site in review when trust pages are not observable", async () => {
-    const fetcher = vi.fn(async (_input: string | URL, init?: RequestInit) => {
-      if (init?.method === "HEAD") return new Response("", { status: 200 });
-      return new Response(homepage
-        .replace(/<a href="\/pages\/about">[\s\S]*?<\/a>/, "")
-        .replace(/<a href="\/pages\/contact">[\s\S]*?<\/a>/, "")
-        .replace(/<a href="\/pages\/privacy">[\s\S]*?<\/a>/, ""), {
-        status: 200,
-        headers: { "content-type": "text/html" },
-      });
-    });
+  it("passes required site readiness when only the recommended about and contact page is missing", async () => {
+    const html = homepage
+      .replace(/<a href="\/pages\/about">[\s\S]*?<\/a>/, "")
+      .replace(/<a href="\/pages\/contact">[\s\S]*?<\/a>/, "");
 
     const result = await auditTistorySiteReadiness({
       blogUrl: "https://viva-rain.tistory.com",
       checkedAt: "2026-07-27T10:00:00.000Z",
       expectedTerms: ["비바레인"],
-      fetcher,
+      fetcher: successfulFetcher(html),
+    });
+
+    expect(result.status).toBe("passed");
+    expect(result.checks).toContainEqual(expect.objectContaining({ key: "privacy", passed: true }));
+    expect(result.checks).toContainEqual(expect.objectContaining({
+      key: "about_contact",
+      passed: false,
+      requirement: "recommended",
+    }));
+  });
+
+  it("keeps the site in review when the required privacy policy is not observable", async () => {
+    const html = homepage.replace(/<a href="\/pages\/privacy">[\s\S]*?<\/a>/, "");
+
+    const result = await auditTistorySiteReadiness({
+      blogUrl: "https://viva-rain.tistory.com",
+      checkedAt: "2026-07-27T10:00:00.000Z",
+      expectedTerms: ["비바레인"],
+      fetcher: successfulFetcher(html),
     });
 
     expect(result.status).toBe("needs_review");
     expect(result.checks).toContainEqual(expect.objectContaining({ key: "privacy", passed: false }));
-    expect(result.checks).toContainEqual(expect.objectContaining({ key: "about_contact", passed: false }));
   });
 
   it("blocks readiness when the public site cannot be reached", async () => {
