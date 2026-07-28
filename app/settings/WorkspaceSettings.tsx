@@ -9,6 +9,7 @@ import { supportedWorkspacePlatforms, type ThemePreference, type WorkspacePlatfo
 import { SettingsConnections } from "./SettingsConnections";
 import { SettingsDataSources } from "./SettingsDataSources";
 import { SettingsMediaPermissions } from "./SettingsMediaPermissions";
+import { SettingsSchedulePermissions } from "./SettingsSchedulePermissions";
 import type { SettingsSection, SettingsSnapshot, StatusSummary } from "./settings-types";
 import { themes } from "./settings-types";
 import { applyTheme } from "./theme";
@@ -16,7 +17,7 @@ import { applyTheme } from "./theme";
 const platformLabels: Readonly<Record<WorkspacePlatform, string>> = { tistory: "Tistory", wordpress: "WordPress", youtube: "YouTube", naver_cafe: "Naver Cafe" };
 const sections: readonly Readonly<{ id: SettingsSection; label: string }>[] = [
   { id: "overview", label: "개요" }, { id: "ai", label: "AI" }, { id: "enabled-platforms", label: "Enabled Platforms" },
-  { id: "connections", label: "플랫폼 연결" }, { id: "data-sources", label: "데이터 소스" }, { id: "publishing", label: "발행 설정" }, { id: "media", label: "이미지 권한" }, { id: "automation", label: "자동화 상태" },
+  { id: "connections", label: "플랫폼 연결" }, { id: "data-sources", label: "데이터 소스" }, { id: "publishing", label: "발행 설정" }, { id: "media", label: "이미지 권한" }, { id: "scheduling", label: "예약 권한" }, { id: "automation", label: "자동화 상태" },
   { id: "workspace", label: "워크스페이스" }, { id: "appearance", label: "화면 설정" }, { id: "danger", label: "위험 구역" },
 ];
 
@@ -57,6 +58,7 @@ export function WorkspaceSettings({ initialSection = "overview", workspaceId }: 
         {section === "data-sources" ? <SettingsDataSources projects={snapshot.projects ?? []} workspaceId={workspaceId} /> : null}
         {section === "publishing" ? <PublishingSettings busy={busy} onSave={(value) => action({ action: "save-publishing", sequentialDraftSave: value })} snapshot={snapshot} /> : null}
         {section === "media" ? <SettingsMediaPermissions connections={snapshot.connections} onRefresh={refresh} workspaceId={workspaceId} /> : null}
+        {section === "scheduling" ? <SettingsSchedulePermissions connections={snapshot.connections} onRefresh={refresh} workspaceId={workspaceId} /> : null}
         {section === "automation" ? <AutomationSettings busy={busy} onCheck={() => action({ action: "check-automation" }).then(() => refresh())} snapshot={snapshot} setSection={setSection} /> : null}
         {section === "workspace" ? <WorkspaceSection busy={busy} onAction={action} snapshot={snapshot} /> : null}
         {section === "appearance" ? <AppearanceSection busy={busy} onSave={(theme) => action({ action: "save-appearance", theme })} snapshot={snapshot} /> : null}
@@ -68,11 +70,13 @@ export function WorkspaceSettings({ initialSection = "overview", workspaceId }: 
 
 export function Overview({ setSection, snapshot }: { setSection: (section: SettingsSection) => void; snapshot: SettingsSnapshot }) {
   const mediaEnabled = snapshot.connections.filter((connection) => connection.platform === "tistory" && connection.permissions.includes("media.upload")).length;
+  const scheduleEnabled = snapshot.connections.filter((connection) => connection.platform === "tistory" && connection.permissions.includes("schedule.create")).length;
   const cards: readonly { title: string; summary: StatusSummary; detail: string; target: SettingsSection }[] = [
     { title: "AI", summary: snapshot.ai, detail: snapshot.ai.message, target: "ai" },
     ...snapshot.settings.enabledPlatforms.map((platform) => ({ title: platformLabels[platform], summary: snapshot.platforms[platform]!, detail: accountDetail(snapshot.platforms[platform]!), target: "connections" as const })),
     { title: "Publishing", summary: snapshot.publishing, detail: "검토 후 임시저장만 허용합니다.", target: "publishing" },
     { title: "Media Upload", summary: { status: mediaEnabled ? "ready" : "configuration_required" }, detail: mediaEnabled ? `${mediaEnabled}개 Tistory 계정에서 이미지 업로드 허용` : "계정별 이미지 업로드는 기본 차단 상태입니다.", target: "media" },
+    { title: "Scheduled Publishing", summary: { status: scheduleEnabled ? "ready" : "configuration_required" }, detail: scheduleEnabled ? `${scheduleEnabled}개 Tistory 계정에서 예약 등록 허용` : "계정별 예약 등록은 기본 차단 상태입니다.", target: "scheduling" },
     { title: "Browser Automation", summary: snapshot.automation, detail: snapshot.automation.message, target: "automation" },
     { title: "Workspace Backup", summary: { status: snapshot.backup.modifiedAt ? "ready" : "configuration_required" }, detail: snapshot.backup.modifiedAt ? `마지막 백업 ${snapshot.backup.modifiedAt}` : (snapshot.backup.message ?? "백업이 없습니다."), target: "workspace" },
     { title: "Workspace", summary: snapshot.persistence, detail: snapshot.persistence.message ?? "로컬 저장소 상태", target: "workspace" },
@@ -96,7 +100,6 @@ function PublishingSettings({ busy, onSave, snapshot }: { busy: boolean; onSave:
 }
 
 function AutomationSettings({ busy, onCheck, setSection, snapshot }: { busy: boolean; onCheck: () => Promise<unknown>; setSection: (value: SettingsSection) => void; snapshot: SettingsSnapshot }) { const value = snapshot.automation; return <Card><div className="flex justify-between gap-4"><h2 className="text-lg font-semibold">브라우저 자동화 준비 상태</h2><Status status={value.status} /></div><dl className="mt-5 grid gap-3 sm:grid-cols-2"><Metric label="Chromium" value={value.chromiumAvailable ? "설치됨" : "설정 필요"} /><Metric label="Tistory worker" value={value.workerRegistered ? "등록됨" : "사용할 수 없음"} /></dl><p className="mt-4 text-sm text-[#77777f]">{value.message}</p><div className="mt-5 flex gap-2"><button className="rounded-xl border px-4 py-2.5 text-sm font-semibold" disabled={busy} onClick={() => void onCheck()} type="button">준비 상태 재검사</button>{snapshot.settings.enabledPlatforms.includes("tistory") ? <button className="rounded-xl border px-4 py-2.5 text-sm font-semibold" onClick={() => setSection("connections")} type="button">Tistory 연결 확인</button> : null}</div></Card>; }
-
 function WorkspaceSection({ busy, onAction, snapshot }: { busy: boolean; onAction: (body: Record<string, unknown>) => Promise<unknown>; snapshot: SettingsSnapshot }) { const [name, setName] = useState(snapshot.workspace.name); const [notice, setNotice] = useState(""); return <div className="space-y-5"><Card><h2 className="text-lg font-semibold">워크스페이스 기본 정보</h2><label className="mt-5 block text-sm font-semibold">이름<input className="mt-2 w-full rounded-xl border px-4 py-3 font-normal" onChange={(event) => setName(event.target.value)} value={name} /></label><button className="mt-4 rounded-xl bg-[#ff6b6b] px-5 py-3 text-sm font-semibold text-white" disabled={busy} onClick={() => void onAction({ action: "rename-workspace", name }).then(() => setNotice("이름을 저장했습니다."))} type="button">이름 저장</button><dl className="mt-5 grid gap-3 sm:grid-cols-3"><Metric label="Projects" value={String(snapshot.workspace.projectCount)} /><Metric label="Contents" value={String(snapshot.workspace.contentCount)} /><Metric label="Publishing Accounts" value={String(snapshot.workspace.publishingAccountCount)} /></dl></Card><Card><h2 className="text-lg font-semibold">백업</h2><button className="mt-4 rounded-xl border px-4 py-2.5 text-sm font-semibold" disabled={busy} onClick={() => void onAction({ action: "create-backup" }).then(() => setNotice("백업을 생성했습니다."))} type="button">수동 백업 생성</button></Card><p className="text-sm">{notice}</p></div>; }
 function AppearanceSection({ busy, onSave, snapshot }: { busy: boolean; onSave: (theme: ThemePreference) => Promise<unknown>; snapshot: SettingsSnapshot }) { const [theme, setTheme] = useState(snapshot.settings.appearance.theme); return <Card><h2 className="text-lg font-semibold">테마</h2><div className="mt-5 grid gap-3 sm:grid-cols-3">{themes.map((value) => <label className="rounded-xl border p-4 text-sm font-semibold" key={value}><input checked={theme === value} className="mr-2" name="theme" onChange={() => { setTheme(value); applyTheme(value); }} type="radio" />{value}</label>)}</div><button className="mt-5 rounded-xl bg-[#ff6b6b] px-5 py-3 text-sm font-semibold text-white" disabled={busy} onClick={() => void onSave(theme)} type="button">화면 설정 저장</button></Card>; }
 
