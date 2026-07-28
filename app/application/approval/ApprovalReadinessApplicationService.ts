@@ -67,13 +67,11 @@ export class ApprovalReadinessApplicationService {
       .map((source) => canonicalizeApprovalEvidenceUrl(source.url))
       .filter(Boolean) ?? [];
     const uniqueCandidateUrls = [...new Set(candidateUrls)];
-    const sourcePages = await Promise.all(
-      uniqueCandidateUrls.map((url) => fetchApprovalSourcePage(url, this.fetcher)),
-    );
+    const sourcePages = await fetchApprovalSourcePages(uniqueCandidateUrls, this.fetcher);
     const evidence = verifyApprovalEvidence(
       content.document,
       aware.approvalProfileId as ApprovalPolicyProfileId,
-      sourcePages.filter((page): page is ApprovalSourcePage => Boolean(page)),
+      sourcePages,
       checkedAt,
     );
     const stableEvidence = evidence.pack;
@@ -171,42 +169,97 @@ function unavailableSiteSnapshot(checkedAt: string, message: string): SiteApprov
   });
 }
 
+async function fetchApprovalSourcePages(
+  requestedUrls: readonly string[],
+  fetcher: ApprovalReadinessFetch,
+): Promise<readonly ApprovalSourcePage[]> {
+  const pages: ApprovalSourcePage[] = [];
+
+  // Official institutions commonly rate-limit or challenge simultaneous requests.
+  // Fetch candidates sequentially so one readiness check cannot create a burst.
+  for (const requestedUrl of requestedUrls) {
+    const page = await fetchApprovalSourcePage(requestedUrl, fetcher);
+    if (page) pages.push(page);
+  }
+
+  return Object.freeze(pages);
+}
+
 async function fetchApprovalSourcePage(
   requestedUrl: string,
   fetcher: ApprovalReadinessFetch,
   timeoutMs = 12_000,
 ): Promise<ApprovalSourcePage | undefined> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetcher(requestedUrl, {
-      method: "GET",
-      redirect: "follow",
-      signal: controller.signal,
-      headers: {
-        Accept: "text/html,application/xhtml+xml,application/pdf",
-        "User-Agent": "BrightStudioEvidenceVerifier/1.0",
-      },
-    });
-    const contentType = response.headers.get("content-type") ?? "";
-    const html = /(?:text\/html|application\/xhtml\+xml)/i.test(contentType)
-      ? (await response.text()).slice(0, 1_500_000)
-      : "";
-    const finalUrl = response.url || requestedUrl;
-    return Object.freeze({
-      requestedUrl,
-      finalUrl,
-      status: response.status,
-      contentType,
-      title: extractFirst(html, /<title[^>]*>([\s\S]*?)<\/title>/i),
-      publisher: extractPublisher(html, finalUrl),
-      text: htmlToText(html),
-    });
-  } catch {
-    return undefined;
-  } finally {
-    clearTimeout(timeout);
+  for (let attempt = 0; attempt < sourceFetchMaxAttempts; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    let retryDelay: number | undefined;
+
+    try {
+      const response = await fetcher(requestedUrl, {
+        method: "GET",
+        redirect: "follow",
+        signal: controller.signal,
+        headers: {
+          Accept: "text/html,application/xhtml+xml,application/pdf;q=0.9,*/*;q=0.8",
+          "Accept-Language": "en-US,en;q=0.9,ko;q=0.8",
+          "Cache-Control": "no-cache",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 BrightStudioEvidenceVerifier/1.1",
+        },
+      });
+      const contentType = response.headers.get("content-type") ?? "";
+      const html = /(?:text\/html|application\/xhtml\+xml)/i.test(contentType)
+        ? (await response.text()).slice(0, 1_500_000)
+        : "";
+      const finalUrl = response.url || requestedUrl;
+      const page = Object.freeze({
+        requestedUrl,
+        finalUrl,
+        status: response.status,
+        contentType,
+        title: extractFirst(html, /<title[^>]*>([\s\S]*?)<\/title>/i),
+        publisher: extractPublisher(html, finalUrl),
+        text: htmlToText(html),
+      });
+
+      if (!retryableSourceStatus(response.status) || attempt === sourceFetchMaxAttempts - 1) {
+        return page;
+      }
+      retryDelay = sourceRetryDelayMs(response.headers.get("retry-after"), attempt);
+    } catch {
+      if (attempt === sourceFetchMaxAttempts - 1) return undefined;
+      retryDelay = sourceRetryDelayMs(undefined, attempt);
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    await delay(retryDelay ?? 0);
   }
+
+  return undefined;
+}
+
+function retryableSourceStatus(status: number): boolean {
+  return status === 429 || status === 502 || status === 503 || status === 504;
+}
+
+function sourceRetryDelayMs(retryAfter: string | null | undefined, attempt: number): number {
+  if (retryAfter) {
+    const seconds = Number(retryAfter);
+    if (Number.isFinite(seconds) && seconds >= 0) {
+      return Math.min(seconds * 1_000, sourceFetchMaxDelayMs);
+    }
+    const retryAt = Date.parse(retryAfter);
+    if (!Number.isNaN(retryAt)) {
+      return Math.min(Math.max(0, retryAt - Date.now()), sourceFetchMaxDelayMs);
+    }
+  }
+  return Math.min(500 * (2 ** attempt), sourceFetchMaxDelayMs);
+}
+
+function delay(milliseconds: number): Promise<void> {
+  if (milliseconds <= 0) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function upsertVerifiedSourceSection(
@@ -288,6 +341,9 @@ function decodeEntities(value: string): string {
     .replace(/&quot;/gi, '"')
     .replace(/&#39;|&apos;/gi, "'");
 }
+
+const sourceFetchMaxAttempts = 3;
+const sourceFetchMaxDelayMs = 2_000;
 
 const generatedSourceBlockIds = new Set([
   "approval-sources-heading",
