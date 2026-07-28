@@ -34,6 +34,15 @@ describe("Tistory schedule create worker contract", () => {
     expect(source).not.toContain("async function fillTags");
   });
 
+  it("verifies editor mode from the actual CodeMirror and TinyMCE state instead of the mode-button label alone", () => {
+    expect(source).toContain("async function editorModeEvidence");
+    expect(source).toContain("const htmlEditorReady = htmlEditors.some");
+    expect(source).toContain("const basicEditorReady = basicEditor.editorAvailable && basicEditor.visible && !htmlEditorReady");
+    expect(source).toContain('const passed = targetMode === "HTML" ? htmlEditorReady : basicEditorReady');
+    expect(source).toContain("const transitionState = await waitForEditorModeState");
+    expect(source).not.toContain("if (label.includes(targetMode)) return;");
+  });
+
   it("verifies the selected reservation date and time before the single final registration click", () => {
     const verifyIndex = source.indexOf("const reservationEvidence = await verifyReservationState");
     const finalClickIndex = source.indexOf("await finalButton.click");
