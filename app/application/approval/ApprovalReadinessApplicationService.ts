@@ -75,7 +75,7 @@ export class ApprovalReadinessApplicationService {
       sourcePages,
       checkedAt,
     );
-    const stableEvidence = evidence.pack;
+    const provisionalEvidence = evidence.pack;
 
     const siteReadiness = await resolveSiteReadiness({
       connection: input.connection,
@@ -89,15 +89,26 @@ export class ApprovalReadinessApplicationService {
       metadata: {
         ...content.document.metadata!,
         updatedAt: checkedAt,
-        approvalEvidence: stableEvidence,
+        approvalEvidence: provisionalEvidence,
         siteApprovalReadiness: siteReadiness,
       },
     };
-    const nextDocument = stableEvidence.status === "verified" && stableEvidence.reviewedAt
-      ? upsertVerifiedSourceSection(documentWithSnapshots, stableEvidence)
+    const documentWithSourceSection = provisionalEvidence.status === "verified" && provisionalEvidence.reviewedAt
+      ? upsertVerifiedSourceSection(documentWithSnapshots, provisionalEvidence)
       : removeGeneratedSourceSection(documentWithSnapshots);
+    const revisionId = contentRevisionId(documentWithSourceSection);
+    const stableEvidence = Object.freeze({
+      ...provisionalEvidence,
+      reviewedRevisionId: revisionId,
+    });
+    const nextDocument: ContentDocument = {
+      ...documentWithSourceSection,
+      metadata: {
+        ...documentWithSourceSection.metadata!,
+        approvalEvidence: stableEvidence,
+      },
+    };
 
-    const revisionId = contentRevisionId(nextDocument);
     const quality = new QualityEngine().review(nextDocument, {
       contentType: content.contentType,
       platform: content.platform ?? "tistory",
