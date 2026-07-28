@@ -6,6 +6,14 @@ import path from "node:path";
 import type { PlatformConnection } from "../../../core/connections";
 import { PublishingPermissionGate } from "../../../core/publishing";
 
+export type TistoryScheduleMediaItem = Readonly<{
+  alt: string;
+  blockId: string;
+  placeholderUrl: string;
+  storageKey: string;
+  localPath: string;
+}>;
+
 export type TistoryScheduleCreateExecution = Readonly<{
   workspaceId: string;
   projectId: string;
@@ -16,6 +24,7 @@ export type TistoryScheduleCreateExecution = Readonly<{
   title: string;
   html: string;
   tags: readonly string[];
+  media?: readonly TistoryScheduleMediaItem[];
   categoryId: string | null;
   categoryName: string | null;
   scheduledAt: string;
@@ -64,6 +73,12 @@ export interface TistoryScheduleCreateAuditRepository {
 }
 
 type ScheduleWorker = (commandPath: string) => Promise<TistoryScheduleCreateResult>;
+type MediaWorker = (commandPath: string) => Promise<void>;
+type MediaPreparationResult = Readonly<{
+  status: "prepared" | "not_required" | "failed";
+  code?: string;
+  error?: string;
+}>;
 
 export class TistoryScheduleCreateApplicationService {
   constructor(
@@ -71,17 +86,20 @@ export class TistoryScheduleCreateApplicationService {
     private readonly root = path.join(process.cwd(), ".bright-studio"),
     private readonly now = () => new Date(),
     private readonly executeWorker: ScheduleWorker = runWorker,
+    private readonly executeMediaWorker: MediaWorker = runMediaWorker,
   ) {}
 
   async execute(input: TistoryScheduleCreateExecution): Promise<TistoryScheduleCreateResult> {
     const operationId = randomUUID();
     const startedAt = this.now().toISOString();
+    const media = input.media ?? [];
     let result: TistoryScheduleCreateResult;
 
     try {
       if (!input.selectedTarget) throw codedError("TARGET_NOT_SELECTED", "선택한 Tistory 계정이 현재 Project의 발행 대상이 아닙니다.");
       if (input.connection.platform !== "tistory") throw codedError("PLATFORM_MISMATCH", "Tistory 발행 계정이 필요합니다.");
-      new PublishingPermissionGate().authorize({
+      const gate = new PublishingPermissionGate();
+      gate.authorize({
         workspaceId: input.workspaceId,
         projectId: input.projectId,
         contentId: input.contentId,
@@ -89,6 +107,16 @@ export class TistoryScheduleCreateApplicationService {
         workflow: "schedule.create",
         finalConfirmation: input.finalConfirmation,
       }, input.connection);
+      if (media.length) {
+        gate.authorize({
+          workspaceId: input.workspaceId,
+          projectId: input.projectId,
+          contentId: input.contentId,
+          platformConnectionId: input.connection.id,
+          workflow: "media.upload",
+          finalConfirmation: input.finalConfirmation,
+        }, input.connection);
+      }
       if (input.connection.publicMetadata.sessionStateAvailable !== true) {
         throw codedError("SESSION_REQUIRED", "저장된 Tistory 로그인 세션이 필요합니다. 계정을 다시 연결해 주세요.");
       }
@@ -106,12 +134,14 @@ export class TistoryScheduleCreateApplicationService {
         title: input.title,
         html: input.html,
         tags: input.tags,
+        media,
         categoryId: input.categoryId,
         categoryName: input.categoryName,
         scheduledAt: input.scheduledAt,
         timezone: input.timezone,
       }), { encoding: "utf8", mode: 0o600 });
       try {
+        if (media.length) await this.executeMediaWorker(commandPath);
         result = await this.executeWorker(commandPath);
       } finally {
         await rm(commandPath, { force: true });
@@ -184,6 +214,38 @@ function runWorker(commandPath: string): Promise<TistoryScheduleCreateResult> {
       } catch {
         const diagnostic = stderr.trim().split(/\r?\n/).at(-1)?.slice(0, 200);
         reject(codedError("WORKER_RESULT_INVALID", diagnostic ? `Tistory 예약 등록 결과가 올바르지 않습니다: ${diagnostic}` : "Tistory 예약 등록 결과가 올바르지 않습니다."));
+      }
+    });
+  });
+}
+
+function runMediaWorker(commandPath: string): Promise<void> {
+  const worker = path.join(process.cwd(), "apps", "tistory", "workflows", "tistory-media-preparation-worker.mjs");
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [worker, commandPath], {
+      cwd: process.cwd(),
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    });
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    let output = "";
+    child.stdout.on("data", (data: string) => { output += data; });
+    child.on("error", () => reject(codedError("MEDIA_WORKER_START_FAILED", "Tistory 예약 이미지 준비 workflow를 시작하지 못했습니다.")));
+    child.on("exit", () => {
+      try {
+        const line = output.trim().split(/\r?\n/).at(-1);
+        if (!line) throw new Error("missing output");
+        const parsed = JSON.parse(line) as MediaPreparationResult;
+        if (parsed.status === "prepared" || parsed.status === "not_required") {
+          resolve();
+          return;
+        }
+        reject(codedError(parsed.code ?? "MEDIA_PREPARATION_FAILED", parsed.error ?? "Tistory 예약 이미지 준비를 완료하지 못했습니다."));
+      } catch (error) {
+        reject(error && typeof error === "object" && "code" in error
+          ? error
+          : codedError("MEDIA_WORKER_RESULT_INVALID", "Tistory 예약 이미지 준비 결과가 올바르지 않습니다."));
       }
     });
   });
