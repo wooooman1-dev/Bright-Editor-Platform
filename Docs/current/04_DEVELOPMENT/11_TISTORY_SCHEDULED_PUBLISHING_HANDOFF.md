@@ -207,6 +207,9 @@ Current runtime and test changes after that baseline:
 - changed-control snapshots
 - ancestor-candidate evidence
 - static contract test coverage for failed evidence
+- documentation updated with the real failed attempt
+
+A transient accidental empty file named `README_DO_NOT_USE` was created during remote metadata work and immediately deleted in the following commit. The branch currently contains no such file. Local validation must confirm the final working tree and diff.
 
 These current changes have not yet passed local `typecheck`, tests, lint, build, or external rerun.
 
@@ -230,11 +233,12 @@ These current changes have not yet passed local `typecheck`, tests, lint, build,
 
 1. Pull the current branch head.
 2. Run typecheck, targeted contract test, full tests, lint, build, diff check, and status.
-3. Rerun the real publication-panel endpoint.
-4. Verify one allowed opener click and zero restricted clicks from returned evidence.
-5. Verify unchanged title/body state.
-6. Inspect newly visible controls, changed controls, ancestor candidates, and panel-like containers.
-7. Decode bounded Base64 Korean labels.
-8. Approve a panel root or locator only from the real evidence.
+3. Confirm `README_DO_NOT_USE` is absent.
+4. Rerun the real publication-panel endpoint.
+5. Verify one allowed opener click and zero restricted clicks from returned evidence.
+6. Verify unchanged title/body state.
+7. Inspect newly visible controls, changed controls, ancestor candidates, and panel-like containers.
+8. Decode bounded Base64 Korean labels.
+9. Approve a panel root or locator only from the real evidence.
 
 Do not implement schedule/date/time selection from assumptions.
