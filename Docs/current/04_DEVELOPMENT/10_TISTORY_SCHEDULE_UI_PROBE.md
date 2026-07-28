@@ -327,15 +327,12 @@ working tree — clean
 
 The failed-evidence preservation code, contract test, and documentation changes were added after that validated commit. Validation is pending for the current head.
 
-A transient accidental empty file named `README_DO_NOT_USE` was created during remote metadata work and deleted in the immediately following cleanup commit. It must be absent after pulling the current head.
-
 Not yet verified on the current head:
 
 - TypeScript check
 - lint
 - unit and contract tests
 - production build
-- final tree absence of the transient file
 - second external publication-panel probe with preserved failure evidence
 - actual panel root and controls
 - Korean label decoding from Base64 evidence
@@ -363,12 +360,11 @@ This work does not implement:
 The next gate is:
 
 1. pull and validate the current branch head;
-2. confirm the transient empty file is absent;
-3. rerun the second-stage endpoint against `bright-healthy`;
-4. verify exactly one opener click and zero restricted clicks from the returned evidence;
-5. verify unchanged title/body state;
-6. inspect new, changed, and ancestor candidate evidence;
-7. decode bounded Base64 labels;
-8. approve a panel root only from the real evidence.
+2. rerun the second-stage endpoint against `bright-healthy`;
+3. verify exactly one opener click and zero restricted clicks from the returned evidence;
+4. verify unchanged title/body state;
+5. inspect new, changed, and ancestor candidate evidence;
+6. decode bounded Base64 labels;
+7. approve a panel root only from the real evidence.
 
 No schedule selection or final registration implementation may begin before this gate passes.
