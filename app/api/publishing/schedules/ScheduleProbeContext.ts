@@ -34,12 +34,12 @@ export async function resolveScheduleProbeContext(
   const contentId = required(body.contentId);
   const data = await ownedContext(workspaceId, projectId, contentId);
   const policy = resolveWorkspaceSettings(data);
-  const storedPublishing = data.workspace?.settings?.publishing;
+  const storedPublishing = rawStoredPublishingPolicy(data);
   if (
     !policy.publishing.draftOnly
     || policy.publishing.publicPublish
-    || storedPublishing?.draftOnly === false
-    || storedPublishing?.publicPublish === true
+    || storedPublishing.draftOnly === false
+    || storedPublishing.publicPublish === true
   ) {
     throw new Error("현재 Workspace의 안전한 Draft Only 정책에서만 예약 UI 조사를 실행할 수 있습니다.");
   }
@@ -141,6 +141,20 @@ async function hasSelectedTarget(
         (target) => target.platformConnectionId === connectionId,
       ),
   );
+}
+
+function rawStoredPublishingPolicy(data: unknown): Readonly<Record<string, unknown>> {
+  if (!isRecord(data)) return Object.freeze({});
+  const workspace = data.workspace;
+  if (!isRecord(workspace)) return Object.freeze({});
+  const settings = workspace.settings;
+  if (!isRecord(settings)) return Object.freeze({});
+  const publishing = settings.publishing;
+  return isRecord(publishing) ? publishing : Object.freeze({});
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function required(value: unknown): string {
