@@ -33,17 +33,19 @@ export function resolveOfficialEvidenceSourceFallback(
 
   const manifestUrl = new URL("https://www.nga.gov/api/v1/iiif/presentation/manifest.json");
   manifestUrl.searchParams.set("cultObj:id", artworkId);
+  const requestUrl = manifestUrl.toString();
 
   return Object.freeze({
-    requestUrl: manifestUrl.toString(),
+    requestUrl,
     accept: "application/ld+json,application/json;q=0.9,*/*;q=0.8",
-    normalize: normalizeNgaIiifManifest,
+    normalize: (response, originalUrl) => normalizeNgaIiifManifest(response, originalUrl, requestUrl),
   });
 }
 
 async function normalizeNgaIiifManifest(
   response: Response,
   requestedUrl: string,
+  fallbackUrl: string,
 ): Promise<ApprovalSourcePage | undefined> {
   if (!response.ok) return undefined;
 
@@ -59,7 +61,7 @@ async function normalizeNgaIiifManifest(
   if (text.length < 80) return undefined;
 
   const title = structuredLabel(manifest) || "National Gallery of Art collection record";
-  const finalUrl = response.url || requestedUrl;
+  const finalUrl = response.url || fallbackUrl;
   const rawContentType = response.headers.get("content-type") ?? "application/ld+json";
 
   return Object.freeze({
@@ -98,17 +100,23 @@ function flattenStructuredValues(value: unknown): readonly string[] {
   const result: string[] = [];
   const stack: unknown[] = [value];
   let visited = 0;
+  let collectedCharacters = 0;
 
-  while (stack.length && visited < 4_000 && result.join(" ").length < 300_000) {
+  while (stack.length && visited < 4_000 && collectedCharacters < 300_000) {
     visited += 1;
     const current = stack.pop();
     if (typeof current === "string") {
       const normalized = current.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-      if (normalized) result.push(normalized);
+      if (normalized) {
+        result.push(normalized);
+        collectedCharacters += normalized.length;
+      }
       continue;
     }
     if (typeof current === "number" || typeof current === "boolean") {
-      result.push(String(current));
+      const normalized = String(current);
+      result.push(normalized);
+      collectedCharacters += normalized.length;
       continue;
     }
     if (Array.isArray(current)) {
@@ -119,7 +127,10 @@ function flattenStructuredValues(value: unknown): readonly string[] {
       const entries = Object.entries(current as Record<string, unknown>);
       for (let index = entries.length - 1; index >= 0; index -= 1) {
         const [key, nested] = entries[index]!;
-        if (!technicalStructuredKeys.has(key)) result.push(key);
+        if (!technicalStructuredKeys.has(key)) {
+          result.push(key);
+          collectedCharacters += key.length;
+        }
         stack.push(nested);
       }
     }
