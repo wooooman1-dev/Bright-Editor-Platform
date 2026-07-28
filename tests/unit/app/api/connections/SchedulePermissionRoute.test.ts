@@ -11,10 +11,14 @@ import { POST } from "../../../../../app/api/connections/schedule-permission/rou
 import { safeDraftPermissions } from "../../../../../core/connections";
 
 function request(enabled: boolean) {
+  return requestBody({ workspaceId: "workspace-1", connectionId: "connection-1", enabled });
+}
+
+function requestBody(body: Record<string, unknown>) {
   return new Request("http://localhost/api/connections/schedule-permission", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ workspaceId: "workspace-1", connectionId: "connection-1", enabled }),
+    body: JSON.stringify(body),
   });
 }
 
@@ -68,6 +72,13 @@ describe("Tistory schedule permission API", () => {
     const saved = connectionMocks.save.mock.calls[0][0] as { automationPermissions: readonly string[] };
     expect(saved.automationPermissions).not.toContain("schedule.create");
     expect(saved.automationPermissions).toContain("media.upload");
+  });
+
+  it("rejects a missing enabled state instead of treating it as a disable command", async () => {
+    const response = await POST(requestBody({ workspaceId: "workspace-1", connectionId: "connection-1" }));
+
+    expect(response.status).toBe(400);
+    expect(connectionMocks.save).not.toHaveBeenCalled();
   });
 
   it("rejects a connection owned by another workspace", async () => {
