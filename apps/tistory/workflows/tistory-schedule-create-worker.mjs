@@ -288,8 +288,8 @@ async function fillHtml(targetPage, html) {
 async function switchMode(targetPage, targetMode) {
   const button = targetPage.locator("#editor-mode-layer-btn").first();
   if (!await button.isVisible({ timeout: 10000 }).catch(() => false)) throw safeFailure("editor_mode_control_missing", "Tistory 편집 모드 버튼을 찾지 못했습니다.");
-  const current = (await button.innerText().catch(() => "")).replace(/\s+/g, " ").trim();
-  if (current.includes(targetMode)) return;
+  const initialState = await editorModeEvidence(targetPage, targetMode, button);
+  if (initialState.passed) return;
   await button.click();
   let option = targetMode === "HTML"
     ? targetPage.locator("#editor-mode-html-text").first()
@@ -305,12 +305,51 @@ async function switchMode(targetPage, targetMode) {
   };
   targetPage.on("dialog", dialogHandler);
   try { await option.click(); } finally { targetPage.off("dialog", dialogHandler); }
-  for (let attempt = 0; attempt < 40; attempt += 1) {
-    const label = (await button.innerText().catch(() => "")).replace(/\s+/g, " ").trim();
-    if (label.includes(targetMode)) return;
-    await targetPage.waitForTimeout(250);
-  }
+  const transitionState = await waitForEditorModeState(targetPage, targetMode, button);
+  if (transitionState.passed) return;
   throw safeFailure("editor_mode_switch_failed", `${targetMode} 편집 모드 전환을 확인하지 못했습니다.`);
+}
+
+async function waitForEditorModeState(targetPage, targetMode, button) {
+  let state = await editorModeEvidence(targetPage, targetMode, button);
+  for (let attempt = 0; attempt < 40 && !state.passed; attempt += 1) {
+    await targetPage.waitForTimeout(250);
+    state = await editorModeEvidence(targetPage, targetMode, button);
+  }
+  return state;
+}
+
+async function editorModeEvidence(targetPage, targetMode, button) {
+  const label = (await button.innerText().catch(() => "")).replace(/\s+/g, " ").trim();
+  const htmlEditors = await targetPage.locator(".CodeMirror").evaluateAll((elements) => elements.map((element) => {
+    const editor = element.CodeMirror;
+    const mode = editor?.getOption?.("mode");
+    const modeName = typeof mode === "string" ? mode : mode?.name ?? "";
+    const rect = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return {
+      modeName,
+      visible: style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0,
+      readOnly: Boolean(editor?.getOption?.("readOnly")),
+    };
+  })).catch(() => []);
+  const htmlEditorReady = htmlEditors.some((editor) => editor.visible && !editor.readOnly && /html|xml/i.test(editor.modeName));
+  const basicEditor = await targetPage.evaluate(() => {
+    const editor = window.tinymce?.activeEditor;
+    const container = editor?.getContainer?.();
+    const body = editor?.getBody?.();
+    if (!editor || !container || !body) return { editorAvailable: false, visible: false };
+    const rect = container.getBoundingClientRect();
+    const style = getComputedStyle(container);
+    return {
+      editorAvailable: true,
+      visible: style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0,
+    };
+  }).catch(() => ({ editorAvailable: false, visible: false }));
+  const basicEditorReady = basicEditor.editorAvailable && basicEditor.visible && !htmlEditorReady;
+  const labelMatched = label.includes(targetMode);
+  const passed = targetMode === "HTML" ? htmlEditorReady : basicEditorReady;
+  return { passed, targetMode, label, labelMatched, htmlEditorReady, basicEditorReady, htmlEditors, basicEditor };
 }
 
 async function visibleReservationButton(targetPage) {
