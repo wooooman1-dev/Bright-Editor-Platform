@@ -1,0 +1,136 @@
+import { describe, expect, it } from "vitest";
+
+import { approvalReadinessAutoRunDecision } from "../../../../app/user-flow/ApprovalReadinessActions";
+import type { ApprovalEvidencePack, SiteApprovalReadinessSnapshot } from "../../../../core/approval";
+import type { ContentDocument } from "../../../../core/content";
+import { contentRevisionId, type QualityReport } from "../../../../core/quality";
+import type { UserContent } from "../../../../app/user-flow/user-data";
+
+const document: ContentDocument = {
+  id: "content-1",
+  title: "서양미술 초상화 감상법",
+  metadata: {
+    buttonCount: 0,
+    createdAt: "2026-07-28T00:00:00.000Z",
+    generator: "test",
+    imageCount: 0,
+    language: "ko",
+    readingTime: 2,
+    source: "test",
+    updatedAt: "2026-07-28T00:00:00.000Z",
+    version: 1,
+    videoCount: 0,
+    wordCount: 100,
+  },
+  blocks: [{ id: "p1", type: "paragraph", text: "초상화의 시선과 손, 배경을 차례로 관찰합니다." }],
+};
+
+function quality(revisionId: string, reviewedAt = "2026-07-28T01:00:00.000Z"): QualityReport {
+  return {
+    approved: true,
+    approvalType: "standard",
+    approvalState: "approved",
+    findings: [],
+    overallScore: 100,
+    reviews: [],
+    dimensions: [],
+    tasks: [],
+    reviewedAt,
+    reviewedRevisionId: revisionId,
+    weights: {
+      searchIntent: 0,
+      seo: 0,
+      readability: 0,
+      structure: 0,
+      completeness: 0,
+      usefulness: 0,
+      htmlQuality: 0,
+      imageStrategy: 0,
+      internalLinks: 0,
+      cta: 0,
+    },
+  };
+}
+
+function content(
+  nextDocument: ContentDocument = document,
+  nextQuality: QualityReport | undefined = quality(contentRevisionId(nextDocument)),
+): UserContent {
+  return {
+    id: "content-1",
+    projectId: "project-1",
+    title: nextDocument.title,
+    body: "",
+    status: "ready",
+    updatedAt: "2026-07-28T01:00:00.000Z",
+    document: nextDocument,
+    quality: nextQuality,
+    contentPurpose: "adsense_approval",
+  } as UserContent;
+}
+
+function evidence(reviewedRevisionId: string, status: ApprovalEvidencePack["status"] = "verified"): ApprovalEvidencePack {
+  return {
+    version: "1.0",
+    status,
+    reviewedAt: "2026-07-28T02:00:00.000Z",
+    reviewedRevisionId,
+    sources: [],
+  };
+}
+
+const site: SiteApprovalReadinessSnapshot = {
+  version: "1.0",
+  status: "passed",
+  checkedAt: "2026-07-28T02:00:00.000Z",
+  checks: [],
+};
+
+describe("ApprovalReadinessActions auto run decision", () => {
+  it("runs automatically once after the current revision receives standard quality approval", () => {
+    const decision = approvalReadinessAutoRunDecision(content());
+
+    expect(decision.shouldRun).toBe(true);
+    expect(decision.hasStoredResult).toBe(false);
+  });
+
+  it("reuses a stored result for the same revision", () => {
+    const revisionId = contentRevisionId(document);
+    const checkedDocument: ContentDocument = {
+      ...document,
+      metadata: {
+        ...document.metadata!,
+        approvalEvidence: evidence(revisionId),
+        siteApprovalReadiness: site,
+      },
+    };
+    const decision = approvalReadinessAutoRunDecision(content(checkedDocument, quality(revisionId)));
+
+    expect(decision.shouldRun).toBe(false);
+    expect(decision.hasStoredResult).toBe(true);
+  });
+
+  it("does not repeat a failed deterministic check for the same revision", () => {
+    const revisionId = contentRevisionId(document);
+    const checkedDocument: ContentDocument = {
+      ...document,
+      metadata: {
+        ...document.metadata!,
+        approvalEvidence: evidence(revisionId, "needs_review"),
+        siteApprovalReadiness: { ...site, status: "needs_review" },
+      },
+    };
+    const decision = approvalReadinessAutoRunDecision(content(checkedDocument, quality(revisionId)));
+
+    expect(decision.shouldRun).toBe(false);
+    expect(decision.hasStoredResult).toBe(true);
+  });
+
+  it("waits for a standard quality review that matches the current revision", () => {
+    const staleQuality = quality("rev-stale");
+    const decision = approvalReadinessAutoRunDecision(content(document, staleQuality));
+
+    expect(decision.shouldRun).toBe(false);
+    expect(decision.hasStoredResult).toBe(false);
+  });
+});
