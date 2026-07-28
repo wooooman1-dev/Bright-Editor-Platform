@@ -167,4 +167,61 @@ describe("ApprovalReadinessApplicationService", () => {
     expect(approvalQuality.approvalReadiness?.checks).toContainEqual(expect.objectContaining({ key: "site_readiness", status: "passed" }));
     expect(result.data.contents[0]?.quality?.reviewedRevisionId).toBe(result.quality.reviewedRevisionId);
   });
+
+  it("retries a rate-limited source and never fetches official candidates concurrently", async () => {
+    const secondSourceUrl = "https://www.moma.org/collection/works/79803";
+    const retryEvidence: ApprovalEvidencePack = {
+      ...candidateEvidence,
+      sources: [
+        candidateEvidence.sources[0]!,
+        { ...candidateEvidence.sources[0]!, sourceId: "museum-2", url: secondSourceUrl },
+      ],
+    };
+    const retryDocument: ContentDocument = {
+      ...document,
+      metadata: { ...document.metadata!, approvalEvidence: retryEvidence },
+    };
+    const retryData: UserData = {
+      ...data,
+      contents: [{ ...data.contents[0]!, document: retryDocument }],
+    };
+
+    let activeSourceRequests = 0;
+    let maxActiveSourceRequests = 0;
+    let firstSourceAttempts = 0;
+    const sourceUrls = new Set([sourceUrl, secondSourceUrl]);
+    const controlledFetcher = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (init?.method === "HEAD") return new Response("", { status: 200 });
+      if (!sourceUrls.has(url)) return new Response(siteHtml, { status: 200, headers: { "content-type": "text/html" } });
+
+      activeSourceRequests += 1;
+      maxActiveSourceRequests = Math.max(maxActiveSourceRequests, activeSourceRequests);
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        if (url === sourceUrl) {
+          firstSourceAttempts += 1;
+          if (firstSourceAttempts === 1) {
+            return new Response("Too many requests", {
+              status: 429,
+              headers: { "content-type": "text/html", "retry-after": "0" },
+            });
+          }
+        }
+        return new Response(sourceHtml, { status: 200, headers: { "content-type": "text/html" } });
+      } finally {
+        activeSourceRequests -= 1;
+      }
+    });
+
+    const result = await new ApprovalReadinessApplicationService(
+      controlledFetcher,
+      () => "2026-07-27T10:30:00.000Z",
+    ).execute({ data: retryData, contentId: "content-1", connection });
+
+    expect(firstSourceAttempts).toBe(2);
+    expect(maxActiveSourceRequests).toBe(1);
+    expect(result.evidence.pack.status).toBe("verified");
+    expect(result.evidence.verifiedSourceCount).toBe(2);
+  });
 });
