@@ -334,71 +334,121 @@ Workspace Settings에 계정별 예약 권한 섹션을 제공한다.
 
 - 기본 꺼짐
 - 켤 때 결과를 명시적으로 설명
-- Tistory가 지정 시각에 공개한다는 사실 표시
-- 즉시 공개 권한이 켜지지 않음을 표시
-- 수정·삭제 권한이 켜지지 않음을 표시
-- 권한을 끄더라도 기존 외부 예약은 자동 취소되지 않음을 표시
+- Tistory가 지정 시각에 글을 공개할 수 있음을 표시
+- `publish.execute`는 켜지지 않음을 표시
+- Draft 권한과 분리 표시
+- 연결되지 않은 계정은 변경 불가
 
 ## 17. Editor UX
 
-예약 실행 UI는 Publishing Preparation 영역에 배치한다.
+Editor에는 Tistory Publishing Preparation 카드 안에 별도 예약 영역을 둔다.
 
-표시 항목:
+필수 표시:
 
-- 계정
-- 카테고리
-- 현재 Revision
-- 이미지 준비 상태
+- 선택 계정
+- 선택 카테고리
+- 현재 Revision ID
+- Quality 상태
+- Approval-mode 상태
+- 대표 이미지 상태
 - 예약 날짜
 - 예약 시간
-- `Asia/Seoul`
-- 활성 예약 상태
-- Readiness checklist
+- timezone `Asia/Seoul`
+- 활성 예약 충돌
 - 최종 확인
 
-실제 worker와 외부 검증이 준비되기 전에는 실행 버튼을 노출하거나 활성화하지 않는다.
+Readiness 확인 UI는 외부 클릭을 실행하지 않는다. 실제 예약 실행 버튼은 Tistory UI 조사와 worker 구현 후에만 활성화한다.
 
-## 18. API boundaries
+## 18. API boundary
 
-Foundation:
+Foundation API:
 
 - `POST /api/publishing/schedules/readiness`
 - `POST /api/connections/schedule-permission`
 
-Planned after actual Tistory UI investigation:
+Future execution API:
 
 - `POST /api/publishing/schedules`
 - `POST /api/publishing/schedules/{id}/verify`
 - `GET /api/publishing/schedules`
 
-실행 API는 Readiness 재검증, Permission Gate, atomic reservation, worker, external verification, status persistence와 Audit을 하나의 Application flow로 묶어야 한다.
+API는 UI가 전달한 document, quality, permission 또는 ownership을 신뢰하지 않고 서버 저장 상태를 다시 읽는다.
 
-## 19. Test plan
+## 19. Audit policy
 
-Automated:
+예약 관련 Audit는 최소 다음을 기록한다.
 
-- Core time / timezone validation
-- fingerprint determinism
-- stable storage keys
-- active duplicate detection
-- state transition policy
+- workspaceId
+- projectId
+- contentId
+- revisionId
+- platformConnectionId
+- workflow
+- operationId
+- requestFingerprint
+- scheduledAt
+- timezone
+- category snapshot
+- attempt count
+- result status
+- failure code
+- external evidence summary
+- createdAt / updatedAt
+
+민감한 storage state, 쿠키, 토큰, 원문 HTML 전체는 Audit에 저장하지 않는다.
+
+## 20. Test policy
+
+### Core
+
 - permission isolation
-- final confirmation
-- atomic concurrent reservation
-- idempotent identical requests
-- cancelled record retry boundary
-- verification evidence requirement
-- interrupted registration recovery
-- server snapshot merge
-- readiness gates
-- API ownership
-- schedule permission isolation
-- Settings source and rendering regression
-- existing Draft worker prohibition regression
+- schedule time validation
+- timezone validation
+- fingerprint stability
+- active duplicate detection
+- transition policy
+- malformed record tolerance
 
-Validation commands:
+### Application
 
-```text
+- atomic reservation
+- concurrent duplicate request
+- idempotent identical request
+- cancelled request re-registration
+- stale registering recovery
+- verified evidence timestamp requirements
+- ownership rejection
+- current Revision lock
+- Approval-mode readiness
+
+### Persistence
+
+- server-owned schedule preservation
+- rich records merged by ID
+- legacy records preserved by stable key
+- stale client snapshot cannot remove schedules
+
+### API
+
+- server-owned context resolution
+- Tistory connection ownership and platform validation
+- missing boolean permission request rejection
+- non-Asia/Seoul rejection
+- selected target resolution
+
+### Regression
+
+- existing Draft flow unchanged
+- Draft worker restricted click monitor unchanged
+- public publish permission remains disabled
+- media permission remains independent
+- category persistence remains protected
+
+## 21. Validation sequence
+
+Required before Ready for Review:
+
+```powershell
 npm run typecheck
 npm run lint
 npm test
@@ -407,79 +457,72 @@ git diff --check
 git status
 ```
 
-No test result is accepted until the command output or GitHub Actions logs are actually available.
+### 2026-07-28 local validation observation
 
-## 20. Actual browser validation plan
+Observed on Windows branch before follow-up fixes:
 
-### Phase 1: limited UI investigation
+- `npm run lint`: passed
+- `git diff --check`: passed
+- `npm run typecheck`: failed because `core/publishing/index.ts` exported nonexistent `./PublishingQueue` and transition arrays widened to `string[]`
+- `npm test`: 154 files / 798 tests passed, 28 suites failed to import because of the same nonexistent export
+- `npm run build`: failed because of the same nonexistent export
 
-- 기존 로그인 session 사용
-- 기존 승인 원고 또는 안전한 테스트 원고 사용
-- 신규 AI 원고 생성 금지
-- 예약 UI를 열되 최종 등록 클릭 금지
-- 실제 control, label, date/time format, minimum interval, management list 위치 확인
-- selector evidence 기록
+Follow-up fixes committed:
 
-### Phase 2: one native registration
+- removed the nonexistent `PublishingQueue` export
+- explicitly typed scheduled-publication transition arrays
 
-- 충분한 미래 시각 선택
-- 현재 Revision, account, category 기록
-- 예약 등록 한 번 실행
-- 관리 목록 및 재진입 검증
-- Bright Studio 재시작 후 상태 복원 확인
+All validation commands must be rerun after pulling the follow-up commits. No pass is claimed until the new output is observed.
 
-### Phase 3: publication-time verification
+## 22. Manual Tistory investigation sequence
 
-- 예약 시각 이후 실제 공개 URL 확인
-- 제목, 본문 구조, category, 대표 이미지, 공개 시각 확인
-- Bright Studio record를 `published`로 전환
+Automated validation이 모두 통과한 뒤에만 진행한다.
 
-실제 외부 검증 전에는 기능을 Completed 또는 Verified로 표시하지 않는다.
+1. 기존 검증된 Content와 stored session 사용
+2. 최종 예약 클릭 없이 에디터 진입
+3. 예약 관련 control 구조와 접근성 속성 기록
+4. 공개/완료/임시저장/예약 control 구분
+5. 날짜·시간 입력 방식 기록
+6. 예약 목록 및 상태 표시 구조 기록
+7. 모든 제한 클릭 count 0 확인
+8. 조사 증거를 문서화
 
-## 21. MVP exclusions
+실제 조사 결과가 없는 selector는 코드에 추가하지 않는다.
 
+## 23. MVP exclusions
+
+- AI 자동 예약 시각 선택
+- 대량 자동 예약 queue
 - 로컬 background scheduler
-- 자동 다중 예약 queue
-- 반복 예약
-- AI 자동 예약 시간 결정
 - 즉시 공개 발행
-- 예약 수정 UI
-- 예약 취소 UI
+- 예약 수정
+- 예약 취소
 - WordPress 예약 실행
-- 외부 글 삭제
-- 공개 완료 자동 polling
+- 예약된 글의 자동 공개 완료 판정
+- 별도 published content registry 확장
 
-## 22. Current implementation status
+## 24. Current implementation status
 
-Implemented on the feature branch:
+Implemented:
 
-- approved design document
 - Core ScheduledPublication contract
-- explicit schedule permissions
-- registered create / verify workflow names
-- future time and timezone validation
-- deterministic fingerprint
-- active duplicate detection
-- stable persistence merge key
-- atomic server-side reservation
-- interrupted registration recovery
-- verification evidence requirement
+- schedule permissions and Permission Gate workflows
+- atomic reservation application service
+- legacy-compatible schedule persistence merge
 - Tistory schedule Readiness service
 - server-owned Readiness API
-- account schedule permission API
-- Workspace Settings permission UI
-- focused unit and route tests
+- account-level Settings permission API and UI
+- focused unit tests and safety tests
 
-Not yet implemented or verified:
+Not implemented:
 
-- canonical `UserData` rich type migration
-- Editor scheduling form
-- actual execution and verify APIs
-- actual Tistory UI probe
-- Tistory schedule adapter / worker / locators
-- native schedule registration
-- external schedule verification
+- canonical rich `UserData` migration
+- Editor schedule input card
+- execution APIs
+- Tistory schedule probe
+- Tistory schedule adapter / worker / selector
+- actual native schedule registration
+- external verification
 - publication-time verification
-- automated CI or Windows local validation
 
-The branch and PR must remain Draft until every required layer and real external verification is complete.
+The pull request remains Draft. It must not be merged until automated validation, actual Tistory UI inspection, native schedule registration, external verification, and later publication-time verification are complete.
