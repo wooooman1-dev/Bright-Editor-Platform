@@ -201,7 +201,7 @@ Validated baseline:
 644a6d2
 ```
 
-Current runtime and test changes after that baseline:
+Current changes after that baseline:
 
 - failed post-click evidence preservation
 - changed-control snapshots
@@ -209,7 +209,7 @@ Current runtime and test changes after that baseline:
 - static contract test coverage for failed evidence
 - documentation updated with the real failed attempt
 
-A transient accidental empty file named `README_DO_NOT_USE` was created during remote metadata work and immediately deleted in the following commit. The branch currently contains no such file. Local validation must confirm the final working tree and diff.
+A transient accidental empty file named `README_DO_NOT_USE` was created during remote metadata work and deleted in the immediately following cleanup commit. The current branch must not contain this file.
 
 These current changes have not yet passed local `typecheck`, tests, lint, build, or external rerun.
 
