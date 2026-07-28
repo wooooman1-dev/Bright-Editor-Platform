@@ -3,9 +3,11 @@ import { NextResponse } from "next/server";
 
 import type { UserData } from "../../../../user-flow/user-data";
 import { TistoryPublishingAdapter } from "../../../../../apps/tistory/publishing/TistoryPublishingAdapter";
+import { createTistoryMediaUploadPlan } from "../../../../../apps/tistory/publishing/TistoryMediaUploadPlan";
 import { contentRevisionId } from "../../../../../core/quality";
 import type { ScheduledPublication, ScheduledPublishingRecord } from "../../../../../core/publishing";
 import { connectionRepository, connectionStore, targetRepository } from "../../../../application/connections/connection-runtime";
+import { localMediaFilePath } from "../../../../application/media/LocalMediaStorage";
 import { resolveWorkspaceSettings, isPlatformEnabled } from "../../../../application/settings/WorkspaceSettingsService";
 import { ScheduledPublishingApplicationService } from "../../../../application/publishing/ScheduledPublishingApplicationService";
 import { TistoryScheduleCreateApplicationService, type TistoryScheduleCreateAuditRecord } from "../../../../application/publishing/TistoryScheduleCreateApplicationService";
@@ -69,21 +71,21 @@ export async function POST(request: Request) {
       }, { status: 400 });
     }
 
-    const localImages = content.document.blocks.filter((block) => block.type === "image" && /^\/api\/media\//i.test(block.source));
-    if (localImages.length) {
-      throw new Error("로컬 이미지가 포함된 원고의 예약발행은 이미지 업로드 통합 후 사용할 수 있습니다. 현재 원고에서 로컬 이미지를 외부 URL로 준비해 주세요.");
-    }
-
     const revisionId = contentRevisionId(content.document);
     const preparation = content.publishingPreparation?.tistory;
     if (!preparation || preparation.publishingAccountId !== connectionId) {
       throw new Error("Tistory 카테고리를 선택하거나 카테고리 없음을 명시해 주세요.");
     }
+    const mediaPlan = createTistoryMediaUploadPlan(content.document);
     const prepared = await new TistoryPublishingAdapter().prepare({
-      content: content.document,
+      content: mediaPlan.document,
       platform: "tistory",
       scheduledFor: scheduledAt,
     });
+    const media = mediaPlan.items.map((item) => Object.freeze({
+      ...item,
+      localPath: localMediaFilePath(item.storageKey),
+    }));
 
     scheduleId = `schedule-${randomUUID()}`;
     const operationId = `schedule-operation-${randomUUID()}`;
@@ -125,6 +127,7 @@ export async function POST(request: Request) {
       title: prepared.payload.title,
       html: prepared.payload.html,
       tags: prepared.payload.tags ?? [],
+      media,
       categoryId: preparation.platformCategoryId,
       categoryName: preparation.platformCategoryName,
       scheduledAt,
