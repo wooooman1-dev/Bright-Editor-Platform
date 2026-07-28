@@ -12,7 +12,7 @@ Date: 2026-07-28
 
 Do not merge or mark the PR Ready yet.
 
-## Current fully validated runtime baseline
+## Last fully validated runtime baseline
 
 Automated Windows validation passed at runtime code commit `644a6d2`:
 
@@ -30,18 +30,18 @@ git diff --check — passed
 git status — working tree clean
 ```
 
-The production route list contains:
+The production route list contained:
 
 ```text
 /api/publishing/schedules/ui-probe
 /api/publishing/schedules/panel-probe
 ```
 
-Runtime code changed after `644a6d2` to preserve bounded evidence when the publication panel cannot be isolated. That current head still requires local validation.
+Runtime code changed after `644a6d2`. The current head requires local validation.
 
-## Verified first-stage external Tistory probe
+## Verified first-stage external probe
 
-The zero-click probe ran against `bright-healthy` and returned:
+The zero-click probe against `bright-healthy` returned:
 
 ```text
 status: diagnosed
@@ -56,7 +56,7 @@ visible dialogs: none
 editor URL: https://bright-healthy.tistory.com/manage/newpost
 ```
 
-Stable DOM evidence:
+Stable evidence:
 
 - `#category-btn`
 - `#post-title-inp`
@@ -66,7 +66,7 @@ Stable DOM evidence:
 - `#grammar-check-btn`
 - `#publish-layer-btn`
 
-PowerShell rendered Korean labels with mojibake. Corrupted Korean labels are not locator evidence.
+PowerShell mojibake is not locator evidence.
 
 ## First-stage contract remains protected
 
@@ -82,9 +82,9 @@ Endpoint:
 POST /api/publishing/schedules/ui-probe
 ```
 
-The worker still contains no Playwright `.click()`, `.fill()`, or `.selectOption()` call. The existing Tistory Draft worker was not changed.
+The first-stage worker still has no Playwright `.click()`, `.fill()`, or `.selectOption()` call. The Tistory Draft worker was not changed.
 
-## Second-stage publication-panel foundation
+## Second-stage publication-panel probe
 
 Worker:
 
@@ -110,17 +110,13 @@ Shared server validation:
 app/api/publishing/schedules/ScheduleProbeContext.ts
 ```
 
-The server validates Workspace, Project, Content, selected publishing target, Tistory platform, stored session, `schedule.create`, Draft Only, and public-publish-disabled state. It checks both normalized policy and raw persisted policy.
-
-## Second-stage safety boundary
-
 Exactly one Playwright click is permitted:
 
 ```text
 #publish-layer-btn
 ```
 
-A valid click contract requires:
+The click contract requires:
 
 ```text
 clickCounts.total == 1
@@ -130,18 +126,7 @@ clickCounts.targets.length == 1
 clickCounts.targets[0].id == publish-layer-btn
 ```
 
-The worker does not:
-
-- fill title or body
-- select Category
-- select publication or reservation state
-- select date or time
-- save a Draft
-- publish immediately
-- confirm a schedule
-- delete a post
-- submit a final action
-- use keyboard confirmation
+No title/body input, Category selection, publication-state selection, date/time selection, Draft save, public publishing, schedule confirmation, deletion, final submit, or keyboard confirmation is allowed.
 
 ## Real second-stage attempt
 
@@ -152,7 +137,7 @@ Before the attempt:
 - `schedule.create` was enabled;
 - `publish.execute` remained disabled.
 
-The real endpoint call returned:
+The endpoint returned:
 
 ```text
 status: failed
@@ -163,7 +148,7 @@ diagnosticCode: publication_panel_not_isolated
 editorUrl: https://bright-healthy.tistory.com/manage/newpost
 ```
 
-The worker validates the exact click contract before it checks panel isolation. Therefore this result proves the failure occurred at isolation, not at the click-permission gate.
+The worker checks the click contract before panel isolation, so this result failed at isolation rather than the click gate.
 
 No schedule, date, time, save, public-publish, or final-registration control was clicked.
 
@@ -171,25 +156,25 @@ No schedule, date, time, save, public-publish, or final-registration control was
 
 The previous worker required the common ancestor of newly visible controls to also be absent from the pre-click visible-element baseline.
 
-The real Tistory editor may reveal publication controls inside a container that was already visible before the click. This is only a structural possibility, not an approved locator assumption.
+The real Tistory editor may reveal controls inside a container that was already visible before the click. This remains only a structural possibility until the next bounded diagnostic result is inspected.
 
-## Current diagnostic-preservation change
+## Current evidence-preservation change
 
-The worker now retains bounded failure evidence after the single allowed click:
+The current worker retains bounded post-click evidence even when isolation fails:
 
 - click counts and target
 - title/body lengths before and after
 - baseline control snapshots
 - newly visible controls
-- controls whose class, ARIA state, visibility, checked state, disabled state, or rectangle changed
+- changed controls
 - common ancestor candidate
 - bounded ancestor candidates
 - visible panel-like containers
 - opener state after the click
 - `document.characterSet`
-- Base64 copies of bounded UTF-8 labels and text
+- bounded Base64 UTF-8 labels and text
 
-The success gate was not relaxed. `status: diagnosed` still requires an isolated `panelRoot` and at least one control in that root.
+The success gate was not relaxed. `status: diagnosed` still requires an isolated `panelRoot` and at least one control.
 
 Article HTML is not collected.
 
@@ -201,23 +186,23 @@ Validated baseline:
 644a6d2
 ```
 
-Current changes after that baseline:
+Changes after that baseline:
 
-- failed post-click evidence preservation
+- failed evidence preservation
 - changed-control snapshots
 - ancestor-candidate evidence
-- static contract test coverage for failed evidence
-- documentation updated with the real failed attempt
+- static contract coverage
+- documentation of the real safe failure
 
-These current changes have not yet passed local `typecheck`, tests, lint, build, or external rerun.
+These current changes have not yet passed local validation or a second external rerun.
 
 ## Not implemented
 
 - Editor scheduling form
 - schedule create execution API
 - verified schedule-state locator
-- verified date or time locator
-- final native schedule registration locator
+- verified date/time locator
+- final schedule-registration locator
 - native schedule registration worker
 - actual schedule registration
 - management-list verification
@@ -227,15 +212,13 @@ These current changes have not yet passed local `typecheck`, tests, lint, build,
 - local or recurring scheduler
 - immediate public publishing
 
-## Required next validation
+## Next gate
 
-1. Pull the current branch head.
+1. Pull the current branch.
 2. Run typecheck, targeted contract test, full tests, lint, build, diff check, and status.
-3. Rerun the real publication-panel endpoint.
-4. Verify one allowed opener click and zero restricted clicks from returned evidence.
-5. Verify unchanged title/body state.
-6. Inspect newly visible controls, changed controls, ancestor candidates, and panel-like containers.
-7. Decode bounded Base64 Korean labels.
-8. Approve a panel root or locator only from the real evidence.
+3. Rerun the real panel probe.
+4. Verify one allowed click, zero restricted clicks, and unchanged title/body state.
+5. Inspect newly visible controls, changed controls, ancestor candidates, panel-like containers, and Base64 labels.
+6. Approve a panel root only from real evidence.
 
 Do not implement schedule/date/time selection from assumptions.
