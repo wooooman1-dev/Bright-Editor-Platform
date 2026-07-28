@@ -166,14 +166,18 @@ describe("Tistory schedule panel probe API", () => {
   });
 
   it("rejects public publishing policy before the service runs", async () => {
+    const workspace = data.workspace;
+    if (!workspace?.settings) {
+      throw new Error("Workspace settings fixture is required.");
+    }
     storeMocks.get.mockResolvedValue({
       ...data,
       workspace: {
-        ...data.workspace,
+        ...workspace,
         settings: {
-          ...data.workspace.settings,
+          ...workspace.settings,
           publishing: {
-            ...data.workspace.settings?.publishing,
+            ...(workspace.settings.publishing ?? {}),
             publicPublish: true,
           },
         },
