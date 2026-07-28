@@ -24,6 +24,16 @@ describe("Tistory schedule create worker contract", () => {
     expect(source).not.toMatch(/임시저장[\s\S]*\.click\s*\(/);
   });
 
+  it("uses the existing same-editor Tistory media and tag integration before opening the publication panel", () => {
+    expect(source).toContain('import { fillTistoryTags } from "./tistory-tags.mjs"');
+    const mediaIndex = source.indexOf("const tags = await fillTistoryTags");
+    const panelIndex = source.indexOf('page.locator("#publish-layer-btn")');
+    expect(mediaIndex).toBeGreaterThan(-1);
+    expect(panelIndex).toBeGreaterThan(mediaIndex);
+    expect(source).toContain('tags.code ?? "tag_or_media_input_failed"');
+    expect(source).not.toContain("async function fillTags");
+  });
+
   it("verifies the selected reservation date and time before the single final registration click", () => {
     const verifyIndex = source.indexOf("const reservationEvidence = await verifyReservationState");
     const finalClickIndex = source.indexOf("await finalButton.click");
@@ -42,7 +52,7 @@ describe("Tistory schedule create worker contract", () => {
     expect(afterFinalClick).not.toMatch(/while\s*\([^)]*\)[\s\S]{0,500}await finalButton\.click/);
     expect(source).toContain('status: "scheduled_unverified"');
     expect(source).toContain("자동 재시도하지 않습니다");
-    expect(source).toContain("finalClickIssued ? \"scheduled_unverified\" : \"failed\"");
+    expect(source).toContain('finalClickIssued ? "scheduled_unverified" : "failed"');
   });
 
   it("requires external title, reservation, and schedule evidence before reporting verified", () => {
