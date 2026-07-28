@@ -25,7 +25,7 @@ type StudioSnapshot = Readonly<{
         platformCategoryName: string | null;
       }>;
     }>;
-  }>[];
+  }>[]>;
 }>;
 
 type ScheduleConnection = Readonly<{
@@ -41,11 +41,10 @@ type ScheduleConnection = Readonly<{
 type Readiness = Readonly<{
   ready: boolean;
   executable: boolean;
-  checks: readonly Readonly<{ key: string; passed: boolean; message: string }>[];
+  checks: readonly Readonly<{ key: string; passed: boolean; message: string }>[]>;
 }>;
 
 type Context = Readonly<{
-  workspaceId: string;
   projectId: string;
   contentId: string;
 }>;
@@ -81,7 +80,8 @@ export function TistoryScheduleOverlay() {
   }, []);
 
   const context = useMemo(() => editorContext(locationKey), [locationKey]);
-  const project = context ? snapshot?.projects.find((item) => item.id === context.projectId && item.workspaceId === context.workspaceId) : undefined;
+  const workspaceId = snapshot?.workspace?.id ?? "";
+  const project = context ? snapshot?.projects.find((item) => item.id === context.projectId && (!workspaceId || item.workspaceId === workspaceId)) : undefined;
   const content = context ? snapshot?.contents.find((item) => item.id === context.contentId && item.projectId === context.projectId) : undefined;
   const availableConnections = useMemo(() => connections.filter((item) => item.platform === "tistory"), [connections]);
   const selectedConnection = availableConnections.find((item) => item.id === connectionId);
@@ -91,12 +91,13 @@ export function TistoryScheduleOverlay() {
     if (!open || !context) return;
     let active = true;
     setLoading(true);
+    setReadiness(undefined);
     setNotice("예약 발행 정보를 불러오고 있습니다.");
     void fetch("/api/studio", { cache: "no-store" })
       .then(async (response) => {
         const result = await response.json() as { data?: StudioSnapshot; error?: string };
         if (!response.ok || !result.data?.workspace) throw new Error(result.error ?? "작업 공간을 불러오지 못했습니다.");
-        const currentProject = result.data.projects.find((item) => item.id === context.projectId);
+        const currentProject = result.data.projects.find((item) => item.id === context.projectId && item.workspaceId === result.data!.workspace!.id);
         const currentContent = result.data.contents.find((item) => item.id === context.contentId && item.projectId === context.projectId);
         if (!currentProject || !currentContent) throw new Error("현재 편집 중인 Project 또는 Content를 찾지 못했습니다.");
         const connectionResponse = await fetch(`/api/connections?workspaceId=${encodeURIComponent(result.data.workspace.id)}`, { cache: "no-store" });
@@ -120,7 +121,7 @@ export function TistoryScheduleOverlay() {
   }, [context, open]);
 
   useEffect(() => {
-    if (!open || !context || !connectionId || !scheduledAt) return;
+    if (!open || !context || !workspaceId || !connectionId || !scheduledAt) return;
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
       setLoading(true);
@@ -128,7 +129,7 @@ export function TistoryScheduleOverlay() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          workspaceId: context.workspaceId,
+          workspaceId,
           projectId: context.projectId,
           contentId: context.contentId,
           connectionId,
@@ -156,12 +157,12 @@ export function TistoryScheduleOverlay() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [connectionId, context, open, scheduledAt]);
+  }, [connectionId, context, open, scheduledAt, workspaceId]);
 
   if (!context) return null;
 
   const submit = async () => {
-    if (!readiness?.ready || !confirm || !connectionId || !scheduledAt) return;
+    if (!readiness?.ready || !confirm || !connectionId || !scheduledAt || !workspaceId) return;
     setLoading(true);
     setNotice("Tistory에 예약 발행을 등록하고 외부 상태를 확인하고 있습니다.");
     try {
@@ -169,7 +170,7 @@ export function TistoryScheduleOverlay() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          workspaceId: context.workspaceId,
+          workspaceId,
           projectId: context.projectId,
           contentId: context.contentId,
           connectionId,
@@ -269,7 +270,7 @@ function editorContext(locationKey: string): Context | undefined {
   const projectId = query.get("projectId")?.trim();
   const contentId = query.get("contentId")?.trim();
   if (!projectId || !contentId) return undefined;
-  return { workspaceId: "", projectId, contentId };
+  return { projectId, contentId };
 }
 
 function schedulePermission(connection: ScheduleConnection): boolean {
