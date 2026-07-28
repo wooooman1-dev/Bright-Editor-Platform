@@ -12,23 +12,32 @@ Date: 2026-07-28
 
 Do not merge or mark the PR Ready yet.
 
-## Last fully validated runtime baseline
+## Current fully validated runtime baseline
 
-Automated Windows validation passed at runtime code commit `262d2ae`:
+Automated Windows validation passed at runtime code commit `644a6d2`:
 
 ```text
 npm run typecheck — passed
-npm run lint — passed
+npm test -- tests/unit/app/api/publishing/schedules/SchedulePanelProbeRoute.test.ts — passed
+  Test Files: 1 passed
+  Tests: 4 passed
 npm test — passed
-  Test Files: 183 passed, 7 skipped
-  Tests: 936 passed, 17 skipped
+  Test Files: 186 passed, 7 skipped
+  Tests: 946 passed, 17 skipped
+npm run lint — passed
 npm run build — passed
 git diff --check — passed
+git status — working tree clean
 ```
 
-That validation covered the scheduled-publishing foundation and first-stage zero-click UI probe.
+The production route list contains:
 
-Runtime code has now changed after `262d2ae` for the second-stage publication-panel probe. The new runtime changes are not yet locally validated.
+```text
+/api/publishing/schedules/ui-probe
+/api/publishing/schedules/panel-probe
+```
+
+This validation covers the scheduled-publishing foundation, first-stage zero-click UI probe, second-stage publication-panel probe foundation, shared server context validation, and the raw stored publishing-policy safety check.
 
 ## Verified first external Tistory probe
 
@@ -82,9 +91,9 @@ POST /api/publishing/schedules/ui-probe
 
 The existing Tistory Draft worker was not changed.
 
-## Second-stage publication-panel foundation implemented
+## Second-stage publication-panel foundation implemented and automatically validated
 
-Approval to continue was received and the second-stage foundation was implemented as a separate path.
+The second-stage foundation is implemented as a separate path.
 
 New worker:
 
@@ -110,7 +119,9 @@ Shared server validation:
 app/api/publishing/schedules/ScheduleProbeContext.ts
 ```
 
-The existing first-stage route now reuses the same validation module without changing its worker contract.
+The existing first-stage route reuses the same validation module without changing its worker contract.
+
+The server checks both the normalized safe policy and the raw stored publishing object. A corrupted or legacy persisted state with `draftOnly: false` or `publicPublish: true` is blocked before Playwright starts.
 
 ## Second-stage safety boundary
 
@@ -168,13 +179,18 @@ It does not collect article HTML.
 
 Title and TinyMCE body text lengths must remain unchanged.
 
-## Tests added
+## Tests added and passed
 
 - `tests/unit/app/application/publishing/TistorySchedulePanelProbeApplicationService.test.ts`
 - `tests/unit/apps/tistory/TistorySchedulePanelProbeContract.test.ts`
 - `tests/unit/app/api/publishing/schedules/SchedulePanelProbeRoute.test.ts`
 
-These tests exist in the branch but have not yet been executed on the current head.
+The full suite passed with:
+
+```text
+Test Files: 186 passed, 7 skipped
+Tests: 946 passed, 17 skipped
+```
 
 ## Not implemented
 
@@ -194,25 +210,7 @@ These tests exist in the branch but have not yet been executed on the current he
 
 ## Required next validation
 
-Run on the current branch:
-
-```powershell
-npm run typecheck
-npm run lint
-npm test
-npm run build
-git diff --check
-git status
-```
-
-Then confirm the production route list contains:
-
-```text
-/api/publishing/schedules/ui-probe
-/api/publishing/schedules/panel-probe
-```
-
-After automated validation passes, run the second-stage external probe against the selected real Tistory account and inspect:
+Run the second-stage external probe against the selected real Tistory account and inspect:
 
 - exactly one allowed opener click
 - zero restricted clicks
