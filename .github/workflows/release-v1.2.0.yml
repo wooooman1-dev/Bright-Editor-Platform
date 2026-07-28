@@ -2,16 +2,20 @@ name: Bright Studio v1.2.0 Release
 
 # One-time release workflow. It deletes itself after publishing v1.2.0.
 on:
-  push:
+  pull_request:
     branches:
       - main
+    types:
+      - opened
+      - reopened
+      - synchronize
 
 permissions:
   contents: write
 
 jobs:
   release:
-    if: contains(github.event.head_commit.message, 'release: v1.2.0')
+    if: github.head_ref == 'chore/release-v1.2.0-trigger'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
