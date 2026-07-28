@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   canonicalizeApprovalEvidenceUrl,
+  extractApprovalCitationFacts,
   officialSourceAllowed,
   verifyApprovalEvidence,
   type ApprovalEvidencePack,
@@ -80,6 +81,75 @@ describe("ApprovalEvidenceVerification", () => {
       "The Museum of Modern Art",
     ]));
     expect(result.verifiedSourceCount).toBe(1);
+  });
+
+  it("matches only the institution, artwork, and artist attached to the current source URL", () => {
+    const ngaUrl = "https://www.nga.gov/artworks/1167-portrait-man";
+    const trackingNgaUrl = `${ngaUrl}?utm_source=openai`;
+    const metUrl = "https://www.metmuseum.org/perspectives/portraits";
+    const pack: ApprovalEvidencePack = {
+      ...candidatePack,
+      sources: [{
+        ...candidatePack.sources[0]!,
+        sourceId: "nga-1167",
+        url: trackingNgaUrl,
+        title: "www.nga.gov",
+        publisher: "www.nga.gov",
+      }],
+    };
+    const citationDocument: ContentDocument = {
+      ...document(),
+      title: "서양미술 초상화 감상법",
+      metadata: { ...document().metadata!, approvalEvidence: pack },
+      blocks: [
+        { id: "body", type: "paragraph", text: "미국 국립미술관의 프란스 할스 작품 설명은 손과 몸의 방향을 기록합니다." },
+        {
+          id: "sources",
+          type: "paragraph",
+          text: [
+            `- National Gallery of Art, Portrait of a Man by Frans Hals: ${trackingNgaUrl}`,
+            `- The Metropolitan Museum of Art, What Makes a Portrait?: ${metUrl}`,
+            "정보 확인일: 2026년 7월 28일",
+          ].join("\n"),
+        },
+      ],
+    };
+    const ngaPage: ApprovalSourcePage = {
+      requestedUrl: ngaUrl,
+      finalUrl: ngaUrl,
+      status: 200,
+      contentType: "text/html; normalized-from=text/csv",
+      title: "Portrait of a Man",
+      publisher: "National Gallery of Art Open Data",
+      text: "Title: Portrait of a Man Artist: Frans Hals Institution: National Gallery of Art Official Open Data collection record. ".repeat(4),
+    };
+
+    expect(extractApprovalCitationFacts(citationDocument, ngaUrl)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ field: "holdingInstitution", value: "National Gallery of Art" }),
+      expect.objectContaining({ field: "artworkTitle", value: "Portrait of a Man" }),
+      expect.objectContaining({ field: "artist", value: "Frans Hals" }),
+    ]));
+
+    const result = verifyApprovalEvidence(
+      citationDocument,
+      "tistory_vivarain_art_v1",
+      [ngaPage],
+      "2026-07-28T10:00:00.000Z",
+    );
+
+    expect(result.pack.status).toBe("verified");
+    expect(result.verifiedSourceCount).toBe(1);
+    expect(result.pack.sources[0]).toMatchObject({
+      verified: true,
+      verificationStatus: "verified",
+      selected: true,
+    });
+    expect(result.pack.sources[0]?.matchedFacts?.map((fact) => fact.value)).toEqual(expect.arrayContaining([
+      "National Gallery of Art",
+      "Portrait of a Man",
+      "Frans Hals",
+    ]));
+    expect(result.pack.sources[0]?.matchedFacts?.map((fact) => fact.value)).not.toContain("The Metropolitan Museum of Art");
   });
 
   it("deduplicates tracking variants while preserving the rejected candidate diagnosis", () => {
