@@ -34,7 +34,13 @@ export async function resolveScheduleProbeContext(
   const contentId = required(body.contentId);
   const data = await ownedContext(workspaceId, projectId, contentId);
   const policy = resolveWorkspaceSettings(data);
-  if (!policy.publishing.draftOnly || policy.publishing.publicPublish) {
+  const storedPublishing = data.workspace?.settings?.publishing;
+  if (
+    !policy.publishing.draftOnly
+    || policy.publishing.publicPublish
+    || storedPublishing?.draftOnly === false
+    || storedPublishing?.publicPublish === true
+  ) {
     throw new Error("현재 Workspace의 안전한 Draft Only 정책에서만 예약 UI 조사를 실행할 수 있습니다.");
   }
 
