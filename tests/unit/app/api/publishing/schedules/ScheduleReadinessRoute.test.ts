@@ -57,6 +57,21 @@ const data: UserData = {
   scheduledPublishing: [],
 };
 
+const connection = {
+  id: "connection-1",
+  workspaceId: "workspace-1",
+  platform: "tistory",
+  displayName: "bright-health",
+  status: "connected",
+  publicMetadata: { sessionStateAvailable: true },
+  createdAt: "2026-07-28T07:00:00.000Z",
+  updatedAt: "2026-07-28T07:00:00.000Z",
+  selectedAsDefault: true,
+  version: 1,
+  automationPermissions: ["schedule.create"],
+  publishingPolicy: "review_first",
+};
+
 function request(body: Record<string, unknown>) {
   return new Request("http://localhost/api/publishing/schedules/readiness", {
     method: "POST",
@@ -78,7 +93,7 @@ const validBody = {
 beforeEach(() => {
   vi.clearAllMocks();
   storeMocks.get.mockResolvedValue(data);
-  connectionMocks.findById.mockResolvedValue({ id: "connection-1" });
+  connectionMocks.findById.mockResolvedValue(connection);
   targetMocks.listByProject.mockResolvedValue([{ platformConnectionId: "connection-1" }]);
   readinessMocks.calculate.mockResolvedValue({ ready: true, executable: false, checks: [] });
 });
@@ -94,7 +109,7 @@ describe("schedule readiness API", () => {
       data,
       project: expect.objectContaining({ id: "project-1" }),
       content: expect.objectContaining({ id: "content-1" }),
-      connection: { id: "connection-1" },
+      connection,
       selectedTarget: true,
       timezone: "Asia/Seoul",
     }));
@@ -106,6 +121,15 @@ describe("schedule readiness API", () => {
 
     expect(response.status).toBe(400);
     expect(body.error).toMatch(/Asia\/Seoul/);
+    expect(readinessMocks.calculate).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-Tistory connection before readiness evaluation", async () => {
+    connectionMocks.findById.mockResolvedValue({ ...connection, platform: "wordpress" });
+
+    const response = await POST(request(validBody));
+
+    expect(response.status).toBe(400);
     expect(readinessMocks.calculate).not.toHaveBeenCalled();
   });
 
