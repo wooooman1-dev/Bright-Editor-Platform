@@ -118,4 +118,33 @@ describe("Content Opportunity contract", () => {
     });
     expect(classified.qualityTarget.requiredContentElements).not.toContain("복잡한 원인과 관계");
   });
+
+  it("normalizes a legacy candidate whose quality target is missing before depth classification", () => {
+    const legacy = {
+      ...candidate(),
+      qualityTarget: undefined,
+    } as unknown as ReturnType<typeof candidate>;
+
+    const classified = applyContentDepthPolicy(legacy, { domain: "health" });
+
+    expect(classified.qualityTarget.contentDepth).toBe("deep");
+    expect(classified.qualityTarget.coreQuestions.length).toBeGreaterThan(0);
+    expect(classified.qualityTarget.requiredContentElements.length).toBeGreaterThan(0);
+  });
+
+  it("does not throw while checking a self-consistent legacy fingerprint with no quality target", () => {
+    const legacy = {
+      ...candidate(),
+      qualityTarget: undefined,
+      fingerprint: "fp-1234abcd",
+      opportunityId: "opportunity-1234abcd",
+    } as unknown as ReturnType<typeof candidate>;
+
+    expect(() => confirmContentOpportunity(legacy, {
+      workspaceId: "workspace-1",
+      projectId: "project-1",
+      contentId: "content-legacy",
+      confirmedAt: "2026-07-28T00:00:00.000Z",
+    })).not.toThrow();
+  });
 });
