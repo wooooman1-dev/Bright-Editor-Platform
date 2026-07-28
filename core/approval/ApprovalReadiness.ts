@@ -64,6 +64,7 @@ export type ApprovalEvidencePack = Readonly<{
   version: "1.0";
   status: "verified" | "needs_review" | "missing";
   reviewedAt?: string;
+  reviewedRevisionId?: string;
   sources: readonly ApprovalEvidenceSource[];
 }>;
 
@@ -77,6 +78,8 @@ export type ApprovalDuplicateCheckSnapshot = Readonly<{
   reasons: readonly string[];
 }>;
 
+export type SiteApprovalReadinessRequirement = "required" | "recommended";
+
 export type SiteApprovalReadinessSnapshot = Readonly<{
   version: "1.0";
   status: "passed" | "needs_review" | "blocked";
@@ -85,6 +88,7 @@ export type SiteApprovalReadinessSnapshot = Readonly<{
     key: string;
     passed: boolean;
     message: string;
+    requirement?: SiteApprovalReadinessRequirement;
   }>[];
 }>;
 
@@ -215,17 +219,27 @@ function internalLinkCheck(document: ContentDocument): ApprovalReadinessCheck {
 function siteReadinessCheck(document: ContentDocument): ApprovalReadinessCheck {
   const snapshot = document.metadata?.siteApprovalReadiness;
   if (!snapshot) {
-    return Object.freeze({ key: "site_readiness", status: "not_evaluated", message: "사이트 전체 승인 준비 검사가 실행되지 않았습니다.", action: "메뉴·카테고리·신뢰 페이지·깨진 링크·모바일·공개 접근 상태를 점검하세요." });
+    return Object.freeze({ key: "site_readiness", status: "not_evaluated", message: "사이트 전체 승인 준비 검사가 실행되지 않았습니다.", action: "메뉴·카테고리·개인정보처리방침·깨진 링크·모바일·공개 접근 상태를 점검하세요." });
   }
-  if (snapshot.status === "passed" && snapshot.checks.every((check) => check.passed)) {
-    return Object.freeze({ key: "site_readiness", status: "passed", message: "사이트 전체 승인 준비 검사를 통과했습니다." });
+
+  const requiredFailures = snapshot.checks.filter((check) => !check.passed && (check.requirement ?? "required") === "required");
+  const recommendedFailures = snapshot.checks.filter((check) => !check.passed && check.requirement === "recommended");
+  if (snapshot.status === "passed" && requiredFailures.length === 0) {
+    return Object.freeze({
+      key: "site_readiness",
+      status: "passed",
+      message: recommendedFailures.length
+        ? `사이트 필수 준비 항목을 통과했습니다. 권장 보완 항목 ${recommendedFailures.length}개가 남아 있습니다.`
+        : "사이트 전체 승인 준비 검사를 통과했습니다.",
+      ...(recommendedFailures.length ? { action: recommendedFailures.map((check) => check.message).join(" ") } : {}),
+    });
   }
-  const failed = snapshot.checks.filter((check) => !check.passed).map((check) => check.message);
+
   return Object.freeze({
     key: "site_readiness",
     status: snapshot.status === "blocked" ? "blocked" : "needs_review",
-    message: `사이트 준비 항목 ${failed.length}개를 해결해야 합니다.`,
-    action: failed.join(" ") || "사이트 전체 공개 상태를 다시 확인하세요.",
+    message: `사이트 필수 준비 항목 ${requiredFailures.length}개를 해결해야 합니다.`,
+    action: requiredFailures.map((check) => check.message).join(" ") || "사이트 전체 공개 상태를 다시 확인하세요.",
   });
 }
 
