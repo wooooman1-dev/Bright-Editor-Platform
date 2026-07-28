@@ -12,32 +12,33 @@ Date: 2026-07-28
 
 Do not merge or mark the PR Ready yet.
 
-## Last fully validated runtime baseline
+## Current fully validated runtime baseline
 
-Automated Windows validation passed at runtime code commit `644a6d2`:
+Automated Windows validation passed at runtime code commit `60864d4`:
 
 ```text
 npm run typecheck — passed
-npm test -- tests/unit/app/api/publishing/schedules/SchedulePanelProbeRoute.test.ts — passed
+npm test -- tests/unit/apps/tistory/TistorySchedulePanelProbeContract.test.ts — passed
   Test Files: 1 passed
   Tests: 4 passed
 npm test — passed
   Test Files: 186 passed, 7 skipped
-  Tests: 946 passed, 17 skipped
+  Tests: 947 passed, 17 skipped
 npm run lint — passed
 npm run build — passed
 git diff --check — passed
 git status — working tree clean
+README_DO_NOT_USE — absent
 ```
 
-The production route list contained:
+The production route list contains:
 
 ```text
 /api/publishing/schedules/ui-probe
 /api/publishing/schedules/panel-probe
 ```
 
-Runtime code changed after `644a6d2`. The current head requires local validation.
+This validation covers the failed-evidence preservation change, changed-control snapshots, ancestor-candidate evidence, the strict one-click contract, and the existing scheduled-publishing foundation.
 
 ## Verified first-stage external probe
 
@@ -128,7 +129,7 @@ clickCounts.targets[0].id == publish-layer-btn
 
 No title/body input, Category selection, publication-state selection, date/time selection, Draft save, public publishing, schedule confirmation, deletion, final submit, or keyboard confirmation is allowed.
 
-## Real second-stage attempt
+## First real second-stage attempt
 
 Before the attempt:
 
@@ -148,9 +149,7 @@ diagnosticCode: publication_panel_not_isolated
 editorUrl: https://bright-healthy.tistory.com/manage/newpost
 ```
 
-The worker checks the click contract before panel isolation, so this result failed at isolation rather than the click gate.
-
-No schedule, date, time, save, public-publish, or final-registration control was clicked.
+The worker checks the click contract before panel isolation, so this result failed at isolation rather than the click gate. No schedule, date, time, save, public-publish, or final-registration control was clicked.
 
 ## Confirmed cause in the previous algorithm
 
@@ -158,7 +157,7 @@ The previous worker required the common ancestor of newly visible controls to al
 
 The real Tistory editor may reveal controls inside a container that was already visible before the click. This remains only a structural possibility until the next bounded diagnostic result is inspected.
 
-## Current evidence-preservation change
+## Current evidence-preservation behavior
 
 The current worker retains bounded post-click evidence even when isolation fails:
 
@@ -178,24 +177,6 @@ The success gate was not relaxed. `status: diagnosed` still requires an isolated
 
 Article HTML is not collected.
 
-## Current validation status
-
-Validated baseline:
-
-```text
-644a6d2
-```
-
-Changes after that baseline:
-
-- failed evidence preservation
-- changed-control snapshots
-- ancestor-candidate evidence
-- static contract coverage
-- documentation of the real safe failure
-
-These current changes have not yet passed local validation or a second external rerun.
-
 ## Not implemented
 
 - Editor scheduling form
@@ -214,11 +195,9 @@ These current changes have not yet passed local validation or a second external 
 
 ## Next gate
 
-1. Pull the current branch.
-2. Run typecheck, targeted contract test, full tests, lint, build, diff check, and status.
-3. Rerun the real panel probe.
-4. Verify one allowed click, zero restricted clicks, and unchanged title/body state.
-5. Inspect newly visible controls, changed controls, ancestor candidates, panel-like containers, and Base64 labels.
-6. Approve a panel root only from real evidence.
+1. Rerun the real panel probe against `bright-healthy` on the validated current head.
+2. Verify one allowed click, zero restricted clicks, and unchanged title/body state.
+3. Inspect newly visible controls, changed controls, ancestor candidates, panel-like containers, and Base64 labels.
+4. Approve a panel root only from real evidence.
 
 Do not implement schedule/date/time selection from assumptions.
