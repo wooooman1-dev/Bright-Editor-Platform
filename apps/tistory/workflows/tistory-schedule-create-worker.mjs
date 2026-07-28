@@ -285,26 +285,67 @@ async function fillHtml(targetPage, html) {
   if (state.bodyTextLength < minimumBodyLength(html)) throw safeFailure("body_verification_failed", "Tistory 기본모드에서 본문 반영을 확인하지 못했습니다.");
 }
 
+async function editorModeControl(targetPage) {
+  const controls = targetPage.getByRole("button", { name: /기본모드|HTML|마크다운|에디터 모드/ });
+  for (let index = 0; index < await controls.count(); index += 1) {
+    const control = controls.nth(index);
+    const visible = await control.isVisible().catch(() => false);
+    const enabled = await control.isEnabled().catch(() => false);
+    if (visible && enabled) return control;
+  }
+  return undefined;
+}
+
+async function confirmModeTransition(targetPage, targetMode) {
+  const roots = targetPage.locator('[role="dialog"], [role="alertdialog"], [class*="modal" i], [class*="layer" i], [class*="popup" i]').filter({ visible: true });
+  for (let index = 0; index < await roots.count(); index += 1) {
+    const root = roots.nth(index);
+    const text = (await root.innerText().catch(() => "")).replace(/\s+/g, " ").trim();
+    if (!text.includes(targetMode) && !/편집 모드|작성한 내용|변경/.test(text)) continue;
+    const confirm = root.getByRole("button", { name: /확인|전환/, exact: false }).filter({ visible: true }).last();
+    if (await confirm.isVisible().catch(() => false)) {
+      await confirm.click();
+      return true;
+    }
+  }
+  const confirms = targetPage.getByRole("button", { name: /확인|전환/, exact: false }).filter({ visible: true });
+  for (let index = 0; index < await confirms.count(); index += 1) {
+    const confirm = confirms.nth(index);
+    const context = await confirm.evaluate((element) => (element.parentElement?.parentElement?.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 500)).catch(() => "");
+    if (context.includes(targetMode) || /편집 모드|작성한 내용|변경/.test(context)) {
+      await confirm.click();
+      return true;
+    }
+  }
+  return false;
+}
+
 async function switchMode(targetPage, targetMode) {
-  const button = targetPage.locator("#editor-mode-layer-btn").first();
-  if (!await button.isVisible({ timeout: 10000 }).catch(() => false)) throw safeFailure("editor_mode_control_missing", "Tistory 편집 모드 버튼을 찾지 못했습니다.");
+  const button = await editorModeControl(targetPage);
+  if (!button) throw safeFailure("editor_mode_control_missing", "Tistory 편집 모드 버튼을 찾지 못했습니다.");
   const initialState = await editorModeEvidence(targetPage, targetMode, button);
   if (initialState.passed) return;
   await button.click();
-  let option = targetMode === "HTML"
-    ? targetPage.locator("#editor-mode-html-text").first()
-    : targetPage.getByText(targetMode, { exact: true }).filter({ visible: true }).last();
-  if (!await option.isVisible({ timeout: 5000 }).catch(() => false)) {
-    option = targetPage.getByRole("menuitem", { name: targetMode, exact: true }).filter({ visible: true }).last();
+  let option = targetPage.getByRole("menuitem", { name: targetMode, exact: true }).filter({ visible: true }).last();
+  if (!await option.isVisible({ timeout: 3000 }).catch(() => false)) {
+    option = targetPage.getByText(targetMode, { exact: true }).filter({ visible: true }).last();
   }
-  if (!await option.isVisible({ timeout: 3000 }).catch(() => false)) throw safeFailure("editor_mode_option_missing", `${targetMode} 편집 모드를 찾지 못했습니다.`);
+  if (!await option.isVisible({ timeout: 3000 }).catch(() => false)) {
+    throw safeFailure("editor_mode_option_missing", `${targetMode} 편집 모드를 찾지 못했습니다.`);
+  }
   const dialogHandler = async (dialog) => {
     const text = dialog.message().replace(/\s+/g, " ").trim();
-    if (dialog.type() === "confirm" && /편집 모드|작성한 내용|변경|HTML/.test(text)) await dialog.accept();
+    if (dialog.type() === "confirm" && (text.includes(targetMode) || /편집 모드|작성한 내용|변경|HTML/.test(text))) await dialog.accept();
     else await dialog.dismiss();
   };
   targetPage.on("dialog", dialogHandler);
-  try { await option.click(); } finally { targetPage.off("dialog", dialogHandler); }
+  try {
+    await option.click();
+    await targetPage.waitForTimeout(100);
+  } finally {
+    targetPage.off("dialog", dialogHandler);
+  }
+  await confirmModeTransition(targetPage, targetMode);
   const transitionState = await waitForEditorModeState(targetPage, targetMode, button);
   if (transitionState.passed) return;
   throw safeFailure("editor_mode_switch_failed", `${targetMode} 편집 모드 전환을 확인하지 못했습니다.`);
