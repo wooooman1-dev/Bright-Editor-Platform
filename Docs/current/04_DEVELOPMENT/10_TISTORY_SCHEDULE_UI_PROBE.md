@@ -1,6 +1,6 @@
 # Tistory Schedule UI Probe
 
-Status: Foundation Implemented / Local Validation Pending
+Status: Foundation Implemented / Automated Validation Passed / External Probe Pending
 
 ## 1. Purpose
 
@@ -137,16 +137,41 @@ This stage does not:
 
 A second-stage panel probe may be designed only after the first-stage inventory has been run against the actual Tistory editor and the observed controls have been reviewed.
 
-## 8. Validation Required
+## 8. Automated Validation
 
-Before this probe is used against Tistory, run:
+Validated on Windows on 2026-07-28 at commit `262d2ae`:
 
 ```text
-npm run typecheck
-npm run lint
-npm test
-npm run build
-git diff --check
+npm run typecheck — passed
+npm run lint — passed
+npm test — passed
+  Test Files: 183 passed, 7 skipped
+  Tests: 936 passed, 17 skipped
+npm run build — passed
+git diff --check — passed
 ```
 
-Then run one probe against one selected Tistory connection and preserve the returned JSON as UI evidence. Do not implement schedule selectors or a final click from the first result alone.
+The skipped tests are existing manual suites and are not automated failures.
+
+The generated production route list includes:
+
+```text
+/api/publishing/schedules/ui-probe
+```
+
+The working branch was synchronized with `origin/feat/tistory-native-scheduled-publishing`. The only local untracked file was the separately supplied schedule design PDF, which is not part of the implementation.
+
+## 9. External Probe Gate
+
+The automated gate has passed. The next allowed step is one first-stage probe against one selected Tistory connection.
+
+The returned JSON must be preserved as UI evidence and must show:
+
+- `status: diagnosed`
+- `workflow: schedule.verify`
+- `readOnly: true`
+- `clickCounts.total: 0`
+- `clickCounts.restricted: 0`
+- unchanged title and body length evidence
+
+Do not implement schedule selectors or a final click from the first result alone. Review the observed control inventory first.
