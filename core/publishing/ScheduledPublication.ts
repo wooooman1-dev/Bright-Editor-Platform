@@ -74,9 +74,33 @@ export function isScheduledPublication(record: unknown): record is ScheduledPubl
   if (!record || typeof record !== "object") return false;
   const candidate = record as Partial<ScheduledPublication>;
   return typeof candidate.id === "string"
+    && typeof candidate.workspaceId === "string"
+    && typeof candidate.projectId === "string"
+    && typeof candidate.contentId === "string"
+    && (candidate.platform === "tistory" || candidate.platform === "wordpress")
+    && typeof candidate.platformConnectionId === "string"
+    && typeof candidate.revisionId === "string"
     && typeof candidate.scheduledAt === "string"
+    && typeof candidate.timezone === "string"
     && typeof candidate.status === "string"
-    && scheduledPublicationStatuses.includes(candidate.status as ScheduledPublicationStatus);
+    && scheduledPublicationStatuses.includes(candidate.status as ScheduledPublicationStatus)
+    && isNullableString(candidate.categoryId)
+    && isNullableString(candidate.categoryName)
+    && typeof candidate.requestFingerprint === "string"
+    && typeof candidate.operationId === "string"
+    && typeof candidate.attemptCount === "number"
+    && Number.isInteger(candidate.attemptCount)
+    && candidate.attemptCount >= 0
+    && typeof candidate.lastAttemptAt === "string"
+    && typeof candidate.createdAt === "string"
+    && typeof candidate.updatedAt === "string"
+    && isOptionalString(candidate.registeredAt)
+    && isOptionalString(candidate.verifiedAt)
+    && isOptionalString(candidate.externalPostId)
+    && isOptionalString(candidate.externalManagementUrl)
+    && isOptionalString(candidate.publicUrl)
+    && isOptionalString(candidate.failureCode)
+    && isOptionalString(candidate.lastError);
 }
 
 export function isLegacyScheduledPublication(record: unknown): record is LegacyScheduledPublication {
@@ -169,6 +193,14 @@ function isValidTimeZone(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+function isNullableString(value: unknown): value is string | null {
+  return value === null || typeof value === "string";
+}
+
+function isOptionalString(value: unknown): value is string | undefined {
+  return value === undefined || typeof value === "string";
 }
 
 function safeSerializedValue(value: unknown): string {
