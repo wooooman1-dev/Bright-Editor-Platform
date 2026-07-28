@@ -49,19 +49,24 @@ function serverData(): UserData {
   } as unknown as UserData;
 }
 
+function omitKeys<T extends object, K extends keyof T>(value: T, keys: readonly K[]): Omit<T, K> {
+  const copy = { ...value } as Record<PropertyKey, unknown>;
+  for (const key of keys) delete copy[key as PropertyKey];
+  return copy as Omit<T, K>;
+}
+
 describe("Tistory publishing preparation persistence", () => {
   it("keeps the server-confirmed category when a newer client document snapshot omits publishing fields", () => {
     const current = serverData();
     const project = current.projects[0];
     const content = current.contents[0];
-    const { defaultTistoryCategory: _defaultCategory, ...staleStrategy } = project.strategy!;
-    const {
-      publishingPreparation: _preparation,
-      publishingAccountId: _account,
-      selectedPublishingAccountIds: _selectedAccounts,
-      platform: _platform,
-      ...staleContent
-    } = content;
+    const staleStrategy = omitKeys(project.strategy!, ["defaultTistoryCategory"] as const);
+    const staleContent = omitKeys(content, [
+      "publishingPreparation",
+      "publishingAccountId",
+      "selectedPublishingAccountIds",
+      "platform",
+    ] as const);
 
     const merged = mergeUserDataSnapshot(current, {
       ...current,
@@ -144,10 +149,7 @@ describe("Tistory publishing preparation persistence", () => {
           defaultTistoryCategory: undefined,
         },
       })),
-      contents: selected.contents.map((content) => {
-        const { publishingPreparation: _preparation, ...withoutPreparation } = content;
-        return withoutPreparation;
-      }),
+      contents: selected.contents.map((content) => omitKeys(content, ["publishingPreparation"] as const)),
     } as UserData;
 
     const merged = mergeUserDataSnapshot(current, selected);
