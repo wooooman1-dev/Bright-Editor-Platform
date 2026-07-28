@@ -45,7 +45,12 @@ export async function calculateTistoryScheduleReadiness(input: Readonly<{
 
   const connection = input.connection;
   let schedulePermissionPassed = false;
-  if (connection && input.data.workspace && connection.workspaceId === input.data.workspace.id) {
+  if (
+    connection
+    && connection.platform === "tistory"
+    && input.data.workspace
+    && connection.workspaceId === input.data.workspace.id
+  ) {
     try {
       new PublishingPermissionGate().authorize({
         workspaceId: input.data.workspace.id,
@@ -65,7 +70,7 @@ export async function calculateTistoryScheduleReadiness(input: Readonly<{
     passed: schedulePermissionPassed,
     message: schedulePermissionPassed
       ? "Permission Gate에서 티스토리 예약 등록이 허용되었습니다."
-      : "이 계정의 예약 등록 권한을 설정에서 명시적으로 허용해 주세요.",
+      : "이 Tistory 계정의 예약 등록 권한을 설정에서 명시적으로 허용해 주세요.",
   });
 
   const timezonePolicyPassed = input.timezone.trim() === "Asia/Seoul";
