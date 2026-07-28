@@ -10,6 +10,7 @@ export async function POST(request: Request) {
     const body = await request.json() as { workspaceId?: string; connectionId?: string; enabled?: boolean };
     const workspaceId = required(body.workspaceId, "Workspace is required.");
     const connectionId = required(body.connectionId, "Connection is required.");
+    if (typeof body.enabled !== "boolean") throw new Error("Schedule permission enabled state is required.");
     const data = await studioStore.get<UserData>("application", "user-data");
     if (data?.workspace?.id !== workspaceId) throw new Error("Workspace was not found.");
 
@@ -19,7 +20,7 @@ export async function POST(request: Request) {
     if (connection.status !== "connected") throw new Error("Reconnect the Tistory account before changing schedule permission.");
 
     const permissions = new Set<AutomationPermission>(connection.automationPermissions ?? safeDraftPermissions);
-    if (body.enabled === true) permissions.add("schedule.create");
+    if (body.enabled) permissions.add("schedule.create");
     else permissions.delete("schedule.create");
     const updatedAt = new Date().toISOString();
     const updated = Object.freeze({
