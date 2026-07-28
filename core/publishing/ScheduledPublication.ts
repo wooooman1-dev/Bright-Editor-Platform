@@ -79,9 +79,20 @@ export function isScheduledPublication(record: unknown): record is ScheduledPubl
     && scheduledPublicationStatuses.includes(candidate.status as ScheduledPublicationStatus);
 }
 
-export function scheduledPublicationStorageKey(record: ScheduledPublishingRecord): string {
+export function isLegacyScheduledPublication(record: unknown): record is LegacyScheduledPublication {
+  if (!record || typeof record !== "object") return false;
+  const candidate = record as Partial<LegacyScheduledPublication>;
+  return typeof candidate.contentId === "string"
+    && typeof candidate.platform === "string"
+    && typeof candidate.scheduledFor === "string";
+}
+
+export function scheduledPublicationStorageKey(record: unknown): string {
   if (isScheduledPublication(record)) return record.id;
-  return `legacy:${record.contentId}:${record.platform}:${record.scheduledFor}`;
+  if (isLegacyScheduledPublication(record)) {
+    return `legacy:${record.contentId}:${record.platform}:${record.scheduledFor}`;
+  }
+  return `invalid:${encodeURIComponent(safeSerializedValue(record))}`;
 }
 
 export function createScheduleRequestFingerprint(input: ScheduleRequestIdentity): string {
@@ -157,5 +168,14 @@ function isValidTimeZone(value: string): boolean {
     return true;
   } catch {
     return false;
+  }
+}
+
+function safeSerializedValue(value: unknown): string {
+  try {
+    const serialized = JSON.stringify(value);
+    return serialized === undefined ? String(value) : serialized;
+  } catch {
+    return String(value);
   }
 }
