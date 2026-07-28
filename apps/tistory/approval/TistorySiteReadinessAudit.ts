@@ -1,4 +1,7 @@
-import type { SiteApprovalReadinessSnapshot } from "../../../core/approval";
+import type {
+  SiteApprovalReadinessRequirement,
+  SiteApprovalReadinessSnapshot,
+} from "../../../core/approval";
 
 export type TistorySiteAuditFetcher = (
   input: string | URL,
@@ -13,6 +16,13 @@ export type TistorySiteReadinessAuditInput = Readonly<{
   timeoutMs?: number;
 }>;
 
+type MutableSiteCheck = {
+  key: string;
+  passed: boolean;
+  message: string;
+  requirement?: SiteApprovalReadinessRequirement;
+};
+
 /**
  * Audits the public Tistory surface without using another AI call.
  *
@@ -25,7 +35,7 @@ export async function auditTistorySiteReadiness(
 ): Promise<SiteApprovalReadinessSnapshot> {
   const fetcher = input.fetcher ?? fetch;
   const timeoutMs = input.timeoutMs ?? 12_000;
-  const checks: Array<{ key: string; passed: boolean; message: string }> = [];
+  const checks: MutableSiteCheck[] = [];
 
   let page: PublicHtmlPage;
   try {
@@ -41,7 +51,7 @@ export async function auditTistorySiteReadiness(
         Object.freeze({ key: "https", passed: false, message: "공개 HTTPS 주소를 확인하지 못했습니다." }),
         Object.freeze({ key: "navigation", passed: false, message: "메뉴와 내부 탐색 구조를 확인하지 못했습니다." }),
         Object.freeze({ key: "privacy", passed: false, message: "개인정보처리방침 링크를 확인하지 못했습니다." }),
-        Object.freeze({ key: "about_contact", passed: false, message: "사이트 소개 또는 문의 경로를 확인하지 못했습니다." }),
+        Object.freeze({ key: "about_contact", passed: false, message: "권장: 사이트 소개 또는 문의 경로를 확인하지 못했습니다.", requirement: "recommended" as const }),
         Object.freeze({ key: "mobile", passed: false, message: "모바일 viewport 설정을 확인하지 못했습니다." }),
         Object.freeze({ key: "broken_links", passed: false, message: "내부 링크 정상 여부를 확인하지 못했습니다." }),
       ]),
@@ -111,13 +121,14 @@ export async function auditTistorySiteReadiness(
   });
 
   const about = /(?:사이트\s*소개|블로그\s*소개|운영자\s*소개|about)/i.test(linksAndText);
-  const contact = /(?:문의|연락처|contact)/i.test(linksAndText);
+  const contact = /(?:문의|연락처|contact|방명록)/i.test(linksAndText);
   checks.push({
     key: "about_contact",
     passed: about && contact,
+    requirement: "recommended",
     message: about && contact
-      ? "사이트 소개와 문의 경로를 확인했습니다."
-      : `사이트 소개 ${about ? "확인" : "미확인"} · 문의 경로 ${contact ? "확인" : "미확인"}.`,
+      ? "권장 사이트 소개와 문의 경로를 확인했습니다."
+      : `권장: 사이트 소개 ${about ? "확인" : "미확인"} · 문의 경로 ${contact ? "확인" : "미확인"}.`,
   });
 
   const placeholderFree = !/(?:공사\s*중|준비\s*중|coming\s*soon|under\s*construction|lorem\s*ipsum|내용을\s*입력)/i.test(page.text);
@@ -141,13 +152,13 @@ export async function auditTistorySiteReadiness(
         : `깨지거나 접근할 수 없는 내부 링크 ${broken.length}개가 있습니다: ${broken.join(", ")}`,
   });
 
+  const requiredFailures = checks.filter((check) => !check.passed && (check.requirement ?? "required") === "required");
   const criticalKeys = new Set(["public_access", "https", "placeholder_free"]);
-  const criticalFailure = checks.some((check) => criticalKeys.has(check.key) && !check.passed);
-  const incomplete = checks.some((check) => !check.passed);
+  const criticalFailure = requiredFailures.some((check) => criticalKeys.has(check.key));
 
   return Object.freeze({
     version: "1.0",
-    status: criticalFailure ? "blocked" : incomplete ? "needs_review" : "passed",
+    status: criticalFailure ? "blocked" : requiredFailures.length ? "needs_review" : "passed",
     checkedAt: input.checkedAt,
     checks: Object.freeze(checks.map((check) => Object.freeze(check))),
   });
