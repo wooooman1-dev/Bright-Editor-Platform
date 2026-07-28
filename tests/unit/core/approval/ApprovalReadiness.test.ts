@@ -131,6 +131,32 @@ describe("ApprovalReadiness", () => {
     expect(report.checks).toContainEqual(expect.objectContaining({ key: "evidence", status: "passed" }));
   });
 
+  it("does not block application readiness when only a recommended site item is missing", () => {
+    const siteWithRecommendation: SiteApprovalReadinessSnapshot = {
+      version: "1.0",
+      status: "passed",
+      checkedAt: "2026-07-27T00:00:00.000Z",
+      checks: [
+        { key: "privacy", passed: true, message: "개인정보처리방침을 확인했습니다." },
+        { key: "about_contact", passed: false, message: "권장: 소개 페이지가 없습니다.", requirement: "recommended" },
+      ],
+    };
+    const report = evaluateApprovalReadiness(document({
+      approvalEvidence: evidence,
+      approvalDuplicateCheck: duplicate,
+      siteApprovalReadiness: siteWithRecommendation,
+      internalLinkCatalogStatus: "evaluated",
+      availableRelatedContentCandidates: 0,
+    }), [], true);
+
+    expect(report.applicationReady).toBe(true);
+    expect(report.checks).toContainEqual(expect.objectContaining({
+      key: "site_readiness",
+      status: "passed",
+      message: expect.stringContaining("권장 보완 항목 1개"),
+    }));
+  });
+
   it("marks the site application-ready only after every independent gate passes", () => {
     const report = evaluateApprovalReadiness(document({
       approvalEvidence: evidence,
