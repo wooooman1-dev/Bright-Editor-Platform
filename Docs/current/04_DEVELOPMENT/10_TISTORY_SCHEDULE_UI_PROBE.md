@@ -1,6 +1,6 @@
 # Tistory Schedule UI Probe
 
-Status: First External Read-Only Probe Verified / Second-Stage Foundation Implemented / Validation Pending
+Status: First External Read-Only Probe Verified / Second-Stage Automated Validation Passed / External Panel Probe Pending
 
 ## 1. Purpose
 
@@ -43,6 +43,13 @@ app/api/publishing/schedules/ScheduleProbeContext.ts
 ```
 
 Both probe stages use the same Workspace, Project, Content, account, selected-target, Draft Only, public-publish-disabled, and Tistory-enabled checks.
+
+The validation boundary checks both:
+
+- the normalized safe Workspace policy; and
+- the raw stored publishing policy before normalization.
+
+Therefore a corrupted or legacy persisted state containing `draftOnly: false` or `publicPublish: true` is rejected instead of being hidden by safe defaults.
 
 ## 3. First-Stage Zero-Click Probe
 
@@ -292,20 +299,37 @@ npm run build — passed
 git diff --check — passed
 ```
 
-Second-stage implementation has been added after that validated commit.
+Second-stage automated validation passed on Windows on 2026-07-28 at code commit `644a6d2`:
 
-The following are **not yet verified** for the second stage:
+```text
+npm run typecheck — passed
+npm test -- tests/unit/app/api/publishing/schedules/SchedulePanelProbeRoute.test.ts — passed
+  Test Files: 1 passed
+  Tests: 4 passed
+npm test — passed
+  Test Files: 186 passed, 7 skipped
+  Tests: 946 passed, 17 skipped
+npm run lint — passed
+npm run build — passed
+git diff --check — passed
+git status — working tree clean
+```
 
-- TypeScript check
-- lint
-- unit and contract tests
-- production build
-- route registration in the production route list
+The production route list includes both:
+
+```text
+/api/publishing/schedules/ui-probe
+/api/publishing/schedules/panel-probe
+```
+
+Still not externally verified for the second stage:
+
 - actual external Tistory publication-panel probe
-- actual panel root and controls
+- actual isolated panel root and controls
+- actual default checked and disabled states
 - Korean label decoding from Base64 evidence
 
-No second-stage success claim may be made until these checks are completed.
+No second-stage external success claim may be made until those checks are completed.
 
 ## 9. Deliberately Not Implemented
 
@@ -329,11 +353,10 @@ This work does not implement:
 
 The next gate is:
 
-1. run local automated validation on the current branch;
-2. confirm the new production API route exists;
-3. run the second-stage endpoint against the selected real Tistory account;
-4. verify exactly one opener click and zero restricted clicks;
-5. inspect the isolated panel controls and UTF-8/Base64 label evidence;
-6. approve stable schedule/date/time locators only from that real evidence.
+1. run the second-stage endpoint against the selected real Tistory account;
+2. verify exactly one opener click and zero restricted clicks;
+3. verify unchanged title and body lengths;
+4. inspect the isolated panel controls, default states, and UTF-8/Base64 label evidence;
+5. approve stable schedule/date/time locators only from that real evidence.
 
 No schedule selection or final registration implementation may begin before this gate passes.
