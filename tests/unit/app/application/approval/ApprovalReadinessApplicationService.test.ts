@@ -225,9 +225,9 @@ describe("ApprovalReadinessApplicationService", () => {
     expect(result.evidence.verifiedSourceCount).toBe(2);
   });
 
-  it("uses the official NGA IIIF manifest when an artwork page is blocked", async () => {
+  it("uses the official NGA Open Data record when an artwork page is blocked", async () => {
     const ngaSourceUrl = "https://www.nga.gov/artworks/1167-portrait-man";
-    const ngaManifestUrl = "https://www.nga.gov/api/v1/iiif/presentation/manifest.json?cultObj%3Aid=1167";
+    const ngaDatasetUrl = "https://raw.githubusercontent.com/NationalGalleryOfArt/opendata/main/data/objects.csv";
     const ngaEvidence: ApprovalEvidencePack = {
       ...candidateEvidence,
       sources: [{
@@ -256,18 +256,12 @@ describe("ApprovalReadinessApplicationService", () => {
         document: ngaDocument,
       }],
     };
-    const manifest = {
-      "@context": "http://iiif.io/api/presentation/2/context.json",
-      "@id": ngaManifestUrl,
-      label: "Portrait of a Man",
-      metadata: [
-        { label: "Date", value: "1648/1650" },
-        { label: "Medium", value: "oil on canvas" },
-        { label: "Dimensions", value: "overall: 63.5 x 53.5 cm" },
-        { label: "Collection", value: "National Gallery of Art" },
-      ],
-      description: "Portrait of a Man by Frans Hals, National Gallery of Art collection record.",
-    };
+    const csv = [
+      "objectid,title,displaydate,beginyear,endyear,medium,dimensions,attribution,accessionnum,creditline,classification",
+      "1102,Earlier Work,c. 1835,1835,1835,oil on canvas,50 x 40 cm,American 19th Century,1947.1.1,Gift,Painting",
+      "1167,Portrait of a Man,1648/1650,1648,1650,oil on canvas,\"overall: 63.5 x 53.5 cm (25 x 21 1/16 in.)\",Frans Hals,1942.9.28,Widener Collection,Painting",
+      "1200,Later Work,1700,1700,1700,oil on panel,40 x 30 cm,Unknown,1950.1.1,Gift,Painting",
+    ].join("\n");
     const controlledFetcher = vi.fn(async (input: string | URL, init?: RequestInit) => {
       const url = String(input);
       if (init?.method === "HEAD") return new Response("", { status: 200 });
@@ -277,10 +271,10 @@ describe("ApprovalReadinessApplicationService", () => {
           headers: { "content-type": "text/html; charset=UTF-8" },
         });
       }
-      if (url === ngaManifestUrl) {
-        return new Response(JSON.stringify(manifest), {
+      if (url === ngaDatasetUrl) {
+        return new Response(csv, {
           status: 200,
-          headers: { "content-type": "application/ld+json" },
+          headers: { "content-type": "text/csv; charset=utf-8" },
         });
       }
       return new Response(siteHtml, { status: 200, headers: { "content-type": "text/html" } });
@@ -291,15 +285,15 @@ describe("ApprovalReadinessApplicationService", () => {
       () => "2026-07-27T10:30:00.000Z",
     ).execute({ data: ngaData, contentId: "content-1", connection });
 
-    expect(controlledFetcher).toHaveBeenCalledWith(ngaManifestUrl, expect.objectContaining({ method: "GET" }));
+    expect(controlledFetcher).toHaveBeenCalledWith(ngaDatasetUrl, expect.objectContaining({ method: "GET" }));
     expect(result.evidence.pack.status).toBe("verified");
     expect(result.evidence.verifiedSourceCount).toBe(1);
     expect(result.evidence.pack.sources[0]).toMatchObject({
       verified: true,
       verificationStatus: "verified",
-      publisher: "National Gallery of Art",
-      finalUrl: ngaManifestUrl,
-      contentType: "text/html; normalized-from=application/ld+json",
+      publisher: "National Gallery of Art Open Data",
+      finalUrl: ngaSourceUrl,
+      contentType: "text/html; normalized-from=text/csv",
     });
   });
 });
