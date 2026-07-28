@@ -18,6 +18,7 @@ import type { ContentDocument } from "../../../core/content";
 import { auditTistorySiteReadiness } from "../../../apps/tistory/approval/TistorySiteReadinessAudit";
 import { resolveProjectStrategy, type UserContent, type UserData } from "../../user-flow/user-data";
 import type { ApprovalAwareContent } from "./ApprovalContentPolicy";
+import { resolveOfficialEvidenceSourceFallback } from "./OfficialEvidenceSourceResolver";
 
 export type ApprovalReadinessExecutionResult = Readonly<{
   data: UserData;
@@ -200,12 +201,7 @@ async function fetchApprovalSourcePage(
         method: "GET",
         redirect: "follow",
         signal: controller.signal,
-        headers: {
-          Accept: "text/html,application/xhtml+xml,application/pdf;q=0.9,*/*;q=0.8",
-          "Accept-Language": "en-US,en;q=0.9,ko;q=0.8",
-          "Cache-Control": "no-cache",
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 BrightStudioEvidenceVerifier/1.1",
-        },
+        headers: sourceRequestHeaders("text/html,application/xhtml+xml,application/pdf;q=0.9,*/*;q=0.8"),
       });
       const contentType = response.headers.get("content-type") ?? "";
       const html = /(?:text\/html|application\/xhtml\+xml)/i.test(contentType)
@@ -223,8 +219,50 @@ async function fetchApprovalSourcePage(
       });
 
       if (!retryableSourceStatus(response.status) || attempt === sourceFetchMaxAttempts - 1) {
+        if (sourcePageRequiresOfficialFallback(page)) {
+          const fallback = await fetchOfficialSourceFallback(requestedUrl, fetcher, timeoutMs);
+          if (fallback) return fallback;
+        }
         return page;
       }
+      retryDelay = sourceRetryDelayMs(response.headers.get("retry-after"), attempt);
+    } catch {
+      if (attempt === sourceFetchMaxAttempts - 1) {
+        return fetchOfficialSourceFallback(requestedUrl, fetcher, timeoutMs);
+      }
+      retryDelay = sourceRetryDelayMs(undefined, attempt);
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    await delay(retryDelay ?? 0);
+  }
+
+  return fetchOfficialSourceFallback(requestedUrl, fetcher, timeoutMs);
+}
+
+async function fetchOfficialSourceFallback(
+  requestedUrl: string,
+  fetcher: ApprovalReadinessFetch,
+  timeoutMs: number,
+): Promise<ApprovalSourcePage | undefined> {
+  const fallback = resolveOfficialEvidenceSourceFallback(requestedUrl);
+  if (!fallback) return undefined;
+
+  for (let attempt = 0; attempt < sourceFetchMaxAttempts; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    let retryDelay: number | undefined;
+
+    try {
+      const response = await fetcher(fallback.requestUrl, {
+        method: "GET",
+        redirect: "follow",
+        signal: controller.signal,
+        headers: sourceRequestHeaders(fallback.accept),
+      });
+      if (response.ok) return fallback.normalize(response, requestedUrl);
+      if (!retryableSourceStatus(response.status) || attempt === sourceFetchMaxAttempts - 1) return undefined;
       retryDelay = sourceRetryDelayMs(response.headers.get("retry-after"), attempt);
     } catch {
       if (attempt === sourceFetchMaxAttempts - 1) return undefined;
@@ -237,6 +275,20 @@ async function fetchApprovalSourcePage(
   }
 
   return undefined;
+}
+
+function sourceRequestHeaders(accept: string): HeadersInit {
+  return {
+    Accept: accept,
+    "Accept-Language": "en-US,en;q=0.9,ko;q=0.8",
+    "Cache-Control": "no-cache",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 BrightStudioEvidenceVerifier/1.2",
+  };
+}
+
+function sourcePageRequiresOfficialFallback(page: ApprovalSourcePage): boolean {
+  if (page.status >= 400) return true;
+  return /(?:just a moment|security checkpoint|attention required|access denied|temporarily blocked)/i.test(page.title);
 }
 
 function retryableSourceStatus(status: number): boolean {
