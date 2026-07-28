@@ -38,7 +38,11 @@ function connection(overrides: Partial<PlatformConnection> = {}): PlatformConnec
   };
 }
 
-function execution(account = connection(), selectedTarget = true) {
+function execution(
+  account = connection(),
+  selectedTarget = true,
+  overrides: Record<string, unknown> = {},
+) {
   return {
     workspaceId: "workspace-1",
     projectId: "project-1",
@@ -54,6 +58,7 @@ function execution(account = connection(), selectedTarget = true) {
     scheduledAt: SCHEDULED_AT,
     timezone: "Asia/Seoul" as const,
     finalConfirmation: true as const,
+    ...overrides,
   };
 }
 
@@ -85,6 +90,7 @@ describe("TistoryScheduleCreateApplicationService", () => {
         scheduledAt: SCHEDULED_AT,
         timezone: "Asia/Seoul",
         categoryId: "100",
+        media: [],
       });
       expect(String(command.storageStatePath)).toContain("storage-state.json");
       return verified();
@@ -111,6 +117,85 @@ describe("TistoryScheduleCreateApplicationService", () => {
       result: "scheduled_verified",
       finalClickIssued: true,
     });
+  });
+
+  it("prepares local media before the schedule worker using the existing registered media workflow", async () => {
+    const root = await mkdtemp(join(tmpdir(), "bright-tistory-schedule-media-"));
+    roots.push(root);
+    const order: string[] = [];
+    const mediaWorker = vi.fn(async (path: string) => {
+      order.push("media");
+      const command = JSON.parse(await readFile(path, "utf8")) as { media?: unknown[] };
+      expect(command.media).toHaveLength(1);
+    });
+    const worker = vi.fn(async (path: string) => {
+      order.push("schedule");
+      const command = JSON.parse(await readFile(path, "utf8")) as { media?: Array<Record<string, unknown>> };
+      expect(command.media?.[0]).toMatchObject({
+        blockId: "image-1",
+        storageKey: "image-1.png",
+        localPath: "C:/bright/image-1.png",
+      });
+      return verified();
+    });
+    const service = new TistoryScheduleCreateApplicationService(
+      { save: async () => undefined },
+      root,
+      () => new Date(NOW),
+      worker,
+      mediaWorker,
+    );
+
+    const result = await service.execute(execution(
+      connection({ automationPermissions: ["connection.verify", "schedule.create", "media.upload"] }),
+      true,
+      {
+        media: [{
+          alt: "이미지 설명",
+          blockId: "image-1",
+          placeholderUrl: "https://bright-studio.invalid/tistory-media/image-1",
+          storageKey: "image-1.png",
+          localPath: "C:/bright/image-1.png",
+        }],
+      },
+    ));
+
+    expect(result).toEqual(verified());
+    expect(order).toEqual(["media", "schedule"]);
+    expect(mediaWorker).toHaveBeenCalledTimes(1);
+    expect(worker).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not start media or Playwright without explicit media.upload permission", async () => {
+    const root = await mkdtemp(join(tmpdir(), "bright-tistory-schedule-media-denied-"));
+    roots.push(root);
+    const worker = vi.fn(async () => verified());
+    const mediaWorker = vi.fn(async () => undefined);
+    const service = new TistoryScheduleCreateApplicationService(
+      { save: async () => undefined },
+      root,
+      () => new Date(NOW),
+      worker,
+      mediaWorker,
+    );
+
+    const result = await service.execute(execution(connection(), true, {
+      media: [{
+        alt: "이미지 설명",
+        blockId: "image-1",
+        placeholderUrl: "https://bright-studio.invalid/tistory-media/image-1",
+        storageKey: "image-1.png",
+        localPath: "C:/bright/image-1.png",
+      }],
+    }));
+
+    expect(result).toMatchObject({
+      status: "failed",
+      finalClickIssued: false,
+      diagnosticCode: "PERMISSION_DENIED",
+    });
+    expect(mediaWorker).not.toHaveBeenCalled();
+    expect(worker).not.toHaveBeenCalled();
   });
 
   it("does not start Playwright without explicit schedule.create permission", async () => {
