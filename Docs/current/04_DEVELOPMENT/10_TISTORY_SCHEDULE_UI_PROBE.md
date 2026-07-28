@@ -1,6 +1,6 @@
 # Tistory Schedule UI Probe
 
-Status: First External Read-Only Probe Verified / Second-Stage Automated Validation Passed / External Panel Probe Pending
+Status: First External Zero-Click Probe Verified / First Publication-Panel Attempt Failed Safely / Diagnostic Evidence Preservation Pending Validation
 
 ## 1. Purpose
 
@@ -43,13 +43,6 @@ app/api/publishing/schedules/ScheduleProbeContext.ts
 ```
 
 Both probe stages use the same Workspace, Project, Content, account, selected-target, Draft Only, public-publish-disabled, and Tistory-enabled checks.
-
-The validation boundary checks both:
-
-- the normalized safe Workspace policy; and
-- the raw stored publishing policy before normalization.
-
-Therefore a corrupted or legacy persisted state containing `draftOnly: false` or `publicPublish: true` is rejected instead of being hidden by safe defaults.
 
 ## 3. First-Stage Zero-Click Probe
 
@@ -195,33 +188,63 @@ clickCounts.targets[0].id == publish-layer-btn
 
 Any additional click causes the probe to fail.
 
+### First external publication-panel attempt
+
+The first second-stage attempt was executed against the real `bright-healthy` connection after:
+
+- the local Tistory session was reconnected;
+- the connection returned to `connected`;
+- `schedule.create` was enabled;
+- `publish.execute` remained disabled.
+
+Observed response:
+
+```text
+status: failed
+workflow: schedule.verify
+probeStage: publication-panel
+readOnly: true
+diagnosticCode: publication_panel_not_isolated
+editorUrl: https://bright-healthy.tistory.com/manage/newpost
+```
+
+The worker checks the exact one-click contract before the panel-isolation condition. Therefore this diagnostic code means the allowed opener click contract passed and the failure occurred only because the newly visible independent panel root was not proven.
+
+No schedule, date, time, publication-state, save, or final registration control was clicked.
+
+### Confirmed isolation assumption mismatch
+
+The previous isolation algorithm required the common ancestor of newly visible controls to also be absent from the pre-click visible-element baseline. The actual Tistory editor may reveal publication controls inside a container that was already visible before the click. That possibility is not accepted as a locator assumption; additional bounded evidence is required.
+
+The worker now preserves bounded failure evidence without weakening the success gate:
+
+- click counts and clicked target
+- title/body state before and after
+- visible-control snapshots before the click
+- newly visible controls
+- controls whose class, ARIA state, visibility, checked state, disabled state, or rectangle changed
+- common ancestor candidate
+- bounded ancestor candidates
+- visible panel-like containers
+- opener state after the click
+- `document.characterSet`
+- bounded UTF-8 Base64 text evidence
+
+The strict success condition still requires an isolated `panelRoot` and at least one control in that root.
+
 ### Panel isolation
 
-Before opening the panel, the worker records signatures for visible DOM elements.
+Before opening the panel, the worker records signatures for visible DOM elements and bounded snapshots for interactive controls.
 
 After the one allowed click, it:
 
 1. finds interactive controls that became newly visible;
-2. finds the deepest newly visible common ancestor containing those controls;
-3. refuses to treat `body` or `html` as the panel root;
-4. inventories only the isolated newly visible subtree;
-5. fails when an isolated panel root cannot be proven.
-
-The inventory is bounded and includes only:
-
-- tag
-- role
-- type
-- ID
-- name
-- visible control text
-- ARIA label, popup, expanded, controls, and checked attributes
-- placeholder and title
-- disabled and checked state
-- limited class tokens
-- newly-visible state
-- visible panel containers
-- `document.characterSet`
+2. records controls whose bounded state changed;
+3. finds the deepest newly visible common ancestor when possible;
+4. refuses to treat `body` or `html` as the panel root;
+5. inventories only the isolated subtree on success;
+6. preserves bounded candidate evidence on failure;
+7. fails when an isolated panel root cannot be proven.
 
 Article HTML is not collected.
 
@@ -238,6 +261,8 @@ Plain text remains available for normal inspection, while Base64 evidence allows
 ### Editor-state evidence
 
 A successful result requires title and TinyMCE body text lengths to remain unchanged before and after opening the panel.
+
+The same state evidence is now retained in failed post-click diagnostic results when it was successfully collected.
 
 ## 6. API Context
 
@@ -287,49 +312,30 @@ This does not authorize schedule registration.
 
 ## 8. Automated Validation State
 
-First-stage validation passed on Windows on 2026-07-28 at code commit `262d2ae`:
+The last fully validated second-stage baseline passed on Windows on 2026-07-28 at runtime code commit `644a6d2`:
 
 ```text
 npm run typecheck — passed
 npm run lint — passed
-npm test — passed
-  Test Files: 183 passed, 7 skipped
-  Tests: 936 passed, 17 skipped
-npm run build — passed
-git diff --check — passed
-```
-
-Second-stage automated validation passed on Windows on 2026-07-28 at code commit `644a6d2`:
-
-```text
-npm run typecheck — passed
-npm test -- tests/unit/app/api/publishing/schedules/SchedulePanelProbeRoute.test.ts — passed
-  Test Files: 1 passed
-  Tests: 4 passed
 npm test — passed
   Test Files: 186 passed, 7 skipped
   Tests: 946 passed, 17 skipped
-npm run lint — passed
 npm run build — passed
 git diff --check — passed
-git status — working tree clean
+working tree — clean
 ```
 
-The production route list includes both:
+The failed-evidence preservation change was added after that validated commit. Validation is pending for the current head.
 
-```text
-/api/publishing/schedules/ui-probe
-/api/publishing/schedules/panel-probe
-```
+Not yet verified on the current head:
 
-Still not externally verified for the second stage:
-
-- actual external Tistory publication-panel probe
-- actual isolated panel root and controls
-- actual default checked and disabled states
+- TypeScript check
+- lint
+- unit and contract tests
+- production build
+- second external publication-panel probe with preserved failure evidence
+- actual panel root and controls
 - Korean label decoding from Base64 evidence
-
-No second-stage external success claim may be made until those checks are completed.
 
 ## 9. Deliberately Not Implemented
 
@@ -353,10 +359,12 @@ This work does not implement:
 
 The next gate is:
 
-1. run the second-stage endpoint against the selected real Tistory account;
-2. verify exactly one opener click and zero restricted clicks;
-3. verify unchanged title and body lengths;
-4. inspect the isolated panel controls, default states, and UTF-8/Base64 label evidence;
-5. approve stable schedule/date/time locators only from that real evidence.
+1. validate the failed-evidence preservation change locally;
+2. rerun the second-stage endpoint against `bright-healthy`;
+3. verify exactly one opener click and zero restricted clicks from the returned evidence;
+4. verify unchanged title/body state;
+5. inspect new, changed, and ancestor candidate evidence;
+6. decode bounded Base64 labels;
+7. approve a panel root only from the real evidence.
 
 No schedule selection or final registration implementation may begin before this gate passes.
