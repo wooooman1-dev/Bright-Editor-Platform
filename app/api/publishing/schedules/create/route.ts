@@ -103,7 +103,7 @@ export async function POST(request: Request) {
       operationId,
     });
     scheduleId = reservation.reservation.id;
-    if (!reservation.created) {
+    if (!reservation.created && reservation.reservation.status !== "failed") {
       return NextResponse.json({
         result: { status: "existing", schedule: reservation.reservation },
         readiness,
