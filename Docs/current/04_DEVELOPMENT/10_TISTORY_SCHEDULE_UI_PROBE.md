@@ -1,6 +1,6 @@
 # Tistory Schedule UI Probe
 
-Status: Foundation Implemented / Automated Validation Passed / External Probe Pending
+Status: First External Read-Only Probe Verified / Second-Stage Design Pending
 
 ## 1. Purpose
 
@@ -163,15 +163,63 @@ The working branch was synchronized with `origin/feat/tistory-native-scheduled-p
 
 ## 9. External Probe Gate
 
-The automated gate has passed. The next allowed step is one first-stage probe against one selected Tistory connection.
+The automated gate passed and the first external probe was executed against the selected `bright-healthy` Tistory connection.
 
-The returned JSON must be preserved as UI evidence and must show:
+Verified result:
 
 - `status: diagnosed`
 - `workflow: schedule.verify`
 - `readOnly: true`
 - `clickCounts.total: 0`
 - `clickCounts.restricted: 0`
-- unchanged title and body length evidence
+- title length unchanged: `0 → 0`
+- body text length unchanged: `0 → 0`
+- sanitized editor URL: `https://bright-healthy.tistory.com/manage/newpost`
+- observed control count: `52`
+- no visible dialogs
 
-Do not implement schedule selectors or a final click from the first result alone. Review the observed control inventory first.
+The source PowerShell console rendered Korean text with mojibake, so text labels from that console output are not treated as trusted locator evidence. Stable DOM attributes and IDs remain valid evidence.
+
+## 10. Verified First-Stage DOM Evidence
+
+Stable controls observed in the actual Tistory editor:
+
+- category control: `#category-btn`
+  - role: `combobox`
+  - `aria-haspopup=listbox`
+  - `aria-expanded=false`
+  - `aria-controls=category-list`
+- title input: `#post-title-inp`
+- editor mode control: `#editor-mode-layer-btn`
+- tag input: `#tagText`
+- preview button: `#preview-btn`
+- grammar check button: `#grammar-check-btn`
+- publication-layer control: `#publish-layer-btn`
+  - tag: `button`
+  - enabled: true
+- two visible role-button links immediately before the publication-layer control
+  - one has class `action`
+  - one has class `count`
+  - the count control had `aria-expanded=false`
+
+The first-stage heuristic returned three schedule candidates, but this candidate list is not sufficient to identify the real schedule control because Korean text was corrupted in the PowerShell console output and the publication panel was not opened.
+
+Therefore:
+
+- `#publish-layer-btn` is the only stable candidate for a second-stage panel-opening probe.
+- No date, time, reservation-state, or final registration locator is approved yet.
+- No schedule worker or final click may be implemented from this evidence alone.
+
+## 11. Required Second-Stage Design
+
+The next step must be a separate, explicitly bounded panel probe that:
+
+1. clicks only `#publish-layer-btn` once;
+2. never clicks Draft, immediate publish, schedule confirmation, delete, or any date/time control;
+3. records click evidence proving exactly one allowed panel-open click and zero restricted mutation clicks;
+4. inventories only the newly visible panel subtree, roles, labels, IDs, ARIA attributes, form control types, disabled state, and default checked state;
+5. records visible dialog text and control hierarchy without choosing any option;
+6. confirms title and body remain unchanged;
+7. closes the page without submitting or saving anything.
+
+This second-stage design requires explicit approval before implementation.
