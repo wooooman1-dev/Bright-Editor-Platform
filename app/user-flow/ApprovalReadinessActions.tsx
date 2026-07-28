@@ -26,8 +26,9 @@ export function approvalReadinessAutoRunDecision(
   const evidence = content.document.metadata?.approvalEvidence;
   const siteReadiness = content.document.metadata?.siteApprovalReadiness;
   const hasStoredResult = evidence?.reviewedRevisionId === currentRevisionId && Boolean(siteReadiness?.checkedAt);
-  const qualityIsCurrent = isStandardQualityApproved(content.quality)
-    && content.quality?.reviewedRevisionId === currentRevisionId;
+  const qualityIsCurrent = content.quality !== undefined
+    && isStandardQualityApproved(content.quality)
+    && content.quality.reviewedRevisionId === currentRevisionId;
 
   return Object.freeze({
     currentRevisionId,
