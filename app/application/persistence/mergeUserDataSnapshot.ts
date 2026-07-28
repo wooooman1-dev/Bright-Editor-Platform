@@ -1,10 +1,18 @@
 import type { MediaAsset } from "../../../core/media";
 import { assertConfirmedContentOpportunity, hasCurrentContentOpportunityFingerprint } from "../../../core/content";
-import type { UserContent, UserData } from "../../user-flow/user-data";
+import type { UserContent, UserData, UserProject } from "../../user-flow/user-data";
 
 export function mergeUserDataSnapshot(current: UserData | undefined, input: unknown): UserData {
   const incoming = assertUserDataSnapshot(input);
   if (!current) return incoming;
+
+  const incomingProjectIds = new Set(incoming.projects.map((project) => project.id));
+  const projects = [...incoming.projects.map((project) => {
+    const serverProject = current.projects.find((item) => item.id === project.id);
+    if (serverProject && sameValue(project, serverProject)) return serverProject;
+    if (serverProject && isOlderSnapshot(project.updatedAt, serverProject.updatedAt)) return serverProject;
+    return preserveServerPublishingProject(serverProject, project);
+  }), ...current.projects.filter((project) => !incomingProjectIds.has(project.id))];
 
   const incomingContentIds = new Set(incoming.contents.map((content) => content.id));
   const contents = [...incoming.contents.map((content) => {
@@ -24,7 +32,8 @@ export function mergeUserDataSnapshot(current: UserData | undefined, input: unkn
       contentGoal: serverContent.opportunity.contentAngle,
       contentType: serverContent.opportunity.contentType,
     }) : planningProtectedContent;
-    const protectedContent = validatePlanningContent(opportunityProtectedContent, serverContent);
+    const validatedContent = validatePlanningContent(opportunityProtectedContent, serverContent);
+    const protectedContent = preserveServerPublishingContent(serverContent, validatedContent);
     if (serverContent?.quality) return Object.freeze({ ...protectedContent, quality: serverContent.quality });
     const { quality: _clientQuality, ...withoutClientQuality } = protectedContent;
     void _clientQuality;
@@ -33,6 +42,7 @@ export function mergeUserDataSnapshot(current: UserData | undefined, input: unkn
 
   return Object.freeze({
     ...incoming,
+    projects: Object.freeze(projects),
     contents: Object.freeze(contents),
     history: frozenCopy(current.history ?? incoming.history),
     mediaMetadata: frozenCopy(current.mediaMetadata ?? incoming.mediaMetadata),
@@ -52,6 +62,35 @@ export function mergeServerMutationSnapshot(current: UserData | undefined, base:
     publishingRecords: mergeChangedByKey(current.publishingRecords, base.publishingRecords, next.publishingRecords, (item) => item.id),
     qualityReports: mergeChangedByKey(current.qualityReports, base.qualityReports, next.qualityReports, (item) => item.contentId),
     scheduledPublishing: mergeChangedByKey(current.scheduledPublishing, base.scheduledPublishing, next.scheduledPublishing, (item) => `${item.contentId}:${item.platform}`),
+  });
+}
+
+function preserveServerPublishingProject(server: UserProject | undefined, incoming: UserProject): UserProject {
+  const serverStrategy = server?.strategy;
+  const defaultTistoryCategory = serverStrategy?.defaultTistoryCategory;
+  if (!serverStrategy || !defaultTistoryCategory) return incoming;
+  const strategy = incoming.strategy ?? serverStrategy;
+  return Object.freeze({
+    ...incoming,
+    strategy: Object.freeze({
+      ...strategy,
+      defaultTistoryCategory,
+    }),
+  });
+}
+
+function preserveServerPublishingContent(server: UserContent | undefined, incoming: UserContent): UserContent {
+  const tistoryPreparation = server?.publishingPreparation?.tistory;
+  if (!tistoryPreparation) return incoming;
+  return Object.freeze({
+    ...incoming,
+    platform: server.platform ?? incoming.platform,
+    publishingAccountId: server.publishingAccountId ?? incoming.publishingAccountId,
+    selectedPublishingAccountIds: server.selectedPublishingAccountIds ?? incoming.selectedPublishingAccountIds,
+    publishingPreparation: Object.freeze({
+      ...incoming.publishingPreparation,
+      tistory: tistoryPreparation,
+    }),
   });
 }
 
@@ -88,7 +127,7 @@ function isNewerConfirmedOpportunitySelection(server: UserContent, incoming: Use
   if (!serverOpportunity || !incomingOpportunity || !incomingWorkflow) return false;
   if (serverOpportunity.opportunityId === incomingOpportunity.opportunityId && serverOpportunity.fingerprint === incomingOpportunity.fingerprint) return false;
   if (incomingWorkflow.selectedOpportunityId !== incomingOpportunity.opportunityId) return false;
-  if (!['opportunityConfirmed', 'generating', 'generated'].includes(incomingWorkflow.status)) return false;
+  if (!["opportunityConfirmed", "generating", "generated"].includes(incomingWorkflow.status)) return false;
   if (serverWorkflow && incomingWorkflow.revision <= serverWorkflow.revision) return false;
   return Boolean(incoming.planning?.opportunityCandidates?.some((candidate) => (
     candidate.opportunityId === incomingOpportunity.opportunityId
