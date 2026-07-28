@@ -70,13 +70,13 @@ const TRANSITIONS: Readonly<Record<ScheduledPublicationStatus, readonly Schedule
   published: Object.freeze([]),
 });
 
-export function isScheduledPublication(record: ScheduledPublishingRecord): record is ScheduledPublication {
-  return "id" in record
-    && typeof record.id === "string"
-    && "scheduledAt" in record
-    && typeof record.scheduledAt === "string"
-    && "status" in record
-    && scheduledPublicationStatuses.includes(record.status as ScheduledPublicationStatus);
+export function isScheduledPublication(record: unknown): record is ScheduledPublication {
+  if (!record || typeof record !== "object") return false;
+  const candidate = record as Partial<ScheduledPublication>;
+  return typeof candidate.id === "string"
+    && typeof candidate.scheduledAt === "string"
+    && typeof candidate.status === "string"
+    && scheduledPublicationStatuses.includes(candidate.status as ScheduledPublicationStatus);
 }
 
 export function scheduledPublicationStorageKey(record: ScheduledPublishingRecord): string {
