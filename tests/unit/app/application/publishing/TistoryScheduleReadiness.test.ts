@@ -139,6 +139,13 @@ describe("Tistory schedule readiness", () => {
     expect(result.checks.find((check) => check.key === "schedule_permission")?.passed).toBe(false);
   });
 
+  it("blocks timezones outside the Tistory MVP policy", async () => {
+    const result = await calculateTistoryScheduleReadiness(input({ timezone: "America/New_York" }));
+
+    expect(result.ready).toBe(false);
+    expect(result.checks.find((check) => check.key === "schedule_timezone_policy")?.passed).toBe(false);
+  });
+
   it("blocks past or timezone-free schedule values", async () => {
     const result = await calculateTistoryScheduleReadiness(input({ scheduledAt: "2026-07-28T06:59:00.000Z" }));
 
