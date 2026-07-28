@@ -25,6 +25,62 @@ try {
     storageState: command.storageStatePath,
   });
   await context.addInitScript(() => {
+    const normalize = (value) => String(value ?? "")
+      .replace(/\s+/g, " ")
+      .trim();
+    const utf8Base64 = (value) => {
+      const bytes = new TextEncoder().encode(String(value ?? ""));
+      let binary = "";
+      for (const byte of bytes) binary += String.fromCharCode(byte);
+      return btoa(binary);
+    };
+    const isVisible = (element) => {
+      const style = window.getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return style.display !== "none"
+        && style.visibility !== "hidden"
+        && Number(style.opacity || 1) > 0
+        && rect.width > 0
+        && rect.height > 0;
+    };
+    const elementSignature = (element) => {
+      if (element.id) return `id:${element.id}`;
+      const parts = [];
+      let current = element;
+      while (current && current !== document.body && parts.length < 10) {
+        const parent = current.parentElement;
+        if (!parent) break;
+        const siblings = [...parent.children].filter(
+          (candidate) => candidate.tagName === current.tagName,
+        );
+        const index = siblings.indexOf(current) + 1;
+        parts.unshift(
+          `${current.tagName.toLowerCase()}:nth-of-type(${index})`,
+        );
+        current = parent;
+      }
+      return `path:${parts.join(">")}`;
+    };
+    const editorState = () => {
+      const titleField = document.querySelector(
+        '#post-title-inp, textarea[placeholder*="제목"], input[placeholder*="제목"], textarea[aria-label*="제목"], input[aria-label*="제목"]',
+      );
+      const body = window.tinymce?.activeEditor?.getBody?.();
+      return {
+        titleValueLength: typeof titleField?.value === "string"
+          ? titleField.value.length
+          : 0,
+        bodyTextLength: normalize(body?.textContent).length,
+      };
+    };
+
+    window.__brightSchedulePanelProbeUtils = {
+      normalize,
+      utf8Base64,
+      isVisible,
+      elementSignature,
+      editorState,
+    };
     window.__brightSchedulePanelProbeClicks = {
       total: 0,
       allowedOpen: 0,
@@ -60,13 +116,6 @@ try {
         window.__brightSchedulePanelProbeClicks.targets.push(target);
       }
     }, true);
-
-    function utf8Base64(value) {
-      const bytes = new TextEncoder().encode(String(value ?? ""));
-      let binary = "";
-      for (const byte of bytes) binary += String.fromCharCode(byte);
-      return btoa(binary);
-    }
   });
 
   page = await context.newPage();
@@ -211,24 +260,33 @@ try {
 
 async function collectBaseline(targetPage) {
   return targetPage.evaluate(() => {
+    const utils = window.__brightSchedulePanelProbeUtils;
     const visibleSignatures = [...document.querySelectorAll("body *")]
-      .filter(isVisible)
+      .filter(utils.isVisible)
       .slice(0, 10000)
-      .map(elementSignature);
-    const state = editorState();
+      .map(utils.elementSignature);
     return {
       visibleSignatures,
-      ...state,
+      ...utils.editorState(),
     };
   });
 }
 
 async function collectEditorState(targetPage) {
-  return targetPage.evaluate(() => editorState());
+  return targetPage.evaluate(() => (
+    window.__brightSchedulePanelProbeUtils.editorState()
+  ));
 }
 
 async function collectPanelInventory(targetPage, visibleSignatures) {
   return targetPage.evaluate((baseline) => {
+    const utils = window.__brightSchedulePanelProbeUtils;
+    const {
+      normalize,
+      utf8Base64,
+      isVisible,
+      elementSignature,
+    } = utils;
     const before = new Set(baseline);
     const selector = [
       "button",
@@ -267,7 +325,11 @@ async function collectPanelInventory(targetPage, visibleSignatures) {
       }
     }
 
-    if (!panelRoot || panelRoot === document.body || panelRoot === document.documentElement) {
+    if (
+      !panelRoot
+      || panelRoot === document.body
+      || panelRoot === document.documentElement
+    ) {
       return {
         characterSet: document.characterSet,
         baselineVisibleElementCount: baseline.length,
@@ -318,9 +380,15 @@ async function collectPanelInventory(targetPage, visibleSignatures) {
 
     function describeControl(element, index, beforeSet) {
       const text = normalize(element.textContent).slice(0, 200);
-      const ariaLabel = normalize(element.getAttribute("aria-label")).slice(0, 160);
-      const title = normalize(element.getAttribute("title")).slice(0, 160);
-      const placeholder = normalize(element.getAttribute("placeholder")).slice(0, 160);
+      const ariaLabel = normalize(
+        element.getAttribute("aria-label"),
+      ).slice(0, 160);
+      const title = normalize(
+        element.getAttribute("title"),
+      ).slice(0, 160);
+      const placeholder = normalize(
+        element.getAttribute("placeholder"),
+      ).slice(0, 160);
       return {
         index,
         tag: element.tagName.toLowerCase(),
@@ -337,12 +405,16 @@ async function collectPanelInventory(targetPage, visibleSignatures) {
         ariaControls: element.getAttribute("aria-controls") || undefined,
         ariaChecked: element.getAttribute("aria-checked") || undefined,
         placeholder: placeholder || undefined,
-        placeholderBase64: placeholder ? utf8Base64(placeholder) : undefined,
+        placeholderBase64: placeholder
+          ? utf8Base64(placeholder)
+          : undefined,
         title: title || undefined,
         titleBase64: title ? utf8Base64(title) : undefined,
         disabled: element.matches(":disabled")
           || element.getAttribute("aria-disabled") === "true",
-        checked: "checked" in element ? Boolean(element.checked) : undefined,
+        checked: "checked" in element
+          ? Boolean(element.checked)
+          : undefined,
         newlyVisible: !beforeSet.has(elementSignature(element)),
         classNames: normalize(element.getAttribute("class"))
           .split(" ")
@@ -384,55 +456,4 @@ function safeUrl(value) {
   } catch {
     return "unknown";
   }
-}
-
-function normalize(value) {
-  return String(value ?? "").replace(/\s+/g, " ").trim();
-}
-
-function isVisible(element) {
-  const style = window.getComputedStyle(element);
-  const rect = element.getBoundingClientRect();
-  return style.display !== "none"
-    && style.visibility !== "hidden"
-    && Number(style.opacity || 1) > 0
-    && rect.width > 0
-    && rect.height > 0;
-}
-
-function elementSignature(element) {
-  if (element.id) return `id:${element.id}`;
-  const parts = [];
-  let current = element;
-  while (current && current !== document.body && parts.length < 10) {
-    const parent = current.parentElement;
-    if (!parent) break;
-    const siblings = [...parent.children].filter(
-      (candidate) => candidate.tagName === current.tagName,
-    );
-    const index = siblings.indexOf(current) + 1;
-    parts.unshift(`${current.tagName.toLowerCase()}:nth-of-type(${index})`);
-    current = parent;
-  }
-  return `path:${parts.join(">")}`;
-}
-
-function editorState() {
-  const titleField = document.querySelector(
-    '#post-title-inp, textarea[placeholder*="제목"], input[placeholder*="제목"], textarea[aria-label*="제목"], input[aria-label*="제목"]',
-  );
-  const body = window.tinymce?.activeEditor?.getBody?.();
-  return {
-    titleValueLength: typeof titleField?.value === "string"
-      ? titleField.value.length
-      : 0,
-    bodyTextLength: normalize(body?.textContent).length,
-  };
-}
-
-function utf8Base64(value) {
-  const bytes = new TextEncoder().encode(String(value ?? ""));
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary);
 }
