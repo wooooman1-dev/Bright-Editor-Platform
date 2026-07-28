@@ -224,4 +224,82 @@ describe("ApprovalReadinessApplicationService", () => {
     expect(result.evidence.pack.status).toBe("verified");
     expect(result.evidence.verifiedSourceCount).toBe(2);
   });
+
+  it("uses the official NGA IIIF manifest when an artwork page is blocked", async () => {
+    const ngaSourceUrl = "https://www.nga.gov/artworks/1167-portrait-man";
+    const ngaManifestUrl = "https://www.nga.gov/api/v1/iiif/presentation/manifest.json?cultObj%3Aid=1167";
+    const ngaEvidence: ApprovalEvidencePack = {
+      ...candidateEvidence,
+      sources: [{
+        ...candidateEvidence.sources[0]!,
+        sourceId: "nga-1167",
+        url: ngaSourceUrl,
+        title: "Portrait of a Man",
+        publisher: "National Gallery of Art",
+      }],
+    };
+    const ngaDocument: ContentDocument = {
+      ...document,
+      title: "Portrait of a Man 감상 가이드",
+      metadata: { ...document.metadata!, approvalEvidence: ngaEvidence },
+      blocks: [
+        { id: "h", type: "heading", level: 2, text: "작품 기본 정보" },
+        { id: "p", type: "paragraph", text: "작품명: Portrait of a Man\n제작연도: 1648년\n재료: oil on canvas\n크기: 63.5 x 53.5 cm\n소장처: National Gallery of Art" },
+      ],
+    };
+    const ngaData: UserData = {
+      ...data,
+      contents: [{
+        ...data.contents[0]!,
+        title: ngaDocument.title,
+        primaryKeyword: "Portrait of a Man",
+        document: ngaDocument,
+      }],
+    };
+    const manifest = {
+      "@context": "http://iiif.io/api/presentation/2/context.json",
+      "@id": ngaManifestUrl,
+      label: "Portrait of a Man",
+      metadata: [
+        { label: "Date", value: "1648/1650" },
+        { label: "Medium", value: "oil on canvas" },
+        { label: "Dimensions", value: "overall: 63.5 x 53.5 cm" },
+        { label: "Collection", value: "National Gallery of Art" },
+      ],
+      description: "Portrait of a Man by Frans Hals, National Gallery of Art collection record.",
+    };
+    const controlledFetcher = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (init?.method === "HEAD") return new Response("", { status: 200 });
+      if (url === ngaSourceUrl) {
+        return new Response("<title>Just a moment...</title>", {
+          status: 403,
+          headers: { "content-type": "text/html; charset=UTF-8" },
+        });
+      }
+      if (url === ngaManifestUrl) {
+        return new Response(JSON.stringify(manifest), {
+          status: 200,
+          headers: { "content-type": "application/ld+json" },
+        });
+      }
+      return new Response(siteHtml, { status: 200, headers: { "content-type": "text/html" } });
+    });
+
+    const result = await new ApprovalReadinessApplicationService(
+      controlledFetcher,
+      () => "2026-07-27T10:30:00.000Z",
+    ).execute({ data: ngaData, contentId: "content-1", connection });
+
+    expect(controlledFetcher).toHaveBeenCalledWith(ngaManifestUrl, expect.objectContaining({ method: "GET" }));
+    expect(result.evidence.pack.status).toBe("verified");
+    expect(result.evidence.verifiedSourceCount).toBe(1);
+    expect(result.evidence.pack.sources[0]).toMatchObject({
+      verified: true,
+      verificationStatus: "verified",
+      publisher: "National Gallery of Art",
+      finalUrl: ngaManifestUrl,
+      contentType: "text/html; normalized-from=application/ld+json",
+    });
+  });
 });
