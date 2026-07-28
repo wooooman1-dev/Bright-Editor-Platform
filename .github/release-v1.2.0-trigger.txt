@@ -1,0 +1,1 @@
+One-time trigger for Bright Studio v1.2.0 release. Do not merge this branch.
