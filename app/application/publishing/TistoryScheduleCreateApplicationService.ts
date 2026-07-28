@@ -117,12 +117,17 @@ export class TistoryScheduleCreateApplicationService {
         await rm(commandPath, { force: true });
       }
     } catch (error) {
+      const code = errorCode(error);
+      const ambiguous = code === "WORKER_RESULT_INVALID" || code === "WORKER_START_FAILED_AFTER_LAUNCH";
       result = Object.freeze({
-        status: "failed",
+        status: ambiguous ? "scheduled_unverified" : "failed",
         workflow: "schedule.create",
-        finalClickIssued: false,
-        diagnosticCode: errorCode(error),
-        error: error instanceof Error ? error.message : "Tistory 예약 등록을 완료하지 못했습니다.",
+        finalClickIssued: ambiguous,
+        ...(ambiguous ? { registeredAt: this.now().toISOString() } : {}),
+        diagnosticCode: code,
+        error: ambiguous
+          ? "Tistory 예약 등록 worker의 최종 상태를 확인하지 못했습니다. 중복 방지를 위해 자동 재시도하지 않습니다."
+          : error instanceof Error ? error.message : "Tistory 예약 등록을 완료하지 못했습니다.",
       });
     }
 
@@ -164,9 +169,11 @@ function runWorker(commandPath: string): Promise<TistoryScheduleCreateResult> {
     child.stderr.setEncoding("utf8");
     let output = "";
     let stderr = "";
+    let launched = false;
+    child.once("spawn", () => { launched = true; });
     child.stdout.on("data", (data: string) => { output += data; });
     child.stderr.on("data", (data: string) => { stderr += data; });
-    child.on("error", () => reject(codedError("WORKER_START_FAILED", "Tistory 예약 등록 workflow를 시작하지 못했습니다.")));
+    child.on("error", () => reject(codedError(launched ? "WORKER_START_FAILED_AFTER_LAUNCH" : "WORKER_START_FAILED", "Tistory 예약 등록 workflow를 시작하지 못했습니다.")));
     child.on("exit", () => {
       try {
         const line = output.trim().split(/\r?\n/).at(-1);
