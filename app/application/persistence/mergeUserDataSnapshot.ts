@@ -66,25 +66,31 @@ export function mergeServerMutationSnapshot(current: UserData | undefined, base:
 }
 
 function preserveServerPublishingProject(server: UserProject | undefined, incoming: UserProject): UserProject {
-  const defaultTistoryCategory = server?.strategy?.defaultTistoryCategory;
-  if (!defaultTistoryCategory) return incoming;
+  const serverStrategy = server?.strategy;
+  const defaultTistoryCategory = serverStrategy?.defaultTistoryCategory;
+  if (!serverStrategy || !defaultTistoryCategory) return incoming;
+  const strategy = incoming.strategy ?? serverStrategy;
   return Object.freeze({
     ...incoming,
     strategy: Object.freeze({
-      ...(incoming.strategy ?? server.strategy),
+      ...strategy,
       defaultTistoryCategory,
     }),
   });
 }
 
 function preserveServerPublishingContent(server: UserContent | undefined, incoming: UserContent): UserContent {
-  if (!server?.publishingPreparation) return incoming;
+  const tistoryPreparation = server?.publishingPreparation?.tistory;
+  if (!tistoryPreparation) return incoming;
   return Object.freeze({
     ...incoming,
     platform: server.platform ?? incoming.platform,
     publishingAccountId: server.publishingAccountId ?? incoming.publishingAccountId,
     selectedPublishingAccountIds: server.selectedPublishingAccountIds ?? incoming.selectedPublishingAccountIds,
-    publishingPreparation: server.publishingPreparation,
+    publishingPreparation: Object.freeze({
+      ...incoming.publishingPreparation,
+      tistory: tistoryPreparation,
+    }),
   });
 }
 
