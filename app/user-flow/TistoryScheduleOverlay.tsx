@@ -90,9 +90,6 @@ export function TistoryScheduleOverlay() {
   useEffect(() => {
     if (!open || !context) return;
     let active = true;
-    setLoading(true);
-    setReadiness(undefined);
-    setNotice("예약 발행 정보를 불러오고 있습니다.");
     void fetch("/api/studio", { cache: "no-store" })
       .then(async (response) => {
         const result = await response.json() as { data?: StudioSnapshot; error?: string };
@@ -204,7 +201,13 @@ export function TistoryScheduleOverlay() {
   return <>
     <button
       className="fixed bottom-6 right-6 z-[70] rounded-2xl bg-[#ff6b6b] px-5 py-3 text-sm font-semibold text-white shadow-[0_14px_38px_rgba(255,107,107,0.35)] disabled:opacity-50"
-      onClick={() => { setOpen(true); setConfirm(false); setNotice(""); }}
+      onClick={() => {
+        setLoading(true);
+        setReadiness(undefined);
+        setNotice("예약 발행 정보를 불러오고 있습니다.");
+        setOpen(true);
+        setConfirm(false);
+      }}
       type="button"
     >
       예약발행
