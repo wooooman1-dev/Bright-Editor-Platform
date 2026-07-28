@@ -21,7 +21,7 @@ describe("Tistory schedule create worker contract", () => {
     expect(source).toContain('.box_calendar table.tbl_calendar .btn_day');
     expect(source).not.toContain("tistory-draft-worker");
     expect(source).not.toContain("draft.create");
-    expect(source).not.toMatch(/임시저장.*\.click\s*\(/s);
+    expect(source).not.toMatch(/임시저장[\s\S]*\.click\s*\(/);
   });
 
   it("verifies the selected reservation date and time before the single final registration click", () => {
