@@ -1,6 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { chromium } from "playwright";
 
+import { fillTistoryTags } from "./tistory-tags.mjs";
+
 const [commandPath] = process.argv.slice(2);
 let browser;
 let page;
@@ -60,7 +62,10 @@ try {
   }
 
   await fillHtml(page, command.html);
-  await fillTags(page, command.tags);
+  const tags = await fillTistoryTags(page, command.tags);
+  if (!tags.passed) {
+    throw safeFailure(tags.code ?? "tag_or_media_input_failed", tags.message ?? "Tistory 이미지와 태그 입력을 완료하지 못했습니다.");
+  }
 
   const beforeState = await editorState(page);
   if (beforeState.title !== command.title.trim() || beforeState.bodyTextLength < minimumBodyLength(command.html)) {
@@ -194,6 +199,7 @@ function validateCommand(command) {
   const timestamp = Date.parse(command.scheduledAt);
   if (!Number.isFinite(timestamp) || timestamp <= Date.now()) throw safeFailure("schedule_time_invalid", "예약 시각은 현재보다 미래여야 합니다.");
   if (!Array.isArray(command.tags)) throw safeFailure("command_invalid", "Tistory 태그 값이 올바르지 않습니다.");
+  if (command.media !== undefined && !Array.isArray(command.media)) throw safeFailure("command_invalid", "Tistory 예약 이미지 값이 올바르지 않습니다.");
 }
 
 function scheduleParts(value, timezone) {
@@ -305,15 +311,6 @@ async function switchMode(targetPage, targetMode) {
     await targetPage.waitForTimeout(250);
   }
   throw safeFailure("editor_mode_switch_failed", `${targetMode} 편집 모드 전환을 확인하지 못했습니다.`);
-}
-
-async function fillTags(targetPage, tags) {
-  const input = targetPage.locator("#tagText").first();
-  if (!await input.isVisible({ timeout: 5000 }).catch(() => false)) return;
-  for (const tag of tags.map((value) => String(value).replace(/^#/, "").trim()).filter(Boolean).slice(0, 20)) {
-    await input.fill(tag);
-    await input.press("Enter");
-  }
 }
 
 async function visibleReservationButton(targetPage) {
