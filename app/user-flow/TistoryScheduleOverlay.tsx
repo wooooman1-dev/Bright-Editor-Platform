@@ -25,7 +25,7 @@ type StudioSnapshot = Readonly<{
         platformCategoryName: string | null;
       }>;
     }>;
-  }>[]>;
+  }>[];
 }>;
 
 type ScheduleConnection = Readonly<{
@@ -41,7 +41,7 @@ type ScheduleConnection = Readonly<{
 type Readiness = Readonly<{
   ready: boolean;
   executable: boolean;
-  checks: readonly Readonly<{ key: string; passed: boolean; message: string }>[]>;
+  checks: readonly Readonly<{ key: string; passed: boolean; message: string }>[];
 }>;
 
 type Context = Readonly<{
