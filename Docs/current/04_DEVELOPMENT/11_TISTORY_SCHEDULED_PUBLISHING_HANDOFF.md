@@ -10,9 +10,9 @@ Date: 2026-07-28
 - Pull request state: Draft
 - Base branch: `main`
 
-## Current verified state
+Do not merge or mark the PR Ready yet.
 
-The scheduled-publishing foundation and the first-stage read-only Tistory schedule UI probe foundation are implemented.
+## Last fully validated runtime baseline
 
 Automated Windows validation passed at runtime code commit `262d2ae`:
 
@@ -26,30 +26,13 @@ npm run build — passed
 git diff --check — passed
 ```
 
-The production route list included:
+That validation covered the scheduled-publishing foundation and first-stage zero-click UI probe.
 
-```text
-/api/publishing/schedules/ui-probe
-```
-
-Later commits only update validation evidence and documentation.
-
-## Verified Bright Studio UI evidence
-
-A real browser screenshot confirmed that the connected Tistory accounts `bright-healthy` and `viva-rain` both displayed schedule registration as allowed after permission enablement.
-
-The screenshot did not independently prove:
-
-- the original default-off state
-- the exact confirmation-dialog text
-- persisted public-publish permission state
-- preservation of unrelated permissions after disabling schedule permission
-
-Those checks remain pending.
+Runtime code has now changed after `262d2ae` for the second-stage publication-panel probe. The new runtime changes are not yet locally validated.
 
 ## Verified first external Tistory probe
 
-The first-stage probe ran against:
+The first-stage zero-click probe ran against:
 
 - connection: `bright-healthy`
 - editor URL: `https://bright-healthy.tistory.com/manage/newpost`
@@ -69,8 +52,6 @@ visible controls: 52
 visible dialogs: none
 ```
 
-No Draft save, publication, schedule registration, deletion, title edit, or body edit occurred.
-
 Stable DOM evidence recorded:
 
 - `#category-btn`
@@ -81,79 +62,141 @@ Stable DOM evidence recorded:
 - `#grammar-check-btn`
 - `#publish-layer-btn`
 
-The PowerShell console rendered Korean text with mojibake. Corrupted Korean labels must not be used as locator evidence. Use stable IDs, roles, and ARIA attributes only.
+The PowerShell console rendered Korean text with mojibake. Corrupted Korean labels are not locator evidence.
 
-## Safety contract
+## First-stage contract remains protected
 
-The first-stage probe remains read-only and contains no Playwright `.click()`, `.fill()`, or `.selectOption()` call.
+The original worker remains:
+
+```text
+apps/tistory/workflows/tistory-schedule-ui-probe.mjs
+```
+
+It still contains no Playwright `.click()`, `.fill()`, or `.selectOption()` call.
+
+Endpoint:
+
+```text
+POST /api/publishing/schedules/ui-probe
+```
 
 The existing Tistory Draft worker was not changed.
 
-The following remain forbidden until separately designed, implemented, and validated:
+## Second-stage publication-panel foundation implemented
 
-- final schedule registration click
-- date or time selection
-- immediate public publication
-- Draft save through the schedule workflow
-- schedule update or cancel
-- existing-post edit or delete
-- local or recurring scheduler
+Approval to continue was received and the second-stage foundation was implemented as a separate path.
 
-`publish.execute` remains independent and disabled.
+New worker:
 
-## Approved foundation already implemented
+```text
+apps/tistory/workflows/tistory-schedule-panel-probe.mjs
+```
 
-- platform-independent `ScheduledPublication` model
-- explicit `schedule.create`, `schedule.update`, and `schedule.cancel` permissions
-- registered `schedule.create` and read-only `schedule.verify` workflows
-- `Asia/Seoul` Tistory MVP application policy
-- deterministic schedule fingerprint
-- active duplicate prevention
-- atomic reservation through serialized persistence update
-- interrupted registration recovery to `scheduled_unverified`
-- required external registration and verification evidence before `scheduled_verified`
-- server-owned schedule readiness API
-- current Revision, quality, approval evidence, account, session, category, image permission, schedule permission, time, duplicate, Review First, and Draft Only checks
-- Workspace Settings schedule permission API and UI
-- first-stage read-only Tistory UI probe worker, service, API, audit, and tests
+New application service:
 
-## Not implemented yet
+```text
+app/application/publishing/TistorySchedulePanelProbeApplicationService.ts
+```
 
-- canonical `UserData` rich scheduled-publication migration
+New API:
+
+```text
+POST /api/publishing/schedules/panel-probe
+```
+
+Shared server validation:
+
+```text
+app/api/publishing/schedules/ScheduleProbeContext.ts
+```
+
+The existing first-stage route now reuses the same validation module without changing its worker contract.
+
+## Second-stage safety boundary
+
+Exactly one Playwright click is permitted:
+
+```text
+#publish-layer-btn
+```
+
+A successful result requires:
+
+```text
+clickCounts.total == 1
+clickCounts.allowedOpen == 1
+clickCounts.restricted == 0
+clickCounts.targets.length == 1
+clickCounts.targets[0].id == publish-layer-btn
+```
+
+Any additional click fails the probe.
+
+The worker does not:
+
+- fill title or body
+- select Category
+- select publication or reservation state
+- select date or time
+- save a Draft
+- publish immediately
+- confirm a schedule
+- delete a post
+- submit a final action
+- use keyboard confirmation
+
+It closes the browser context without clicking a close or save control.
+
+## Panel evidence collected
+
+The worker compares visible DOM signatures before and after opening the panel and inventories only a newly visible isolated subtree.
+
+It records bounded evidence:
+
+- panel root and visible containers
+- control hierarchy
+- IDs, roles, input types, names
+- ARIA attributes
+- disabled and checked state
+- visible text, placeholder, and title
+- limited class tokens
+- newly-visible state
+- `document.characterSet`
+- UTF-8 Base64 copies of bounded labels and text
+
+It does not collect article HTML.
+
+Title and TinyMCE body text lengths must remain unchanged.
+
+## Tests added
+
+- `tests/unit/app/application/publishing/TistorySchedulePanelProbeApplicationService.test.ts`
+- `tests/unit/apps/tistory/TistorySchedulePanelProbeContract.test.ts`
+- `tests/unit/app/api/publishing/schedules/SchedulePanelProbeRoute.test.ts`
+
+These tests exist in the branch but have not yet been executed on the current head.
+
+## Not implemented
+
 - Editor scheduling form
 - schedule create execution API
-- interactive publication-panel probe
-- verified reservation-state, date, and time locators
-- native Tistory schedule registration worker
-- actual native schedule registration
+- verified schedule-state locator
+- verified date or time locator
+- final native schedule registration locator
+- native schedule registration worker
+- actual schedule registration
 - management-list verification
 - editor re-entry verification
 - publication-time verification
 - schedule update or cancel workflows
+- local or recurring scheduler
+- immediate public publishing
 
-## Next proposed step — not yet approved
+## Required next validation
 
-Design and implement a second-stage publication-panel probe with this exact boundary:
-
-1. click only `#publish-layer-btn` once
-2. inventory only the newly visible publication-panel subtree
-3. record stable IDs, roles, ARIA attributes, input types, disabled state, and default checked state
-4. do not select publication state, date, or time
-5. do not click Draft save, immediate publish, reservation confirmation, delete, or final submit
-6. verify title and body remain unchanged
-7. close the browser without saving
-
-Explicit approval is required before this second-stage probe is implemented.
-
-## Resume commands on another computer
+Run on the current branch:
 
 ```powershell
-git clone https://github.com/wooooman1-dev/Bright-Editor-Platform.git
-cd Bright-Editor-Platform
-git fetch origin
-git switch feat/tistory-native-scheduled-publishing
-git pull --ff-only origin feat/tistory-native-scheduled-publishing
-npm ci
 npm run typecheck
 npm run lint
 npm test
@@ -162,14 +205,24 @@ git diff --check
 git status
 ```
 
-Do not merge PR #38 or mark it Ready before native schedule registration, external verification, publication-time verification, and final regression validation are complete.
+Then confirm the production route list contains:
 
-## Local-only files from the previous computer
+```text
+/api/publishing/schedules/ui-probe
+/api/publishing/schedules/panel-probe
+```
 
-The following were not added to Git:
+After automated validation passes, run the second-stage external probe against the selected real Tistory account and inspect:
 
-- `Tistory Native Scheduled Publishing MVP 설계안.pdf`
-- `run-tistory-schedule-ui-probe.ps1`
-- `.bright-studio/diagnostics/tistory-schedule-ui-probe-bright-healthy.json`
+- exactly one allowed opener click
+- zero restricted clicks
+- unchanged title and body lengths
+- isolated panel root
+- actual controls and default states
+- UTF-8/Base64 label evidence
 
-They are local evidence or temporary execution files and are not required to restore the source branch. Preserve them separately if needed for audit history.
+Do not implement schedule/date/time selection from assumptions.
+
+## Local-only evidence
+
+The previous temporary PowerShell probe script was intentionally not committed. It is not required for the product runtime.
