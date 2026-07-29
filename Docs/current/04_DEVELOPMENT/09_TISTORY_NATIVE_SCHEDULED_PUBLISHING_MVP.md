@@ -2,7 +2,7 @@
 
 Status: Implemented and Externally Verified — Create MVP
 
-Final verified head before this documentation update: `e73d33f`
+Final verified runtime head: `e73d33f`
 
 ## 1. Goal
 
