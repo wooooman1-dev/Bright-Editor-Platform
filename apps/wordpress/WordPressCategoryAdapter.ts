@@ -54,7 +54,7 @@ export class WordPressCategoryAdapter {
     }
 
     const query = new URLSearchParams({
-      context: "edit",
+      context: "view",
       page: String(page),
       per_page: String(pageSize),
     });

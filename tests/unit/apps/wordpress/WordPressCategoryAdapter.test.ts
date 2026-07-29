@@ -39,8 +39,8 @@ describe("WordPress category adapter", () => {
     });
     expect(second).toMatchObject({ hasMore: false, categories: [{ id: "56" }] });
     expect(second.nextPage).toBeUndefined();
-    expect(request.mock.calls[0][0]).toBe("https://example.com/wp-json/wp/v2/categories?context=edit&page=1&per_page=2");
-    expect(request.mock.calls[1][0]).toBe("https://example.com/wp-json/wp/v2/categories?context=edit&page=2&per_page=2");
+    expect(request.mock.calls[0][0]).toBe("https://example.com/wp-json/wp/v2/categories?context=view&page=1&per_page=2");
+    expect(request.mock.calls[1][0]).toBe("https://example.com/wp-json/wp/v2/categories?context=view&page=2&per_page=2");
   });
 
   it("reads every Category page into one connection-bound catalog", async () => {
@@ -69,8 +69,8 @@ describe("WordPress category adapter", () => {
       categories: [{ id: "12" }, { id: "34" }],
     });
     expect(request.mock.calls.map((call) => call[0])).toEqual([
-      "https://example.com/wp-json/wp/v2/categories?context=edit&page=1&per_page=1",
-      "https://example.com/wp-json/wp/v2/categories?context=edit&page=2&per_page=1",
+      "https://example.com/wp-json/wp/v2/categories?context=view&page=1&per_page=1",
+      "https://example.com/wp-json/wp/v2/categories?context=view&page=2&per_page=1",
     ]);
   });
 
