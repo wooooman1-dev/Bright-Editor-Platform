@@ -1,135 +1,101 @@
 # Tistory Native Scheduled Publishing MVP
 
-Status: Approved / Foundation and Read-Only UI Probe Implementation In Progress
+Status: Implemented and Externally Verified — Create MVP
+
+Final verified head before this documentation update: `e73d33f`
 
 ## 1. Goal
 
-Bright Studio registers a reviewed current Content Revision into Tistory's native scheduled publishing function. Bright Studio does not wait locally until the publication time and does not perform an immediate public publish action.
+Bright Studio registers a reviewed current Content Revision through Tistory's native scheduled publishing controls.
 
-The MVP remains Tistory-first while keeping the Core scheduling model platform-independent.
+Bright Studio does not wait locally until publication time and does not perform immediate public publishing.
 
-## 2. Current Verified Foundation
+The MVP is Tistory-first while the scheduling domain and safety contracts remain platform-independent.
 
-The following foundation is implemented:
+## 2. Final Implemented Scope
 
-- platform-independent `ScheduledPublication` model
-- status and transition policy
-- future absolute schedule time and IANA timezone validation
-- Tistory application policy fixed to `Asia/Seoul`
+The Create MVP includes:
+
+- Editor-only `예약발행` entry point
+- reservation modal
+- selected Tistory connection
+- selected Tistory category
+- absolute future schedule time
+- Tistory timezone fixed to `Asia/Seoul`
+- Readiness details
+- explicit final user confirmation
+- current reviewed Revision lock
+- standard Quality approval requirement
+- Workspace, Project and Content ownership validation
+- selected Project publishing-target validation
+- `schedule.create` Permission Gate
+- `media.upload` Permission Gate when local images exist
+- atomic schedule reservation
 - deterministic request fingerprint
-- stable persistence keys with legacy record compatibility
 - active duplicate prevention
-- atomic reservation inside the serialized persistence update boundary
-- identical request idempotency
-- cancelled-record re-registration policy
-- interrupted `registering` recovery to `scheduled_unverified`
-- required registration and verification evidence before `scheduled_verified`
-- account permissions `schedule.create`, `schedule.update`, and `schedule.cancel`
-- registered MVP workflows `schedule.create` and read-only `schedule.verify`
-- Tistory schedule Readiness service and API
-- Workspace Settings schedule permission API and UI
-- focused Core, application, persistence, API, permission, concurrency, and safety tests
+- identical active-request idempotency
+- failed-identical-request explicit retry only
+- interrupted or ambiguous registration preservation
+- no automatic retry after the final registration click
+- dedicated schedule-create Application Service
+- dedicated registered Tistory Playwright worker
+- native Tistory publication-panel control
+- native reservation date, hour and minute controls
+- local image upload in the same editor
+- ALT application
+- first valid image representative-image application
+- tag application
+- native Tistory schedule registration
+- external management-list verification
+- persisted audit result
+- completed-result UI
 
-The existing Tistory Draft worker remains unchanged and continues to prohibit schedule, public, completion, and delete controls outside its approved Draft workflow.
+## 3. Execution Boundary
 
-## 3. Automated Validation Evidence
-
-The foundation through commit `c319eb6` was validated on Windows on 2026-07-28:
-
-- `npm run typecheck` passed
-- `npm run lint` passed
-- `npm test` passed
-  - Test Files: 180 passed, 7 skipped
-  - Tests: 926 passed, 17 skipped
-- `npm run build` passed
-- `git diff --check` passed
-
-The skipped tests were existing manual suites.
-
-New read-only UI probe commits after `c319eb6` require the same validation commands again before the probe is executed against Tistory.
-
-## 4. Workspace Settings UI Evidence
-
-A real Bright Studio browser screenshot on 2026-07-28 confirms:
-
-- connected Tistory accounts `bright-healthy` and `viva-rain` are displayed in the schedule permission section
-- both accounts can display `예약 등록 허용`
-- both checkboxes are checked after permission enablement
-- the success notice states that Tistory schedule registration was allowed and each schedule must re-confirm the current Revision and scheduled time
-
-The screenshot does not by itself prove:
-
-- the initial default-off state before any interaction
-- the exact confirmation-dialog text
-- that disabling schedule permission preserves every unrelated permission
-- that immediate public publishing remains disabled in persisted server data
-
-Those checks remain pending and must not be inferred from the screenshot alone.
-
-## 5. Read-Only Tistory UI Probe Foundation
-
-A first-stage schedule UI inventory probe is implemented on the feature branch.
-
-Architecture:
+The approved execution path is:
 
 ```text
-API
-→ Workspace / Project / Content ownership validation
-→ Draft Only policy validation
-→ selected Publishing Target validation
-→ PublishingPermissionGate(schedule.verify)
-→ TistoryScheduleUiProbeApplicationService
-→ dedicated Tistory read-only Playwright worker
-→ sanitized diagnostic result
-→ publishing audit record
+Editor UI
+→ Schedule Create API
+→ Workspace / Project / Content Ownership Gate
+→ Revision and Quality Readiness
+→ PublishingPermissionGate(schedule.create)
+→ PublishingPermissionGate(media.upload when required)
+→ TistoryScheduleCreateApplicationService
+→ Registered Tistory Schedule Worker
+→ Native Tistory Editor
+→ External Management-list Verification
+→ ScheduledPublication Result
+→ Publishing Audit
+→ Completion UI
 ```
 
-Files:
+The UI, AI and general Core modules do not call Playwright directly.
 
-- `apps/tistory/workflows/tistory-schedule-ui-probe.mjs`
-- `app/application/publishing/TistoryScheduleUiProbeApplicationService.ts`
-- `app/api/publishing/schedules/ui-probe/route.ts`
-- `tests/unit/app/application/publishing/TistoryScheduleUiProbeApplicationService.test.ts`
-- `tests/unit/apps/tistory/TistoryScheduleUiProbeContract.test.ts`
-- `tests/unit/app/api/publishing/schedules/ScheduleUiProbeRoute.test.ts`
-- `Docs/current/04_DEVELOPMENT/10_TISTORY_SCHEDULE_UI_PROBE.md`
+The Tistory worker owns platform URLs, selectors and native editor operations. Shared scheduling state, idempotency, status policy and permissions remain platform-independent.
 
-The probe:
+## 4. Safety Policy
 
-- opens the current Tistory new-post editor through the stored session
-- reads visible controls and bounded accessibility attributes
-- records likely schedule, publish, date, and time candidates without choosing one
-- records visible dialog containers
-- verifies zero total clicks and zero restricted clicks
-- verifies title and body lengths remain unchanged
-- does not read article HTML
-- writes a publishing audit record
+The verified safety baseline is:
 
-The worker contains no Playwright `.click()`, `.fill()`, or `.selectOption()` call. A contract test prevents these interaction APIs from being added silently.
+- Review First: ON
+- Draft Only: ON
+- Public Publish: OFF
+- Quality Approval Required: ON
+- `publish.execute`: independent and disabled
+- `schedule.create`: explicit per-account permission
+- final user confirmation: required for every reservation
+- automatic final-click retry: prohibited
+- successful reservation retry: prohibited
+- only a failed identical reservation may be explicitly retried
 
-## 6. Permissions
+A click response alone is not success evidence.
 
-Account permissions are independent:
+If the final registration click may have succeeded but external verification is unavailable, the result remains `scheduled_unverified`. Bright Studio must not create another reservation automatically.
 
-- `schedule.create`
-- `schedule.update`
-- `schedule.cancel`
-- `publish.execute`
+## 5. ScheduledPublication Contract
 
-Scheduling is not included in `safeDraftPermissions`.
-
-Only these scheduling workflows are registered in the current MVP foundation:
-
-- `schedule.create`
-- `schedule.verify`
-
-`schedule.verify` maps to `schedule.create` permission and is read-only. It does not require final registration confirmation because it cannot mutate Tistory.
-
-`publish.execute` remains independent and disabled by default.
-
-## 7. ScheduledPublication Contract
-
-A rich scheduled publication stores:
+The scheduling record preserves:
 
 - ID
 - Workspace ID
@@ -137,7 +103,7 @@ A rich scheduled publication stores:
 - Content ID
 - platform
 - PlatformConnection ID
-- locked revision ID
+- locked Revision ID
 - schedule time
 - timezone
 - status
@@ -145,12 +111,13 @@ A rich scheduled publication stores:
 - request fingerprint
 - operation ID
 - attempt metadata
-- registration and verification timestamps
+- registration timestamp
+- verification timestamp
 - optional external identifiers and URLs
 - safe failure metadata
 - creation and update timestamps
 
-Statuses:
+Statuses include:
 
 - `registering`
 - `scheduled_verified`
@@ -159,103 +126,137 @@ Statuses:
 - `cancelled`
 - `published`
 
-Active statuses:
+Active duplicate-blocking statuses are:
 
 - `registering`
 - `scheduled_verified`
 - `scheduled_unverified`
 
-## 8. Reservation and Retry Safety
+## 6. Readiness Requirements
 
-Before Playwright schedule registration, the server must reserve the schedule atomically.
+Schedule Create Readiness verifies:
 
-Rules:
-
-- the same active exact request returns the existing record
-- an active schedule for the same Content and platform blocks another request
-- cancelled and published records do not block a new schedule
-- an ID collision is rejected
-- a failed record can re-enter `registering`
-- a stale interrupted `registering` record becomes `scheduled_unverified`
-- final-click ambiguity must never trigger an automatic create retry
-- external verification is required before `scheduled_verified`
-
-## 9. Readiness Policy
-
-Tistory schedule readiness checks:
-
-- Workspace owns Project and Content
-- Tistory is enabled
-- connection belongs to the Workspace
-- connection is Tistory and connected
-- stored Tistory session exists
-- account is a selected Project publishing target
-- schedule permission is present
-- time is an absolute future time
-- timezone is `Asia/Seoul` for the Tistory MVP
-- no active duplicate exists
-- current Content Revision matches reviewed Revision
-- approval evidence matches the current Revision
-- standard quality approval is ready
+- Workspace owns the Project
+- Project owns the Content
+- Tistory is enabled for the Workspace
+- the connection belongs to the Workspace
+- the connection is a connected Tistory account
+- a stored Tistory session exists
+- the account is a selected Project publishing target
+- `schedule.create` permission is present
+- the requested time is an absolute future time
+- timezone is `Asia/Seoul`
+- no conflicting active schedule exists
+- the current Content Revision matches the reviewed Revision
+- Quality approval matches the current Revision
 - category preparation is explicit
-- required media permission is ready
-- Review First is enabled
-- Draft Only is enabled
-- immediate public publishing is disabled
+- required local media is available
+- `media.upload` permission is present when required
+- Review First remains enabled
+- Draft Only remains enabled
+- immediate public publishing remains disabled
 
-Readiness does not execute Playwright.
+Readiness performs no Playwright mutation.
 
-## 10. Revision Lock
+## 7. Media and Editor Integration
 
-A schedule is bound to the current reviewed Content Revision.
+Local media is uploaded inside the same Tistory editor session used for scheduling.
 
-Later edits do not mutate the scheduled revision. A future update flow must explicitly cancel or replace the existing schedule after external behavior has been verified.
+The final implementation:
 
-## 11. External Verification Requirement
+- prepares deterministic local-image markers
+- promotes an inline marker to its nearest valid block before image placement
+- uploads the native Tistory image
+- waits for valid placed-image geometry
+- rejects a native image that remains nested inside a paragraph
+- applies ALT text
+- selects the first valid image as representative image
+- preserves body block layout without vertical image distortion
+- applies tags before final reservation registration
 
-A Tistory click response is not success evidence.
+The existing Tistory Draft worker remains separate and protected. Schedule Create uses its own API route, Application Service, audit path and registered worker while reusing approved shared Tistory media and tag preparation modules.
 
-`scheduled_verified` requires confirmed external evidence such as:
+## 8. Final Automated Validation
 
-- scheduled item visible in Tistory management
-- schedule time matches
-- title or stable post identifier matches
-- editor re-entry shows the expected scheduled state
+Final Windows validation completed on the latest implementation head `e73d33f`:
 
-If the final registration click may have succeeded but verification is unavailable, store `scheduled_unverified` and run only the read-only verification workflow. Do not retry schedule creation automatically.
+```text
+npm run typecheck — passed
+npm run lint — passed
+npm test — passed
+  Test Files: 193 passed | 7 skipped
+  Tests: 978 passed | 17 skipped
+npm run build — passed
+git diff --check — passed
+git status — working tree clean
+```
 
-## 12. Deliberately Not Implemented
+Failures: `0`
 
-The following are not implemented yet:
+The skipped suites are the existing manually controlled tests.
 
-- canonical `UserData` rich scheduled-publication type migration
-- Editor schedule form
-- schedule execution button
-- schedule create execution API
-- interactive second-stage publication-panel probe
-- verified Tistory schedule locators or selectors
-- Tistory native schedule registration worker
-- actual schedule registration
-- management-list verification
-- editor re-entry schedule verification
+No GitHub Actions run is recorded for `e73d33f`; the validation evidence is the completed local Windows validation reported for the clean synchronized branch.
+
+## 9. Real External Verification
+
+A real approved Content was registered through Bright Studio and verified in Tistory.
+
+Verified reservation:
+
+- account: `bright-healthy`
+- title: `운동 휴식일, 근육 회복을 위한 쉬는 날 판단법`
+- category: `건강운동`
+- scheduled time: `2026-07-29 10:10` Asia/Seoul
+- Tistory management state: `[예약]`
+- no immediate public post was created
+
+The scheduled-post detail screen was then inspected by the user.
+
+Confirmed:
+
+- body rendered normally
+- image rendered normally
+- image geometry was normal
+- ALT was applied
+- representative image was applied
+- tags were applied
+- scheduled state was correct
+
+The Bright Studio completion result also showed:
+
+- reservation processing result
+- external verification complete
+- completion button working
+- completed notice no longer animating as an active operation
+
+## 10. Completion Boundary
+
+The Tistory native **Schedule Create MVP** is implemented and externally verified.
+
+This does not mark all Sprint 6 work complete. Presentation Runtime and the following scheduling operations remain separate future scopes:
+
+- schedule-time update
+- schedule cancellation
 - publication-time verification
-- schedule update workflow
-- schedule cancel workflow
+- automatic transition to `published`
 - local scheduler
 - recurring schedules
 - multi-platform scheduling
 - immediate public publishing
+- existing scheduled-post editing
+- scheduled-post deletion
 
-## 13. Next Gate
+No excluded operation may be inferred from the verified Create MVP.
 
-Before any selector or final-click implementation:
+## 11. PR and Merge Policy
 
-1. pull the latest feature branch
-2. run typecheck, lint, all tests, build, and diff check
-3. execute one first-stage read-only probe against one selected Tistory account
-4. preserve the returned JSON as UI evidence
-5. review observed controls and accessibility attributes
-6. design a second-stage panel-opening probe separately
-7. do not register a schedule during the first-stage probe
+PR `#38` remains Draft until the user explicitly approves Ready status and merge.
 
-PR #38 must remain Draft until actual native schedule registration, external status verification, publication-time verification, and final regression validation are complete.
+Documentation completion does not authorize:
+
+- Draft removal
+- merge to `main`
+- public publishing activation
+- additional scheduling operations
+
+The next repository decision is whether to mark PR `#38` Ready and merge it after the user reviews this final documentation state.
