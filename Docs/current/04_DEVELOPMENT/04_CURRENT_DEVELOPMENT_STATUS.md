@@ -16,7 +16,9 @@ Architecture status: Frozen unless explicitly approved through the Decision Log 
 
 The current stable release baseline remains Bright Studio `v1.0.0` from commit `9946f9ecc9167b343ff0c7763c62437d593764ea`.
 
-The active feature branch `feat/tistory-native-scheduled-publishing` adds the externally verified Tistory native Schedule Create MVP. It remains outside `main` until PR `#38` is explicitly approved and merged.
+PR `#38`의 externally verified Tistory native Schedule Create MVP는 `main`에 병합되었다. Merge commit은 `1c38eab75492c156b222c30c947be672a68b39df`다.
+
+현재 WordPress 작업 브랜치는 `feat/wordpress-draft-publishing`이다.
 
 Implementation status must be determined from:
 
@@ -77,33 +79,38 @@ Changes to frozen behavior require actual reproduction evidence, code-path inspe
 Current active branch:
 
 ```text
-feat/tistory-native-scheduled-publishing
+feat/wordpress-draft-publishing
 ```
 
-Pull request:
+Merged pull request:
 
 ```text
 PR #38
 Base: main
-State: Open
-Draft: Yes
-Mergeable: Yes
-Merged: No
+State: Merged
+Merged: Yes
+Merge commit: 1c38eab75492c156b222c30c947be672a68b39df
 ```
 
-Final runtime implementation head before documentation-only commits:
+The Tistory Schedule Create MVP is implemented and externally verified. PR `#38` is complete and no longer an open Gate.
+
+Current WordPress documentation baseline:
 
 ```text
-e73d33f test: cover scheduled image block placement
+Base commit: 1c38eab75492c156b222c30c947be672a68b39df
+Branch: feat/wordpress-draft-publishing
+Detailed design: Approved
+Integrated MVP implementation: Not Started
 ```
 
-Local repository state confirmed before documentation update:
+Local repository state confirmed before this documentation update:
 
-- synchronized with `origin/feat/tistory-native-scheduled-publishing`
-- working tree clean
-- no local diff
+- synchronized with `origin/feat/wordpress-draft-publishing`
+- current branch `feat/wordpress-draft-publishing`
+- working tree clean before the requested documentation edits
+- no pre-existing local diff
 
-PR `#38` must not be marked Ready or merged without explicit user approval.
+The next Gate is user approval of the WordPress documentation diff before implementation begins.
 
 ## 4. Sprint Summary
 
@@ -116,7 +123,7 @@ PR `#38` must not be marked Ready or merged without explicit user approval.
 | 5 | Editorial Quality Pipeline | Approved | Complete | Complete | Completed |
 | 6 | Presentation Architecture, Bright Components and Tistory Scheduling | Approved | Presentation foundation partial; Tistory Schedule Create MVP complete | Schedule Create externally verified; remaining Sprint 6 work pending | Partially Implemented |
 | 7 | Project DNA, Content Library and Internal Link Intelligence | Approved | Data Source and Opportunity Intelligence foundation only | Foundation partially externally verified | Partially Implemented |
-| 8 | WordPress and Multi-platform Foundation | Approved | Connection and primitive Adapter foundation present; integrated Draft MVP not implemented | Real WordPress Draft verification not started | Design Approved / Foundation Partial |
+| 8 | WordPress and Multi-platform Foundation | Approved | Connection and primitive Adapter foundation present; integrated Draft MVP not implemented | Real WordPress Draft verification not started | Detailed MVP Design Approved / Not Implemented |
 
 No whole Sprint may be reported complete because one workstream or foundation inside it is complete.
 
@@ -395,9 +402,11 @@ Safe deletion behavior includes:
 
 ## 10. Sprint 8 — WordPress and Multi-platform Foundation
 
-Design status: Approved
+Detailed design status: Approved
 
 Integrated WordPress Draft MVP status: Not implemented
+
+Active implementation branch: `feat/wordpress-draft-publishing`
 
 Existing verified repository foundation:
 
@@ -421,13 +430,14 @@ Current limitations:
 - no current Revision and Quality lock
 - no Publishing Service integration
 - no Permission Gate integration
-- no category read and selection flow
-- no tag read, creation or application flow
+- no dynamic Category read, selection, execution-time revalidation or multiple Category ID flow
+- no current-policy Tag omission verification or future Tag contract integration
 - no WordPress media upload
 - no ALT metadata update through WordPress Media REST resources
 - no featured image assignment
 - no duplicate Draft prevention
-- no Draft re-read verification
+- no Idempotency record or unknown-result reconciliation
+- no external Draft re-read verification
 - no title, meaningful body, status, category, tag or featured-image verification
 - no integrated publishing audit and completion UI
 
@@ -440,14 +450,18 @@ UI
 → Permission Gate
 → WordPress Adapter
 → WordPress REST API
-→ External Verification
+→ External Re-read Verification
+→ Persistence and Audit
+→ Completion UI
 ```
 
 WordPress uses the official REST API, not Playwright.
 
 Core must not know WordPress REST endpoints, URL layout or Application Password format.
 
-The next WordPress work must begin from updated `main` after the PR `#38` merge decision. It must use a dedicated branch and receive detailed design approval before code changes.
+PR `#38`은 `main`에 병합되었고 전용 WordPress branch가 생성되었다. WordPress Draft MVP 상세 설계는 승인되었지만 구현은 시작되지 않았다.
+
+Sprint 8 전체를 구현 또는 완료로 표시하지 않는다. 다음 Gate는 이 문서와 관련 승인 문서의 diff를 사용자가 승인한 뒤 코드 구현을 시작하는 것이다.
 
 ## 11. Current External Gates
 
@@ -484,13 +498,11 @@ Released behavior:
 
 ## 13. Next Actions
 
-1. Review the final Tistory Schedule Create documentation updates.
-2. Keep PR `#38` Draft until the user explicitly chooses Ready and merge.
-3. If approved, mark PR `#38` Ready and merge it into `main`.
-4. Update the local `main` branch after merge.
-5. Create a WordPress-specific branch from updated `main`.
-6. Re-read the WordPress architecture, connection code, Publishing Service, Permission Gate and protected Tistory execution paths.
-7. Present the detailed WordPress Draft MVP design.
-8. Write WordPress code only after explicit design approval.
+1. Review the WordPress Draft Publishing MVP documentation diff.
+2. Do not begin implementation until the user approves the documentation diff.
+3. After approval, implement on `feat/wordpress-draft-publishing` in the sequence defined by `12_WORDPRESS_DRAFT_PUBLISHING_MVP.md`.
+4. Complete automated regression with explicit Tistory Draft and Schedule Create protection.
+5. Complete real WordPress Category, Media, ALT, Featured Image, Draft and re-read verification.
+6. Do not report Sprint 8 complete until its remaining approved scope and external Gates are actually complete.
 
 Do not use `git reset --hard`, `git clean`, force push or unrelated refactoring.

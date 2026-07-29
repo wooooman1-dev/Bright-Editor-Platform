@@ -706,6 +706,125 @@ Quality Engine은 필수 정보 요소를 `missing`, `mentioned`, `sufficient`�
 
 Provider 응답과 구조화 형식이 유효해 canonical `ContentDocument`를 만들 수 있다면, Generation 또는 Quality Review의 품질 기준을 충족하지 못해도 문서와 진단을 보존하고 Content를 `in_review`로 둔다. 사용자는 Editor에서 이 문서를 수정하고 다시 Quality Review를 실행할 수 있다. Provider 오류나 구조화 형식 오류처럼 canonical 문서를 만들 수 없는 기술 실패는 문서가 없는 실패로 구분한다. 품질 미달 문서는 `ready` 또는 발행 가능 상태가 아니며, `approved === true && approvalType === "standard"` 조건은 변경하지 않는다.
 
+# D-036 WordPress Draft Publishing MVP
+
+Status: Accepted
+
+WordPress Draft MVP는 WordPress Core REST API를 사용하는 `server_api` 방식이다. WordPress 외부 실행에 Playwright를 사용하지 않는다.
+
+실행 경계는 다음과 같다.
+
+```text
+UI
+→ Application Service
+→ Publishing Service
+→ Permission Gate
+→ WordPress Adapter
+→ WordPress REST API
+→ External Re-read Verification
+→ Persistence and Audit
+→ Completion UI
+```
+
+안전 정책은 다음과 같다.
+
+- Review First: ON
+- Draft Only: ON
+- Public Publish: OFF
+- Quality Approval과 현재 Content Revision 일치 필수
+- 사용자의 최종 확인 필수
+- WordPress Application Password 원문은 SecretStore에만 저장
+- UI, Content, Project, Audit, Error와 Log에 Application Password 또는 Authorization Header 저장 금지
+
+Category 결정은 다음과 같다.
+
+- Category ID와 이름을 코드에 하드코딩하지 않는다.
+- WordPress의 실제 Category 목록을 PlatformConnection별로 동적 조회한다.
+- 데이터 구조와 REST Payload는 처음부터 복수 Category를 지원한다.
+- 현재 AdSense 승인 준비 정책에서는 `생활경제` Category 하나만 사용한다.
+- 향후 Category가 추가되면 코드 변경 없이 실제 목록에서 선택할 수 있어야 한다.
+- 저장된 Category ID는 Draft 실행 직전에 실제 조회 결과로 재검증한다.
+- Category가 삭제되거나 사용할 수 없으면 Readiness를 차단하고 재선택을 요구한다.
+- 임의의 Category나 `미분류`로 자동 대체하지 않는다.
+- 같은 Workspace라도 WordPress 사이트별 Category 목록과 기본 Category를 독립 관리한다.
+- Category 이름이 변경되고 ID가 유지되면 최신 이름으로 동기화할 수 있다.
+
+Category 선택과 기본값 적용 우선순위는 다음과 같다.
+
+1. Content에서 직접 선택한 Category
+2. Project `defaultWordPressCategories`
+3. `WordPressConnectionProfile.defaultCategoryIds`
+4. 유효한 Category가 없으면 Readiness 차단
+
+모든 기본 Category ID는 실제 WordPress 목록으로 재검증한다. 유효하지 않은 값을 `미분류`로 자동 대체하지 않는다.
+
+Media 결정은 다음과 같다.
+
+- WordPress Media Upload Capability는 MVP에서 Supported다.
+- D-021 Safe Draft Mode에 따라 `media.upload` Permission 기본값은 계속 Disabled다.
+- 로컬 이미지가 있는 Draft만 `media.upload` Permission을 요구한다.
+- 사용자가 해당 WordPress Connection에서 `media.upload`를 명시적으로 허용해야 실행한다.
+- 이미지가 없는 글은 `media.upload` Permission 없이 Draft Create가 가능하다.
+- Media Upload는 Renderer 책임이 아니라 WordPress Media Adapter 책임이다.
+- 업로드된 Media ID와 WordPress URL로 본문 이미지를 변환한다.
+- ALT를 저장하고 외부 Media 재조회로 확인한다.
+- 목적성 대표 이미지가 있는 경우 해당 Media ID를 `featured_media`로 지정한다.
+- Featured Image도 외부 Post 재조회로 확인한다.
+- Post 생성 실패 후 이미 업로드된 Media를 자동 삭제하지 않는다.
+- 이 경우 `cleanup_required` 또는 동등한 안전 상태와 Audit을 남긴다.
+
+Tag 결정은 다음과 같다.
+
+- 기술 구조는 향후 Tag 확장이 가능해야 한다.
+- 현재 AdSense 승인 준비 단계에서는 Tag를 보내지 않는다.
+- WordPress에 존재하는 Tag를 자동 생성하거나 추측하지 않는다.
+
+Idempotency Key는 최소한 다음을 포함한다.
+
+```text
+workspaceId
+projectId
+contentId
+current revision 또는 content version
+platformConnectionId
+draft.create
+```
+
+Idempotency 결정은 다음과 같다.
+
+- 동일 Key의 `verified` 결과는 새 Draft를 만들지 않고 기존 결과를 반환한다.
+- 외부 ID를 받은 상태에서는 새 Draft 생성 전 기존 외부 Post를 먼저 재검증한다.
+- 결과가 `unknown`이면 자동으로 새 Draft를 생성하지 않는다.
+- 실패한 요청의 재시도는 사용자 명시 동작으로만 수행한다.
+- Revision이 변경되면 새로운 논리적 Key를 사용한다.
+
+`POST /posts` 응답만으로 완료 처리하지 않는다. 생성된 External Post ID를 다시 조회하고 최소한 다음을 검증한다.
+
+- External Post ID
+- `status=draft`
+- title 일치
+- 의미 있는 본문 존재
+- 선택한 Category ID 적용
+- Tag 미사용 정책
+- 필요한 Media 존재
+- ALT 적용
+- 필요한 Featured Image ID 적용
+
+WordPress HTML 정규화 가능성을 고려해 원문 문자열 완전 일치만 요구하지 않는다.
+
+MVP에서 다음은 제외한다.
+
+- Public Publish
+- Scheduled Publishing
+- Existing Post Update
+- Existing Post Delete
+- 자동 Plugin 설치 또는 수정
+- Theme 수정
+- SEO Plugin 전용 Metadata
+- 여러 플랫폼 동시 실행
+- 자동 Retry
+- 업로드 Media 자동 삭제
+
 
 ---
 
