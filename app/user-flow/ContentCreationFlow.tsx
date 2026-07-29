@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { detectContentOpportunitySelectionMode, type ContentOpportunityCandidate } from "../../core/content";
+import { applyProjectPublishingTargets, projectPublishingAccountIds } from "../application/publishing/ProjectPublishingTarget";
 import { PageContainer } from "../shared/ui/PageContainer";
 import { completeConfirmedGeneration } from "./confirmed-generation";
 import { generatedDocumentEditable, generatedDocumentReady, GenerationCompletionError, type GenerationCompletionResult } from "./generation-result";
@@ -16,7 +17,6 @@ import {
   startContentGeneration,
   startContentPlanning,
   updateContent,
-  updateProjectTargets,
   type ContentPlanningResult,
   type UserContent,
   type UserData,
@@ -253,7 +253,8 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
     let generationStarted = false;
     if (generate) setOperation("generating");
     setNotice("원고 생성 전에 콘텐츠 기록을 저장하고 있습니다.");
-    let next = createContentFromPlan(latestDataRef.current, {
+    let next = applyProjectPublishingTargets(latestDataRef.current, project.id, readyAccountIds, connected, now());
+    next = createContentFromPlan(next, {
       id: contentId,
       projectId: project.id,
       naturalLanguageRequest: confirmedRequest,
@@ -262,11 +263,10 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
       selectedPublishingAccountIds: readyAccountIds,
       now: now(),
     });
-    next = updateProjectTargets(next, project.id, readyAccountIds, now());
     latestDataRef.current = next;
     try {
       await onPersist(next);
-      const tistoryAccountIds = readyAccountIds.filter((id) => connected.some((connection) => connection.id === id && connection.platform === "tistory"));
+      const tistoryAccountIds = projectPublishingAccountIds(next, project.id, readyAccountIds, connected, "tistory");
       if (tistoryAccountIds.length) {
         const preparationResponse = await fetch("/api/tistory", {
           method: "POST",
@@ -299,6 +299,7 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
           throw new Error(result.error ?? "Publishing-account selection failed.");
         }
       }
+      next = applyProjectPublishingTargets(next, project.id, persistedAccountIds, connected, now());
       next = createContentFromPlan(next, {
         id: contentId,
         projectId: project.id,
@@ -308,7 +309,6 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
         selectedPublishingAccountIds: persistedAccountIds,
         now: now(),
       });
-      next = updateProjectTargets(next, project.id, persistedAccountIds, now());
       latestDataRef.current = next;
       await onPersist(next);
       if (!generate) {

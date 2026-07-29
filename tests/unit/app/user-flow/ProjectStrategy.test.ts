@@ -11,6 +11,7 @@ describe("Project content strategy", () => {
     const plan = { interpretedIntent: "운동 방법", domain: "운동", targetAudience: "초보자", contentGoal: "실행", recommendedPrimaryKeyword: "아침 운동", keywordCandidates: ["아침 운동"], searchIntent: "방법 찾기", recommendedContentType: "장문 블로그", recommendedPlatforms: ["tistory"], suggestedTitleAngles: ["아침 운동"], relatedKeywords: ["스트레칭"], contentCluster: [], recommendationReason: "관련성", confidence: .9, estimateDisclosure: "추정" };
     data = createContentFromPlan(data, { id: "content", projectId: project.id, naturalLanguageRequest: "작성", plan, primaryKeyword: "아침 운동", selectedPublishingAccountIds: ["account"], now: "created" });
     expect(resolveProjectStrategy(data.projects[0]).primaryTopic).toBe("건강운동");
+    expect(data.contents[0].platform).toBe("tistory");
     expect(data.contents[0].publishingPreparation?.tistory).toMatchObject({ platformCategoryId: "1057542", platformCategoryName: "건강운동" });
   });
   it("renames only the requested Project and preserves its strategy", () => {
