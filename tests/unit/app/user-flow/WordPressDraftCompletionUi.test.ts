@@ -28,6 +28,20 @@ describe("WordPress Draft execution and completion UI", () => {
     expect(overlaySource).toContain('type: "readiness_resolved"');
   });
 
+  it("integrates account and Category preparation before Draft execution", () => {
+    expect(overlaySource).toContain("WordPress 계정");
+    expect(overlaySource).toContain("WordPress 카테고리");
+    expect(overlaySource).toContain("/api/publishing/wordpress/categories");
+    expect(overlaySource).toContain('method: "POST"');
+    expect(overlaySource).toContain("카테고리 적용");
+    expect(overlaySource).toContain("<strong>Draft Only</strong>");
+  });
+
+  it("renders only for a Workspace with WordPress enabled", () => {
+    expect(overlaySource).toContain('enabledPlatforms.includes("wordpress")');
+    expect(overlaySource).toContain("if (!context || !wordpressEnabled || wordpressConnections.length === 0) return null");
+  });
+
   it("requires final confirmation and readiness before calling create_draft", () => {
     expect(overlaySource).toContain("if (!executable) return");
     expect(overlaySource).toContain('action: "create_draft"');
