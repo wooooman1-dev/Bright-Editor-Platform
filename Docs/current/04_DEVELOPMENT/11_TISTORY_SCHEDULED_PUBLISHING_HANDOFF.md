@@ -1,203 +1,222 @@
-# Bright Studio — Tistory Native Scheduled Publishing Handoff
+# Bright Studio — Tistory Native Scheduled Publishing Final Handoff
 
-Date: 2026-07-28
+Date: 2026-07-29
 
-## Repository
+## 1. Repository State
 
 - Repository: `wooooman1-dev/Bright-Editor-Platform`
 - Branch: `feat/tistory-native-scheduled-publishing`
 - Pull request: `#38`
-- Pull request state: Draft
 - Base branch: `main`
+- Runtime validation head: `e73d33f`
+- Pull request state before documentation update: Open, Draft, Mergeable, not merged
 
-Do not merge or mark the PR Ready yet.
+The branch was confirmed locally as synchronized with origin and clean before this documentation update.
 
-## Current fully validated runtime baseline
+PR `#38` must not be marked Ready or merged without explicit user approval.
 
-Automated Windows validation passed at runtime code commit `60864d4`:
+## 2. Final MVP Result
+
+Tistory native scheduled publishing **Create MVP** is implemented and externally verified.
+
+The completed user flow is:
+
+```text
+Editor
+→ 예약발행
+→ Tistory account selection
+→ category selection
+→ Asia/Seoul schedule-time selection
+→ Readiness
+→ final confirmation
+→ local image upload
+→ ALT and representative-image application
+→ tag application
+→ native Tistory reservation registration
+→ external management-list verification
+→ completion result
+```
+
+## 3. Implemented Product Behavior
+
+Implemented:
+
+- Editor-only schedule button and modal
+- selected Tistory account
+- selected category
+- absolute future schedule time
+- `Asia/Seoul` timezone policy
+- Readiness result
+- explicit final confirmation
+- current reviewed Revision lock
+- Quality approval requirement
+- Workspace, Project and Content ownership validation
+- selected Project publishing-target validation
+- `schedule.create` Permission Gate
+- conditional `media.upload` Permission Gate
+- deterministic request fingerprint
+- atomic schedule reservation
+- duplicate active-schedule prevention
+- identical active-request idempotency
+- failed-identical-request explicit retry
+- no automatic retry after final registration click
+- native publication panel and reservation controls
+- native date, hour and minute selection
+- local media upload in the same editor
+- ALT application
+- representative-image application
+- tag application
+- external Tistory management-list verification
+- persisted scheduled result
+- publishing audit
+- completion UI
+
+## 4. Architecture Boundary
+
+Execution path:
+
+```text
+UI
+→ Schedule Create API
+→ Ownership and Readiness Validation
+→ Publishing Permission Gate
+→ TistoryScheduleCreateApplicationService
+→ Registered Tistory Playwright Worker
+→ Tistory Native Editor
+→ External Verification
+→ ScheduledPublication Persistence
+→ Audit and Completion UI
+```
+
+Protected boundaries:
+
+- AI does not call Playwright.
+- UI does not call Playwright.
+- Core does not contain Tistory URLs or selectors.
+- Tistory-specific browser behavior stays in `apps/tistory`.
+- shared scheduling state and idempotency stay platform-independent.
+- the existing Tistory Draft worker remains separate.
+- `publish.execute` remains independent and disabled.
+
+## 5. Final Automated Validation
+
+Final local Windows validation on the latest implementation head `e73d33f`:
 
 ```text
 npm run typecheck — passed
-npm test -- tests/unit/apps/tistory/TistorySchedulePanelProbeContract.test.ts — passed
-  Test Files: 1 passed
-  Tests: 4 passed
-npm test — passed
-  Test Files: 186 passed, 7 skipped
-  Tests: 947 passed, 17 skipped
 npm run lint — passed
+npm test — passed
+  Test Files: 193 passed | 7 skipped
+  Tests: 978 passed | 17 skipped
 npm run build — passed
 git diff --check — passed
 git status — working tree clean
-README_DO_NOT_USE — absent
 ```
 
-The production route list contains:
+Failures: `0`
+
+The skipped suites are the existing manual suites.
+
+No GitHub Actions workflow run is recorded for `e73d33f`; the completed evidence is the local Windows validation from the synchronized clean branch.
+
+## 6. Real External Verification
+
+A real Content was registered through Bright Studio into Tistory native scheduled publishing.
+
+Verified item:
+
+- account: `bright-healthy`
+- title: `운동 휴식일, 근육 회복을 위한 쉬는 날 판단법`
+- category: `건강운동`
+- scheduled time: `2026-07-29 10:10` Asia/Seoul
+- management-list state: `[예약]`
+- immediate public post: not created
+
+The user then opened the scheduled item detail screen and confirmed:
+
+- body normal
+- image normal
+- no vertical image distortion
+- ALT normal
+- representative image normal
+- tags normal
+- scheduled state normal
+
+The Bright Studio result screen confirmed:
+
+- scheduled publishing processing result
+- external verification complete
+- completion button normal
+- completed operation notice stopped animating
+
+## 7. Media Placement Fix
+
+The final media fix protects Tistory image block placement.
+
+Verified implementation behavior:
+
+- an inline image marker is promoted to its nearest valid block before native image insertion
+- image geometry is checked before representative-image selection
+- a native Tistory image nested inside a paragraph is rejected
+- invalid geometry is not treated as successful media placement
+
+Regression coverage is included in:
 
 ```text
-/api/publishing/schedules/ui-probe
-/api/publishing/schedules/panel-probe
+tests/unit/apps/tistory/TistorySameEditorMediaPlacement.test.ts
 ```
 
-This validation covers the failed-evidence preservation change, changed-control snapshots, ancestor-candidate evidence, the strict one-click contract, and the existing scheduled-publishing foundation.
+## 8. Duplicate and Retry Safety
 
-## Verified first-stage external probe
+Rules:
 
-The zero-click probe against `bright-healthy` returned:
+- an active reservation blocks another reservation for the same Content and platform
+- an identical active request returns the existing record
+- a successful reservation is never retried
+- only a failed identical reservation may be explicitly retried
+- final-click ambiguity becomes `scheduled_unverified`
+- final-click ambiguity never triggers automatic schedule creation again
+- verification failure is not recorded as successful completion
 
-```text
-status: diagnosed
-workflow: schedule.verify
-readOnly: true
-total click count: 0
-restricted click count: 0
-title length: 0 -> 0
-body text length: 0 -> 0
-visible controls: 52
-visible dialogs: none
-editor URL: https://bright-healthy.tistory.com/manage/newpost
-```
+## 9. Scope That Remains Excluded
 
-Stable evidence:
+The verified Create MVP does not include:
 
-- `#category-btn`
-- `#post-title-inp`
-- `#editor-mode-layer-btn`
-- `#tagText`
-- `#preview-btn`
-- `#grammar-check-btn`
-- `#publish-layer-btn`
-
-PowerShell mojibake is not locator evidence.
-
-## First-stage contract remains protected
-
-Worker:
-
-```text
-apps/tistory/workflows/tistory-schedule-ui-probe.mjs
-```
-
-Endpoint:
-
-```text
-POST /api/publishing/schedules/ui-probe
-```
-
-The first-stage worker still has no Playwright `.click()`, `.fill()`, or `.selectOption()` call. The Tistory Draft worker was not changed.
-
-## Second-stage publication-panel probe
-
-Worker:
-
-```text
-apps/tistory/workflows/tistory-schedule-panel-probe.mjs
-```
-
-Application service:
-
-```text
-app/application/publishing/TistorySchedulePanelProbeApplicationService.ts
-```
-
-Endpoint:
-
-```text
-POST /api/publishing/schedules/panel-probe
-```
-
-Shared server validation:
-
-```text
-app/api/publishing/schedules/ScheduleProbeContext.ts
-```
-
-Exactly one Playwright click is permitted:
-
-```text
-#publish-layer-btn
-```
-
-The click contract requires:
-
-```text
-clickCounts.total == 1
-clickCounts.allowedOpen == 1
-clickCounts.restricted == 0
-clickCounts.targets.length == 1
-clickCounts.targets[0].id == publish-layer-btn
-```
-
-No title/body input, Category selection, publication-state selection, date/time selection, Draft save, public publishing, schedule confirmation, deletion, final submit, or keyboard confirmation is allowed.
-
-## First real second-stage attempt
-
-Before the attempt:
-
-- `bright-healthy` was reconnected on the current computer;
-- the stored session became available;
-- `schedule.create` was enabled;
-- `publish.execute` remained disabled.
-
-The endpoint returned:
-
-```text
-status: failed
-workflow: schedule.verify
-probeStage: publication-panel
-readOnly: true
-diagnosticCode: publication_panel_not_isolated
-editorUrl: https://bright-healthy.tistory.com/manage/newpost
-```
-
-The worker checks the click contract before panel isolation, so this result failed at isolation rather than the click gate. No schedule, date, time, save, public-publish, or final-registration control was clicked.
-
-## Confirmed cause in the previous algorithm
-
-The previous worker required the common ancestor of newly visible controls to also be absent from the pre-click visible-element baseline.
-
-The real Tistory editor may reveal controls inside a container that was already visible before the click. This remains only a structural possibility until the next bounded diagnostic result is inspected.
-
-## Current evidence-preservation behavior
-
-The current worker retains bounded post-click evidence even when isolation fails:
-
-- click counts and target
-- title/body lengths before and after
-- baseline control snapshots
-- newly visible controls
-- changed controls
-- common ancestor candidate
-- bounded ancestor candidates
-- visible panel-like containers
-- opener state after the click
-- `document.characterSet`
-- bounded Base64 UTF-8 labels and text
-
-The success gate was not relaxed. `status: diagnosed` still requires an isolated `panelRoot` and at least one control.
-
-Article HTML is not collected.
-
-## Not implemented
-
-- Editor scheduling form
-- schedule create execution API
-- verified schedule-state locator
-- verified date/time locator
-- final schedule-registration locator
-- native schedule registration worker
-- actual schedule registration
-- management-list verification
-- editor re-entry verification
+- schedule-time update
+- schedule cancellation
 - publication-time verification
-- schedule update or cancel workflows
-- local or recurring scheduler
+- automatic `published` transition
+- existing scheduled-post modification
+- scheduled-post deletion
+- local scheduler
+- recurring schedules
+- multi-platform scheduling
 - immediate public publishing
 
-## Next gate
+These exclusions do not block completion of the Schedule Create MVP, but they prevent the whole Sprint 6 scheduling domain from being reported as fully complete.
 
-1. Rerun the real panel probe against `bright-healthy` on the validated current head.
-2. Verify one allowed click, zero restricted clicks, and unchanged title/body state.
-3. Inspect newly visible controls, changed controls, ancestor candidates, panel-like containers, and Base64 labels.
-4. Approve a panel root only from real evidence.
+## 10. Documentation Status
 
-Do not implement schedule/date/time selection from assumptions.
+This final handoff replaces the earlier probe-stage handoff that described schedule creation as unimplemented.
+
+The authoritative Create MVP status is now:
+
+```text
+Implementation: Complete
+Automated validation: Complete
+Real schedule registration: Complete
+Management-list verification: Complete
+Scheduled-item detail verification: Complete
+Tistory Draft regression protection: Preserved
+Public publishing: Disabled
+PR merge: Awaiting explicit user approval
+```
+
+## 11. Next Repository Decision
+
+After reviewing the final documentation, the user must explicitly decide whether to:
+
+1. keep PR `#38` Draft, or
+2. mark PR `#38` Ready and merge it into `main`.
+
+No WordPress implementation branch should be based on the feature branch. WordPress work should begin from updated `main` only after the PR merge decision is completed.
