@@ -69,20 +69,23 @@ export function mergeServerMutationSnapshot(current: UserData | undefined, base:
 function preserveServerPublishingProject(server: UserProject | undefined, incoming: UserProject): UserProject {
   const serverStrategy = server?.strategy;
   const defaultTistoryCategory = serverStrategy?.defaultTistoryCategory;
-  if (!serverStrategy || !defaultTistoryCategory) return incoming;
+  const defaultWordPressCategories = serverStrategy?.defaultWordPressCategories;
+  if (!serverStrategy || (!defaultTistoryCategory && defaultWordPressCategories === undefined)) return incoming;
   const strategy = incoming.strategy ?? serverStrategy;
   return Object.freeze({
     ...incoming,
     strategy: Object.freeze({
       ...strategy,
-      defaultTistoryCategory,
+      ...(defaultTistoryCategory ? { defaultTistoryCategory } : {}),
+      ...(defaultWordPressCategories !== undefined ? { defaultWordPressCategories } : {}),
     }),
   });
 }
 
 function preserveServerPublishingContent(server: UserContent | undefined, incoming: UserContent): UserContent {
   const tistoryPreparation = server?.publishingPreparation?.tistory;
-  if (!tistoryPreparation) return incoming;
+  const wordpressPreparation = server?.publishingPreparation?.wordpress;
+  if (!tistoryPreparation && !wordpressPreparation) return incoming;
   return Object.freeze({
     ...incoming,
     platform: server.platform ?? incoming.platform,
@@ -90,7 +93,8 @@ function preserveServerPublishingContent(server: UserContent | undefined, incomi
     selectedPublishingAccountIds: server.selectedPublishingAccountIds ?? incoming.selectedPublishingAccountIds,
     publishingPreparation: Object.freeze({
       ...incoming.publishingPreparation,
-      tistory: tistoryPreparation,
+      ...(tistoryPreparation ? { tistory: tistoryPreparation } : {}),
+      ...(wordpressPreparation ? { wordpress: wordpressPreparation } : {}),
     }),
   });
 }

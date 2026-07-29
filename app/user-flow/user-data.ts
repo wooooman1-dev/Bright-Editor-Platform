@@ -35,6 +35,20 @@ export type UserWorkspace = Readonly<{
 }>;
 export type UserBrand = Readonly<{ id: string; workspaceId: string; name: string }>;
 
+export type WordPressDefaultCategory = Readonly<{
+  publishingAccountId: string;
+  id: string;
+  name: string;
+}>;
+
+export type WordPressPublishingPreparation = Readonly<{
+  publishingAccountId: string;
+  categoryIds: readonly string[];
+  categoryNames: readonly string[];
+  featuredImageAssetId?: string;
+  updatedAt: string;
+}>;
+
 export type UserProject = Readonly<{
   id: string;
   workspaceId: string;
@@ -54,6 +68,7 @@ export type ProjectContentStrategy = Readonly<{
   internalLinkPolicy: string; relatedPostPolicy: string; ctaPolicy: string; imageStrategy: string; seoPolicy: string;
   defaultPublishingAccountId?: string;
   defaultTistoryCategory?: Readonly<{ publishingAccountId: string; id: string | null; name: string | null }>;
+  defaultWordPressCategories?: readonly WordPressDefaultCategory[];
 }>;
 
 export type ContentPlanningResult = Readonly<{
@@ -155,6 +170,7 @@ export type UserContent = Readonly<{
       platformCategoryName: string | null;
       updatedAt: string;
     }>;
+    wordpress?: WordPressPublishingPreparation;
   }>;
 }>;
 
