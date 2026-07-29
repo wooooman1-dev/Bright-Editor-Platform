@@ -1,13 +1,291 @@
-import type { ContentDocument } from "../../core/content";
+import {
+  createWordPressAuthorizationHeader,
+  normalizeSiteUrl,
+  type WordPressConnectionInput,
+} from "./WordPressConnectionAdapter";
+import type {
+  PreparedPublication,
+  PublicationRequest,
+  PublicationResult,
+  PublishingAdapter,
+} from "../../core/publishing";
 import { WordPressHtmlRenderer } from "./WordPressHtmlRenderer";
 
-export class WordPressDraftPublishingAdapter {
-  constructor(private readonly renderer = new WordPressHtmlRenderer()) {}
-  async saveDraft(input: Readonly<{ siteUrl: string; username: string; applicationPassword: string; content: ContentDocument }>) {
-    const response = await fetch(`${input.siteUrl}/wp-json/wp/v2/posts`, { method: "POST", headers: { Authorization: `Basic ${Buffer.from(`${input.username}:${input.applicationPassword}`).toString("base64")}`, "Content-Type": "application/json" }, body: JSON.stringify({ title: input.content.title, content: this.renderer.render(input.content), status: "draft" }) });
-    if (!response.ok) throw new Error("WordPress draft could not be saved.");
-    const result = await response.json() as { id: number; status: string; link?: string };
-    if (result.status !== "draft") throw new Error("WordPress did not confirm draft status.");
-    return Object.freeze({ externalId: String(result.id), status: "draft" as const });
+export type WordPressPreparedDraft = PreparedPublication & Readonly<{
+  payload: Readonly<{ html: string; title: string; type: "save-draft" }>;
+}>;
+
+export type WordPressDraftPayload = Readonly<{
+  title: string;
+  content: string;
+  excerpt: string;
+  status: "draft";
+  categories: readonly string[];
+  slug?: string;
+  featuredMediaId?: string;
+}>;
+
+export type WordPressDraftCreateResult = Readonly<{
+  externalId: string;
+  responseStatus: string;
+}>;
+
+export type WordPressExternalDraft = Readonly<{
+  externalId: string;
+  status: string;
+  title: string;
+  content: string;
+  categoryIds: readonly string[];
+  tagIds: readonly string[];
+  featuredMediaId?: string;
+}>;
+
+export type WordPressDraftVerification = Readonly<{
+  verified: boolean;
+  checks: readonly Readonly<{ key: string; passed: boolean }>[];
+}>;
+
+type WordPressPostResponse = Readonly<{
+  id?: string | number;
+  status?: string;
+  title?: Readonly<{ raw?: string; rendered?: string }>;
+  content?: Readonly<{ raw?: string; rendered?: string }>;
+  categories?: readonly (string | number)[];
+  tags?: readonly (string | number)[];
+  featured_media?: string | number;
+}>;
+
+export class WordPressDraftPublishingAdapter implements PublishingAdapter {
+  readonly platform = "wordpress";
+
+  constructor(
+    private readonly request: typeof fetch = fetch,
+    private readonly renderer = new WordPressHtmlRenderer(),
+  ) {}
+
+  async prepare(request: PublicationRequest): Promise<WordPressPreparedDraft> {
+    return Object.freeze({
+      payload: Object.freeze({
+        html: this.renderer.render(request.content),
+        title: request.content.title,
+        type: "save-draft" as const,
+      }),
+      platform: this.platform,
+      request,
+    });
   }
+
+  async publish(publication: PreparedPublication): Promise<PublicationResult> {
+    void publication;
+    throw new Error("Public publishing is outside the WordPress Draft scope.");
+  }
+
+  async createDraft(
+    input: WordPressConnectionInput & Readonly<{ payload: WordPressDraftPayload }>,
+  ): Promise<WordPressDraftCreateResult> {
+    const payload = createPayload(input.payload);
+    const response = await this.safeRequest(`${normalizeSiteUrl(input.siteUrl)}/wp-json/wp/v2/posts`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        Authorization: createWordPressAuthorizationHeader(input.username, input.applicationPassword),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    }, "WordPress draft could not be created.");
+    const raw = await postResponse(response);
+    if ((typeof raw.id !== "string" && typeof raw.id !== "number") || !String(raw.id).trim()) {
+      throw new Error("WordPress returned an invalid draft response.");
+    }
+    return Object.freeze({ externalId: String(raw.id), responseStatus: raw.status ?? "unknown" });
+  }
+
+  async readDraft(
+    input: WordPressConnectionInput & Readonly<{ externalId: string }>,
+  ): Promise<WordPressExternalDraft> {
+    const externalId = postId(input.externalId);
+    const response = await this.safeRequest(
+      `${normalizeSiteUrl(input.siteUrl)}/wp-json/wp/v2/posts/${externalId}?context=edit`,
+      {
+        headers: {
+          Accept: "application/json",
+          Authorization: createWordPressAuthorizationHeader(input.username, input.applicationPassword),
+        },
+      },
+      "WordPress draft could not be re-read for verification.",
+    );
+    return externalDraft(await postResponse(response));
+  }
+
+  verifyDraft(
+    draft: WordPressExternalDraft,
+    expected: Readonly<{
+      externalId: string;
+      title: string;
+      content: string;
+      categoryIds: readonly string[];
+      mediaUrls: readonly string[];
+      featuredMediaId?: string;
+    }>,
+  ): WordPressDraftVerification {
+    const checks = Object.freeze([
+      check("external_id", draft.externalId === expected.externalId),
+      check("draft_status", draft.status === "draft"),
+      check("title", normalizedText(draft.title) === normalizedText(expected.title)),
+      check("meaningful_content", containsExpectedMeaningfulSegments(draft.content, expected.content)),
+      check("categories", sameIds(draft.categoryIds, expected.categoryIds)),
+      check("tags_unused", draft.tagIds.length === 0),
+      check("media_urls", expected.mediaUrls.every((url) => draft.content.includes(url))),
+      check("featured_media", expected.featuredMediaId === undefined
+        ? draft.featuredMediaId === undefined
+        : draft.featuredMediaId === expected.featuredMediaId),
+    ]);
+    return Object.freeze({ verified: checks.every((item) => item.passed), checks });
+  }
+
+  private async safeRequest(url: string, init: RequestInit, message: string): Promise<Response> {
+    let response: Response;
+    try { response = await this.request(url, init); }
+    catch { throw new Error(message); }
+    if (response.status === 401 || response.status === 403) {
+      throw new Error("WordPress draft authentication or permission verification failed.");
+    }
+    if (!response.ok) throw new Error(message);
+    return response;
+  }
+}
+
+function createPayload(payload: WordPressDraftPayload): Readonly<Record<string, unknown>> {
+  if (!payload.title.trim() || !meaningfulText(payload.content)) {
+    throw new Error("WordPress draft title and meaningful content are required.");
+  }
+  const categories = normalizedNumericIds(payload.categories, "category");
+  if (!categories.length) throw new Error("WordPress draft categories are required.");
+  const result: Record<string, unknown> = {
+    title: payload.title,
+    content: payload.content,
+    excerpt: payload.excerpt,
+    status: "draft",
+    categories: categories.map(Number),
+  };
+  if (payload.slug?.trim()) result.slug = payload.slug.trim();
+  if (payload.featuredMediaId !== undefined) {
+    result.featured_media = Number(normalizedNumericIds([payload.featuredMediaId], "featured media")[0]);
+  }
+  return result;
+}
+
+async function postResponse(response: Response): Promise<WordPressPostResponse> {
+  try {
+    const value = await response.json() as unknown;
+    if (!value || typeof value !== "object") throw new Error();
+    return value as WordPressPostResponse;
+  } catch {
+    throw new Error("WordPress returned an invalid draft response.");
+  }
+}
+
+function externalDraft(value: WordPressPostResponse): WordPressExternalDraft {
+  if ((typeof value.id !== "string" && typeof value.id !== "number") || !String(value.id).trim()) {
+    throw new Error("WordPress returned an invalid draft response.");
+  }
+  const featuredMediaId = externalFeaturedMediaId(value.featured_media);
+  return Object.freeze({
+    externalId: String(value.id),
+    status: typeof value.status === "string" ? value.status : "",
+    title: value.title?.raw ?? value.title?.rendered ?? "",
+    content: value.content?.raw ?? value.content?.rendered ?? "",
+    categoryIds: Object.freeze((value.categories ?? []).map(String)),
+    tagIds: Object.freeze((value.tags ?? []).map(String)),
+    ...(featuredMediaId ? { featuredMediaId } : {}),
+  });
+}
+
+function postId(value: string): string {
+  const normalized = value.trim();
+  if (!/^[1-9]\d*$/.test(normalized) || !Number.isSafeInteger(Number(normalized))) {
+    throw new Error("WordPress Post ID is invalid.");
+  }
+  return normalized;
+}
+
+function normalizedNumericIds(values: readonly string[], name: string): readonly string[] {
+  const ids = [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+  if (ids.some((value) => !/^[1-9]\d*$/.test(value) || !Number.isSafeInteger(Number(value)))) {
+    throw new Error(`WordPress ${name} ID is invalid.`);
+  }
+  return ids;
+}
+
+function sameIds(actual: readonly string[], expected: readonly string[]): boolean {
+  const left = [...new Set(actual)].sort();
+  const right = [...new Set(expected)].sort();
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function meaningfulText(value: string): string {
+  return normalizedText(value
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<[^>]+>/g, " "));
+}
+
+function containsExpectedMeaningfulSegments(actualHtml: string, expectedHtml: string): boolean {
+  const expectedSegments = meaningfulSegments(expectedHtml);
+  const actualSegments = meaningfulSegments(actualHtml);
+  if (!expectedSegments.length || !actualSegments.length) return false;
+  let expectedIndex = 0;
+  for (const actual of actualSegments) {
+    if (actual === expectedSegments[expectedIndex]) expectedIndex += 1;
+    if (expectedIndex === expectedSegments.length) return true;
+  }
+  return false;
+}
+
+function meaningfulSegments(value: string): readonly string[] {
+  const html = value.replace(/<!--[\s\S]*?-->/g, " ");
+  const pattern = /<(h[1-6]|p|li|blockquote|pre|figcaption|th|td|a)\b[^>]*>([\s\S]*?)<\/\1\s*>/gi;
+  const segments: string[] = [];
+  for (const match of html.matchAll(pattern)) {
+    const text = meaningfulText(match[2]);
+    if (text) segments.push(text);
+  }
+  if (!segments.length) {
+    const fallback = meaningfulText(html);
+    if (fallback) segments.push(fallback);
+  }
+  return Object.freeze(segments);
+}
+
+function normalizedText(value: string): string {
+  return decodeEntities(value).replace(/\s+/g, " ").trim();
+}
+
+function decodeEntities(value: string): string {
+  return value
+    .replace(/&nbsp;|&#160;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;|&#34;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&ndash;/gi, "–")
+    .replace(/&mdash;/gi, "—")
+    .replace(/&hellip;/gi, "…")
+    .replace(/&lsquo;|&rsquo;/gi, "'")
+    .replace(/&ldquo;|&rdquo;/gi, '"')
+    .replace(/&#(?:x([0-9a-f]+)|(\d+));/gi, (_entity, hexadecimal: string | undefined, decimal: string | undefined) => {
+      const codePoint = Number.parseInt(hexadecimal ?? decimal ?? "", hexadecimal ? 16 : 10);
+      return Number.isInteger(codePoint) && codePoint >= 0 && codePoint <= 0x10ffff
+        ? String.fromCodePoint(codePoint)
+        : "";
+    });
+}
+
+function externalFeaturedMediaId(value: WordPressPostResponse["featured_media"]): string | undefined {
+  if (value === undefined || String(value) === "0") return undefined;
+  return String(value);
+}
+
+function check(key: string, passed: boolean): Readonly<{ key: string; passed: boolean }> {
+  return Object.freeze({ key, passed });
 }

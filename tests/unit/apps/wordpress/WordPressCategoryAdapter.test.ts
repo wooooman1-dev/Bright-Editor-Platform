@@ -43,6 +43,37 @@ describe("WordPress category adapter", () => {
     expect(request.mock.calls[1][0]).toBe("https://example.com/wp-json/wp/v2/categories?context=edit&page=2&per_page=2");
   });
 
+  it("reads every Category page into one connection-bound catalog", async () => {
+    const request = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify([{ id: 12, name: "Household" }]), {
+        status: 200,
+        headers: { "X-WP-TotalPages": "2" },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([{ id: 34, name: "Tax" }]), {
+        status: 200,
+        headers: { "X-WP-TotalPages": "2" },
+      }));
+
+    const result = await new WordPressCategoryAdapter(globalThis.fetch, () => "2026-07-29T03:00:00.000Z")
+      .listAllCategories({
+        platformConnectionId: "connection-1",
+        siteUrl: "https://example.com",
+        username: "editor",
+        applicationPassword: "secret",
+        pageSize: 1,
+      });
+
+    expect(result).toMatchObject({
+      platformConnectionId: "connection-1",
+      hasMore: false,
+      categories: [{ id: "12" }, { id: "34" }],
+    });
+    expect(request.mock.calls.map((call) => call[0])).toEqual([
+      "https://example.com/wp-json/wp/v2/categories?context=edit&page=1&per_page=1",
+      "https://example.com/wp-json/wp/v2/categories?context=edit&page=2&per_page=1",
+    ]);
+  });
+
   it("does not expose the Application Password, Authorization header, or response body in failures or logs", async () => {
     const applicationPassword = "must-not-leak";
     const authorization = `Basic ${Buffer.from(`editor:${applicationPassword}`).toString("base64")}`;

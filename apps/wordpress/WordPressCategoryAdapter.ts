@@ -98,6 +98,31 @@ export class WordPressCategoryAdapter {
       warnings: Object.freeze([]),
     });
   }
+
+  async listAllCategories(
+    input: Omit<WordPressCategoryListRequest, "page">,
+  ): Promise<WordPressCategoryListResult> {
+    const categories = new Map<string, WordPressCategory>();
+    let page = 1;
+    for (; page <= 100; page += 1) {
+      const result = await this.listCategories({ ...input, page });
+      if (result.platformConnectionId !== input.platformConnectionId) {
+        throw new Error("WordPress category result belongs to a different connection.");
+      }
+      for (const category of result.categories) categories.set(category.externalCategoryId, category);
+      if (!result.hasMore) {
+        return Object.freeze({
+          platform: "wordpress",
+          platformConnectionId: input.platformConnectionId,
+          categories: Object.freeze([...categories.values()]),
+          hasMore: false,
+          retrievedAt: this.now(),
+          warnings: Object.freeze([]),
+        });
+      }
+    }
+    throw new Error("WordPress category pagination exceeded the safe limit.");
+  }
 }
 
 function canonicalCategory(value: WordPressCategoryResponse): WordPressCategory {
