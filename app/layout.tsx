@@ -1,8 +1,7 @@
-﻿import type { Metadata } from "next";
+import type { Metadata } from "next";
 import "./globals.css";
 
-import { TistoryDraftOutcomeOverlay } from "./user-flow/TistoryDraftOutcomeOverlay";
-import { TistoryScheduleOverlay } from "./user-flow/TistoryScheduleOverlay";
+import { TistoryPublishingOverlays } from "./user-flow/TistoryPublishingOverlays";
 import { WordPressDraftOverlay } from "./user-flow/WordPressDraftOverlay";
 
 export const metadata: Metadata = {
@@ -19,8 +18,7 @@ export default function RootLayout({
     <html data-theme="system" lang="ko">
       <body>
         {children}
-        <TistoryDraftOutcomeOverlay />
-        <TistoryScheduleOverlay />
+        <TistoryPublishingOverlays />
         <WordPressDraftOverlay />
       </body>
     </html>
