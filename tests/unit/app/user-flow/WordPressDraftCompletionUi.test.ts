@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { PublishingExecutionRecord } from "../../../../core/publishing";
 import {
@@ -10,20 +10,26 @@ import {
 } from "../../../../app/user-flow/wordpress-draft-ui";
 import {
   canExecuteWordPressDraft,
+  canSubmitWordPressDraft,
+  isWordPressCategorySelectionApplied,
+  reduceWordPressDraftModalView,
   reduceWordPressDraftOverlayState,
   resetWordPressDraftOverlayState,
+  wordpressCategorySelectionKey,
   wordpressDraftExecutionIdentityKey,
   type WordPressDraftExecutionIdentity,
 } from "../../../../app/user-flow/wordpress-draft-overlay-state";
+import { requestWordPressDraftCreation, type WordPressDraftRequest } from "../../../../app/user-flow/wordpress-draft-request";
 import type { WordPressDraftReadiness } from "../../../../app/application/publishing/WordPressDraftReadiness";
 
-const layoutSource = readFileSync(join(process.cwd(), "app/layout.tsx"), "utf8");
+const editorSource = readFileSync(join(process.cwd(), "app/user-flow/EditorWorkspace.tsx"), "utf8");
 const overlaySource = readFileSync(join(process.cwd(), "app/user-flow/WordPressDraftOverlay.tsx"), "utf8");
+const requestSource = readFileSync(join(process.cwd(), "app/user-flow/wordpress-draft-request.ts"), "utf8");
 
 describe("WordPress Draft execution and completion UI", () => {
-  it("mounts one overlay and restores the current idempotent record from GET", () => {
-    expect(layoutSource).toContain('import { WordPressDraftOverlay } from "./user-flow/WordPressDraftOverlay";');
-    expect(layoutSource).toContain("<WordPressDraftOverlay />");
+  it("mounts one editor-owned overlay and restores the current idempotent record from GET", () => {
+    expect(editorSource).toContain('import { WordPressDraftOverlay } from "./WordPressDraftOverlay";');
+    expect(editorSource).toContain("{wordpressEnabled ? <WordPressDraftOverlay");
     expect(overlaySource).toContain("loadWordPressDraftState");
     expect(overlaySource).toContain('type: "readiness_resolved"');
   });
@@ -37,16 +43,81 @@ describe("WordPress Draft execution and completion UI", () => {
     expect(overlaySource).toContain("<strong>Draft Only</strong>");
   });
 
-  it("renders only for a Workspace with WordPress enabled", () => {
-    expect(overlaySource).toContain('enabledPlatforms.includes("wordpress")');
-    expect(overlaySource).toContain("if (!context || !wordpressEnabled || wordpressConnections.length === 0) return null");
+  it("leaves platform ownership to the Editor's canonical gate", () => {
+    expect(editorSource).toContain("editorPublishingPlatformVisibility");
+    expect(editorSource).toContain("{wordpressEnabled ? <WordPressDraftOverlay");
+    expect(overlaySource).not.toContain('enabledPlatforms.includes("wordpress")');
+    expect(overlaySource).not.toContain("window.setInterval");
+    expect(overlaySource).not.toContain('fetch("/api/studio"');
   });
 
   it("requires final confirmation and readiness before calling create_draft", () => {
     expect(overlaySource).toContain("if (!executable) return");
-    expect(overlaySource).toContain('action: "create_draft"');
-    expect(overlaySource).toContain("finalConfirmation: true");
+    expect(requestSource).toContain('action: "create_draft"');
+    expect(requestSource).toContain("finalConfirmation: true");
     expect(overlaySource).toContain("disabled={!executable}");
+    expect(overlaySource.match(/void submit\(\)/g)).toHaveLength(1);
+  });
+
+  it("opens the preparation screen even when GET restores a verified record", () => {
+    const execution = resolveReadiness(resetWordPressDraftOverlayState(executionIdentity()), record("verified"));
+    const opened = reduceWordPressDraftModalView("previous_result", { type: "open" });
+
+    expect(execution.record?.status).toBe("verified");
+    expect(opened).toBe("preparation");
+    expect(overlaySource).toContain("이전 저장 결과 보기");
+    expect(overlaySource).toContain("준비 화면으로 돌아가기");
+  });
+
+  it("shows a restored completion card only after the explicit previous-result action", () => {
+    const opened = reduceWordPressDraftModalView("execution_result", { type: "open" });
+    const restored = reduceWordPressDraftModalView(opened, { type: "show_previous_result", hasRecord: true });
+
+    expect(opened).toBe("preparation");
+    expect(restored).toBe("previous_result");
+    expect(reduceWordPressDraftModalView(opened, { type: "show_previous_result", hasRecord: false })).toBe("preparation");
+  });
+
+  it.each([
+    ["final confirmation", { confirmed: false }],
+    ["Category application", { categorySelectionApplied: false }],
+    ["latest Readiness", { readinessReady: false }],
+  ] as const)("sends zero POST requests without %s", async (_label, override) => {
+    const request = vi.fn<WordPressDraftRequest>();
+
+    await expect(requestWordPressDraftCreation(submissionGuard(override), request)).resolves.toBeUndefined();
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("sends zero POST requests while opening preparation and previous-result views", () => {
+    const request = vi.fn<WordPressDraftRequest>();
+    const opened = reduceWordPressDraftModalView("previous_result", { type: "open" });
+    const previous = reduceWordPressDraftModalView(opened, { type: "show_previous_result", hasRecord: true });
+
+    expect(opened).toBe("preparation");
+    expect(previous).toBe("previous_result");
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("sends exactly one create_draft POST from an explicitly executable save action", async () => {
+    const request = vi.fn<WordPressDraftRequest>().mockResolvedValue(new Response(JSON.stringify({
+      result: { record: record("verified"), readiness: readiness() },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+
+    const result = await requestWordPressDraftCreation(submissionGuard(), request);
+
+    expect(result?.record?.status).toBe("verified");
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request).toHaveBeenCalledWith("/api/publishing/wordpress", expect.objectContaining({ method: "POST" }));
+    const body = JSON.parse(String(request.mock.calls[0][1]?.body)) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      action: "create_draft",
+      workspaceId: "workspace-1",
+      projectId: "project-1",
+      contentId: "content-a",
+      connectionId: "wordpress-a",
+      finalConfirmation: true,
+    });
   });
 
   it.each([
@@ -105,6 +176,44 @@ describe("WordPress Draft execution and completion UI", () => {
 
     const resolved = resolveReadiness(confirmedWhilePending);
     expect(canExecuteWordPressDraft(resolved)).toBe(true);
+  });
+
+  it("invalidates Readiness and confirmation when the selected Category changes", () => {
+    const ready = resolveReadiness(resetWordPressDraftOverlayState(executionIdentity()), record("verified"));
+    const confirmed = reduceWordPressDraftOverlayState(ready, {
+      type: "confirm",
+      identityKey: ready.identityKey,
+      value: true,
+    });
+    const changed = reduceWordPressDraftOverlayState(confirmed, {
+      type: "preparation_changed",
+      identityKey: confirmed.identityKey,
+    });
+
+    expect(changed).toMatchObject({
+      readiness: undefined,
+      record: undefined,
+      finalConfirmation: false,
+      loading: false,
+      requestId: confirmed.requestId + 1,
+    });
+    expect(canExecuteWordPressDraft(changed)).toBe(false);
+
+    const late = reduceWordPressDraftOverlayState(changed, {
+      type: "readiness_resolved",
+      identityKey: changed.identityKey,
+      requestId: confirmed.requestId,
+      readiness: readiness(),
+    });
+    expect(late).toBe(changed);
+  });
+
+  it("requires the selected and persisted Category sets to match", () => {
+    expect(wordpressCategorySelectionKey(["12", " 7 ", "12"])).toBe("12|7");
+    expect(isWordPressCategorySelectionApplied(["12"], ["12"])).toBe(true);
+    expect(isWordPressCategorySelectionApplied(["12", "7"], ["7", "12"])).toBe(true);
+    expect(isWordPressCategorySelectionApplied(["13"], ["12"])).toBe(false);
+    expect(isWordPressCategorySelectionApplied([], [])).toBe(false);
   });
 
   it("restores an unknown_result warning even when Readiness is unavailable", () => {
@@ -172,6 +281,38 @@ function readiness(): WordPressDraftReadiness {
     localImageCount: 0,
     categorySelection: { valid: true, source: "content", categoryIds: ["12"], categoryNames: ["Household"] },
   };
+}
+
+function submissionGuard(override: Readonly<{
+  confirmed?: boolean;
+  categorySelectionApplied?: boolean;
+  readinessReady?: boolean;
+}> = {}) {
+  const identity = executionIdentity();
+  const initial = resetWordPressDraftOverlayState(identity);
+  const resolved = reduceWordPressDraftOverlayState(initial, {
+    type: "readiness_resolved",
+    identityKey: initial.identityKey,
+    requestId: initial.requestId,
+    readiness: { ...readiness(), ready: override.readinessReady ?? true },
+  });
+  const executionState = reduceWordPressDraftOverlayState(resolved, {
+    type: "confirm",
+    identityKey: resolved.identityKey,
+    value: override.confirmed ?? true,
+  });
+  const guard = {
+    identity,
+    executionState,
+    categorySelectionApplied: override.categorySelectionApplied ?? true,
+    readinessMatchesAppliedCategory: true,
+    categoryLoading: false,
+    categorySaving: false,
+  } as const;
+  expect(canSubmitWordPressDraft(guard)).toBe((override.confirmed ?? true)
+    && (override.categorySelectionApplied ?? true)
+    && (override.readinessReady ?? true));
+  return guard;
 }
 
 function record(status: PublishingExecutionRecord["status"]): PublishingExecutionRecord {

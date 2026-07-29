@@ -5,19 +5,23 @@ import { useEffect, useMemo, useState } from "react";
 import type { PublishingExecutionRecord } from "../../core/publishing";
 import { contentRevisionId } from "../../core/quality";
 import type { WordPressDraftReadiness } from "../application/publishing/WordPressDraftReadiness";
-import type { UserData } from "./user-data";
+import type { UserContent, UserData, UserProject } from "./user-data";
 import {
   wordpressDraftOutcomePresentation,
 } from "./wordpress-draft-ui";
 import {
-  canExecuteWordPressDraft,
+  canSubmitWordPressDraft,
+  isWordPressCategorySelectionApplied,
   reduceWordPressDraftOverlayState,
+  reduceWordPressDraftModalView,
   resetWordPressDraftOverlayState,
   wordpressDraftExecutionIdentityKey,
+  type WordPressDraftModalView,
   type WordPressDraftExecutionIdentity,
 } from "./wordpress-draft-overlay-state";
+import { requestWordPressDraftCreation } from "./wordpress-draft-request";
 
-type SafeConnection = Readonly<{
+export type WordPressDraftConnection = Readonly<{
   id: string;
   platform: string;
   displayName: string;
@@ -45,134 +49,104 @@ type WordPressCategoryResponse = Readonly<{
   error?: string;
 }>;
 
-type EditorContext = Readonly<{ projectId: string; contentId: string }>;
-
-export function WordPressDraftOverlay() {
-  const [locationKey, setLocationKey] = useState("");
+export function WordPressDraftOverlay({ connections, content, data, onPersist, project }: Readonly<{
+  connections: readonly WordPressDraftConnection[];
+  content: UserContent;
+  data: UserData;
+  onPersist: (data: UserData) => Promise<void>;
+  project: UserProject;
+}>) {
   const [open, setOpen] = useState(false);
-  const [data, setData] = useState<UserData>();
-  const [connections, setConnections] = useState<readonly SafeConnection[]>([]);
-  const [connectionId, setConnectionId] = useState("");
+  const [selectedConnectionId, setSelectedConnectionId] = useState<string>();
   const [categories, setCategories] = useState<readonly WordPressCategory[]>([]);
   const [categoryIds, setCategoryIds] = useState<readonly string[]>([]);
+  const [appliedCategoryIds, setAppliedCategoryIds] = useState<readonly string[]>([]);
+  const [categoryLoaded, setCategoryLoaded] = useState(false);
   const [categoryLoading, setCategoryLoading] = useState(false);
   const [categorySaving, setCategorySaving] = useState(false);
   const [categoryNotice, setCategoryNotice] = useState("");
-  const [snapshotLoading, setSnapshotLoading] = useState(true);
-  const [snapshotRefresh, setSnapshotRefresh] = useState(0);
-  const [shellNotice, setShellNotice] = useState("");
   const [executionState, setExecutionState] = useState(() => resetWordPressDraftOverlayState(undefined));
+  const [modalView, setModalView] = useState<WordPressDraftModalView>("preparation");
 
-  useEffect(() => {
-    let previous = "";
-    const sync = () => {
-      const current = `${window.location.pathname}${window.location.search}`;
-      if (current !== previous) {
-        previous = current;
-        setSnapshotLoading(true);
-        setLocationKey(current);
-      }
-    };
-    sync();
-    const timer = window.setInterval(sync, 250);
-    window.addEventListener("popstate", sync);
-    return () => {
-      window.clearInterval(timer);
-      window.removeEventListener("popstate", sync);
-    };
-  }, []);
-
-  const context = useMemo(() => editorContext(locationKey), [locationKey]);
   const workspaceId = data?.workspace?.id ?? "";
-  const wordpressEnabled = Boolean(data?.workspace?.settings?.enabledPlatforms.includes("wordpress"));
-  const content = context ? data?.contents.find((item) => item.id === context.contentId && item.projectId === context.projectId) : undefined;
   const wordpressConnections = useMemo(() => connections.filter((item) => item.platform === "wordpress"), [connections]);
+  const preferredConnectionId = useMemo(() => content.publishingPreparation?.wordpress?.publishingAccountId
+    ?? wordpressConnections.find((item) => content.publishingAccountId === item.id)?.id
+    ?? wordpressConnections.find((item) => content.selectedPublishingAccountIds?.includes(item.id))?.id
+    ?? wordpressConnections.find((item) => project.selectedPublishingAccountIds?.includes(item.id))?.id
+    ?? (wordpressConnections.length === 1 ? wordpressConnections[0]?.id : "")
+    ?? "", [content.publishingAccountId, content.publishingPreparation?.wordpress?.publishingAccountId, content.selectedPublishingAccountIds, project.selectedPublishingAccountIds, wordpressConnections]);
+  const connectionId = selectedConnectionId ?? preferredConnectionId;
   const connection = wordpressConnections.find((item) => item.id === connectionId);
+  const revisionId = content.document ? contentRevisionId(content.document) : "";
   const identity: WordPressDraftExecutionIdentity | undefined = useMemo(() => (
-    data?.workspace && context && content?.document && connection
+    workspaceId && revisionId && connection
       ? Object.freeze({
-        workspaceId: data.workspace.id,
-        projectId: context.projectId,
-        contentId: context.contentId,
-        contentRevisionId: contentRevisionId(content.document),
+        workspaceId,
+        projectId: project.id,
+        contentId: content.id,
+        contentRevisionId: revisionId,
         connectionId: connection.id,
       })
       : undefined
-  ), [connection, content?.document, context, data?.workspace]);
+  ), [connection, content.id, project.id, revisionId, workspaceId]);
   const identityKey = wordpressDraftExecutionIdentityKey(identity);
   const currentExecutionState = executionState.identityKey === identityKey
     ? executionState
     : resetWordPressDraftOverlayState(identity, executionState.requestId);
-  if (executionState.identityKey !== identityKey) setExecutionState(currentExecutionState);
   const readiness = currentExecutionState.readiness;
   const record = currentExecutionState.record;
   const finalConfirmation = currentExecutionState.finalConfirmation;
-  const executionLoading = identity ? currentExecutionState.loading : false;
-  const loading = snapshotLoading || executionLoading || categoryLoading || categorySaving;
-  const notice = currentExecutionState.notice || categoryNotice || shellNotice;
+  const categorySelectionApplied = isWordPressCategorySelectionApplied(categoryIds, appliedCategoryIds);
+  const readinessMatchesAppliedCategory = Boolean(readiness?.categorySelection.valid
+    && isWordPressCategorySelectionApplied(readiness.categorySelection.categoryIds, appliedCategoryIds));
+  const executionLoading = identity && categorySelectionApplied ? currentExecutionState.loading : false;
+  const loading = executionLoading || categoryLoading || categorySaving;
+  const notice = currentExecutionState.notice || categoryNotice
+    || (!wordpressConnections.length ? "Settings에서 WordPress Connection을 먼저 연결해 주세요." : "");
   const preparation = content?.publishingPreparation?.wordpress;
   const outcome = record ? wordpressDraftOutcomePresentation(record) : undefined;
   const localImageCount = content?.document?.blocks.filter((block) => block.type === "image" && /^\/api\/media\//i.test(block.source)).length ?? 0;
   const mediaAllowed = localImageCount === 0 || hasPermission(connection, "media.upload");
-  const executable = Boolean(identity) && canExecuteWordPressDraft(currentExecutionState) && !snapshotLoading && !categoryLoading && !categorySaving;
+  const submissionGuard = {
+    identity,
+    executionState: currentExecutionState,
+    categorySelectionApplied,
+    readinessMatchesAppliedCategory,
+    categoryLoading,
+    categorySaving,
+  } as const;
+  const executable = canSubmitWordPressDraft(submissionGuard);
   const selectedCategoryId = categoryIds[0] ?? "";
+  const showOutcome = modalView !== "preparation" && Boolean(outcome && connection);
 
   useEffect(() => {
-    if (!context) return;
-    let active = true;
-    void fetch("/api/studio", { cache: "no-store" })
-      .then(async (response) => {
-        const studio = await response.json() as { data?: UserData; error?: string };
-        if (!response.ok || !studio.data?.workspace) throw new Error(studio.error ?? "Bright Studio 상태를 불러오지 못했습니다.");
-        const connectionsResponse = await fetch(`/api/connections?workspaceId=${encodeURIComponent(studio.data.workspace.id)}`, { cache: "no-store" });
-        const connectionResult = await connectionsResponse.json() as { connections?: SafeConnection[]; error?: string };
-        if (!connectionsResponse.ok) throw new Error(connectionResult.error ?? "WordPress 연결을 불러오지 못했습니다.");
-        if (!active) return;
-        const currentContent = studio.data.contents.find((item) => item.id === context.contentId && item.projectId === context.projectId);
-        const currentProject = studio.data.projects.find((item) => item.id === context.projectId && item.workspaceId === studio.data!.workspace!.id);
-        const values = connectionResult.connections ?? [];
-        const wordpress = values.filter((item) => item.platform === "wordpress");
-        const preferred = currentContent?.publishingPreparation?.wordpress?.publishingAccountId
-          ?? wordpress.find((item) => currentContent?.publishingAccountId === item.id)?.id
-          ?? wordpress.find((item) => currentContent?.selectedPublishingAccountIds?.includes(item.id))?.id
-          ?? wordpress.find((item) => currentProject?.selectedPublishingAccountIds?.includes(item.id))?.id
-          ?? (wordpress.length === 1 ? wordpress[0]?.id : "")
-          ?? "";
-        setData(studio.data);
-        setConnections(values);
-        setConnectionId(preferred);
-        setShellNotice("");
-      })
-      .catch((error) => { if (active) setShellNotice(message(error)); })
-      .finally(() => { if (active) setSnapshotLoading(false); });
-    return () => { active = false; };
-  }, [context, snapshotRefresh]);
-
-  useEffect(() => {
-    if (!open || !context || !workspaceId || !connectionId) {
-      setCategories([]);
-      setCategoryIds([]);
-      return;
-    }
+    if (!open || !workspaceId || !connectionId) return;
     const controller = new AbortController();
     let active = true;
     setCategoryLoading(true);
+    setCategoryLoaded(false);
     setCategoryNotice("");
     void loadWordPressCategories({
       workspaceId,
-      projectId: context.projectId,
-      contentId: context.contentId,
+      projectId: project.id,
+      contentId: content.id,
       connectionId,
     }, controller.signal)
       .then((result) => {
         if (!active) return;
         setCategories(result.categories ?? []);
-        setCategoryIds(result.selection?.categoryIds ?? []);
+        const restoredCategoryIds = result.selection?.categoryIds ?? [];
+        setCategoryIds(restoredCategoryIds);
+        setAppliedCategoryIds(restoredCategoryIds);
+        setCategoryLoaded(true);
       })
       .catch((error) => {
         if (!active || error instanceof DOMException && error.name === "AbortError") return;
         setCategories([]);
         setCategoryIds([]);
+        setAppliedCategoryIds([]);
+        setCategoryLoaded(false);
         setCategoryNotice(message(error));
       })
       .finally(() => { if (active) setCategoryLoading(false); });
@@ -180,41 +154,49 @@ export function WordPressDraftOverlay() {
       active = false;
       controller.abort();
     };
-  }, [connectionId, context, open, workspaceId]);
+  }, [connectionId, content.id, open, project.id, workspaceId]);
 
   useEffect(() => {
-    if (!identity) return;
+    if (!open || !identity || !categoryLoaded || !categorySelectionApplied || categorySaving) return;
     const controller = new AbortController();
     let active = true;
     const requestId = currentExecutionState.requestId;
     void loadWordPressDraftState(identity, controller.signal)
       .then((result) => {
         if (!active) return;
-        setExecutionState((current) => reduceWordPressDraftOverlayState(current, {
-          type: "readiness_resolved",
-          identityKey,
-          requestId,
-          readiness: result.readiness,
-          record: result.record,
-          readinessError: result.readinessError,
-        }));
+        setExecutionState((current) => {
+          const aligned = current.identityKey === identityKey
+            ? current
+            : resetWordPressDraftOverlayState(identity, current.requestId);
+          return reduceWordPressDraftOverlayState(aligned, {
+            type: "readiness_resolved",
+            identityKey,
+            requestId,
+            readiness: result.readiness,
+            record: result.record,
+            readinessError: result.readinessError,
+          });
+        });
       })
       .catch((error) => {
         if (!active || error instanceof DOMException && error.name === "AbortError") return;
-        setExecutionState((current) => reduceWordPressDraftOverlayState(current, {
-          type: "readiness_failed",
-          identityKey,
-          requestId,
-          error: message(error),
-        }));
+        setExecutionState((current) => {
+          const aligned = current.identityKey === identityKey
+            ? current
+            : resetWordPressDraftOverlayState(identity, current.requestId);
+          return reduceWordPressDraftOverlayState(aligned, {
+            type: "readiness_failed",
+            identityKey,
+            requestId,
+            error: message(error),
+          });
+        });
       })
     return () => {
       active = false;
       controller.abort();
     };
-  }, [currentExecutionState.requestId, identity, identityKey]);
-
-  if (!context || !wordpressEnabled || wordpressConnections.length === 0) return null;
+  }, [categoryLoaded, categorySaving, categorySelectionApplied, currentExecutionState.requestId, identity, identityKey, open]);
 
   const saveCategory = async () => {
     if (!identity || !selectedCategoryId) return;
@@ -236,8 +218,11 @@ export function WordPressDraftOverlay() {
       if (!response.ok || !result.selection?.valid) throw new Error(result.error ?? "WordPress 카테고리를 적용하지 못했습니다.");
       setCategories(result.categories ?? categories);
       setCategoryIds(result.selection.categoryIds);
-      if (result.data) setData(result.data);
+      setAppliedCategoryIds(result.selection.categoryIds);
+      setCategoryLoaded(true);
+      if (result.data) await onPersist(result.data);
       setCategoryNotice(`WordPress 카테고리 적용 완료: ${result.selection.categoryNames.join(", ")}`);
+      setModalView((current) => reduceWordPressDraftModalView(current, { type: "show_preparation" }));
       setExecutionState((current) => resetWordPressDraftOverlayState(identity, current.requestId));
     } catch (error) {
       setCategoryNotice(message(error));
@@ -255,29 +240,18 @@ export function WordPressDraftOverlay() {
       notice: "WordPress에 비공개 Draft를 저장하고 외부 상태를 검증하고 있습니다.",
     }));
     try {
-      const response = await fetch("/api/publishing/wordpress", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "create_draft",
-          workspaceId: identity.workspaceId,
-          projectId: identity.projectId,
-          contentId: identity.contentId,
-          connectionId: identity.connectionId,
-          finalConfirmation: true,
-        }),
-      });
-      const result = await response.json() as {
-        result?: Readonly<{ record?: PublishingExecutionRecord; readiness?: WordPressDraftReadiness; error?: string }>;
-        error?: string;
-      };
-      if (!response.ok && !result.result?.record) throw new Error(result.error ?? result.result?.error ?? "WordPress 임시글 저장에 실패했습니다.");
+      const result = await requestWordPressDraftCreation(submissionGuard);
+      if (!result) return;
       setExecutionState((current) => reduceWordPressDraftOverlayState(current, {
         type: "execution_completed",
         identityKey,
-        readiness: result.result?.readiness,
-        record: result.result?.record,
-        notice: result.result?.record?.safeMessage ?? "WordPress 실행 결과를 저장했습니다.",
+        readiness: result.readiness,
+        record: result.record,
+        notice: result.record?.safeMessage ?? "WordPress 실행 결과를 저장했습니다.",
+      }));
+      setModalView((current) => reduceWordPressDraftModalView(current, {
+        type: "execution_completed",
+        hasRecord: Boolean(result.record ?? currentExecutionState.record),
       }));
     } catch (error) {
       setExecutionState((current) => reduceWordPressDraftOverlayState(current, {
@@ -289,20 +263,45 @@ export function WordPressDraftOverlay() {
   };
 
   return <>
-    <button className="fixed bottom-6 left-6 z-[70] rounded-2xl bg-[#202024] px-5 py-3 text-sm font-semibold text-white shadow-[0_14px_38px_rgba(0,0,0,0.22)]" onClick={() => { setOpen(true); setSnapshotLoading(true); setSnapshotRefresh((value) => value + 1); }} type="button">
+    <button className="fixed bottom-6 left-6 z-[70] rounded-2xl bg-[#202024] px-5 py-3 text-sm font-semibold text-white shadow-[0_14px_38px_rgba(0,0,0,0.22)]" onClick={() => {
+      setOpen(true);
+      setModalView((current) => reduceWordPressDraftModalView(current, { type: "open" }));
+      setCategories([]);
+      setCategoryIds([]);
+      setAppliedCategoryIds([]);
+      setCategoryLoaded(false);
+      setCategoryLoading(Boolean(connectionId));
+      setCategoryNotice("");
+      setExecutionState((current) => resetWordPressDraftOverlayState(identity, current.requestId));
+    }} type="button">
       WordPress 임시글
     </button>
 
     {open ? <div className="fixed inset-0 z-[90] flex items-end justify-center bg-black/35 p-4 sm:items-center" role="presentation">
       <section aria-labelledby="wordpress-draft-title" aria-modal="true" className="max-h-[92vh] w-full max-w-2xl overflow-auto rounded-[24px] bg-white p-6 shadow-2xl sm:p-7" role="dialog">
         <div className="flex items-start justify-between gap-4">
-          <div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#ff6b6b]">WordPress REST Draft</p><h2 className="mt-2 text-2xl font-semibold" id="wordpress-draft-title">{outcome ? "WordPress 실행 결과" : "WordPress 발행 준비"}</h2></div>
+          <div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#ff6b6b]">WordPress REST Draft</p><h2 className="mt-2 text-2xl font-semibold" id="wordpress-draft-title">{showOutcome ? "WordPress 실행 결과" : "WordPress 발행 준비"}</h2></div>
           <button aria-label="닫기" className="rounded-xl border px-3 py-2 text-sm" disabled={loading} onClick={() => setOpen(false)} type="button">닫기</button>
         </div>
 
-        {outcome && connection ? <WordPressCompletionCard connection={connection} outcome={outcome} record={record!} /> : <>
+        {showOutcome && outcome && connection ? <>
+          <WordPressCompletionCard connection={connection} outcome={outcome} record={record!} />
+          <button className="mt-5 rounded-xl border px-4 py-2.5 text-sm font-semibold" onClick={() => setModalView((current) => reduceWordPressDraftModalView(current, { type: "show_preparation" }))} type="button">준비 화면으로 돌아가기</button>
+        </> : <>
+          {record && outcome && connection ? <button className="mt-5 rounded-xl border px-4 py-2.5 text-sm font-semibold" onClick={() => setModalView((current) => reduceWordPressDraftModalView(current, { type: "show_previous_result", hasRecord: true }))} type="button">이전 저장 결과 보기</button> : null}
           <label className="mt-5 block text-sm font-semibold">WordPress 계정
-            <select className="mt-2 w-full rounded-xl border px-4 py-3 font-normal" disabled={snapshotLoading || categorySaving} onChange={(event) => { setConnectionId(event.target.value); setCategoryNotice(""); }} value={connectionId}>
+            <select className="mt-2 w-full rounded-xl border px-4 py-3 font-normal" disabled={categorySaving} onChange={(event) => {
+              const nextConnectionId = event.target.value;
+              setSelectedConnectionId(nextConnectionId);
+              setCategories([]);
+              setCategoryIds([]);
+              setAppliedCategoryIds([]);
+              setCategoryLoaded(false);
+              setCategoryLoading(Boolean(nextConnectionId));
+              setCategoryNotice("");
+              setModalView((current) => reduceWordPressDraftModalView(current, { type: "show_preparation" }));
+              setExecutionState((current) => resetWordPressDraftOverlayState(undefined, current.requestId));
+            }} value={connectionId}>
               <option value="">계정을 선택해 주세요</option>
               {wordpressConnections.map((item) => <option key={item.id} value={item.id}>{item.displayName} · {item.status}</option>)}
             </select>
@@ -310,19 +309,28 @@ export function WordPressDraftOverlay() {
 
           <div className="mt-4 rounded-2xl border p-4">
             <label className="block text-sm font-semibold">WordPress 카테고리
-              <select className="mt-2 w-full rounded-xl border px-4 py-3 font-normal" disabled={!connection || categoryLoading || categorySaving} onChange={(event) => { setCategoryIds(event.target.value ? [event.target.value] : []); if (identity) setExecutionState((current) => reduceWordPressDraftOverlayState(current, { type: "confirm", identityKey, value: false })); }} value={selectedCategoryId}>
+              <select className="mt-2 w-full rounded-xl border px-4 py-3 font-normal" disabled={!connection || categoryLoading || categorySaving} onChange={(event) => {
+                setCategoryIds(event.target.value ? [event.target.value] : []);
+                setModalView((current) => reduceWordPressDraftModalView(current, { type: "show_preparation" }));
+                if (identity) setExecutionState((current) => {
+                  const aligned = current.identityKey === identityKey
+                    ? current
+                    : resetWordPressDraftOverlayState(identity, current.requestId);
+                  return reduceWordPressDraftOverlayState(aligned, { type: "preparation_changed", identityKey });
+                });
+              }} value={selectedCategoryId}>
                 <option value="">{categoryLoading ? "카테고리를 불러오는 중입니다" : "카테고리를 선택해 주세요"}</option>
                 {categories.map((category) => <option key={category.externalCategoryId} value={category.externalCategoryId}>{category.name}{category.slug ? ` · ${category.slug}` : ""}</option>)}
               </select>
             </label>
-            <button className="mt-3 rounded-xl border border-[#202024] px-4 py-2 text-sm font-semibold disabled:opacity-50" disabled={!identity || !selectedCategoryId || categoryLoading || categorySaving} onClick={() => void saveCategory()} type="button">{categorySaving ? "카테고리 적용 중…" : "카테고리 적용"}</button>
+            <button className="mt-3 rounded-xl border border-[#202024] px-4 py-2 text-sm font-semibold disabled:opacity-50" disabled={!identity || !selectedCategoryId || categorySelectionApplied || categoryLoading || categorySaving} onClick={() => void saveCategory()} type="button">{categorySaving ? "카테고리 적용 중…" : categorySelectionApplied ? "카테고리 적용 완료" : "카테고리 적용"}</button>
           </div>
 
           <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><strong>Draft Only</strong> · 공개 발행, 예약 발행, 자동 재시도는 실행하지 않습니다.</p>
 
           <dl className="mt-5 grid gap-3 rounded-2xl bg-[#f8f8fa] p-4 text-sm sm:grid-cols-2">
             <Info label="연결 계정" value={connection ? `${connection.displayName} · ${connection.status}` : "계정 선택 필요"} />
-            <Info label="Category" value={readiness?.categorySelection.valid ? readiness.categorySelection.categoryNames.join(", ") : "유효한 Category 선택 필요"} />
+            <Info label="Category" value={readiness?.categorySelection.valid && readinessMatchesAppliedCategory ? readiness.categorySelection.categoryNames.join(", ") : categorySelectionApplied ? "적용된 Category 재확인 필요" : "Category 적용 필요"} />
             <Info label="Quality 승인" value={readiness?.checks.find((item) => item.key === "quality_revision")?.passed ? "현재 Revision 승인 완료" : "현재 Revision 승인 필요"} />
             <Info label="로컬 이미지" value={`${localImageCount}개`} />
             <Info label="media.upload" value={mediaAllowed ? localImageCount ? "명시적 허용" : "이미지 없음 · 불필요" : "권한 필요"} />
@@ -331,7 +339,7 @@ export function WordPressDraftOverlay() {
 
           <div className="mt-5"><h3 className="font-semibold">실행 준비 상태</h3>{readiness?.checks.length ? <div className="mt-3 grid gap-2 sm:grid-cols-2">{readiness.checks.map((check) => <article className={`rounded-xl border p-3 text-sm ${check.passed ? "bg-emerald-50/60" : check.key === "final_confirmation" ? "bg-sky-50" : "bg-amber-50"}`} key={check.key}><strong>{check.passed ? "통과" : check.key === "final_confirmation" ? "사용자 확인 단계" : "차단"}</strong><p className="mt-1 leading-5 text-[#66666f]">{check.message}</p></article>)}</div> : <p className="mt-3 rounded-xl bg-[#f8f8fa] p-3 text-sm">{loading ? "준비 상태를 확인하고 있습니다." : "계정과 카테고리를 적용해 주세요."}</p>}</div>
 
-          <label className="mt-5 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm leading-6"><input checked={finalConfirmation} className="mt-1" disabled={!readiness?.ready || loading} onChange={(event) => setExecutionState((current) => reduceWordPressDraftOverlayState(current, { type: "confirm", identityKey, value: event.target.checked }))} type="checkbox" /><span>현재 Revision, 계정, Category, 이미지와 Featured Image를 확인했습니다. WordPress에 공개되지 않은 Draft를 저장하는 작업을 최종 확인합니다.</span></label>
+          <label className="mt-5 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm leading-6"><input checked={finalConfirmation} className="mt-1" disabled={!readiness?.ready || !readinessMatchesAppliedCategory || loading} onChange={(event) => setExecutionState((current) => reduceWordPressDraftOverlayState(current, { type: "confirm", identityKey, value: event.target.checked }))} type="checkbox" /><span>현재 Revision, 계정, Category, 이미지와 Featured Image를 확인했습니다. WordPress에 공개되지 않은 Draft를 저장하는 작업을 최종 확인합니다.</span></label>
           <button className="mt-5 w-full rounded-xl bg-[#ff6b6b] px-5 py-3 text-sm font-semibold text-white disabled:opacity-50" disabled={!executable} onClick={() => void submit()} type="button">{executionLoading ? "WordPress 검증 중…" : "WordPress에 임시글 저장"}</button>
         </>}
 
@@ -342,7 +350,7 @@ export function WordPressDraftOverlay() {
 }
 
 function WordPressCompletionCard({ connection, outcome, record }: Readonly<{
-  connection: SafeConnection;
+  connection: WordPressDraftConnection;
   outcome: ReturnType<typeof wordpressDraftOutcomePresentation>;
   record: PublishingExecutionRecord;
 }>) {
@@ -396,20 +404,11 @@ async function loadWordPressDraftState(
   });
 }
 
-function editorContext(locationKey: string): EditorContext | undefined {
-  if (!locationKey || typeof window === "undefined") return undefined;
-  const query = new URLSearchParams(window.location.search);
-  if (query.get("view") !== "editor") return undefined;
-  const projectId = query.get("projectId")?.trim();
-  const contentId = query.get("contentId")?.trim();
-  return projectId && contentId ? Object.freeze({ projectId, contentId }) : undefined;
-}
-
-function hasPermission(connection: SafeConnection | undefined, permission: string): boolean {
+function hasPermission(connection: WordPressDraftConnection | undefined, permission: string): boolean {
   return Boolean(connection && [...(connection.automationPermissions ?? []), ...(connection.permissions ?? [])].includes(permission));
 }
 
-function wordpressAdminDraftsUrl(connection: SafeConnection): string {
+function wordpressAdminDraftsUrl(connection: WordPressDraftConnection): string {
   const siteUrl = typeof connection.publicMetadata?.siteUrl === "string" ? connection.publicMetadata.siteUrl : "";
   try { return new URL("/wp-admin/edit.php?post_status=draft&post_type=post", siteUrl).toString(); }
   catch { return "#"; }

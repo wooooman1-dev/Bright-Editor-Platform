@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 
-import { TistoryPublishingOverlays } from "./user-flow/TistoryPublishingOverlays";
-import { WordPressDraftOverlay } from "./user-flow/WordPressDraftOverlay";
+import { TistoryDraftOutcomeOverlay } from "./user-flow/TistoryDraftOutcomeOverlay";
 
 export const metadata: Metadata = {
   title: "Bright Studio",
@@ -18,8 +17,7 @@ export default function RootLayout({
     <html data-theme="system" lang="ko">
       <body>
         {children}
-        <TistoryPublishingOverlays />
-        <WordPressDraftOverlay />
+        <TistoryDraftOutcomeOverlay />
       </body>
     </html>
   );
