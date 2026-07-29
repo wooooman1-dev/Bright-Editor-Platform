@@ -100,7 +100,7 @@ Protected boundaries:
 
 ## 5. Final Automated Validation
 
-Final local Windows validation on the latest implementation head `e73d33f`:
+Final local Windows validation on runtime implementation head `e73d33f`:
 
 ```text
 npm run typecheck — passed
