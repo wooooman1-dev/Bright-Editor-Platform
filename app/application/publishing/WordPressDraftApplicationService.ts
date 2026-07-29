@@ -138,6 +138,9 @@ export class WordPressDraftApplicationService {
     catch {
       return failure("readiness", [], false, "WordPress Draft readiness could not be verified.");
     }
+    const existing = await this.records.findByIdempotencyKey(identity.idempotencyKey);
+    if (existing) return duplicateResult(existing);
+
     let prepared: PreparedExecution;
     try { prepared = await this.prepare(input); }
     catch {
@@ -575,24 +578,33 @@ function withIdentity(
 
 function duplicateResult(
   record: PublishingExecutionRecord,
-  readiness: WordPressDraftReadiness,
+  readiness?: WordPressDraftReadiness,
 ): WordPressDraftExecutionResult {
+  const verification = verificationFromRecord(record);
   if (record.status === "verified") {
     return Object.freeze({
-      ...resultFromRecord(record, readiness),
+      ...resultFromRecord(record, readiness, verification),
       reused: true,
       duplicateBlocked: false,
     });
   }
   const inProgress = record.status === "preparing" || record.status === "media_uploaded" || record.status === "draft_created";
   return Object.freeze({
-    ...resultFromRecord(record, readiness),
+    ...resultFromRecord(record, readiness, verification),
     status: inProgress ? "in_progress" : record.status,
     reused: false,
     duplicateBlocked: true,
     error: inProgress
       ? "The same WordPress Draft operation is already in progress."
       : duplicateBlockMessage(record.status),
+  });
+}
+
+function verificationFromRecord(record: PublishingExecutionRecord): WordPressDraftVerification | undefined {
+  if (!record.verificationChecks.length) return undefined;
+  return Object.freeze({
+    verified: record.verified,
+    checks: Object.freeze(record.verificationChecks.map((check) => Object.freeze({ ...check }))),
   });
 }
 

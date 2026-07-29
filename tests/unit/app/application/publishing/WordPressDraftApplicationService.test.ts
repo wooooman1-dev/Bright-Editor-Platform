@@ -152,6 +152,12 @@ describe("WordPress Draft application service", () => {
     });
 
     const result = await harness.service.execute(execution(harness.data, harness.connection));
+    harness.categories.listAllCategories.mockClear().mockRejectedValue(new Error("WordPress unavailable"));
+    harness.secrets.readSecret.mockClear().mockRejectedValue(new Error("SecretStore unavailable"));
+    harness.drafts.createDraft.mockClear();
+    harness.drafts.readDraft.mockClear();
+    harness.drafts.verifyDraft.mockClear();
+    const duplicate = await harness.service.execute(execution(harness.data, harness.connection));
 
     expect(result).toMatchObject({
       status: "verification_failed",
@@ -159,6 +165,17 @@ describe("WordPress Draft application service", () => {
       externalId: "501",
       record: { externalPostId: "501", status: "verification_failed" },
     });
+    expect(duplicate).toMatchObject({
+      status: "verification_failed",
+      duplicateBlocked: true,
+      externalId: "501",
+      verification: { verified: false, checks: [{ key: "title", passed: false }] },
+    });
+    expect(harness.categories.listAllCategories).not.toHaveBeenCalled();
+    expect(harness.secrets.readSecret).not.toHaveBeenCalled();
+    expect(harness.drafts.createDraft).not.toHaveBeenCalled();
+    expect(harness.drafts.readDraft).not.toHaveBeenCalled();
+    expect(harness.drafts.verifyDraft).not.toHaveBeenCalled();
   });
 
   it("persists unknown_result with the external Post ID when re-read cannot finish", async () => {
@@ -166,6 +183,10 @@ describe("WordPress Draft application service", () => {
     harness.drafts.readDraft.mockRejectedValueOnce(new Error("network interrupted"));
 
     const result = await harness.service.execute(execution(harness.data, harness.connection));
+    harness.categories.listAllCategories.mockClear().mockRejectedValue(new Error("WordPress unavailable"));
+    harness.secrets.readSecret.mockClear().mockRejectedValue(new Error("SecretStore unavailable"));
+    harness.drafts.createDraft.mockClear();
+    harness.drafts.readDraft.mockClear();
 
     expect(result).toMatchObject({
       status: "unknown_result",
@@ -177,18 +198,26 @@ describe("WordPress Draft application service", () => {
       duplicateBlocked: true,
       externalId: "501",
     });
-    expect(harness.drafts.createDraft).toHaveBeenCalledOnce();
+    expect(harness.categories.listAllCategories).not.toHaveBeenCalled();
+    expect(harness.secrets.readSecret).not.toHaveBeenCalled();
+    expect(harness.drafts.createDraft).not.toHaveBeenCalled();
+    expect(harness.drafts.readDraft).not.toHaveBeenCalled();
   });
 
-  it("reuses a verified result for the same Idempotency Key without another POST", async () => {
+  it("reuses a verified result before SecretStore or Category access even when WordPress is unavailable", async () => {
     const harness = createHarness(textDocument());
     const first = await harness.service.execute(execution(harness.data, harness.connection));
+    harness.categories.listAllCategories.mockClear().mockRejectedValue(new Error("WordPress unavailable"));
+    harness.secrets.readSecret.mockClear().mockRejectedValue(new Error("SecretStore unavailable"));
+    harness.drafts.createDraft.mockClear();
     const second = await harness.service.execute(execution(harness.data, harness.connection));
 
     expect(first.status).toBe("verified");
     expect(second).toMatchObject({ status: "verified", reused: true, duplicateBlocked: false, externalId: "501" });
     expect(second.idempotencyKey).toBe(first.idempotencyKey);
-    expect(harness.drafts.createDraft).toHaveBeenCalledOnce();
+    expect(harness.categories.listAllCategories).not.toHaveBeenCalled();
+    expect(harness.secrets.readSecret).not.toHaveBeenCalled();
+    expect(harness.drafts.createDraft).not.toHaveBeenCalled();
   });
 
   it("blocks an in-progress duplicate at the Application Service boundary", async () => {
@@ -206,8 +235,34 @@ describe("WordPress Draft application service", () => {
 
     expect(duplicate).toMatchObject({ status: "in_progress", duplicateBlocked: true });
     expect(harness.drafts.createDraft).toHaveBeenCalledOnce();
+    expect(harness.categories.listAllCategories).toHaveBeenCalledOnce();
+    expect(harness.secrets.readSecret).toHaveBeenCalledOnce();
     release();
     await expect(first).resolves.toMatchObject({ status: "verified" });
+  });
+
+  it("keeps the atomic claim when two new requests finish preparation concurrently", async () => {
+    const harness = createHarness(textDocument());
+    let preparedCount = 0;
+    let releasePreparation!: () => void;
+    const preparationBarrier = new Promise<void>((resolve) => { releasePreparation = resolve; });
+    harness.categories.listAllCategories.mockImplementation(async () => {
+      preparedCount += 1;
+      if (preparedCount === 2) releasePreparation();
+      await preparationBarrier;
+      return categoryResult(harness.connection.id);
+    });
+
+    const results = await Promise.all([
+      harness.service.execute(execution(harness.data, harness.connection)),
+      harness.service.execute(execution(harness.data, harness.connection)),
+    ]);
+
+    expect(results.map((result) => result.status).sort()).toEqual(["in_progress", "verified"]);
+    expect(results.find((result) => result.status === "in_progress")).toMatchObject({ duplicateBlocked: true });
+    expect(harness.categories.listAllCategories).toHaveBeenCalledTimes(2);
+    expect(harness.secrets.readSecret).toHaveBeenCalledTimes(2);
+    expect(harness.drafts.createDraft).toHaveBeenCalledOnce();
   });
 
   it("uses a new Idempotency Key after the canonical Content Revision changes", async () => {
@@ -412,19 +467,23 @@ function createHarness(document: ContentDocument, options: Readonly<{
     })),
     verifyDraft: vi.fn((draft, expected) => verifier.verifyDraft(draft, expected)),
   };
+  const secrets = { readSecret: vi.fn(async () => SECRET) };
+  const localMedia = { read: vi.fn(async () => PNG) };
   const service = new WordPressDraftApplicationService({
-    secrets: { readSecret: vi.fn(async () => SECRET) },
+    secrets,
     categories,
     media,
     drafts,
-    localMedia: { read: vi.fn(async () => PNG) },
+    localMedia,
   });
   return {
     data,
     connection,
     categories,
+    secrets,
     media,
     drafts,
+    localMedia,
     service,
     createdPayload: () => {
       if (!payload) throw new Error("Draft payload was not created.");

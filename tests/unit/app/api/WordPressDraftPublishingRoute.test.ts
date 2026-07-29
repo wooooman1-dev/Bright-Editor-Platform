@@ -90,9 +90,16 @@ describe("WordPress Draft publishing route", () => {
 
   it("returns the verified record on a duplicate request without another WordPress POST", async () => {
     let postCount = 0;
+    let categoryCount = 0;
+    let categoryAvailable = true;
     const request = vi.spyOn(globalThis, "fetch").mockImplementation(async (resource, init) => {
       const url = String(resource);
-      if (url.includes("/wp-json/wp/v2/categories")) return new Response(JSON.stringify([{ id: 12, name: "Household" }]), { status: 200, headers: { "X-WP-TotalPages": "1" } });
+      if (url.includes("/wp-json/wp/v2/categories")) {
+        categoryCount += 1;
+        return categoryAvailable
+          ? new Response(JSON.stringify([{ id: 12, name: "Household" }]), { status: 200, headers: { "X-WP-TotalPages": "1" } })
+          : new Response(null, { status: 503 });
+      }
       if (url.endsWith("/wp-json/wp/v2/posts") && init?.method === "POST") {
         postCount += 1;
         return new Response(JSON.stringify({ id: 501, status: "draft" }), { status: 201 });
@@ -102,11 +109,13 @@ describe("WordPress Draft publishing route", () => {
     });
 
     expect((await POST(createRequest({ action: "create_draft" }))).status).toBe(200);
+    categoryAvailable = false;
     const duplicate = await POST(createRequest({ action: "create_draft" }));
 
     expect(duplicate.status).toBe(200);
     await expect(duplicate.json()).resolves.toMatchObject({ result: { status: "verified", reused: true, externalId: "501" } });
     expect(postCount).toBe(1);
+    expect(categoryCount).toBe(1);
     expect(request.mock.calls.filter(([resource, init]) => String(resource).endsWith("/wp-json/wp/v2/posts") && init?.method === "POST")).toHaveLength(1);
   });
 
