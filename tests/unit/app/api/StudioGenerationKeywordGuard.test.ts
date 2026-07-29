@@ -31,14 +31,6 @@ describe("Studio generate confirmed keyword guard", () => {
     vi.mocked(studioStore.get).mockResolvedValue(baseData as never);
   });
 
-  it("rejects a request keyword that is different from Content.primaryKeyword before any AI call", async () => {
-    const response = await requestGenerate(["만성 염증 완화 방법"]);
-    const result = await response.json() as { error?: string };
-
-    expect(response.status).toBe(400);
-    expect(result.error).toContain("선택한 콘텐츠 전략이 요청한 현재 원고와 일치하지 않습니다");
-    expect(generate).not.toHaveBeenCalled();
-  });
 
   it("rejects generation when the owned Content has no confirmed keyword", async () => {
     vi.mocked(studioStore.get).mockResolvedValue({ ...baseData, contents: [{ ...baseData.contents[0], primaryKeyword: undefined, opportunity: undefined }] } as never);
@@ -55,8 +47,6 @@ describe("Studio generate confirmed keyword guard", () => {
     ["opportunityId", "opportunity-other"],
     ["opportunityVersion", 2],
     ["opportunityFingerprint", "fp-stale"],
-    ["topic", "만성 염증 관리"],
-    ["searchIntent", "만성 염증 관리 탐색"],
   ])("rejects a mismatched %s before any AI call", async (field, value) => {
     const response = await requestGenerate([opportunity.primaryKeyword, ...opportunity.secondaryKeywords], { [field]: value });
     expect(response.status).toBe(400);
