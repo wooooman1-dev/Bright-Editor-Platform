@@ -15,6 +15,15 @@ export type WordPressUploadedMedia = Readonly<{
   sourceUrl: string;
 }>;
 
+export class WordPressMediaUploadUncertainError extends Error {
+  readonly code = "WORDPRESS_MEDIA_UPLOAD_UNKNOWN_RESULT";
+
+  constructor() {
+    super("WordPress may have created Media, but the upload result could not be confirmed.");
+    this.name = "WordPressMediaUploadUncertainError";
+  }
+}
+
 export type WordPressExternalMedia = WordPressUploadedMedia & Readonly<{
   alt: string;
 }>;
@@ -30,17 +39,29 @@ export class WordPressMediaAdapter {
 
   async uploadMedia(input: WordPressMediaUploadInput): Promise<WordPressUploadedMedia> {
     if (!input.bytes.byteLength) throw new Error("WordPress media upload requires image data.");
-    const response = await this.safeRequest(`${normalizeSiteUrl(input.siteUrl)}/wp-json/wp/v2/media`, {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        Authorization: createWordPressAuthorizationHeader(input.username, input.applicationPassword),
-        "Content-Disposition": `attachment; filename="${safeFileName(input.fileName)}"`,
-        "Content-Type": input.mimeType,
-      },
-      body: Buffer.from(input.bytes),
-    }, "WordPress media could not be uploaded.");
-    return uploadedMedia(await mediaResponse(response));
+    const fileName = safeFileName(input.fileName);
+    let response: Response;
+    try {
+      response = await this.request(`${normalizeSiteUrl(input.siteUrl)}/wp-json/wp/v2/media`, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          Authorization: createWordPressAuthorizationHeader(input.username, input.applicationPassword),
+          "Content-Disposition": `attachment; filename="${fileName}"`,
+          "Content-Type": input.mimeType,
+        },
+        body: Buffer.from(input.bytes),
+      });
+    } catch {
+      throw new WordPressMediaUploadUncertainError();
+    }
+    if (response.status === 408 || response.status >= 500) throw new WordPressMediaUploadUncertainError();
+    if (response.status === 401 || response.status === 403) {
+      throw new Error("WordPress media authentication or permission verification failed.");
+    }
+    if (!response.ok) throw new Error("WordPress media could not be uploaded.");
+    try { return uploadedMedia(await mediaResponse(response)); }
+    catch { throw new WordPressMediaUploadUncertainError(); }
   }
 
   async storeAlt(

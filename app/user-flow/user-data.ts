@@ -183,13 +183,7 @@ export type UserHistoryEntry = Readonly<{
   version: number;
 }>;
 
-export type UserPublishingRecord = Readonly<{
-  id: string;
-  contentId: string;
-  platformConnectionId: string;
-  status: "saved" | "partially_verified" | "failed";
-  createdAt: string;
-}>;
+export type UserPublishingRecord = import("../../core/publishing").PublishingRecord;
 
 export type UserData = Readonly<{
   workspace?: UserWorkspace;

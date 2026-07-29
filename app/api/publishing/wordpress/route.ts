@@ -3,9 +3,12 @@ import { NextResponse } from "next/server";
 import type { PlatformConnection } from "../../../../core/connections";
 import { connectionRepository, secretStore, targetRepository } from "../../../application/connections/connection-runtime";
 import { WordPressDraftApplicationService } from "../../../application/publishing/WordPressDraftApplicationService";
+import { PersistentWordPressPublishingRecordRepository } from "../../../application/publishing/WordPressPublishingRecordRepository";
 import { studioStore } from "../../../application/studio-store";
 import { isPlatformEnabled } from "../../../application/settings/WorkspaceSettingsService";
 import type { UserContent, UserData, UserProject } from "../../../user-flow/user-data";
+
+const publishingRecords = new PersistentWordPressPublishingRecordRepository(studioStore);
 
 export async function GET(request: Request) {
   try {
@@ -16,15 +19,24 @@ export async function GET(request: Request) {
       required(url.searchParams.get("contentId")),
       required(url.searchParams.get("connectionId")),
     );
-    const readiness = await service().readiness({
+    const execution = {
       data: context.data,
       projectId: context.project.id,
       contentId: context.content.id,
       connection: context.connection,
       selectedTarget: context.selectedTarget,
       finalConfirmation: url.searchParams.get("finalConfirmation") === "true",
-    });
-    return NextResponse.json({ readiness });
+    } as const;
+    const application = service();
+    const record = await application.existingRecord(execution);
+    try {
+      const readiness = await application.readiness(execution);
+      return NextResponse.json({ readiness, record: record ?? null });
+    } catch (error) {
+      const readinessError = safeMessage(error, "WordPress Draft readiness could not be verified.");
+      if (record) return NextResponse.json({ readiness: null, record, readinessError });
+      throw new Error(readinessError);
+    }
   } catch (error) {
     return NextResponse.json({ error: safeMessage(error, "WordPress Draft readiness could not be verified.") }, { status: 400 });
   }
@@ -59,14 +71,17 @@ export async function POST(request: Request) {
       finalConfirmation: body.finalConfirmation === true,
       ...(typeof body.slug === "string" && body.slug.trim() ? { slug: body.slug.trim() } : {}),
     });
-    return NextResponse.json({ result }, { status: result.status === "verified" ? 200 : 400 });
+    const status = result.status === "verified" ? 200
+      : result.status === "in_progress" || result.duplicateBlocked ? 409
+        : 400;
+    return NextResponse.json({ result }, { status });
   } catch (error) {
     return NextResponse.json({ error: safeMessage(error, "WordPress Draft creation failed.") }, { status: 400 });
   }
 }
 
 function service(): WordPressDraftApplicationService {
-  return new WordPressDraftApplicationService({ secrets: secretStore });
+  return new WordPressDraftApplicationService({ secrets: secretStore, records: publishingRecords });
 }
 
 async function publishingContext(

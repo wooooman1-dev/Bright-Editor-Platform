@@ -1,4 +1,5 @@
 import type { ContentDocument, ImageBlock, ImageBlockPurpose } from "../content";
+import type { LegacyPublishingRecord, PublishingExecutionRecord } from "../publishing/PublishingRecord";
 import type { MediaAsset, MediaSourceType } from "./Media";
 
 export type ProjectMediaContent = Readonly<{
@@ -10,10 +11,9 @@ export type ProjectMediaContent = Readonly<{
   document?: ContentDocument;
 }>;
 
-export type ProjectMediaPublishingRecord = Readonly<{
-  contentId: string;
-  status: "saved" | "partially_verified" | "failed";
-}>;
+export type ProjectMediaPublishingRecord =
+  | Pick<LegacyPublishingRecord, "contentId" | "status">
+  | Pick<PublishingExecutionRecord, "contentId" | "externalPostId" | "platform" | "stage" | "status">;
 
 export type ProjectMediaReference = Readonly<{
   blockId: string;
@@ -41,7 +41,7 @@ export function buildProjectMediaLibrary(input: Readonly<{
   const sentContentIds = new Set([
     ...contents.filter((content) => content.status === "draft_saved").map((content) => content.id),
     ...(input.publishingRecords ?? [])
-      .filter((record) => record.status === "saved" || record.status === "partially_verified")
+      .filter(sentToDraft)
       .map((record) => record.contentId),
   ]);
   const known = new Map<string, MediaAsset>();
@@ -107,6 +107,14 @@ export function buildProjectMediaLibrary(input: Readonly<{
     const rightDate = right.lastReferencedAt ?? right.metadata.createdAt;
     return rightDate.localeCompare(leftDate) || left.id.localeCompare(right.id);
   }));
+}
+
+function sentToDraft(record: ProjectMediaPublishingRecord): boolean {
+  if (!("platform" in record)) return record.status === "saved" || record.status === "partially_verified";
+  if (record.status === "verified") return true;
+  if (record.status === "draft_created") return Boolean(record.externalPostId);
+  return (record.status === "verification_failed" || record.status === "unknown_result")
+    && Boolean(record.externalPostId);
 }
 
 function imageBlocks(document?: ContentDocument): readonly ImageBlock[] {

@@ -30,6 +30,15 @@ export type WordPressDraftCreateResult = Readonly<{
   responseStatus: string;
 }>;
 
+export class WordPressDraftCreateUncertainError extends Error {
+  readonly code = "WORDPRESS_DRAFT_CREATE_UNKNOWN_RESULT";
+
+  constructor() {
+    super("WordPress may have created the Draft, but the result could not be confirmed.");
+    this.name = "WordPressDraftCreateUncertainError";
+  }
+}
+
 export type WordPressExternalDraft = Readonly<{
   externalId: string;
   status: string;
@@ -84,18 +93,32 @@ export class WordPressDraftPublishingAdapter implements PublishingAdapter {
     input: WordPressConnectionInput & Readonly<{ payload: WordPressDraftPayload }>,
   ): Promise<WordPressDraftCreateResult> {
     const payload = createPayload(input.payload);
-    const response = await this.safeRequest(`${normalizeSiteUrl(input.siteUrl)}/wp-json/wp/v2/posts`, {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        Authorization: createWordPressAuthorizationHeader(input.username, input.applicationPassword),
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    }, "WordPress draft could not be created.");
-    const raw = await postResponse(response);
+    let response: Response;
+    try {
+      response = await this.request(`${normalizeSiteUrl(input.siteUrl)}/wp-json/wp/v2/posts`, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          Authorization: createWordPressAuthorizationHeader(input.username, input.applicationPassword),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+    } catch {
+      throw new WordPressDraftCreateUncertainError();
+    }
+    if (response.status === 408 || response.status >= 500) {
+      throw new WordPressDraftCreateUncertainError();
+    }
+    if (response.status === 401 || response.status === 403) {
+      throw new Error("WordPress draft authentication or permission verification failed.");
+    }
+    if (!response.ok) throw new Error("WordPress draft could not be created.");
+    let raw: WordPressPostResponse;
+    try { raw = await postResponse(response); }
+    catch { throw new WordPressDraftCreateUncertainError(); }
     if ((typeof raw.id !== "string" && typeof raw.id !== "number") || !String(raw.id).trim()) {
-      throw new Error("WordPress returned an invalid draft response.");
+      throw new WordPressDraftCreateUncertainError();
     }
     return Object.freeze({ externalId: String(raw.id), responseStatus: raw.status ?? "unknown" });
   }

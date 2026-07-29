@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { mergeServerMutationSnapshot, mergeUserDataSnapshot } from "../../../../app/application/persistence/mergeUserDataSnapshot";
 import type { MediaAsset } from "../../../../core/media";
 import type { UserData } from "../../../../app/user-flow/user-data";
+import type { PublishingExecutionRecord } from "../../../../core/publishing";
 import { confirmContentOpportunity, createContentOpportunityCandidate } from "../../../../core/content";
 
 const mediaAsset: MediaAsset = Object.freeze({
@@ -67,6 +68,38 @@ describe("mergeUserDataSnapshot", () => {
     expect(merged.publishingRecords).toEqual(current.publishingRecords);
     expect(merged.qualityReports).toEqual(current.qualityReports);
     expect(merged.scheduledPublishing).toEqual(current.scheduledPublishing);
+  });
+
+  it("keeps the latest persistent WordPress completion when a stale browser snapshot is saved", () => {
+    const completion: PublishingExecutionRecord = {
+      schemaVersion: 1,
+      id: "wordpress-key",
+      idempotencyKey: "wordpress-key",
+      workspaceId: "workspace-1",
+      projectId: "project-1",
+      contentId: "content-1",
+      contentRevisionId: "rev-1",
+      platformConnectionId: "wordpress-1",
+      platform: "wordpress",
+      workflow: "draft.create",
+      status: "verified",
+      stage: "complete",
+      externalPostId: "501",
+      verified: true,
+      uploadedMedia: [{ assetId: "asset-1", externalMediaId: "91" }],
+      cleanupRequired: false,
+      verificationChecks: [{ key: "status", passed: true }],
+      categoryIds: ["12"],
+      categoryNames: ["Household"],
+      localImageCount: 1,
+      featuredImageAssigned: true,
+      createdAt: "2026-07-29T00:00:00.000Z",
+      updatedAt: "2026-07-29T00:01:00.000Z",
+    };
+    const current = snapshot({ publishingRecords: [completion] });
+    const stale = snapshot({ publishingRecords: [] });
+
+    expect(mergeUserDataSnapshot(current, stale).publishingRecords).toEqual([completion]);
   });
 
   it("keeps a user-edited image prompt and ALT through the full-state autosave merge", () => {

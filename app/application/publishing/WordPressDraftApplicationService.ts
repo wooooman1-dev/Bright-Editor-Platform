@@ -1,11 +1,19 @@
 import type { SecretStore } from "../../../core/connections";
 import type { ContentDocument } from "../../../core/content";
-import { PublishingPermissionGate } from "../../../core/publishing";
+import { contentRevisionId } from "../../../core/quality";
+import {
+  createDraftCreateIdempotencyKey,
+  PublishingPermissionGate,
+  type PublishingExecutionRecord,
+  type PublishingExecutionStatus,
+} from "../../../core/publishing";
 import {
   WordPressCategoryAdapter,
+  WordPressDraftCreateUncertainError,
   WordPressDraftPublishingAdapter,
   WordPressHtmlRenderer,
   WordPressMediaAdapter,
+  WordPressMediaUploadUncertainError,
   type WordPressCategoryListResult,
   type WordPressConnectionInput,
   type WordPressDraftVerification,
@@ -23,6 +31,10 @@ import {
   type WordPressLocalMediaItem,
   type WordPressLocalMediaReader,
 } from "./WordPressMediaPreparation";
+import {
+  InMemoryWordPressPublishingRecordRepository,
+  type WordPressPublishingRecordRepository,
+} from "./WordPressPublishingRecordRepository";
 
 export type WordPressDraftMediaResult = Readonly<{
   assetId: string;
@@ -34,13 +46,18 @@ export type WordPressDraftMediaResult = Readonly<{
 }>;
 
 export type WordPressDraftExecutionResult = Readonly<{
-  status: "verified" | "failed" | "verification_failed";
+  status: "verified" | "failed" | "verification_failed" | "cleanup_required" | "unknown_result" | "in_progress";
   stage: "readiness" | "media" | "draft_create" | "draft_verify" | "complete";
   cleanupRequired: boolean;
   uploadedMedia: readonly WordPressDraftMediaResult[];
+  idempotencyKey?: string;
+  contentRevisionId?: string;
+  reused?: boolean;
+  duplicateBlocked?: boolean;
   externalId?: string;
   verification?: WordPressDraftVerification;
   readiness?: WordPressDraftReadiness;
+  record?: PublishingExecutionRecord;
   error?: string;
 }>;
 
@@ -66,6 +83,8 @@ export type WordPressDraftApplicationDependencies = Readonly<{
   localMedia?: WordPressLocalMediaReader;
   renderer?: WordPressHtmlRenderer;
   maxMediaBytes?: number;
+  records?: WordPressPublishingRecordRepository;
+  now?: () => Date;
 }>;
 
 type PreparedExecution = Readonly<{
@@ -77,40 +96,69 @@ type PreparedExecution = Readonly<{
   readiness: WordPressDraftReadiness;
 }>;
 
+type WordPressDraftExecutionIdentity = Readonly<{
+  workspaceId: string;
+  projectId: string;
+  contentId: string;
+  contentRevisionId: string;
+  platformConnectionId: string;
+  idempotencyKey: string;
+}>;
+
+type PublishingRecordUpdate = Partial<Omit<PublishingExecutionRecord,
+  "id" | "idempotencyKey" | "workspaceId" | "projectId" | "contentId" | "contentRevisionId"
+  | "platformConnectionId" | "platform" | "workflow" | "schemaVersion" | "createdAt" | "updatedAt">>;
+
 export class WordPressDraftApplicationService {
   private readonly categories: CategoryReader;
   private readonly media: MediaWriter;
   private readonly drafts: DraftWriter;
+  private readonly records: WordPressPublishingRecordRepository;
+  private readonly now: () => Date;
 
   constructor(private readonly dependencies: WordPressDraftApplicationDependencies) {
     this.categories = dependencies.categories ?? new WordPressCategoryAdapter();
     this.media = dependencies.media ?? new WordPressMediaAdapter();
     this.drafts = dependencies.drafts ?? new WordPressDraftPublishingAdapter(undefined, dependencies.renderer);
+    this.records = dependencies.records ?? new InMemoryWordPressPublishingRecordRepository();
+    this.now = dependencies.now ?? (() => new Date());
   }
 
   async readiness(input: WordPressDraftExecutionInput): Promise<WordPressDraftReadiness> {
     return (await this.prepare(input)).readiness;
   }
 
+  async existingRecord(input: WordPressDraftExecutionInput): Promise<PublishingExecutionRecord | undefined> {
+    return this.records.findByIdempotencyKey(this.identity(input).idempotencyKey);
+  }
+
   async execute(input: WordPressDraftExecutionInput): Promise<WordPressDraftExecutionResult> {
-    let prepared: PreparedExecution;
-    try { prepared = await this.prepare(input); }
+    let identity: WordPressDraftExecutionIdentity;
+    try { identity = this.identity(input); }
     catch {
       return failure("readiness", [], false, "WordPress Draft readiness could not be verified.");
     }
+    let prepared: PreparedExecution;
+    try { prepared = await this.prepare(input); }
+    catch {
+      return withIdentity(failure("readiness", [], false, "WordPress Draft readiness could not be verified."), identity);
+    }
     if (!prepared.readiness.executable || !prepared.readiness.categorySelection.valid) {
       return Object.freeze({
-        ...failure("readiness", [], false, "WordPress Draft readiness is blocked."),
+        ...withIdentity(failure("readiness", [], false, "WordPress Draft readiness is blocked."), identity),
         readiness: prepared.readiness,
       });
     }
 
+    let record = this.initialRecord(identity, prepared);
+    const claim = await this.records.claim(record);
+    if (!claim.claimed) return duplicateResult(claim.record, prepared.readiness);
+    record = claim.record;
+
     const uploadedMedia: WordPressDraftMediaResult[] = [];
-    let mediaUploadAttempted = false;
     for (const item of prepared.mediaPlan) {
       try {
         this.authorize("media.upload", input);
-        mediaUploadAttempted = true;
         const uploaded = await this.media.uploadMedia({ ...prepared.credentials, ...item });
         uploadedMedia.push(Object.freeze({
           assetId: item.assetId,
@@ -134,8 +182,25 @@ export class WordPressDraftApplicationService {
           ...uploadedMedia[uploadedMedia.length - 1],
           verified: true,
         });
-      } catch {
-        return failure("media", uploadedMedia, mediaUploadAttempted, "WordPress Media upload and verification failed.");
+        record = await this.persist(record, {
+          status: "media_uploaded",
+          stage: "media",
+          uploadedMedia,
+        });
+      } catch (error) {
+        if (error instanceof WordPressMediaUploadUncertainError) {
+          record = await this.persist(record, {
+            status: "unknown_result",
+            stage: "media",
+            uploadedMedia,
+            cleanupRequired: true,
+            safeErrorCode: error.code,
+            safeMessage: "WordPress Media upload result is unknown. Check the WordPress Media Library before any new attempt.",
+          });
+          return resultFromRecord(record, prepared.readiness, undefined, uploadedMedia);
+        }
+        return this.persistedFailure(record, identity, "media", uploadedMedia,
+          "MEDIA_UPLOAD_FAILED", "WordPress Media upload and verification failed.");
       }
     }
 
@@ -143,34 +208,40 @@ export class WordPressDraftApplicationService {
     if (prepared.mediaPlan.length) {
       try { executionReadiness = await this.revalidateAfterMedia(input, prepared); }
       catch {
-        return failure("readiness", uploadedMedia, uploadedMedia.length > 0, "WordPress Category revalidation failed.");
+        return this.persistedFailure(record, identity, "readiness", uploadedMedia,
+          "CATEGORY_REVALIDATION_FAILED", "WordPress Category revalidation failed.");
       }
       if (!executionReadiness.executable || !executionReadiness.categorySelection.valid) {
-        return Object.freeze({
-          ...failure("readiness", uploadedMedia, uploadedMedia.length > 0, "WordPress Category revalidation blocked Draft creation."),
-          readiness: executionReadiness,
-        });
+        return this.persistedFailure(record, identity, "readiness", uploadedMedia,
+          "CATEGORY_REVALIDATION_BLOCKED", "WordPress Category revalidation blocked Draft creation.", executionReadiness);
       }
     }
     const categorySelection = executionReadiness.categorySelection;
     if (!categorySelection.valid) {
-      return Object.freeze({
-        ...failure("readiness", uploadedMedia, uploadedMedia.length > 0, "WordPress Category revalidation blocked Draft creation."),
-        readiness: executionReadiness,
-      });
+      return this.persistedFailure(record, identity, "readiness", uploadedMedia,
+        "CATEGORY_REVALIDATION_BLOCKED", "WordPress Category revalidation blocked Draft creation.", executionReadiness);
     }
 
-    const renderedDocument = applyWordPressMediaReplacements(prepared.content.document, uploadedMedia);
-    const renderArtifact = await this.drafts.prepare({ content: renderedDocument, platform: "wordpress" });
-    const html = renderArtifact.payload.html;
-    const featuredImageAssetId = prepared.content.publishingPreparation?.wordpress?.publishingAccountId === input.connection.id
-      ? prepared.content.publishingPreparation.wordpress.featuredImageAssetId
-      : undefined;
-    const featuredMediaId = featuredImageAssetId
-      ? uploadedMedia.find((media) => media.assetId === featuredImageAssetId && media.verified)?.externalMediaId
-      : undefined;
+    let html: string;
+    let featuredImageAssetId: string | undefined;
+    let featuredMediaId: string | undefined;
+    try {
+      const renderedDocument = applyWordPressMediaReplacements(prepared.content.document, uploadedMedia);
+      const renderArtifact = await this.drafts.prepare({ content: renderedDocument, platform: "wordpress" });
+      html = renderArtifact.payload.html;
+      featuredImageAssetId = prepared.content.publishingPreparation?.wordpress?.publishingAccountId === input.connection.id
+        ? prepared.content.publishingPreparation.wordpress.featuredImageAssetId
+        : undefined;
+      featuredMediaId = featuredImageAssetId
+        ? uploadedMedia.find((media) => media.assetId === featuredImageAssetId && media.verified)?.externalMediaId
+        : undefined;
+    } catch {
+      return this.persistedFailure(record, identity, "draft_create", uploadedMedia,
+        "DRAFT_RENDER_FAILED", "WordPress Draft rendering failed.", executionReadiness);
+    }
     if (featuredImageAssetId && !featuredMediaId) {
-      return failure("media", uploadedMedia, uploadedMedia.length > 0, "The selected WordPress Featured Image was not verified.");
+      return this.persistedFailure(record, identity, "media", uploadedMedia,
+        "FEATURED_IMAGE_NOT_VERIFIED", "The selected WordPress Featured Image was not verified.");
     }
 
     let externalId: string;
@@ -189,8 +260,27 @@ export class WordPressDraftApplicationService {
         },
       });
       externalId = created.externalId;
-    } catch {
-      return failure("draft_create", uploadedMedia, uploadedMedia.length > 0, "WordPress Draft creation failed.");
+      record = await this.persist(record, {
+        status: "draft_created",
+        stage: "draft_create",
+        uploadedMedia,
+        externalPostId: externalId,
+        featuredImageAssigned: featuredMediaId !== undefined,
+      });
+    } catch (error) {
+      if (error instanceof WordPressDraftCreateUncertainError) {
+        record = await this.persist(record, {
+          status: "unknown_result",
+          stage: "draft_create",
+          uploadedMedia,
+          cleanupRequired: uploadedMedia.length > 0,
+          safeErrorCode: error.code,
+          safeMessage: "WordPress may have created the Draft. Check WordPress before any new attempt.",
+        });
+        return resultFromRecord(record, executionReadiness, undefined, uploadedMedia);
+      }
+      return this.persistedFailure(record, identity, "draft_create", uploadedMedia,
+        "DRAFT_CREATE_FAILED", "WordPress Draft creation failed.", executionReadiness);
     }
 
     try {
@@ -205,33 +295,140 @@ export class WordPressDraftApplicationService {
         ...(featuredMediaId ? { featuredMediaId } : {}),
       });
       if (!verification.verified) {
-        return Object.freeze({
+        record = await this.persist(record, {
           status: "verification_failed",
           stage: "draft_verify",
+          uploadedMedia,
+          externalPostId: externalId,
           cleanupRequired: uploadedMedia.length > 0,
-          uploadedMedia: Object.freeze([...uploadedMedia]),
-          externalId,
-          verification,
-          readiness: executionReadiness,
-          error: "WordPress Draft external re-read verification failed.",
+          verificationChecks: verification.checks,
+          safeErrorCode: "DRAFT_VERIFICATION_MISMATCH",
+          safeMessage: "WordPress Draft external re-read verification failed.",
         });
+        return resultFromRecord(record, executionReadiness, verification, uploadedMedia);
       }
-      return Object.freeze({
+      record = await this.persist(record, {
         status: "verified",
         stage: "complete",
+        uploadedMedia,
+        externalPostId: externalId,
+        verified: true,
         cleanupRequired: false,
-        uploadedMedia: Object.freeze([...uploadedMedia]),
-        externalId,
-        verification,
-        readiness: executionReadiness,
+        verificationChecks: verification.checks,
       });
+      return resultFromRecord(record, executionReadiness, verification, uploadedMedia);
     } catch {
-      return Object.freeze({
-        ...failure("draft_verify", uploadedMedia, uploadedMedia.length > 0, "WordPress Draft external re-read verification failed."),
-        externalId,
-        readiness: executionReadiness,
+      record = await this.persist(record, {
+        status: "unknown_result",
+        stage: "draft_verify",
+        uploadedMedia,
+        externalPostId: externalId,
+        cleanupRequired: uploadedMedia.length > 0,
+        safeErrorCode: "DRAFT_VERIFICATION_UNKNOWN",
+        safeMessage: "The WordPress Draft exists, but its external verification result is unknown. Check WordPress before any new attempt.",
       });
+      return resultFromRecord(record, executionReadiness, undefined, uploadedMedia);
     }
+  }
+
+  private identity(input: WordPressDraftExecutionInput): WordPressDraftExecutionIdentity {
+    const workspaceId = input.data.workspace?.id;
+    const project = input.data.projects.find((item) => item.id === input.projectId && item.workspaceId === workspaceId);
+    const content = input.data.contents.find((item) => item.id === input.contentId
+      && item.projectId === input.projectId
+      && item.workspaceId === workspaceId);
+    if (!workspaceId || !project || !content?.document
+      || input.connection.workspaceId !== workspaceId || input.connection.platform !== "wordpress") {
+      throw new Error("WordPress publishing identity could not be verified.");
+    }
+    const revisionId = contentRevisionId(content.document);
+    const idempotencyKey = createDraftCreateIdempotencyKey({
+      workspaceId,
+      projectId: project.id,
+      contentId: content.id,
+      contentRevisionId: revisionId,
+      platformConnectionId: input.connection.id,
+    });
+    return Object.freeze({
+      workspaceId,
+      projectId: project.id,
+      contentId: content.id,
+      contentRevisionId: revisionId,
+      platformConnectionId: input.connection.id,
+      idempotencyKey,
+    });
+  }
+
+  private initialRecord(identity: WordPressDraftExecutionIdentity, prepared: PreparedExecution): PublishingExecutionRecord {
+    const now = this.now().toISOString();
+    const selection = prepared.readiness.categorySelection;
+    return Object.freeze({
+      schemaVersion: 1,
+      id: identity.idempotencyKey,
+      idempotencyKey: identity.idempotencyKey,
+      workspaceId: identity.workspaceId,
+      projectId: identity.projectId,
+      contentId: identity.contentId,
+      contentRevisionId: identity.contentRevisionId,
+      platformConnectionId: identity.platformConnectionId,
+      platform: "wordpress",
+      workflow: "draft.create",
+      status: "preparing",
+      stage: "readiness",
+      verified: false,
+      uploadedMedia: Object.freeze([]),
+      cleanupRequired: false,
+      verificationChecks: Object.freeze([]),
+      categoryIds: selection.valid ? selection.categoryIds : Object.freeze([]),
+      categoryNames: selection.valid ? selection.categoryNames : Object.freeze([]),
+      localImageCount: prepared.readiness.localImageCount,
+      featuredImageAssigned: false,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  private async persist(
+    current: PublishingExecutionRecord,
+    update: PublishingRecordUpdate,
+  ): Promise<PublishingExecutionRecord> {
+    return this.records.save(Object.freeze({
+      ...current,
+      ...update,
+      uploadedMedia: Object.freeze([...(update.uploadedMedia ?? current.uploadedMedia)].map((item) => Object.freeze({
+        assetId: item.assetId,
+        externalMediaId: item.externalMediaId,
+      }))),
+      verificationChecks: Object.freeze([...(update.verificationChecks ?? current.verificationChecks)]),
+      updatedAt: this.now().toISOString(),
+    }));
+  }
+
+  private async persistedFailure(
+    current: PublishingExecutionRecord,
+    identity: WordPressDraftExecutionIdentity,
+    stage: WordPressDraftExecutionResult["stage"],
+    uploadedMedia: readonly WordPressDraftMediaResult[],
+    safeErrorCode: string,
+    safeMessage: string,
+    readiness?: WordPressDraftReadiness,
+  ): Promise<WordPressDraftExecutionResult> {
+    const cleanupRequired = uploadedMedia.length > 0;
+    const status: PublishingExecutionStatus = cleanupRequired ? "cleanup_required" : "failed";
+    const saved = await this.persist(current, {
+      status,
+      stage,
+      uploadedMedia,
+      cleanupRequired,
+      safeErrorCode,
+      safeMessage,
+    });
+    return Object.freeze({
+      ...withIdentity(failure(stage, uploadedMedia, cleanupRequired, safeMessage), identity),
+      status,
+      record: saved,
+      ...(readiness ? { readiness } : {}),
+    });
   }
 
   private async prepare(input: WordPressDraftExecutionInput): Promise<PreparedExecution> {
@@ -363,4 +560,75 @@ function failure(
     uploadedMedia: Object.freeze([...uploadedMedia]),
     error,
   });
+}
+
+function withIdentity(
+  result: WordPressDraftExecutionResult,
+  identity: WordPressDraftExecutionIdentity,
+): WordPressDraftExecutionResult {
+  return Object.freeze({
+    ...result,
+    idempotencyKey: identity.idempotencyKey,
+    contentRevisionId: identity.contentRevisionId,
+  });
+}
+
+function duplicateResult(
+  record: PublishingExecutionRecord,
+  readiness: WordPressDraftReadiness,
+): WordPressDraftExecutionResult {
+  if (record.status === "verified") {
+    return Object.freeze({
+      ...resultFromRecord(record, readiness),
+      reused: true,
+      duplicateBlocked: false,
+    });
+  }
+  const inProgress = record.status === "preparing" || record.status === "media_uploaded" || record.status === "draft_created";
+  return Object.freeze({
+    ...resultFromRecord(record, readiness),
+    status: inProgress ? "in_progress" : record.status,
+    reused: false,
+    duplicateBlocked: true,
+    error: inProgress
+      ? "The same WordPress Draft operation is already in progress."
+      : duplicateBlockMessage(record.status),
+  });
+}
+
+function resultFromRecord(
+  record: PublishingExecutionRecord,
+  readiness?: WordPressDraftReadiness,
+  verification?: WordPressDraftVerification,
+  uploadedMedia: readonly WordPressDraftMediaResult[] = [],
+): WordPressDraftExecutionResult {
+  const status = record.status === "preparing" || record.status === "media_uploaded" || record.status === "draft_created"
+    ? "in_progress"
+    : record.status;
+  return Object.freeze({
+    status,
+    stage: resultStage(record.stage),
+    cleanupRequired: record.cleanupRequired,
+    uploadedMedia: Object.freeze([...uploadedMedia]),
+    idempotencyKey: record.idempotencyKey,
+    contentRevisionId: record.contentRevisionId,
+    ...(record.externalPostId ? { externalId: record.externalPostId } : {}),
+    ...(verification ? { verification } : {}),
+    ...(readiness ? { readiness } : {}),
+    record,
+    ...(record.safeMessage ? { error: record.safeMessage } : {}),
+  });
+}
+
+function resultStage(value: string): WordPressDraftExecutionResult["stage"] {
+  return ["readiness", "media", "draft_create", "draft_verify", "complete"].includes(value)
+    ? value as WordPressDraftExecutionResult["stage"]
+    : "readiness";
+}
+
+function duplicateBlockMessage(status: PublishingExecutionStatus): string {
+  if (status === "unknown_result") return "The previous WordPress result is unknown. Check WordPress before any new attempt.";
+  if (status === "verification_failed") return "The existing WordPress Draft failed external verification. A new Draft was not created.";
+  if (status === "cleanup_required") return "The previous WordPress operation requires manual cleanup before any new attempt.";
+  return "The previous WordPress operation failed. An explicit new-attempt workflow is required before retrying.";
 }

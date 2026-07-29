@@ -3,6 +3,7 @@ import "./globals.css";
 
 import { TistoryDraftOutcomeOverlay } from "./user-flow/TistoryDraftOutcomeOverlay";
 import { TistoryScheduleOverlay } from "./user-flow/TistoryScheduleOverlay";
+import { WordPressDraftOverlay } from "./user-flow/WordPressDraftOverlay";
 
 export const metadata: Metadata = {
   title: "Bright Studio",
@@ -20,6 +21,7 @@ export default function RootLayout({
         {children}
         <TistoryDraftOutcomeOverlay />
         <TistoryScheduleOverlay />
+        <WordPressDraftOverlay />
       </body>
     </html>
   );

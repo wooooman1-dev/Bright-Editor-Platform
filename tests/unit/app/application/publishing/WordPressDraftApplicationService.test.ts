@@ -3,7 +3,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { WordPressDraftApplicationService } from "../../../../../app/application/publishing/WordPressDraftApplicationService";
 import type { UserData } from "../../../../../app/user-flow/user-data";
 import {
+  WordPressDraftCreateUncertainError,
   WordPressDraftPublishingAdapter,
+  WordPressMediaUploadUncertainError,
   type WordPressCategoryListResult,
   type WordPressDraftPayload,
   type WordPressMediaUploadInput,
@@ -66,7 +68,7 @@ describe("WordPress Draft application service", () => {
 
     const result = await harness.service.execute(execution(harness.data, harness.connection));
 
-    expect(result).toMatchObject({ status: "failed", stage: "readiness", cleanupRequired: true });
+    expect(result).toMatchObject({ status: "cleanup_required", stage: "readiness", cleanupRequired: true });
     expect(result.uploadedMedia).toMatchObject([{ externalMediaId: "91", verified: true }]);
     expect(harness.categories.listAllCategories).toHaveBeenCalledTimes(2);
     expect(harness.drafts.createDraft).not.toHaveBeenCalled();
@@ -126,7 +128,7 @@ describe("WordPress Draft application service", () => {
 
     const result = await harness.service.execute(execution(harness.data, harness.connection));
 
-    expect(result).toMatchObject({ status: "failed", stage: "media", cleanupRequired: true });
+    expect(result).toMatchObject({ status: "cleanup_required", stage: "media", cleanupRequired: true });
     expect(result.uploadedMedia).toHaveLength(1);
     expect(harness.drafts.createDraft).not.toHaveBeenCalled();
   });
@@ -137,7 +139,7 @@ describe("WordPress Draft application service", () => {
 
     const result = await harness.service.execute(execution(harness.data, harness.connection));
 
-    expect(result).toMatchObject({ status: "failed", stage: "draft_create", cleanupRequired: true });
+    expect(result).toMatchObject({ status: "cleanup_required", stage: "draft_create", cleanupRequired: true });
     expect(result.uploadedMedia).toHaveLength(1);
     expect(harness.media).not.toHaveProperty("deleteMedia");
   });
@@ -155,7 +157,189 @@ describe("WordPress Draft application service", () => {
       status: "verification_failed",
       stage: "draft_verify",
       externalId: "501",
+      record: { externalPostId: "501", status: "verification_failed" },
     });
+  });
+
+  it("persists unknown_result with the external Post ID when re-read cannot finish", async () => {
+    const harness = createHarness(textDocument());
+    harness.drafts.readDraft.mockRejectedValueOnce(new Error("network interrupted"));
+
+    const result = await harness.service.execute(execution(harness.data, harness.connection));
+
+    expect(result).toMatchObject({
+      status: "unknown_result",
+      externalId: "501",
+      record: { status: "unknown_result", externalPostId: "501" },
+    });
+    expect(await harness.service.execute(execution(harness.data, harness.connection))).toMatchObject({
+      status: "unknown_result",
+      duplicateBlocked: true,
+      externalId: "501",
+    });
+    expect(harness.drafts.createDraft).toHaveBeenCalledOnce();
+  });
+
+  it("reuses a verified result for the same Idempotency Key without another POST", async () => {
+    const harness = createHarness(textDocument());
+    const first = await harness.service.execute(execution(harness.data, harness.connection));
+    const second = await harness.service.execute(execution(harness.data, harness.connection));
+
+    expect(first.status).toBe("verified");
+    expect(second).toMatchObject({ status: "verified", reused: true, duplicateBlocked: false, externalId: "501" });
+    expect(second.idempotencyKey).toBe(first.idempotencyKey);
+    expect(harness.drafts.createDraft).toHaveBeenCalledOnce();
+  });
+
+  it("blocks an in-progress duplicate at the Application Service boundary", async () => {
+    const harness = createHarness(textDocument());
+    let release!: () => void;
+    const createDraft = harness.drafts.createDraft.getMockImplementation()!;
+    harness.drafts.createDraft.mockImplementationOnce(async (input) => {
+      await new Promise<void>((resolve) => { release = resolve; });
+      return createDraft(input);
+    });
+
+    const first = harness.service.execute(execution(harness.data, harness.connection));
+    await vi.waitFor(() => expect(harness.drafts.createDraft).toHaveBeenCalledOnce());
+    const duplicate = await harness.service.execute(execution(harness.data, harness.connection));
+
+    expect(duplicate).toMatchObject({ status: "in_progress", duplicateBlocked: true });
+    expect(harness.drafts.createDraft).toHaveBeenCalledOnce();
+    release();
+    await expect(first).resolves.toMatchObject({ status: "verified" });
+  });
+
+  it("uses a new Idempotency Key after the canonical Content Revision changes", async () => {
+    const harness = createHarness(textDocument());
+    const first = await harness.service.execute(execution(harness.data, harness.connection));
+    const changedDocument = Object.freeze({
+      ...textDocument(),
+      blocks: Object.freeze([{ id: "paragraph-1", type: "paragraph" as const, text: "A different approved revision." }]),
+    });
+    const changedData: UserData = {
+      ...harness.data,
+      contents: [{
+        ...harness.data.contents[0],
+        document: changedDocument,
+        quality: approvedQuality(changedDocument),
+      }],
+    };
+    const second = await harness.service.execute(execution(changedData, harness.connection));
+
+    expect(second.status).toBe("verified");
+    expect(second.idempotencyKey).not.toBe(first.idempotencyKey);
+    expect(harness.drafts.createDraft).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses a new Idempotency Key for another WordPress Connection", async () => {
+    const harness = createHarness(textDocument());
+    const first = await harness.service.execute(execution(harness.data, harness.connection));
+    const connection = { ...harness.connection, id: "wordpress-2", displayName: "Second site" };
+    const data: UserData = {
+      ...harness.data,
+      projects: [{ ...harness.data.projects[0], selectedPublishingAccountIds: ["wordpress-2"] }],
+      contents: [{
+        ...harness.data.contents[0],
+        publishingAccountId: "wordpress-2",
+        selectedPublishingAccountIds: ["wordpress-2"],
+        publishingPreparation: {
+          ...harness.data.contents[0].publishingPreparation,
+          wordpress: {
+            publishingAccountId: "wordpress-2",
+            categoryIds: ["12"],
+            categoryNames: ["Household"],
+            updatedAt: NOW,
+          },
+        },
+      }],
+    };
+    harness.categories.listAllCategories.mockResolvedValue(categoryResult(connection.id));
+
+    const second = await harness.service.execute(execution(data, connection));
+
+    expect(second.status).toBe("verified");
+    expect(second.idempotencyKey).not.toBe(first.idempotencyKey);
+    expect(harness.drafts.createDraft).toHaveBeenCalledTimes(2);
+  });
+
+  it("blocks automatic recreation after verification_failed or unknown_result", async () => {
+    const mismatch = createHarness(textDocument());
+    mismatch.drafts.verifyDraft.mockReturnValueOnce({ verified: false, checks: [{ key: "title", passed: false }] });
+    expect((await mismatch.service.execute(execution(mismatch.data, mismatch.connection))).status).toBe("verification_failed");
+    expect(await mismatch.service.execute(execution(mismatch.data, mismatch.connection))).toMatchObject({
+      status: "verification_failed",
+      duplicateBlocked: true,
+    });
+    expect(mismatch.drafts.createDraft).toHaveBeenCalledOnce();
+
+    const uncertain = createHarness(textDocument());
+    uncertain.drafts.createDraft.mockRejectedValueOnce(new WordPressDraftCreateUncertainError());
+    const unknown = await uncertain.service.execute(execution(uncertain.data, uncertain.connection));
+    expect(unknown).toMatchObject({ status: "unknown_result", record: { status: "unknown_result" } });
+    expect(await uncertain.service.execute(execution(uncertain.data, uncertain.connection))).toMatchObject({
+      status: "unknown_result",
+      duplicateBlocked: true,
+    });
+    expect(uncertain.drafts.createDraft).toHaveBeenCalledOnce();
+  });
+
+  it("persists cleanup_required with only safe Media identifiers after a partial Media failure", async () => {
+    const harness = createHarness(twoImageDocument(), { mediaPermission: true });
+    harness.media.uploadMedia
+      .mockResolvedValueOnce({ externalMediaId: "91", sourceUrl: "https://example.com/uploads/asset-1.png" })
+      .mockRejectedValueOnce(new Error(`${SECRET} Authorization: Basic hidden`));
+
+    const result = await harness.service.execute(execution(harness.data, harness.connection));
+
+    expect(result.record).toMatchObject({
+      status: "cleanup_required",
+      cleanupRequired: true,
+      uploadedMedia: [{ assetId: "asset-1", externalMediaId: "91" }],
+    });
+    expect(JSON.stringify(result.record)).not.toContain(SECRET);
+    expect(JSON.stringify(result.record)).not.toContain("Authorization");
+  });
+
+  it("persists an uncertain first Media upload as unknown_result and never creates a Draft", async () => {
+    const harness = createHarness(imageDocument(), { mediaPermission: true });
+    harness.media.uploadMedia.mockRejectedValueOnce(new WordPressMediaUploadUncertainError());
+
+    const result = await harness.service.execute(execution(harness.data, harness.connection));
+
+    expect(result).toMatchObject({
+      status: "unknown_result",
+      stage: "media",
+      cleanupRequired: true,
+      record: { status: "unknown_result", stage: "media", cleanupRequired: true, uploadedMedia: [] },
+    });
+    expect(harness.drafts.createDraft).not.toHaveBeenCalled();
+    expect(await harness.service.execute(execution(harness.data, harness.connection))).toMatchObject({
+      status: "unknown_result",
+      duplicateBlocked: true,
+    });
+    expect(harness.media.uploadMedia).toHaveBeenCalledOnce();
+  });
+
+  it("preserves confirmed Media IDs when a later Media upload result is uncertain", async () => {
+    const harness = createHarness(twoImageDocument(), { mediaPermission: true });
+    harness.media.uploadMedia
+      .mockResolvedValueOnce({ externalMediaId: "91", sourceUrl: "https://example.com/uploads/asset-1.png" })
+      .mockRejectedValueOnce(new WordPressMediaUploadUncertainError());
+
+    const result = await harness.service.execute(execution(harness.data, harness.connection));
+
+    expect(result.record).toMatchObject({
+      status: "unknown_result",
+      stage: "media",
+      uploadedMedia: [{ assetId: "asset-1", externalMediaId: "91" }],
+    });
+    expect(harness.drafts.createDraft).not.toHaveBeenCalled();
+    const audit = JSON.stringify(result.record);
+    expect(audit).not.toContain(SECRET);
+    expect(audit).not.toContain("Authorization");
+    expect(audit).not.toContain(Buffer.from(PNG).toString("base64"));
+    expect(audit).not.toContain("137,80,78,71");
   });
 
   it("does not expose the secret or Authorization header in failures or logs", async () => {

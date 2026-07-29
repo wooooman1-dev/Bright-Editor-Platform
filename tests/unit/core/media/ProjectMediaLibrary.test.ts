@@ -126,4 +126,47 @@ describe("buildProjectMediaLibrary", () => {
     const library = buildProjectMediaLibrary({ assets: [asset, otherAsset], contents, projectId: "project-1" });
     expect(library.map((item) => item.id)).toEqual(["asset-1"]);
   });
+
+  it("preserves Tistory saved and partially_verified sentToDraft behavior", () => {
+    const library = buildProjectMediaLibrary({
+      assets: [asset],
+      contents,
+      projectId: "project-1",
+      publishingRecords: [
+        { contentId: "content-1", status: "saved" },
+        { contentId: "content-2", status: "partially_verified" },
+      ],
+    });
+    expect(library[0].references.map((reference) => [reference.contentId, reference.sentToDraft])).toEqual([
+      ["content-1", true],
+      ["content-2", true],
+    ]);
+  });
+
+  it.each([
+    ["verified", undefined, true],
+    ["verification_failed", "501", true],
+    ["unknown_result", "501", true],
+    ["draft_created", "501", true],
+    ["preparing", undefined, false],
+    ["media_uploaded", undefined, false],
+    ["failed", undefined, false],
+    ["cleanup_required", undefined, false],
+    ["unknown_result", undefined, false],
+  ] as const)("marks WordPress %s with Post ID %s as sentToDraft=%s", (status, externalPostId, sentToDraft) => {
+    const library = buildProjectMediaLibrary({
+      assets: [asset],
+      contents,
+      projectId: "project-1",
+      publishingRecords: [{
+        contentId: "content-1",
+        platform: "wordpress",
+        status,
+        stage: status === "verified" ? "complete" : "draft_create",
+        ...(externalPostId ? { externalPostId } : {}),
+      }],
+    });
+    expect(library[0].references.find((reference) => reference.contentId === "content-1")?.sentToDraft).toBe(sentToDraft);
+    expect(library[0].originSentToDraft).toBe(sentToDraft);
+  });
 });

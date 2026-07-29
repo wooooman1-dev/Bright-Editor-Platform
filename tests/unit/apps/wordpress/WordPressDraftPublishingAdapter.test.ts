@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  WordPressDraftCreateUncertainError,
   WordPressDraftPublishingAdapter,
   type WordPressExternalDraft,
 } from "../../../../apps/wordpress";
@@ -172,8 +173,35 @@ describe("WordPress draft publishing adapter", () => {
       ...credentials,
       payload: { title: "Title", content: "<p>Body</p>", excerpt: "", status: "draft", categories: ["12"] },
     }).catch((failure: unknown) => failure);
+    expect(error).toBeInstanceOf(WordPressDraftCreateUncertainError);
     expect(String(error)).not.toContain(credentials.applicationPassword);
     expect(String(error)).not.toContain(authorization);
+  });
+
+  it("classifies an invalid successful POST response as an unknown create result", async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(response({ status: "draft" }, 201));
+    await expect(new WordPressDraftPublishingAdapter(request).createDraft({
+      ...credentials,
+      payload: { title: "Title", content: "<p>Body</p>", excerpt: "", status: "draft", categories: ["12"] },
+    })).rejects.toBeInstanceOf(WordPressDraftCreateUncertainError);
+  });
+
+  it.each([408, 500, 502, 503, 504])("classifies Draft Create HTTP %s as uncertain", async (status) => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status }));
+    await expect(new WordPressDraftPublishingAdapter(request).createDraft({
+      ...credentials,
+      payload: { title: "Title", content: "<p>Body</p>", excerpt: "", status: "draft", categories: ["12"] },
+    })).rejects.toBeInstanceOf(WordPressDraftCreateUncertainError);
+  });
+
+  it.each([400, 401, 403])("keeps explicit Draft Create HTTP %s as a definite failure", async (status) => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status }));
+    const error = await new WordPressDraftPublishingAdapter(request).createDraft({
+      ...credentials,
+      payload: { title: "Title", content: "<p>Body</p>", excerpt: "", status: "draft", categories: ["12"] },
+    }).catch((failure: unknown) => failure);
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(WordPressDraftCreateUncertainError);
   });
 });
 

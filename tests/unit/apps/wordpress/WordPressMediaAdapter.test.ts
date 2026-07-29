@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { WordPressMediaAdapter } from "../../../../apps/wordpress";
+import {
+  WordPressMediaAdapter,
+  WordPressMediaUploadUncertainError,
+} from "../../../../apps/wordpress";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -71,13 +74,46 @@ describe("WordPress media adapter", () => {
       mimeType: "image/png",
     }).catch((failure: unknown) => failure);
 
+    expect(error).toBeInstanceOf(WordPressMediaUploadUncertainError);
     expect(String(error)).not.toContain(credentials.applicationPassword);
     expect(String(error)).not.toContain(authorization);
     expect(log).not.toHaveBeenCalled();
     expect(warn).not.toHaveBeenCalled();
     expect(errorLog).not.toHaveBeenCalled();
   });
+
+  it.each([408, 500, 502, 503, 504])("classifies Media Upload HTTP %s as uncertain", async (status) => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status }));
+    await expect(new WordPressMediaAdapter(request).uploadMedia(uploadInput()))
+      .rejects.toBeInstanceOf(WordPressMediaUploadUncertainError);
+  });
+
+  it.each([400, 401, 403])("keeps explicit Media Upload HTTP %s as a definite failure", async (status) => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status }));
+    const error = await new WordPressMediaAdapter(request).uploadMedia(uploadInput()).catch((failure: unknown) => failure);
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(WordPressMediaUploadUncertainError);
+  });
+
+  it.each([
+    ["invalid JSON", new Response("not-json", { status: 201 })],
+    ["missing Media ID", response({ source_url: "https://example.com/uploads/image.png" }, 201)],
+    ["missing source URL", response({ id: 91 }, 201)],
+  ])("classifies a successful %s response as uncertain", async (_label, result) => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(result);
+    await expect(new WordPressMediaAdapter(request).uploadMedia(uploadInput()))
+      .rejects.toBeInstanceOf(WordPressMediaUploadUncertainError);
+  });
 });
+
+function uploadInput() {
+  return {
+    ...credentials,
+    bytes: new Uint8Array([137, 80, 78, 71]),
+    fileName: "image.png",
+    mimeType: "image/png" as const,
+  };
+}
 
 function response(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), { status });
