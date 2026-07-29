@@ -81,16 +81,19 @@ export function applyContentDepthPolicy(
   candidate: ContentOpportunityCandidate,
   context: Pick<ContentDepthPolicyInput, "projectStrategy" | "domain"> = {},
 ): ContentOpportunityCandidate {
-  const planned = candidate.qualityTarget;
+  const fallback = {
+    searchIntent: candidate.searchIntent,
+    contentType: candidate.contentType,
+    readerProblem: candidate.readerProblem,
+    audience: candidate.audience,
+    selectedTopic: candidate.selectedTopic,
+    expectedCoverage: candidate.expectedCoverage,
+  };
+  const planned = normalizeContentPlanQualityTarget(candidate.qualityTarget, fallback);
   return createContentOpportunityCandidate({
     ...candidate,
     qualityTarget: determineContentPlanQualityTarget({
-      searchIntent: candidate.searchIntent,
-      contentType: candidate.contentType,
-      readerProblem: candidate.readerProblem,
-      audience: candidate.audience,
-      selectedTopic: candidate.selectedTopic,
-      expectedCoverage: candidate.expectedCoverage,
+      ...fallback,
       coreQuestions: planned.coreQuestions,
       requiredContentElements: planned.requiredContentElements,
       decisionCriteria: planned.decisionCriteria,
@@ -271,8 +274,9 @@ function topicAndKeywordCoherent(topic: string, keyword: string): boolean {
 }
 
 function hasSelfConsistentLegacyFingerprint(opportunity: ContentOpportunityCandidate): boolean {
-  const target = opportunity.qualityTarget as ContentPlanQualityTarget & Record<string, unknown>;
-  const legacy = target.contentDepth === "quick"
+  const target = opportunity.qualityTarget as (ContentPlanQualityTarget & Record<string, unknown>) | undefined;
+  const legacy = !target
+    || target.contentDepth === "quick"
     || "targetLengthRange" in target
     || "targetSectionCount" in target
     || "safetyFloor" in target

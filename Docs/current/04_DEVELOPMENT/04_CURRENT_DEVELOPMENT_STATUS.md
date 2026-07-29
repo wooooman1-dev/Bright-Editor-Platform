@@ -1,33 +1,49 @@
 # Bright Studio Current Development Status
 
-## Baseline
+Last updated: 2026-07-29
 
-Implementation baseline: Bright Studio `v1.0.0` released from commit `9946f9ecc9167b343ff0c7763c62437d593764ea`, including the completed Sprint 1–5 baseline, Data Source and Opportunity Intelligence Foundation, canonical HTML review structure fixes, Planning preservation, Tistory Category context propagation and verified internal-link placement.
+## 1. Baseline
 
-Architecture design baseline: Sprint 6, Sprint 7, and Sprint 8 approved. Sprint 7 as a whole remains not implemented; only the separately identified Data Source and Opportunity Intelligence Foundation is implemented.
+Internal name: `Bright Editor Platform`
 
-Internal name: Bright Editor Platform
+Product name: `Bright Studio`
 
-Product name: Bright Studio
+Repository: `wooooman1-dev/Bright-Editor-Platform`
 
-Architecture status: Frozen
+Default branch: `main`
 
-## Bright Studio v1.0.0 Release Baseline
+Architecture status: Frozen unless explicitly approved through the Decision Log and related architecture documents.
+
+The current stable release baseline remains Bright Studio `v1.0.0` from commit `9946f9ecc9167b343ff0c7763c62437d593764ea`.
+
+The active feature branch `feat/tistory-native-scheduled-publishing` adds the externally verified Tistory native Schedule Create MVP. It remains outside `main` until PR `#38` is explicitly approved and merged.
+
+Implementation status must be determined from:
+
+1. Decision Log
+2. AGENTS.md
+3. approved Product and Architecture documents
+4. repository implementation
+5. automated validation
+6. real external verification
+7. this status document
+
+A design approval does not mean implementation or external verification is complete.
+
+## 2. Bright Studio v1.0.0 Release Baseline
 
 Release status:
 
 - Product: `Bright Studio`
-- Internal project: `Bright Editor Platform`
 - Release: `Bright Studio v1.0.0`
 - Tag: `v1.0.0`
-- Status: `Released`
+- Status: Released
 - Release date: `2026-07-25`
 - Release commit: `9946f9ecc9167b343ff0c7763c62437d593764ea`
-- Latest Release: Yes
 - Draft: No
 - Prerelease: No
 
-Current verification:
+Release verification:
 
 - Test Files: `137 passed`
 - Tests: `693 passed`
@@ -49,31 +65,64 @@ Browser verification:
 - Related content links: `3`
 - Internal-link diagnostic wording: Matched actual placement result
 
-Frozen areas:
+Frozen release areas:
 
 - Quality score calculation logic
-- Internal link placement logic
+- Internal-link placement logic
 
-수정은 실제 화면, 실제 로그, 실제 저장 데이터와 실제 코드 경로를 확인하고 문제를 재현한 뒤 사용자 승인과 최소 수정 원칙에 따라 진행한다.
+Changes to frozen behavior require actual reproduction evidence, code-path inspection, user approval, minimal modification and regression validation.
 
-External verification boundary:
+## 3. Current Branch and Pull Request
 
-`v1.0.0` 릴리즈는 완료되었지만, 실제 Tistory Draft Save 후 Draft를 다시 열어 제목, 의미 있는 본문 구조, Category와 비공개 상태를 확인하는 Gate는 별도의 외부 검증 기록이 확인되기 전까지 미완료 상태를 유지한다.
+Current active branch:
 
-## Sprint Summary
+```text
+feat/tistory-native-scheduled-publishing
+```
+
+Pull request:
+
+```text
+PR #38
+Base: main
+State: Open
+Draft: Yes
+Mergeable: Yes
+Merged: No
+```
+
+Final runtime implementation head before documentation-only commits:
+
+```text
+e73d33f test: cover scheduled image block placement
+```
+
+Local repository state confirmed before documentation update:
+
+- synchronized with `origin/feat/tistory-native-scheduled-publishing`
+- working tree clean
+- no local diff
+
+PR `#38` must not be marked Ready or merged without explicit user approval.
+
+## 4. Sprint Summary
 
 | Sprint | Scope | Design | Implementation | Verification | Current Status |
 |---|---|---|---|---|---|
 | 1 | Platform and Content Foundation | Approved | Complete | Complete | Completed |
 | 2 | Content Processing Engine | Approved | Complete | Complete | Completed |
 | 3 | Product UI Foundation | Approved | Complete | Complete | Completed |
-| 4 | Usable Content and Safe Draft Workflow | Approved | Complete | Automated complete; real Tistory pending | Environment Verification Pending |
+| 4 | Usable Content and Safe Draft Workflow | Approved | Complete | Automated complete; real Tistory Draft reopen gate pending | Environment Verification Pending |
 | 5 | Editorial Quality Pipeline | Approved | Complete | Complete | Completed |
-| 6 | Presentation Architecture, Bright Components and Tistory Scheduling | Approved | Contract Foundation only | Runtime and external verification not started | Approved |
-| 7 | Project DNA, Content Library, and Internal Link Intelligence | Approved | Not started | Not started | Design Approved, Not Implemented |
-| 8 | WordPress and Multi-platform Foundation | Approved | Not started | Not started | Design Approved, Not Implemented |
+| 6 | Presentation Architecture, Bright Components and Tistory Scheduling | Approved | Presentation foundation partial; Tistory Schedule Create MVP complete | Schedule Create externally verified; remaining Sprint 6 work pending | Partially Implemented |
+| 7 | Project DNA, Content Library and Internal Link Intelligence | Approved | Data Source and Opportunity Intelligence foundation only | Foundation partially externally verified | Partially Implemented |
+| 8 | WordPress and Multi-platform Foundation | Approved | Connection and primitive Adapter foundation present; integrated Draft MVP not implemented | Real WordPress Draft verification not started | Design Approved / Foundation Partial |
 
-## Sprint 4 Real-use Gate
+No whole Sprint may be reported complete because one workstream or foundation inside it is complete.
+
+## 5. Sprint 4 Real-use Gate
+
+The Tistory Draft external Gate remains:
 
 ```text
 Editor
@@ -85,12 +134,16 @@ Editor
 → Verify Title
 → Verify Meaningful Body
 → Verify Category
-→ Verify No Public Post
+→ Verify Non-public State
 ```
 
-The Sprint may be called externally verified only when the result is `saved`. A Save click or `partially_verified` result is insufficient.
+The Sprint may be called externally verified only when the Draft result is saved and reopened successfully.
 
-## Sprint 5 Editorial Pipeline
+A Save click or `partially_verified` result is insufficient.
+
+Tistory scheduled publishing verification does not replace this Draft-specific Gate because Schedule Create uses a separate API route, Application Service, audit path and Playwright worker.
+
+## 6. Sprint 5 Editorial Pipeline
 
 ```text
 AI Generation
@@ -101,99 +154,145 @@ AI Generation
 → Standard Approval or In Review
 ```
 
-The Editor receives a ready manuscript only after standard 95+ approval. A non-standard result remains in review and does not trigger an automatic Provider retry.
+The Editor receives a ready manuscript only after standard `95+` approval.
 
-The current Content creation baseline also treats AI topic selection as an atomic Content Opportunity. Automatic mode proposes complete opportunities; user-specified mode preserves the requested topic. Confirmation persists one versioned/fingerprinted strategy snapshot, generation uses the server copy, and Quality blocks cross-topic manuscripts before publishing. Search opportunity evidence is labeled as verified, estimated, inferred, or unknown; no measured volume is claimed without a connected provider. This strengthens the existing Generation and Quality Review calls and does not add a provider call.
+A non-standard result remains in review and does not trigger an automatic Provider retry.
 
-## Sprint 6-8 Approved Architecture Baseline
+Current content creation also treats AI topic selection as one atomic Content Opportunity.
 
-The architecture designs for Sprint 6, Sprint 7, and Sprint 8 are approved.
+- automatic mode proposes complete opportunities
+- user-specified mode preserves the requested topic
+- confirmation persists one versioned and fingerprinted strategy snapshot
+- generation uses the stored server copy
+- Quality blocks cross-topic manuscripts before publishing
+- evidence is labeled verified, estimated, inferred or unknown
+- no measured search volume is claimed without a connected provider
+
+Generation remains one major AI call and Quality Review remains one major AI call.
+
+## 7. Sprint 6 — Presentation Architecture and Tistory Scheduling
+
+Final Sprint name:
 
 ```text
-Sprint 6
-Presentation Architecture, Bright Components and Tistory Scheduling
-Design: Approved
-Presentation Contract Foundation: Implemented
-Presentation Runtime: Not Implemented
-Scheduling Domain: Not Implemented
-Scheduling Runtime: Not Implemented
-Verification: Not started
-
-Sprint 7
-Project DNA, Content Library, and Internal Link Intelligence
-Design: Approved
-Implementation: Not started
-Verification: Not started
-
-Sprint 8
-WordPress and Multi-platform Foundation
-Design: Approved
-Implementation: Not started
-Verification: Not started
-
+Sprint 6 — Presentation Architecture, Bright Components and Tistory Scheduling
 ```
 
-The approved architecture documents are:
+Sprint 6 remains partially implemented.
 
-02_ARCHITECTURE/13_PRESENTATION_ARCHITECTURE.md
-01_PRODUCT/09_PROJECT_DNA.md
-01_PRODUCT/13_CONTENT_INTELLIGENCE.md
-02_ARCHITECTURE/08_PLATFORM_ADAPTER.md
+### 7.1 Workstream A — Presentation Architecture
 
-Approval of these documents does not mean that the corresponding features are implemented or verified.
-
-Implementation status must be determined from the repository code, test results, external verification results, and this development status document.
-
-## Next Actions
-
-1. Preserve Sprint 1–5 and the implemented Data Source and Opportunity Intelligence Foundation as the current implementation baseline.
-2. Preserve Sprint 4 real-account draft verification as Gate 0 for the integrated Sprint 6.
-3. Do not start Sprint 6 Runtime implementation before Gate 0 passes.
-4. Treat Sprint 6, Sprint 7, and Sprint 8 as approved but not fully implemented; do not use an implemented Foundation to mark a whole Sprint implemented.
-5. Re-check the repository code, tests, and approved architecture before selecting the next implementation scope.
-6. Protect all completed Sprint 1–5 behavior during future implementation.
-
-## Integrated Sprint 6 Status
-
-Final name: `Sprint 6 — Presentation Architecture, Bright Components and Tistory Scheduling`
-
-기존 Sprint 6.5 번호는 더 이상 별도 개발 단계로 사용하지 않는다.
-
-Gate 0은 실제 Tistory Draft Save 후 Draft를 다시 열어 제목, 의미 있는 본문 구조, Category와 비공개 상태를 확인하는 전체 E2E 검증이다. 현재 Gate 0은 미완료다. 따라서 통합 Sprint Runtime 구현을 시작할 수 없고 Sprint 4와 Epic 1도 `Verified` 또는 `Completed`가 아니다.
-
-Workstream A status:
+Current status:
 
 - Presentation Contract Foundation: Implemented
-- Bright Components and deterministic Resolver: Not Implemented
-- Theme-independent semantic HTML Runtime: Not Implemented
-- RenderArtifact/checksum and PreviewApproval: Not Implemented
-- Preview/Draft same Artifact and reopened semantic verification: Not Implemented
+- Bright Components and deterministic Resolver: Not fully implemented
+- theme-independent semantic HTML Runtime: Not fully implemented
+- RenderArtifact/checksum and PreviewApproval: Not fully implemented
+- Preview and external Draft using the same verified Artifact: Not fully implemented
+- reopened semantic verification: Not fully implemented
 
-Workstream B status:
+### 7.2 Workstream B — Tistory Native Scheduling
 
-- ScheduledPublication and ScheduleJob: Not Implemented
-- schedule.publish Permission and registered workflows: Not Implemented
-- Native Tistory create/update/cancel/list/verify: Not Implemented
-- Duplicate prevention, failed-only retry and restart recovery: Not Implemented
-- Real Tistory schedule verification: Not Started
+The Tistory native **Schedule Create MVP** is implemented and externally verified on PR `#38`.
+
+Implemented:
+
+- platform-independent ScheduledPublication state
+- schedule status and transition policy
+- future absolute time and timezone validation
+- Tistory `Asia/Seoul` policy
+- deterministic request fingerprint
+- atomic reservation
+- active duplicate prevention
+- identical active-request idempotency
+- failed-identical-request explicit retry
+- interrupted and ambiguous-result preservation
+- Editor schedule UI and modal
+- account and category selection
+- Readiness and final confirmation
+- current Revision and Quality lock
+- `schedule.create` Permission Gate
+- conditional `media.upload` Permission Gate
+- dedicated Tistory Schedule Create Application Service
+- dedicated registered Playwright worker
+- native publication panel and reservation controls
+- native date, hour and minute selection
+- local image upload in the same editor
+- ALT application
+- representative-image application
+- tag application
+- management-list external verification
+- audit result
+- completion UI
+- no automatic retry after the final registration click
 
 Safety baseline:
 
-- `schedule.publish`: default OFF
-- `public.publish`: default OFF
-- Draft Only: default ON
-- create, update-time and cancel require explicit user approval
-- Quality approval/current Revision, Account and Category are pinned
-- only schedule time may be updated; pinned target changes require cancel and recreate
-- cancel must preserve Draft and must not delete external content
-- a delete-dependent cancellation cannot run without separate Delete Permission
-- successful jobs are never retried; only failed jobs are retryable
+- Review First: ON
+- Draft Only: ON
+- `public.publish`: OFF
+- `publish.execute`: independent and disabled
+- create requires explicit account permission
+- every create requires final user confirmation
+- successful jobs are never retried
+- only failed identical jobs may be explicitly retried
+- ambiguous final-click results become `scheduled_unverified`
 
-Local Scheduler, recurring schedules, multi-platform scheduling, AI-selected schedule times and automatic immediate public publishing remain out of scope. The integrated Sprint remains `Approved` and cannot become `Completed` or `Verified` before real external verification.
+Final automated validation at runtime head `e73d33f`:
 
-## Workspace Data Source and Opportunity Intelligence Foundation (2026-07-18)
+```text
+npm run typecheck — passed
+npm run lint — passed
+npm test — passed
+  Test Files: 193 passed | 7 skipped
+  Tests: 978 passed | 17 skipped
+npm run build — passed
+git diff --check — passed
+git status — working tree clean
+Failures — 0
+```
 
-Implementation: complete in repository and pushed to `main`/`origin/main` at `71d4899d feat: add content intelligence and data source workflows`.
+No GitHub Actions workflow run is recorded for `e73d33f`. The verified evidence is the completed local Windows validation on the synchronized clean branch.
+
+Real external verification:
+
+- account: `bright-healthy`
+- title: `운동 휴식일, 근육 회복을 위한 쉬는 날 판단법`
+- category: `건강운동`
+- scheduled time: `2026-07-29 10:10` Asia/Seoul
+- management state: `[예약]`
+- immediate public post: not created
+
+The user opened the scheduled item and confirmed:
+
+- body normal
+- image normal
+- no vertical image distortion
+- ALT normal
+- representative image normal
+- tags normal
+- scheduled state normal
+
+The completion UI confirmed external verification and stopped showing an active-operation animation after completion.
+
+Still outside the verified Create MVP:
+
+- schedule-time update
+- schedule cancellation
+- publication-time verification
+- automatic `published` transition
+- existing scheduled-post update
+- scheduled-post deletion
+- local scheduler
+- recurring schedules
+- multi-platform scheduling
+- immediate public publishing
+
+The Schedule Create MVP is complete, but Sprint 6 as a whole is not complete.
+
+## 8. Sprint 7 — Data Source and Opportunity Intelligence Foundation
+
+The Data Source and Opportunity Intelligence Foundation is implemented.
 
 Implemented foundation:
 
@@ -201,89 +300,56 @@ Implemented foundation:
 - Project Data Source references
 - DPAPI SecretStore reuse and secret-free public API models
 - official Search Console, GA4, AdSense and NAVER Search Trend adapters
-- separate raw snapshot files and normalized Evidence repository
-- manual sync, duplicate-period cache, operation/version stale-result guard and failure isolation
+- separate raw snapshots and normalized Evidence repository
+- manual sync
+- duplicate-period cache
+- operation/version stale-result guard
+- failure isolation
 - centralized freshness policy
-- actual Project metadata/public-URL-limited internal growth Evidence
-- server-only comprehensive / market opportunity / blog growth classification
+- Project metadata and public-URL-limited internal growth Evidence
+- server-only comprehensive, market opportunity and blog growth classifications
 - atomic Opportunity Evidence persistence and restore
-- Evidence-aware recommendation cards and Workspace Settings Data Sources UI
-- deterministic Quality Review guards for unsupported market claims
+- Evidence-aware recommendation cards
+- Workspace Settings Data Sources UI
+- deterministic Quality guards for unsupported market claims
 
-Automated verification completed:
+Previously completed automated verification:
 
-- 118 test files and 589 tests passed
-- 6 files and 14 tests skipped by existing policy
-- lint, typecheck, test, build and `git diff --check` passed
+- Test Files: `118 passed`
+- Tests: `589 passed`
+- skipped: `6 files`, `14 tests`
+- lint, typecheck, test, build and `git diff --check`: Passed
 
 Externally verified:
 
 - Google Search Console OAuth real login
 - actual Search Console property list retrieval
-- `https://bright-healthy.tistory.com/` property selection
-- `siteOwner` permission confirmation
-- actual Search Console sync and Snapshot creation
+- `https://bright-healthy.tistory.com/` selection
+- `siteOwner` permission
+- actual Search Console synchronization and Snapshot creation
 - NAVER Search Trend real connection and synchronization
-- actual legacy Google Search Console Data Source deletion
+- actual legacy Search Console Data Source deletion
 - `DELETE /api/data-sources` HTTP 200
 
-Still pending external verification:
+Still pending:
 
-- GA4 and AdSense real accounts and production data
+- GA4 real-account production verification
+- AdSense real-account production verification
 - automatic token refresh after actual expiry
 - quota-limit behavior
-- additional real Provider response variants
+- additional production Provider response variants
 
-Google Ads Keyword Planning and Google Trends remain inactive until official access is verified.
+Google Ads Keyword Planning and Google Trends remain inactive until official access is available and verified.
 
-## Google Search Console OAuth 2.0 Connection (2026-07-19)
+### 8.1 Content Intelligence Scope Boundary
 
-Implemented in repository at `71d4899d`:
+Implemented:
 
-- official `googleapis` server-side OAuth client
-- exact development callback route `/api/data-sources/google/callback`
-- short-lived, server-stored, one-time state with internal-return-path validation
-- DPAPI storage for access/refresh tokens and granted scopes
-- automatic access-token refresh with refresh-token preservation
-- official Search Console `sites.list` projection and server-side property allow-list validation
-- `configurationRequired` connection state until a site is selected
-- Connection-ID-preserving reconnection and snapshot/Evidence retention
-- legacy manual Search Console token detection and reconnect-required UI
-- manual token removal from the Search Console settings form
+- Content Opportunity
+- Planning state persistence
+- Data Source and Opportunity Intelligence Foundation
 
-Externally verified with a real Google account:
-
-- OAuth consent and login succeeded.
-- The actual Search Console property list was returned.
-- `https://bright-healthy.tistory.com/` was selected.
-- The selected property reported `siteOwner` permission.
-- Actual Search Console synchronization succeeded and created a Snapshot.
-
-Automatic refresh after a token actually expires, API quota behavior and additional production-shaped Search Analytics response variants remain verification gates. GA4 and AdSense are not externally verified by this Search Console result.
-
-## Data Source Safe Deletion (2026-07-19)
-
-Implemented in repository at `71d4899d`:
-
-- distinct disable, disconnect and delete contracts
-- versioned secret-free backup before deletion
-- strong confirmation for active Connection disconnect-and-delete
-- active sync invalidation and superseded polling state
-- best-effort OAuth revoke, mandatory local SecretStore cleanup and pending-state invalidation
-- atomic tombstone, Workspace-wide Project reference cleanup and Connection deletion
-- Snapshot, raw Snapshot, Evidence, Content Opportunity, Quality, ContentDocument and History preservation
-- tombstone write guards preventing late sync result persistence or Connection recreation
-- same-provider Settings selection recovery after card deletion
-
-Automated coverage verifies disconnected and active deletion, version/Workspace/idempotency boundaries, credential cleanup failure preservation, late sync rejection, Planning exclusion, historical Evidence ID retention and UI request binding.
-
-External verification is complete for the observed legacy Google Search Console Data Source: the real legacy card was deleted through the safe deletion flow and `DELETE /api/data-sources` returned HTTP 200.
-
-## Content Intelligence Scope Boundary
-
-Content Opportunity and Planning state Persistence are implemented. The Data Source and Opportunity Intelligence Foundation is implemented and has the external verification listed above.
-
-Content Intelligence as a whole remains `Partially Implemented`. The following remain not implemented:
+Not implemented as a complete Sprint 7 system:
 
 - Project DNA
 - Content Library
@@ -295,42 +361,136 @@ Content Intelligence as a whole remains `Partially Implemented`. The following r
 - Cannibalization Detection
 - Internal Link Intelligence
 
-Sprint 7 as a whole must not be reported as implemented or verified.
+Sprint 7 as a whole must not be reported implemented or verified.
 
-## Current External Gates
+## 9. Google Search Console OAuth and Safe Deletion
 
-- Sprint 4 remains implemented and automatically verified, but not Verified or Completed until a real Tistory Draft is saved, reopened and its title, meaningful body, category and non-public state are confirmed.
-- Epic 1 remains below Verified for the same Tistory end-to-end gate.
-- GA4 and AdSense real-account verification remains open.
-- Token refresh after actual expiry, quota limits and diverse real Provider responses remain open.
-- Google Ads and Google Trends remain inactive until official access is available and verified.
+Implemented OAuth behavior includes:
 
-## Information-Sufficiency and Canonical Review Baseline — Released in v1.0.0
+- official `googleapis` server-side OAuth client
+- callback route `/api/data-sources/google/callback`
+- short-lived server-stored one-time state
+- internal return-path validation
+- DPAPI storage for access and refresh tokens
+- access-token refresh logic with refresh-token preservation
+- official Search Console `sites.list` projection
+- server-side property allow-list validation
+- configuration-required state until property selection
+- Connection-ID-preserving reconnection
+- Snapshot and Evidence retention
+- legacy manual token reconnect detection
 
-The information-sufficiency and canonical document review work is included in `Bright Studio v1.0.0`.
+Safe deletion behavior includes:
+
+- separate disable, disconnect and delete contracts
+- versioned secret-free backup
+- strong confirmation for active connection deletion
+- active sync invalidation
+- best-effort OAuth revoke
+- mandatory local SecretStore cleanup
+- tombstone protection
+- Workspace-wide Project reference cleanup
+- historical Snapshot, Evidence, Opportunity, Quality, ContentDocument and History preservation
+- late-result rejection after deletion
+
+## 10. Sprint 8 — WordPress and Multi-platform Foundation
+
+Design status: Approved
+
+Integrated WordPress Draft MVP status: Not implemented
+
+Existing verified repository foundation:
+
+- WordPress connection UI in Workspace Settings
+- site address, username and Application Password input
+- connection test
+- safe save
+- connection status display
+- `/wp-json` site discovery
+- `/wp-json/wp/v2/users/me?context=edit` authentication check
+- `edit_posts` capability check
+- Application Password stored in SecretStore
+- Secret omitted from public connection response
+- basic WordPress HTML Renderer
+- primitive Draft Adapter that posts title, HTML content and `status: draft`
+
+Current limitations:
+
+- primitive Draft Adapter receives credentials directly
+- no integrated Workspace, Project and Content ownership Gate
+- no current Revision and Quality lock
+- no Publishing Service integration
+- no Permission Gate integration
+- no category read and selection flow
+- no tag read, creation or application flow
+- no WordPress media upload
+- no ALT metadata update through WordPress Media REST resources
+- no featured image assignment
+- no duplicate Draft prevention
+- no Draft re-read verification
+- no title, meaningful body, status, category, tag or featured-image verification
+- no integrated publishing audit and completion UI
+
+Approved execution mode:
+
+```text
+UI
+→ Application Service
+→ Publishing Service
+→ Permission Gate
+→ WordPress Adapter
+→ WordPress REST API
+→ External Verification
+```
+
+WordPress uses the official REST API, not Playwright.
+
+Core must not know WordPress REST endpoints, URL layout or Application Password format.
+
+The next WordPress work must begin from updated `main` after the PR `#38` merge decision. It must use a dedicated branch and receive detailed design approval before code changes.
+
+## 11. Current External Gates
+
+Open external Gates:
+
+- real Tistory Draft Save and reopen verification for Sprint 4
+- Epic 1 final Tistory Draft end-to-end Gate
+- GA4 production account verification
+- AdSense production account verification
+- token refresh after an actual expiry
+- quota-limit behavior
+- additional real Provider response variants
+- real WordPress connection and Draft Save verification
+
+Completed external Gate:
+
+- Tistory native Schedule Create MVP registration and scheduled-item detail verification
+
+## 12. Information-Sufficiency and Canonical Review Baseline
 
 Released behavior:
 
-- Prose length is not used as a quality goal or publishing Gate.
-- Quality is evaluated using search-intent fulfillment, reader-problem resolution, required information elements, section completeness, information density, repetition and accuracy.
-- AI HTML paragraphs are normalized into canonical ContentDocument blocks.
-- Lists, ordered procedures and tables are preserved as canonical structures.
-- Incomplete sections and repeated structures are inspected against the canonical document.
-- Multiple sentences in a normal paragraph do not trigger an automatic readability penalty or forced paragraph splitting.
-- Recoverable quality issues are handled within the single Quality Review.
-- JSON corruption, document damage and Content Opportunity identity mismatch remain blocking failures.
-- AI Generation remains one Provider call.
-- Quality Review remains one Provider call.
-- Additional Provider retries were not introduced.
+- prose length is not a Quality goal or publishing Gate
+- Quality evaluates search-intent fulfillment, reader-problem resolution, required information elements, section completeness, information density, repetition and accuracy
+- AI HTML paragraphs are normalized into canonical ContentDocument blocks
+- lists, ordered procedures and tables remain canonical structures
+- incomplete sections and repeated structures are inspected against the canonical document
+- normal multi-sentence paragraphs do not trigger automatic paragraph splitting
+- recoverable Quality issues remain inside the single Quality Review
+- JSON corruption, document damage and Content Opportunity identity mismatch remain blocking failures
+- AI Generation remains one Provider call
+- Quality Review remains one Provider call
+- unnecessary Provider retries are prohibited
 
-Release verification:
+## 13. Next Actions
 
-- Release commit: `9946f9ecc9167b343ff0c7763c62437d593764ea`
-- Test Files: `137 passed`
-- Tests: `693 passed`
-- Manual Tests: `17 skipped`
-- Browser score: `100`
-- Browser approval: `standard`
-- Browser publishing readiness: Confirmed
+1. Review the final Tistory Schedule Create documentation updates.
+2. Keep PR `#38` Draft until the user explicitly chooses Ready and merge.
+3. If approved, mark PR `#38` Ready and merge it into `main`.
+4. Update the local `main` branch after merge.
+5. Create a WordPress-specific branch from updated `main`.
+6. Re-read the WordPress architecture, connection code, Publishing Service, Permission Gate and protected Tistory execution paths.
+7. Present the detailed WordPress Draft MVP design.
+8. Write WordPress code only after explicit design approval.
 
-This section replaces the previous WIP and uncommitted-work description. The functionality must now be treated as released behavior in `v1.0.0`, not as an uncommitted feature-branch state.
+Do not use `git reset --hard`, `git clean`, force push or unrelated refactoring.

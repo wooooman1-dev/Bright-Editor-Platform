@@ -1,4 +1,5 @@
 import type { ContentBlock } from "./ContentBlock";
+import { normalizeContentPlanQualityTarget } from "./ContentDepthPolicy";
 import type { ContentDocument } from "./ContentDocument";
 import type { ConfirmedContentOpportunity } from "./ContentOpportunity";
 import { ensureSeoKeywordPlacement, titleContainsPrimaryKeyword } from "./SeoKeywordPlacement";
@@ -160,10 +161,18 @@ export function applyContentOpportunityPolicy(
 
 function intentRequirements(opportunity: ConfirmedContentOpportunity): readonly string[] {
   const readerProblem = opportunity.readerProblem.trim();
+  const qualityTarget = normalizeContentPlanQualityTarget(opportunity.qualityTarget, {
+    searchIntent: opportunity.searchIntent,
+    contentType: opportunity.contentType,
+    readerProblem: opportunity.readerProblem,
+    audience: opportunity.audience,
+    selectedTopic: opportunity.selectedTopic,
+    expectedCoverage: opportunity.expectedCoverage,
+  });
   const planned = [
     readerProblem,
-    ...opportunity.qualityTarget.coreQuestions.filter((item) => !isGenericIntentRequirement(item, readerProblem)),
-    ...opportunity.qualityTarget.actionableNextSteps.filter((item) => !isGenericIntentRequirement(item, readerProblem)),
+    ...qualityTarget.coreQuestions.filter((item) => !isGenericIntentRequirement(item, readerProblem)),
+    ...qualityTarget.actionableNextSteps.filter((item) => !isGenericIntentRequirement(item, readerProblem)),
   ].map((item) => item.trim()).filter(Boolean);
   const unique: string[] = [];
   for (const requirement of (planned.length ? planned : [opportunity.searchIntent.trim()].filter(Boolean))) {

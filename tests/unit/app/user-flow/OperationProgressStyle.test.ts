@@ -16,4 +16,12 @@ describe("editor operation progress style", () => {
     expect(css).toContain("animation: bright-operation-progress");
     expect(css).toContain("animation: bright-operation-spin");
   });
+
+  it("stops the schedule notice animation after the schedule request finishes", () => {
+    const css = readFileSync(join(process.cwd(), "app/globals.css"), "utf-8");
+    const completedScheduleRule = css.match(/section:has\(#tistory-schedule-title\):has\(button\[aria-label="닫기"\]:not\(:disabled\)\)[\s\S]*?\{([^}]*)\}/)?.[1] ?? "";
+
+    expect(completedScheduleRule).toContain("display: none");
+    expect(completedScheduleRule).toContain("animation: none");
+  });
 });

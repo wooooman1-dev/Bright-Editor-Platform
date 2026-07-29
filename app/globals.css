@@ -116,6 +116,14 @@ body {
   animation: bright-operation-spin 0.75s linear infinite;
 }
 
+section:has(#tistory-schedule-title):has(button[aria-label="닫기"]:not(:disabled))
+  [aria-live="polite"].bg-blue-50::before,
+section:has(#tistory-schedule-title):has(button[aria-label="닫기"]:not(:disabled))
+  [aria-live="polite"].bg-blue-50::after {
+  display: none;
+  animation: none;
+}
+
 @keyframes bright-operation-progress {
   0% { transform: translateX(-100%); }
   55% { transform: translateX(15%); }
