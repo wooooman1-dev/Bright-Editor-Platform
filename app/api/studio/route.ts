@@ -11,13 +11,21 @@ import { contentDocumentAIContext, EditorialQualityPipeline } from "../../applic
 import { ContentPlanningStrategy, createManualPlanningResult, projectStrategyAIContext } from "../../application/ContentPlanningStrategy";
 import { approvalAwareInstruction, contentEditorialContext, preserveContentApprovalPolicy } from "../../application/approval/ApprovalRuntimePolicy";
 import { TistoryPublishingAdapter } from "../../../apps/tistory/publishing/TistoryPublishingAdapter";
-import { analyzeLongFormDocument, applyContentDepthPolicy, applyContentOpportunityPolicy, calculateContentMetrics, contentOpportunityKeywords, deriveContentTags, detectContentOpportunitySelectionMode, ensureSeoKeywordPlacement, LongFormValidationError, placeRecommendedPosts, rankRelatedPosts, requiresLongFormValidation, restoreProtectedImageAssets, restoreVerifiedEditorialLinks, type ConfirmedContentOpportunity, type ContentDocument, type LongFormDiagnostic } from "../../../core/content";
+import { analyzeLongFormDocument, applyContentDepthPolicy, applyContentOpportunityPolicy, calculateContentMetrics, contentOpportunityKeywords, deriveContentTags, detectContentOpportunitySelectionMode, ensureSeoKeywordPlacement, LongFormValidationError, requiresLongFormValidation, restoreProtectedImageAssets, restoreVerifiedEditorialLinks, type ConfirmedContentOpportunity, type ContentDocument, type LongFormDiagnostic } from "../../../core/content";
 import { ContentDeletionService } from "../../application/content/ContentDeletionService";
 import { applyCanonicalDocument, completeContentGeneration, completeContentPlanning, failContentPlanning, resolveProjectStrategy, startContentPlanning, updateContent, type UserData } from "../../user-flow/user-data";
 import { isPlatformEnabled, resolveWorkspaceSettings } from "../../application/settings/WorkspaceSettingsService";
 import { connectionRepository, targetRepository } from "../../application/connections/connection-runtime";
-import { TistoryPostCatalogApplicationService } from "../../application/publishing/TistoryPostCatalogApplicationService";
-import { isConnectionSelectedForContent, resolveTistoryConnectionId } from "../../application/publishing/TistoryConnectionSelection";
+import { PublicPostCatalogApplicationService } from "../../application/publishing/PublicPostCatalogApplicationService";
+import {
+  applyInternalLinkCatalogResult,
+  publishingCategoryIdentities,
+  publishingCategoryNames,
+  rankPublishingPostCandidates,
+  withInternalLinkCatalogMetadata,
+} from "../../application/publishing/InternalLinkCatalogPolicy";
+import { resolveCanonicalPublishingConnection } from "../../application/publishing/ProjectPublishingTarget";
+import { isPublishingConnectionSelectedForContent } from "../../application/publishing/PublishingTargetSelection";
 import { resolveConfirmedGenerationKeywords, resolveConfirmedGenerationOpportunity } from "../../application/ConfirmedGenerationPolicy";
 import { OpportunityEvidenceService } from "../../application/data-sources/OpportunityEvidenceService";
 import { dataSourceConnectionRepository, opportunityEvidenceRepository, projectDataSourceReferenceRepository } from "../../application/data-sources/data-source-runtime";
@@ -121,7 +129,7 @@ export async function POST(request: Request) {
         structuredLongFormOutput: true,
       });
       const generationCompletedAt = new Date();
-      const initialDocument = applyContentPolicy(await placeAvailableTistoryPosts(owned, existing, result.document), existing);
+      const initialDocument = applyContentPolicy(await placeAvailablePublishingPosts(owned, existing, result.document), existing);
       const context = qualityContext(existing, initialDocument);
       const initialQuality = new QualityEngine().review(initialDocument, context);
       const generationDiagnostic = initialDocument.metadata?.generationDiagnostic
@@ -186,7 +194,7 @@ export async function POST(request: Request) {
             existing,
           ),
           parseInput: { contentId, contentType: opportunity.contentType as never, contentOpportunity: opportunity, keywords, platform: required(input.platform) as never, projectId },
-          placeDocument: async (document) => applyContentPolicy(await placeAvailableTistoryPosts(owned, existing, document), existing),
+          placeDocument: async (document) => applyContentPolicy(await placeAvailablePublishingPosts(owned, existing, document), existing),
           qualityContext: context,
           requiredInformation: [...opportunity.expectedCoverage, ...editorialRequirements(editorialContext)],
         });
@@ -302,7 +310,7 @@ export async function POST(request: Request) {
       if (!content?.document) throw new Error("Canonical content was not found.");
       ownedProject(data, content.projectId);
       const keywords = content.opportunity ? contentOpportunityKeywords(content.opportunity) : resolveConfirmedGenerationKeywords(content, [content.primaryKeyword]);
-      const initialDocument = await placeAvailableTistoryPosts(data, content, content.document);
+      const initialDocument = await placeAvailablePublishingPosts(data, content, content.document);
       const initialQuality = new QualityEngine().review(initialDocument, qualityContext(content));
       const finalEdit = await new OpenAIProvider(undefined, openAIReviewModel(), reviewTimeoutMs()).generate({
         instruction: approvalAwareInstruction(
@@ -313,7 +321,7 @@ export async function POST(request: Request) {
         metadata: { task: "quality-final-edit" },
       });
       let document = restoreProtectedImageAssets(content.document, new EditorialGenerationStrategy().parse(finalEdit.content, { contentId, contentType: (content.contentType ?? "article") as never, ...(content.opportunity ? { contentOpportunity: content.opportunity } : {}), keywords, platform: (content.platform ?? "tistory") as never, projectId: content.projectId }));
-      document = applyContentPolicy(await placeAvailableTistoryPosts(data, content, document), content);
+      document = applyContentPolicy(await placeAvailablePublishingPosts(data, content, document), content);
       const reviewedAt = new Date().toISOString();
       const quality = new QualityEngine().review(document, { ...qualityContext(content), revisionId: contentRevisionId(document), reviewedAt });
       let next = applyCanonicalDocument(data, contentId, document, "ai_revision", reviewedAt);
@@ -364,7 +372,7 @@ Quality tasks: ${JSON.stringify(currentQuality.tasks)}
         ...(content.opportunity ? { contentOpportunity: content.opportunity } : {}), keywords, platform: (content.platform ?? "canonical") as never, projectId: content.projectId,
       });
       let document = restoreProtectedImageAssets(content.document, restoreVerifiedEditorialLinks(content.document, parsed));
-      document = applyContentPolicy(await placeAvailableTistoryPosts(data, content, document), content);
+      document = applyContentPolicy(await placeAvailablePublishingPosts(data, content, document), content);
       const appliedAt = new Date().toISOString();
       const quality = new QualityEngine().review(document, { ...qualityContext(content), revisionId: contentRevisionId(document), reviewedAt: appliedAt });
       const improvement = evaluateQualityImprovement(currentQuality, quality);
@@ -387,7 +395,7 @@ Quality tasks: ${JSON.stringify(currentQuality.tasks)}
       const candidate = raw as import("../../../core/content").ContentDocument;
       if (candidate.id !== content.document.id) throw new Error("개선 문서 ID가 현재 문서와 일치하지 않습니다.");
       let document = restoreProtectedImageAssets(content.document, restoreVerifiedEditorialLinks(content.document, candidate));
-      document = applyContentPolicy(await placeAvailableTistoryPosts(data, content, document), content);
+      document = applyContentPolicy(await placeAvailablePublishingPosts(data, content, document), content);
       const baselineQuality = new QualityEngine().review(content.document, qualityContext(content));
       const appliedAt = new Date().toISOString();
       const quality = new QualityEngine().review(document, { ...qualityContext(content), revisionId: contentRevisionId(document), reviewedAt: appliedAt });
@@ -439,7 +447,7 @@ Quality tasks: ${JSON.stringify(currentQuality.tasks)}
       const contentId = required(body.input?.contentId);
       const content = data.contents.find((item) => item.id === contentId && item.workspaceId === data.workspace!.id);
       if (!content?.document) throw new Error("Canonical content was not found.");
-      const document = await placeAvailableTistoryPosts(data, content, content.document);
+      const document = await placeAvailablePublishingPosts(data, content, content.document);
       const quality = new QualityEngine().review(document, { ...qualityContext(content), revisionId: contentRevisionId(document) });
       let next = contentRevisionId(document) === contentRevisionId(content.document) ? data : applyCanonicalDocument(data, contentId, document, "autosave", quality.reviewedAt);
       next = updateContent(next, contentId, { quality, status: isPublishReady(document, quality) ? "ready" : "in_review", updatedAt: quality.reviewedAt });
@@ -640,7 +648,7 @@ function isPublishReady(document: ContentDocument, quality: ReturnType<QualityEn
 }
 
 function qualityContext(content: UserData["contents"][number], document = content.document) {
-  return { contentType: content.contentType, platform: content.platform ?? "canonical", primaryKeyword: content.primaryKeyword, searchIntent: content.searchIntent, categoryName: content.publishingPreparation?.tistory?.platformCategoryName ?? undefined, availableInternalLinkCandidates: document?.metadata?.availableRelatedContentCandidates, internalLinkCatalogStatus: document?.metadata?.internalLinkCatalogStatus, qualityTarget: content.qualityTarget ?? content.opportunity?.qualityTarget ?? document?.metadata?.qualityTarget, ...(content.opportunity ? { opportunity: content.opportunity } : {}), revisionId: document ? contentRevisionId(document) : undefined };
+  return { contentType: content.contentType, platform: content.platform ?? "canonical", primaryKeyword: content.primaryKeyword, searchIntent: content.searchIntent, categoryName: publishingCategoryNames(content).join(", ") || undefined, availableInternalLinkCandidates: document?.metadata?.availableRelatedContentCandidates, internalLinkCatalogStatus: document?.metadata?.internalLinkCatalogStatus, qualityTarget: content.qualityTarget ?? content.opportunity?.qualityTarget ?? document?.metadata?.qualityTarget, ...(content.opportunity ? { opportunity: content.opportunity } : {}), revisionId: document ? contentRevisionId(document) : undefined };
 }
 
 function opportunityFailure(quality: ReturnType<QualityEngine["review"]>): string | undefined {
@@ -687,131 +695,91 @@ function reviewTimeoutMs(): number {
 }
 function editorialRequirements(context?: string): string[] { const marker = context?.match(/필수 정보:\s*([^\n]+)/); return marker ? marker[1].split("|").map((item) => item.trim()).filter(Boolean) : []; }
 
-async function placeAvailableTistoryPosts(data: UserData, content: UserData["contents"][number], document: ContentDocument): Promise<ContentDocument> {
-  if (!data.workspace || !isPlatformEnabled(data, "tistory")) {
-    console.info("[internal-link-trace] skipped before connection resolution", {
+async function placeAvailablePublishingPosts(
+  data: UserData,
+  content: UserData["contents"][number],
+  document: ContentDocument,
+): Promise<ContentDocument> {
+  if (!data.workspace) {
+    console.info("[internal-link-trace] skipped before workspace resolution", {
       contentId: content.id,
-      hasWorkspace: Boolean(data.workspace),
-      tistoryEnabled: isPlatformEnabled(data, "tistory"),
     });
     return document;
   }
 
-  const connectionId = resolveTistoryConnectionId(data, content);
-  console.info("[internal-link-trace] connection resolution", {
-    connectionId: connectionId ?? null,
-    contentId: content.id,
-    contentPublishingAccountId: content.publishingAccountId ?? null,
-    contentSelectedPublishingAccountIds: content.selectedPublishingAccountIds ?? [],
-    projectId: content.projectId,
-  });
-  if (!connectionId) {
-    console.warn("[studio-generation] No selected Tistory connection for internal-link placement", { contentId: content.id, projectId: content.projectId });
-    return document;
-  }
-
-  const connection = await connectionRepository.findById(connectionId);
-  if (!connection || connection.workspaceId !== data.workspace.id || connection.platform !== "tistory") {
-    console.warn("[internal-link-trace] resolved connection is unavailable or invalid", {
-      connectionFound: Boolean(connection),
-      connectionId,
-      connectionPlatform: connection?.platform ?? null,
-      connectionWorkspaceId: connection?.workspaceId ?? null,
+  const connections = await connectionRepository.listByWorkspace(data.workspace.id);
+  const connection = resolveCanonicalPublishingConnection(data, content, connections);
+  if (!connection || !isPlatformEnabled(data, connection.platform)) {
+    console.info("[internal-link-trace] skipped before canonical connection resolution", {
       contentId: content.id,
-      expectedWorkspaceId: data.workspace.id,
+      platform: connection?.platform ?? null,
     });
     return document;
   }
 
-  const preparation = content.publishingPreparation?.tistory;
-  console.info("[internal-link-trace] category preparation", {
-    categoryId: preparation?.platformCategoryId ?? null,
-    categoryName: preparation?.platformCategoryName ?? null,
-    contentId: content.id,
-  });
-  if (!preparation?.platformCategoryName?.trim()) {
-    console.warn("[internal-link-trace] category is missing", { contentId: content.id });
+  const categories = publishingCategoryIdentities(content);
+  if (!categories.length) {
+    console.warn("[internal-link-trace] publishing category is missing", {
+      contentId: content.id,
+      platform: connection.platform,
+    });
     return withInternalLinkCatalogMetadata(document, 0, "category_missing");
   }
 
-  const targets = targetRepository.listByProject ? await targetRepository.listByProject(content.projectId) : [];
-  const connectionSelected = isConnectionSelectedForContent(data, content, connection.id);
-  const targetRegistered = targets.some((target) => target.platformConnectionId === connection.id);
+  const targets = targetRepository.listByProject
+    ? await targetRepository.listByProject(content.projectId)
+    : [];
+  const connectionSelected = isPublishingConnectionSelectedForContent(
+    data,
+    content,
+    connection.id,
+  );
+  const targetRegistered = targets.some((target) =>
+    target.platformConnectionId === connection.id
+    && target.platform === connection.platform);
   const selectedTarget = connectionSelected && targetRegistered;
-  console.info("[internal-link-trace] publishing target resolution", {
+
+  console.info("[internal-link-trace] canonical catalog resolution", {
     connectionId: connection.id,
-    connectionSelected,
     contentId: content.id,
+    platform: connection.platform,
     selectedTarget,
-    targetCount: targets.length,
-    targetRegistered,
-    targetConnectionIds: targets.map((target) => target.platformConnectionId),
+    categories,
   });
 
   try {
-    const catalog = await new TistoryPostCatalogApplicationService().read({ workspaceId: data.workspace.id, projectId: content.projectId, contentId: content.id, connection, selectedTarget });
-    console.info("[internal-link-trace] catalog loaded", {
+    const catalog = await new PublicPostCatalogApplicationService().read({
+      workspaceId: data.workspace.id,
+      projectId: content.projectId,
+      contentId: content.id,
+      content,
+      connection,
+      selectedTarget,
+    });
+    const ranked = rankPublishingPostCandidates(document, catalog.posts, content);
+    const placed = applyInternalLinkCatalogResult(document, ranked, "evaluated");
+    console.info("[internal-link-trace] platform catalog evaluated", {
       cached: catalog.cached,
       catalogPostCount: catalog.posts.length,
-      categories: [...new Set(catalog.posts.map((post) => `${post.categoryId ?? ""}|${post.categoryName ?? ""}`))].slice(0, 20),
       contentId: content.id,
-    });
-
-    console.info("[internal-link-trace] current category", {
-      categoryId: preparation.platformCategoryId,
-      categoryName: preparation.platformCategoryName,
-      catalogCategories: [
-        ...new Set(
-          catalog.posts.map(
-            (post) => `${post.categoryId ?? "null"}|${post.categoryName ?? "null"}`
-          ),
-        ),
-      ],
-    });
-
-    const ranked = rankRelatedPosts(document, catalog.posts, { primaryKeyword: content.primaryKeyword, categoryId: preparation.platformCategoryId, categoryName: preparation.platformCategoryName ?? undefined });
-    const placed = placeRecommendedPosts(document, ranked);
-    console.info("[internal-link-trace] ranking and placement completed", {
-      contentId: content.id,
-      internalLinkCount: placed.blocks.filter((block) => block.type === "button" && block.purpose === "internal_link").length,
+      internalLinkCount: placed.blocks.filter((block) =>
+        block.type === "button" && block.purpose === "internal_link").length,
+      platform: connection.platform,
       rankedCount: ranked.length,
-      rankedPosts: ranked.slice(0, 10).map((post) => ({ categoryId: post.categoryId ?? null, categoryName: post.categoryName ?? null, title: post.title, url: post.publishedUrl })),
-      relatedPostCount: placed.blocks.filter((block) => block.type === "button" && block.purpose === "related_post").length,
+      relatedPostCount: placed.blocks.filter((block) =>
+        block.type === "button" && block.purpose === "related_post").length,
     });
-    return withInternalLinkCatalogMetadata(placed, ranked.length, "evaluated");
+    return placed;
   } catch (error) {
-    console.error("[studio-generation] Tistory post catalog unavailable", {
+    console.error("[studio-generation] Public post catalog unavailable", {
       connectionId: connection.id,
       contentId: content.id,
       error: message(error),
+      platform: connection.platform,
       selectedTarget,
     });
     return withInternalLinkCatalogMetadata(document, 0, "catalog_unavailable");
   }
-}
-
-function withInternalLinkCatalogMetadata(document: ContentDocument, count: number, status: "evaluated" | "category_missing" | "catalog_unavailable"): ContentDocument {
-  const now = new Date().toISOString();
-  const metrics = calculateContentMetrics(document);
-  return {
-    ...document,
-    metadata: {
-      buttonCount: document.metadata?.buttonCount ?? document.blocks.filter((block) => block.type === "button").length,
-      createdAt: document.metadata?.createdAt ?? now,
-      generator: document.metadata?.generator ?? "bright-studio",
-      imageCount: document.metadata?.imageCount ?? document.blocks.filter((block) => block.type === "image").length,
-      language: document.metadata?.language ?? "ko",
-      readingTime: document.metadata?.readingTime ?? metrics.estimatedReadingMinutes,
-      source: document.metadata?.source ?? "generated",
-      updatedAt: now,
-      version: document.metadata?.version ?? 1,
-      videoCount: document.metadata?.videoCount ?? document.blocks.filter((block) => block.type === "video").length,
-      wordCount: document.metadata?.wordCount ?? metrics.wordUnits,
-      ...document.metadata,
-      availableRelatedContentCandidates: count,
-      internalLinkCatalogStatus: status,
-    },
-  };
 }
 
 function qualityTargetFailure(quality: ReturnType<QualityEngine["review"]>): string {

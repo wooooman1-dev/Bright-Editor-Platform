@@ -1,8 +1,18 @@
 import { describe, expect, it } from "vitest";
 
-import { createContentFromPlan, createProject, createWorkspace, emptyUserData, renameProject, resolveProjectStrategy, updateProjectStrategy } from "../../../../app/user-flow/user-data";
+import { buildAutomaticContentPlanningRequest, createContentFromPlan, createProject, createWorkspace, emptyUserData, renameProject, resolveProjectStrategy, updateProjectStrategy } from "../../../../app/user-flow/user-data";
 
 describe("Project content strategy", () => {
+  it("keeps Project identity out of the automatic Planning request when a content scope exists", () => {
+    let data = createWorkspace(emptyUserData, "Workspace", "workspace");
+    data = createProject(data, { id: "project", name: "밝은재테크", description: "생활경제·재테크 콘텐츠 운영", brandIdFactory: () => "brand", now: "now" });
+    const request = buildAutomaticContentPlanningRequest(resolveProjectStrategy(data.projects[0]));
+
+    expect(request).not.toContain("밝은재테크");
+    expect(request).toContain("콘텐츠 범위: 생활경제·재테크 콘텐츠 운영");
+    expect(request).toContain("현재 Project에서 아직 다루지 않은 주제를 선정해");
+  });
+
   it("persists defaults and applies the default Tistory category to new Content", () => {
     let data = createWorkspace(emptyUserData, "Workspace", "workspace");
     data = createProject(data, { id: "project", name: "건강운동", brandIdFactory: () => "brand", now: "now" });

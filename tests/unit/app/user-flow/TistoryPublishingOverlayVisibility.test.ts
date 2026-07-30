@@ -60,7 +60,7 @@ describe("Tistory publishing overlay visibility", () => {
     expect(editorSource).toContain("if (!tistoryEnabled) return;");
     expect(editorSource).toContain("if (!tistoryEnabled || !content.document) return;");
     expect(editorSource).toContain('{tistoryEnabled ? <><section className="mt-6');
-    expect(editorSource).toContain("candidates={tistoryEnabled ? postCandidates : []}");
+    expect(editorSource).toContain("candidates={publicPostCatalogEnabled ? postCandidates : []}");
   });
 
   it.each([

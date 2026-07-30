@@ -15,6 +15,7 @@ export type ApprovalSourcePage = Readonly<{
   title: string;
   publisher: string;
   text: string;
+  fetchError?: string;
 }>;
 
 export type ApprovalEvidenceVerificationResult = Readonly<{
@@ -90,6 +91,16 @@ export function verifyApprovalEvidence(
       httpStatus: page.status,
       contentType: page.contentType,
     } as const;
+
+    if (page.fetchError) {
+      const reason = `${source.url}: 출처 페이지 요청이 실패했습니다. ${page.fetchError}`;
+      reasons.push(reason);
+      return diagnosticSource(source, reviewedAt, "unreachable", reason, {
+        ...pageDetails,
+        official: false,
+        selected: false,
+      }, page);
+    }
 
     if (!sourcePageProtocolAndStatusValid(page)) {
       const reason = `${source.url}: HTTPS 공개 페이지로 정상 응답하지 않았습니다 (HTTP ${page.status}, ${page.contentType || "content-type 없음"}).`;

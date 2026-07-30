@@ -10,6 +10,7 @@ import { completeConfirmedGeneration } from "./confirmed-generation";
 import { generatedDocumentEditable, generatedDocumentReady, GenerationCompletionError, type GenerationCompletionResult } from "./generation-result";
 import { PrimaryKeywordConfirmation } from "./PrimaryKeywordConfirmation";
 import {
+  buildAutomaticContentPlanningRequest,
   createContentFromPlan,
   failContentPlanning,
   resolveProjectStrategy,
@@ -458,7 +459,7 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
     if (!automatic || automaticStartRef.current || content?.planningWorkflow) return;
     automaticStartRef.current = true;
     const strategy = resolveProjectStrategy(project);
-    const automaticRequest = `${strategy.primaryTopic} 프로젝트에서 아직 다루지 않은 주제를 선정해 ${strategy.targetAudience}을 위한 ${strategy.defaultContentType} 원고를 작성해줘. 세부 주제: ${strategy.subtopics.join(", ") || strategy.primaryTopic}. 제외 주제: ${strategy.excludedTopics.join(", ") || "없음"}.`;
+    const automaticRequest = buildAutomaticContentPlanningRequest(strategy);
     void Promise.resolve().then(() => {
       setRequest(automaticRequest);
       setNotice("주제를 선정하고 있습니다. 기존 게시글과 중복 여부를 확인하고 있습니다.");

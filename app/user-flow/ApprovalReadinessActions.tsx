@@ -111,7 +111,7 @@ export function ApprovalReadinessActions(props: Readonly<{
         ? "사이트 필수 검사 통과"
         : result.siteReadiness?.status === "blocked"
           ? "사이트 차단 항목 있음"
-          : "사이트 필수 항목 검토 필요";
+          : "사이트 설정·수동 확인 필요";
       setState("success");
       setMessage(`${trigger === "automatic" ? "자동 검사 완료 · " : "재검사 완료 · "}${evidenceLabel} · ${siteLabel}`);
     } catch (error) {

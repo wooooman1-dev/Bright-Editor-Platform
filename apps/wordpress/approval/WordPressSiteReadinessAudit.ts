@@ -215,9 +215,12 @@ export async function auditWordPressSiteReadiness(
   const noindex = hasPublicNoindex(html);
   const robotsBlocked = robots ? robotsBlocksPublicCrawlers(robots.body) : true;
   const crawlerAccess = Boolean(robots) && !noindex && !robotsBlocked;
+  const crawlerRequirement: SiteApprovalReadinessRequirement | undefined =
+    noindex && Boolean(robots) && !robotsBlocked ? "setup" : undefined;
   checks.push({
     key: "crawler_access",
     passed: crawlerAccess,
+    ...(crawlerRequirement ? { requirement: crawlerRequirement } : {}),
     message: crawlerAccess
       ? "홈페이지 noindex와 robots.txt 전체 차단 신호가 발견되지 않았습니다."
       : `공개 crawler 접근을 통과 처리할 수 없습니다 (homepage noindex ${noindex ? "발견" : "미발견"}, robots 전체 차단 ${robotsBlocked ? "발견 또는 미확인" : "미발견"}).`,
@@ -236,11 +239,13 @@ export async function auditWordPressSiteReadiness(
   checks.push(...manualReviewChecks());
 
   const requiredFailures = checks.filter((check) => !check.passed && (check.requirement ?? "required") === "required");
+  const setupFailures = checks.filter((check) => !check.passed && check.requirement === "setup");
+  const manualFailures = checks.filter((check) => !check.passed && check.requirement === "manual");
   const criticalKeys = new Set(["site_url", "public_access", "https", "page_content", "placeholder_free"]);
   const criticalFailure = requiredFailures.some((check) => criticalKeys.has(check.key));
   return Object.freeze({
     version: "1.0",
-    status: criticalFailure ? "blocked" : requiredFailures.length ? "needs_review" : "passed",
+    status: criticalFailure ? "blocked" : requiredFailures.length || setupFailures.length || manualFailures.length ? "needs_review" : "passed",
     checkedAt: input.checkedAt,
     checks: Object.freeze(checks.map((check) => Object.freeze(check))),
   });
@@ -402,31 +407,37 @@ function manualReviewChecks(): readonly MutableSiteCheck[] {
     {
       key: "theme_plugin_review",
       passed: false,
+      requirement: "manual",
       message: "Theme 또는 GeneratePress 사용 여부와 플러그인 충돌은 공개 HTML 자동 검사만으로 확정할 수 없습니다. 관리자 또는 수동 화면 검토가 필요합니다.",
     },
     {
       key: "mobile_visual_review",
       passed: false,
+      requirement: "manual",
       message: "실제 모바일 시각 품질과 깨진 Template 여부는 viewport metadata만으로 통과 처리할 수 없습니다. 실제 기기 또는 브라우저 검토가 필요합니다.",
     },
     {
       key: "performance_review",
       passed: false,
+      requirement: "manual",
       message: "실제 성능 점수는 이 공개 구조 검사에서 측정하지 않았습니다. 별도 성능 검토가 필요합니다.",
     },
     {
       key: "copyright_review",
       passed: false,
+      requirement: "manual",
       message: "사이트 전체 이미지와 자료의 저작권·이용 조건은 홈페이지 응답만으로 확인할 수 없습니다. 권리 검토가 필요합니다.",
     },
     {
       key: "site_quality_consistency",
       passed: false,
+      requirement: "manual",
       message: "공개 글 전체의 주제·품질 일관성은 홈페이지 표본만으로 확정할 수 없습니다. 사이트 전체 수동 검토가 필요합니다.",
     },
     {
       key: "search_console_review",
       passed: false,
+      requirement: "manual",
       message: "Google Search Console 연결과 실제 색인 상태는 공개 사이트 응답에서 관찰할 수 없습니다. 별도 계정 검토가 필요합니다.",
     },
     {

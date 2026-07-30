@@ -84,7 +84,7 @@ describe("natural-language content planning", () => {
     }), {
       projectId: "project-1",
       selectionMode: "automatic",
-      sourceRequest: "오늘의 생활경제 글을 골라줘",
+      sourceRequest: "밝은재테크 프로젝트에서 아직 다루지 않은 주제를 선정해 주제에 관심 있는 일반 독자를 위한 Google SEO 정보 콘텐츠 원고를 작성해줘. 세부 주제: 생활경제·재테크 콘텐츠 운영. 제외 주제: 없음.",
       projectContext: JSON.stringify({
         projectStrategy: {
           projectIdentity: { projectName: "밝은재테크", brandName: "밝은재테크" },
@@ -107,6 +107,13 @@ describe("natural-language content planning", () => {
       "밝은재테크 통장 쪼개기 글을 작성해줘",
       ["밝은재테크"],
     )).toBe("밝은재테크 통장 쪼개기 방법");
+    expect(normalizePlanningPrimaryKeyword(
+      "밝은재테크 통장 쪼개기",
+      "밝은재테크 통장 쪼개기 방법",
+      "밝은재테크 프로젝트에서 아직 다루지 않은 주제를 선정해줘",
+      ["밝은재테크"],
+      false,
+    )).toBe("통장 쪼개기 방법");
     expect(normalizePlanningPrimaryKeyword(
       "카카오뱅크 통장 쪼개기",
       "카카오뱅크 통장 쪼개기 방법",

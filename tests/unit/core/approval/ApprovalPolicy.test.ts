@@ -122,4 +122,14 @@ describe("ApprovalPolicy", () => {
       snapshot,
     )).toEqual([]);
   });
+
+  it("accepts a combined natural-language information and review date sentence", () => {
+    const snapshot = resolveApprovalPolicySnapshot("adsense_approval", "wordpress_life_economy_v1")!;
+    const issues = evaluateApprovalPreparationText(
+      "공식 자료 https://www.gov.kr/portal/main 를 확인했습니다. 정보 기준일과 최종 검토일은 2026년 7월 30일이며 실제 신청 전 최신 공고를 다시 확인해야 합니다.",
+      snapshot,
+    );
+
+    expect(issues).not.toContainEqual(expect.objectContaining({ code: "PROFILE_REVIEW_DATE_MISSING" }));
+  });
 });

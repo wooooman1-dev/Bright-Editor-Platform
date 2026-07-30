@@ -207,6 +207,7 @@ async function fetchApprovalSourcePage(
   fetcher: ApprovalReadinessFetch,
   timeoutMs = 12_000,
 ): Promise<ApprovalSourcePage | undefined> {
+  let lastError: string | undefined;
   for (let attempt = 0; attempt < sourceFetchMaxAttempts; attempt += 1) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -242,9 +243,11 @@ async function fetchApprovalSourcePage(
         return page;
       }
       retryDelay = sourceRetryDelayMs(response.headers.get("retry-after"), attempt);
-    } catch {
+    } catch (error) {
+      lastError = sourceFetchErrorMessage(error, timeoutMs);
       if (attempt === sourceFetchMaxAttempts - 1) {
-        return fetchOfficialSourceFallback(requestedUrl, fetcher, timeoutMs);
+        const fallback = await fetchOfficialSourceFallback(requestedUrl, fetcher, timeoutMs);
+        return fallback ?? sourceFailurePage(requestedUrl, lastError);
       }
       retryDelay = sourceRetryDelayMs(undefined, attempt);
     } finally {
@@ -254,7 +257,8 @@ async function fetchApprovalSourcePage(
     await delay(retryDelay ?? 0);
   }
 
-  return fetchOfficialSourceFallback(requestedUrl, fetcher, timeoutMs);
+  const fallback = await fetchOfficialSourceFallback(requestedUrl, fetcher, timeoutMs);
+  return fallback ?? sourceFailurePage(requestedUrl, lastError ?? "알 수 없는 네트워크 오류");
 }
 
 async function fetchOfficialSourceFallback(
@@ -291,6 +295,32 @@ async function fetchOfficialSourceFallback(
   }
 
   return undefined;
+}
+
+function sourceFailurePage(
+  requestedUrl: string,
+  fetchError: string,
+): ApprovalSourcePage {
+  return Object.freeze({
+    requestedUrl,
+    finalUrl: requestedUrl,
+    status: 0,
+    contentType: "",
+    title: "",
+    publisher: extractPublisher("", requestedUrl),
+    text: "",
+    fetchError,
+  });
+}
+
+function sourceFetchErrorMessage(error: unknown, timeoutMs: number): string {
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return `요청 시간이 ${timeoutMs}ms를 초과했습니다.`;
+  }
+  if (error instanceof Error) {
+    return `${error.name}: ${error.message}`;
+  }
+  return String(error);
 }
 
 function sourceRequestHeaders(accept: string): HeadersInit {

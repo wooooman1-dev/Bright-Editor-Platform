@@ -159,9 +159,10 @@ export function parsePlanningResult(
   };
   const sourceRequest = context.sourceRequest ?? base.interpretedIntent;
   const ownedBrandTerms = planningOwnedBrandTerms(context);
+  const preserveRequestedOwnedTerms = context.selectionMode === "userSpecified";
   const normalizedBase = Object.freeze({
     ...base,
-    suggestedTitleAngles: Object.freeze(base.suggestedTitleAngles.map((title) => stripUnrequestedOwnedPrefix(title, sourceRequest, ownedBrandTerms))),
+    suggestedTitleAngles: Object.freeze(base.suggestedTitleAngles.map((title) => stripUnrequestedOwnedPrefix(title, sourceRequest, ownedBrandTerms, preserveRequestedOwnedTerms))),
   });
   const candidates = parseOpportunityCandidates(value.opportunityCandidates, {
     sourceRequest,
@@ -169,13 +170,14 @@ export function parsePlanningResult(
     selectionMode: context.selectionMode,
     hasVerifiedKeywordData: context.hasVerifiedKeywordData === true,
     ownedBrandTerms,
+    preserveRequestedOwnedTerms,
   });
   if (candidates.length) return fromCandidates(normalizedBase, candidates, context.selectionMode);
   if (Array.isArray(value.opportunityCandidates)) throw new Error("AI planning response is missing a complete Content Opportunity.");
 
   const rawKeyword = text(value.recommendedPrimaryKeyword, "recommendedPrimaryKeyword");
-  const selectedTopic = stripUnrequestedOwnedPrefix(first(normalizedBase.suggestedTitleAngles) ?? rawKeyword, sourceRequest, ownedBrandTerms);
-  const keyword = normalizePlanningPrimaryKeyword(rawKeyword, selectedTopic, sourceRequest, ownedBrandTerms);
+  const selectedTopic = stripUnrequestedOwnedPrefix(first(normalizedBase.suggestedTitleAngles) ?? rawKeyword, sourceRequest, ownedBrandTerms, preserveRequestedOwnedTerms);
+  const keyword = normalizePlanningPrimaryKeyword(rawKeyword, selectedTopic, sourceRequest, ownedBrandTerms, preserveRequestedOwnedTerms);
   const legacyCandidate = createContentOpportunityCandidate({
     sourceRequest,
     selectionMode: context.selectionMode,
@@ -195,25 +197,26 @@ export function parsePlanningResult(
     projectId: context.projectId,
   });
   const legacyKeywords = list(value.keywordCandidates, [rawKeyword])
-    .map((candidateKeyword) => normalizePlanningPrimaryKeyword(candidateKeyword, selectedTopic, sourceRequest, ownedBrandTerms));
+    .map((candidateKeyword) => normalizePlanningPrimaryKeyword(candidateKeyword, selectedTopic, sourceRequest, ownedBrandTerms, preserveRequestedOwnedTerms));
   return fromCandidates(normalizedBase, [legacyCandidate], context.selectionMode, legacyKeywords);
 }
 
 function parseOpportunityCandidates(
   raw: unknown,
-  context: Readonly<{ sourceRequest: string; projectId: string; selectionMode: ContentOpportunitySelectionMode; hasVerifiedKeywordData: boolean; ownedBrandTerms: readonly string[] }>,
+  context: Readonly<{ sourceRequest: string; projectId: string; selectionMode: ContentOpportunitySelectionMode; hasVerifiedKeywordData: boolean; ownedBrandTerms: readonly string[]; preserveRequestedOwnedTerms: boolean }>,
 ): readonly ContentOpportunityCandidate[] {
   if (!Array.isArray(raw)) return [];
   return Object.freeze(raw.flatMap((item) => {
     if (!item || typeof item !== "object") return [];
     const value = item as Record<string, unknown>;
     try {
-      const selectedTopic = stripUnrequestedOwnedPrefix(text(value.selectedTopic, "opportunity.selectedTopic"), context.sourceRequest, context.ownedBrandTerms);
+      const selectedTopic = stripUnrequestedOwnedPrefix(text(value.selectedTopic, "opportunity.selectedTopic"), context.sourceRequest, context.ownedBrandTerms, context.preserveRequestedOwnedTerms);
       const primaryKeyword = normalizePlanningPrimaryKeyword(
         text(value.primaryKeyword, "opportunity.primaryKeyword"),
         selectedTopic,
         context.sourceRequest,
         context.ownedBrandTerms,
+        context.preserveRequestedOwnedTerms,
       );
       const searchIntent = text(value.searchIntent, "opportunity.searchIntent");
       const audience = text(value.audience, "opportunity.audience");
@@ -299,11 +302,12 @@ export function normalizePlanningPrimaryKeyword(
   selectedTopic: string,
   sourceRequest: string,
   ownedBrandTerms: readonly string[] = [],
+  preserveRequestedOwnedTerms = true,
 ): string {
   const original = normalizedPhrase(primaryKeyword);
-  const stripped = stripUnrequestedOwnedPrefix(original, sourceRequest, ownedBrandTerms);
+  const stripped = stripUnrequestedOwnedPrefix(original, sourceRequest, ownedBrandTerms, preserveRequestedOwnedTerms);
   const keyword = stripped || original;
-  const topic = stripUnrequestedOwnedPrefix(selectedTopic, sourceRequest, ownedBrandTerms);
+  const topic = stripUnrequestedOwnedPrefix(selectedTopic, sourceRequest, ownedBrandTerms, preserveRequestedOwnedTerms);
   const keywordTokens = normalizedPhrase(keyword).split(/\s+/).filter(Boolean);
   const topicTokens = normalizedPhrase(topic).split(/\s+/).filter(Boolean);
   if (!keywordTokens.length || topicTokens.length <= keywordTokens.length) return keyword;
@@ -334,12 +338,17 @@ function projectIdentityTerms(projectContext?: string): readonly string[] {
   }
 }
 
-function stripUnrequestedOwnedPrefix(value: string, sourceRequest: string, ownedBrandTerms: readonly string[]): string {
+function stripUnrequestedOwnedPrefix(
+  value: string,
+  sourceRequest: string,
+  ownedBrandTerms: readonly string[],
+  preserveRequestedOwnedTerms = true,
+): string {
   const request = normalizedPhrase(sourceRequest).toLocaleLowerCase("ko-KR");
   let result = normalizedPhrase(value);
   for (const rawTerm of ownedBrandTerms) {
     const term = normalizedPhrase(rawTerm);
-    if (!term || request.includes(term.toLocaleLowerCase("ko-KR"))) continue;
+    if (!term || (preserveRequestedOwnedTerms && request.includes(term.toLocaleLowerCase("ko-KR")))) continue;
     const pattern = new RegExp(`^${escapeRegExp(term)}(?:\\s+|\\s*[-–—:|·]\\s*)`, "iu");
     const next = result.replace(pattern, "").trim();
     if (next) result = next;

@@ -584,6 +584,17 @@ export function renameProject(data: UserData, projectId: string, name: string, n
   return { ...data, projects };
 }
 export function resolveProjectStrategy(project: UserProject): ProjectContentStrategy { return project.strategy ?? defaultProjectStrategy(project.name, project.description); }
+export function buildAutomaticContentPlanningRequest(strategy: ProjectContentStrategy): string {
+  const contentScope = strategy.subtopics
+    .map(normalizeRequiredName)
+    .filter(Boolean)
+    .join(", ") || normalizeRequiredName(strategy.primaryTopic) || "설정된 주제 없음";
+  const excludedTopics = strategy.excludedTopics
+    .map(normalizeRequiredName)
+    .filter(Boolean)
+    .join(", ") || "없음";
+  return `현재 Project에서 아직 다루지 않은 주제를 선정해 ${normalizeRequiredName(strategy.targetAudience)}을 위한 ${normalizeRequiredName(strategy.defaultContentType)} 원고를 작성해줘. 콘텐츠 범위: ${contentScope}. 제외 주제: ${excludedTopics}.`;
+}
 function defaultProjectStrategy(name: string, description: string): ProjectContentStrategy { return { primaryTopic: name, subtopics: description ? [description] : [], excludedTopics: [], defaultContentType: "Google SEO 정보 콘텐츠", defaultPlatform: "tistory", targetAudience: "주제에 관심 있는 일반 독자", tone: "친절하고 신뢰할 수 있는 설명", internalLinkPolicy: "본문 중간 실제 공개 글 1개 자동 배치", relatedPostPolicy: "문서 마지막 실제 공개 글 최대 3개 자동 배치", ctaPolicy: "필요한 경우 최대 1~2개", imageStrategy: "주요 섹션에 설명적인 ALT가 있는 이미지 placeholder", seoPolicy: "Helpful · Reliable · People-first" }; }
 
 export function updateProjectTargets(data: UserData, projectId: string, accountIds: readonly string[], now: string): UserData {

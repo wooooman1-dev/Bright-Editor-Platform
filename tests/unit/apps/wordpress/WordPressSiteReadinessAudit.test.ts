@@ -66,12 +66,12 @@ describe("WordPressSiteReadinessAudit", () => {
     });
 
     expect(result.checks).toEqual(expect.arrayContaining([
-      expect.objectContaining({ key: "theme_plugin_review", passed: false }),
-      expect.objectContaining({ key: "mobile_visual_review", passed: false }),
-      expect.objectContaining({ key: "performance_review", passed: false }),
-      expect.objectContaining({ key: "copyright_review", passed: false }),
-      expect.objectContaining({ key: "site_quality_consistency", passed: false }),
-      expect.objectContaining({ key: "search_console_review", passed: false }),
+      expect.objectContaining({ key: "theme_plugin_review", passed: false, requirement: "manual" }),
+      expect.objectContaining({ key: "mobile_visual_review", passed: false, requirement: "manual" }),
+      expect.objectContaining({ key: "performance_review", passed: false, requirement: "manual" }),
+      expect.objectContaining({ key: "copyright_review", passed: false, requirement: "manual" }),
+      expect.objectContaining({ key: "site_quality_consistency", passed: false, requirement: "manual" }),
+      expect.objectContaining({ key: "search_console_review", passed: false, requirement: "manual" }),
       expect.objectContaining({ key: "adsense_external_approval", passed: false }),
     ]));
     expect(result.status).toBe("needs_review");
@@ -125,6 +125,29 @@ describe("WordPressSiteReadinessAudit", () => {
 
     expect(result.status).toBe("needs_review");
     expect(result.checks).toContainEqual(expect.objectContaining({ key: "crawler_access", passed: false }));
+  });
+
+  it("classifies an intentional homepage noindex as setup work when robots.txt still allows crawlers", async () => {
+    const noindexHtml = homeHtml.replace("</head>", '<meta name="robots" content="noindex, nofollow"></head>');
+    const result = await auditWordPressSiteReadiness({
+      siteUrl: "https://example.com",
+      checkedAt,
+      expectedTerms: ["생활경제"],
+      fetcher: vi.fn(async (input: string | URL) => {
+        const url = String(input);
+        if (url === "https://example.com/") return htmlResponse(noindexHtml);
+        if (url === "https://example.com/robots.txt") {
+          return textResponse("User-agent: *\nAllow: /\nSitemap: https://example.com/wp-sitemap.xml", "text/plain");
+        }
+        if (url === "https://example.com/wp-sitemap.xml") {
+          return textResponse("<?xml version=\"1.0\"?><urlset></urlset>", "application/xml");
+        }
+        return new Response("not found", { status: 404 });
+      }),
+    });
+
+    expect(result.checks).toContainEqual(expect.objectContaining({ key: "crawler_access", passed: false, requirement: "setup" }));
+    expect(result.status).toBe("needs_review");
   });
 
   it("blocks timeout, redirect-limit, and oversized response fixtures with actionable diagnostics", async () => {

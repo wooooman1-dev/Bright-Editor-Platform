@@ -230,6 +230,26 @@ describe("ApprovalReadinessApplicationService", () => {
     expect(result.evidence.verifiedSourceCount).toBe(2);
   });
 
+  it("preserves the concrete source fetch error in the Evidence diagnostic", async () => {
+    const controlledFetcher = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url === sourceUrl) throw new TypeError("fetch failed: ECONNRESET");
+      return new Response(siteHtml, { status: 200, headers: { "content-type": "text/html" } });
+    });
+
+    const result = await new ApprovalReadinessApplicationService(
+      controlledFetcher,
+      () => "2026-07-27T10:30:00.000Z",
+    ).execute({ data, contentId: "content-1", connection });
+
+    expect(result.evidence.pack.status).toBe("needs_review");
+    expect(result.evidence.pack.sources[0]).toMatchObject({
+      verificationStatus: "unreachable",
+      httpStatus: 0,
+      failureReason: expect.stringContaining("ECONNRESET"),
+    });
+  });
+
   it("uses the official NGA Open Data record when an artwork page is blocked", async () => {
     const ngaSourceUrl = "https://www.nga.gov/artworks/1167-portrait-man";
     const ngaDatasetUrl = "https://raw.githubusercontent.com/NationalGalleryOfArt/opendata/main/data/objects.csv";

@@ -78,7 +78,11 @@ export type ApprovalDuplicateCheckSnapshot = Readonly<{
   reasons: readonly string[];
 }>;
 
-export type SiteApprovalReadinessRequirement = "required" | "recommended";
+export type SiteApprovalReadinessRequirement =
+  | "required"
+  | "recommended"
+  | "setup"
+  | "manual";
 
 export type SiteApprovalReadinessSnapshot = Readonly<{
   version: "1.0";
@@ -223,8 +227,10 @@ function siteReadinessCheck(document: ContentDocument): ApprovalReadinessCheck {
   }
 
   const requiredFailures = snapshot.checks.filter((check) => !check.passed && (check.requirement ?? "required") === "required");
+  const setupFailures = snapshot.checks.filter((check) => !check.passed && check.requirement === "setup");
+  const manualFailures = snapshot.checks.filter((check) => !check.passed && check.requirement === "manual");
   const recommendedFailures = snapshot.checks.filter((check) => !check.passed && check.requirement === "recommended");
-  if (snapshot.status === "passed" && requiredFailures.length === 0) {
+  if (snapshot.status === "passed" && requiredFailures.length === 0 && setupFailures.length === 0 && manualFailures.length === 0) {
     return Object.freeze({
       key: "site_readiness",
       status: "passed",
@@ -235,11 +241,22 @@ function siteReadinessCheck(document: ContentDocument): ApprovalReadinessCheck {
     });
   }
 
+  const pendingLabels = [
+    requiredFailures.length ? `필수 오류 ${requiredFailures.length}개` : "",
+    setupFailures.length ? `설정 필요 ${setupFailures.length}개` : "",
+    manualFailures.length ? `수동 확인 필요 ${manualFailures.length}개` : "",
+  ].filter(Boolean);
+  const actions = [
+    ...requiredFailures,
+    ...setupFailures,
+    ...manualFailures,
+  ].map((check) => check.message);
+
   return Object.freeze({
     key: "site_readiness",
     status: snapshot.status === "blocked" ? "blocked" : "needs_review",
-    message: `사이트 필수 준비 항목 ${requiredFailures.length}개를 해결해야 합니다.`,
-    action: requiredFailures.map((check) => check.message).join(" ") || "사이트 전체 공개 상태를 다시 확인하세요.",
+    message: pendingLabels.length ? `사이트 준비 상태: ${pendingLabels.join(" · ")}` : "사이트 전체 공개 상태를 다시 확인해야 합니다.",
+    action: actions.join(" ") || "사이트 전체 공개 상태를 다시 확인하세요.",
   });
 }
 

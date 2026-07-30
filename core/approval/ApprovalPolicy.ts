@@ -265,7 +265,7 @@ export function evaluateApprovalPreparationText(
     issues.push({ code: "PROFILE_SOURCE_URL_MISSING", message: "공식 출처를 확인할 수 있는 HTTPS URL이 없습니다.", blocking: true });
   }
 
-  const hasReviewDate = /(?:최종\s*검토일|정보\s*기준일)\s*[:：]?\s*(?:20\d{2}[-./년]\s*\d{1,2}(?:[-./월]\s*\d{1,2})?|20\d{2}[-./]\d{1,2}(?:[-./]\d{1,2})?)/i.test(normalized);
+  const hasReviewDate = /(?:(?:최종\s*검토일|정보\s*기준일)(?:\s*(?:과|와|및)\s*(?:최종\s*검토일|정보\s*기준일))?)\s*(?:은|는|이|가)?\s*[:：]?\s*(?:20\d{2}[-./년]\s*\d{1,2}(?:[-./월]\s*\d{1,2})?|20\d{2}[-./]\d{1,2}(?:[-./]\d{1,2})?)/i.test(normalized);
   if (!hasReviewDate && snapshot.sourceRequirements.length > 0) {
     issues.push({ code: "PROFILE_REVIEW_DATE_MISSING", message: "정보 기준일 또는 최종 검토일을 확인할 수 없습니다.", blocking: true });
   }

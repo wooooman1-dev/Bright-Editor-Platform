@@ -157,23 +157,28 @@ function preserveCurrentApprovalCheckSnapshots(
 
   const previousEvidence = previous.document.metadata.approvalEvidence;
   const candidateEvidence = candidate.document.metadata.approvalEvidence;
-  if (candidateEvidence?.reviewedRevisionId === revisionId) return candidate;
-  if (previousEvidence?.reviewedRevisionId !== revisionId) return candidate;
+  const approvalEvidence = candidateEvidence?.reviewedRevisionId === revisionId
+    ? candidateEvidence
+    : previousEvidence?.reviewedRevisionId === revisionId
+      ? previousEvidence
+      : candidateEvidence;
+  const siteApprovalReadiness =
+    candidate.document.metadata.siteApprovalReadiness
+    ?? previous.document.metadata.siteApprovalReadiness;
 
   const previousQuality = previous.quality as (NonNullable<UserContent["quality"]> & Readonly<{
     approvalReadiness?: unknown;
   }>) | undefined;
   const candidateQuality = candidate.quality;
+
   return {
     ...candidate,
     document: {
       ...candidate.document,
       metadata: {
         ...candidate.document.metadata,
-        approvalEvidence: previousEvidence,
-        ...(previous.document.metadata.siteApprovalReadiness
-          ? { siteApprovalReadiness: previous.document.metadata.siteApprovalReadiness }
-          : {}),
+        ...(approvalEvidence ? { approvalEvidence } : {}),
+        ...(siteApprovalReadiness ? { siteApprovalReadiness } : {}),
       },
     },
     ...(candidateQuality && previousQuality?.approvalReadiness
