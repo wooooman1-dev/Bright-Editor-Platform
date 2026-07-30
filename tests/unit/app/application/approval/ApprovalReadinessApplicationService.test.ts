@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { ApprovalReadinessApplicationService } from "../../../../../app/application/approval/ApprovalReadinessApplicationService";
-import { resolveApprovalPolicySnapshot, type ApprovalEvidencePack } from "../../../../../core/approval";
+import {
+  resolveApprovalPolicySnapshot,
+  SiteApprovalReadinessAdapterRegistry,
+  type ApprovalEvidencePack,
+  type SiteApprovalReadinessAdapter,
+} from "../../../../../core/approval";
 import type { PlatformConnection } from "../../../../../core/connections";
 import type { ContentDocument } from "../../../../../core/content";
 import type { ApprovalAwareQualityReport } from "../../../../../core/quality";
@@ -296,4 +301,52 @@ describe("ApprovalReadinessApplicationService", () => {
       contentType: "text/html; normalized-from=text/csv",
     });
   });
+
+  it.each([
+    ["wordpress", "wordpress-audit"],
+    ["tistory", "tistory-audit"],
+  ] as const)("selects only the registered %s site readiness Adapter", async (platform, selectedKey) => {
+    const wordpressAudit = vi.fn(async () => siteSnapshot("wordpress-audit"));
+    const tistoryAudit = vi.fn(async () => siteSnapshot("tistory-audit"));
+    const adapters = new SiteApprovalReadinessAdapterRegistry([
+      adapter("wordpress", wordpressAudit),
+      adapter("tistory", tistoryAudit),
+    ]);
+    const selectedConnection: PlatformConnection = {
+      ...connection,
+      id: `${platform}-1`,
+      platform,
+      publicMetadata: platform === "wordpress"
+        ? { siteUrl: "https://example.com" }
+        : { blogUrl: "https://viva-rain.tistory.com" },
+    };
+
+    const result = await new ApprovalReadinessApplicationService(
+      fetcher(),
+      () => "2026-07-27T10:30:00.000Z",
+      adapters,
+    ).execute({ data, contentId: "content-1", connection: selectedConnection });
+
+    expect(result.siteReadiness.checks[0]).toMatchObject({ key: selectedKey });
+    expect(wordpressAudit).toHaveBeenCalledTimes(platform === "wordpress" ? 1 : 0);
+    expect(tistoryAudit).toHaveBeenCalledTimes(platform === "tistory" ? 1 : 0);
+    const selectedAudit = platform === "wordpress" ? wordpressAudit : tistoryAudit;
+    expect(selectedAudit).toHaveBeenCalledWith(expect.objectContaining({ connection: selectedConnection }));
+  });
 });
+
+function adapter(
+  platform: "tistory" | "wordpress",
+  audit: SiteApprovalReadinessAdapter["audit"],
+): SiteApprovalReadinessAdapter {
+  return { platform, audit };
+}
+
+function siteSnapshot(key: string) {
+  return Object.freeze({
+    version: "1.0" as const,
+    status: "needs_review" as const,
+    checkedAt: "2026-07-27T10:30:00.000Z",
+    checks: Object.freeze([Object.freeze({ key, passed: false, message: key })]),
+  });
+}

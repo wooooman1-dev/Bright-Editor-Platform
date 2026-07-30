@@ -5,7 +5,9 @@ import {
   type ApprovalEvidenceVerificationResult,
   type ApprovalPolicyProfileId,
   type ApprovalSourcePage,
+  type SiteApprovalReadinessFetch,
   type SiteApprovalReadinessSnapshot,
+  SiteApprovalReadinessAdapterRegistry,
 } from "../../../core/approval";
 import {
   contentRevisionId,
@@ -15,7 +17,8 @@ import {
 } from "../../../core/quality";
 import type { PlatformConnection } from "../../../core/connections";
 import type { ContentDocument } from "../../../core/content";
-import { auditTistorySiteReadiness } from "../../../apps/tistory/approval/TistorySiteReadinessAudit";
+import { tistorySiteReadinessAdapter } from "../../../apps/tistory/approval/TistorySiteReadinessAudit";
+import { wordpressSiteReadinessAdapter } from "../../../apps/wordpress/approval/WordPressSiteReadinessAudit";
 import { resolveProjectStrategy, type UserContent, type UserData } from "../../user-flow/user-data";
 import type { ApprovalAwareContent } from "./ApprovalContentPolicy";
 import { resolveOfficialEvidenceSourceFallback } from "./OfficialEvidenceSourceResolver";
@@ -28,22 +31,21 @@ export type ApprovalReadinessExecutionResult = Readonly<{
   siteReadiness: SiteApprovalReadinessSnapshot;
 }>;
 
-export type ApprovalReadinessFetch = (
-  input: string | URL,
-  init?: RequestInit,
-) => Promise<Response>;
+export type ApprovalReadinessFetch = SiteApprovalReadinessFetch;
 
 /**
  * Runs the deterministic approval checks that can be observed now.
  *
  * This service does not add an AI call. It verifies official source pages,
- * compares canonical facts with those pages, audits the public Tistory site,
+ * compares canonical facts with those pages, delegates the selected public
+ * site audit to its registered platform Adapter,
  * persists the resulting snapshots, and recomputes the current Quality report.
  */
 export class ApprovalReadinessApplicationService {
   constructor(
     private readonly fetcher: ApprovalReadinessFetch = fetch,
     private readonly now: () => string = () => new Date().toISOString(),
+    private readonly siteAdapters: SiteApprovalReadinessAdapterRegistry = defaultSiteReadinessAdapters(),
   ) {}
 
   async execute(input: Readonly<{
@@ -82,6 +84,7 @@ export class ApprovalReadinessApplicationService {
       checkedAt,
       expectedTerms: siteIdentityTerms(input.data, project, content),
       fetcher: this.fetcher,
+      adapters: this.siteAdapters,
     });
 
     const documentWithSnapshots: ContentDocument = {
@@ -154,22 +157,24 @@ async function resolveSiteReadiness(input: Readonly<{
   checkedAt: string;
   expectedTerms: readonly string[];
   fetcher: ApprovalReadinessFetch;
+  adapters: SiteApprovalReadinessAdapterRegistry;
 }>): Promise<SiteApprovalReadinessSnapshot> {
   if (!input.connection) return unavailableSiteSnapshot(input.checkedAt, "발행 계정이 선택되지 않아 공개 사이트를 검사하지 못했습니다.");
-  if (input.connection.platform !== "tistory") {
-    return unavailableSiteSnapshot(input.checkedAt, "현재 구현에서는 Tistory 공개 사이트 검사를 지원합니다. WordPress 검사는 플랫폼 Adapter 단계에서 추가해야 합니다.");
-  }
-  const blogUrl = typeof input.connection.publicMetadata.blogUrl === "string"
-    ? input.connection.publicMetadata.blogUrl.trim()
-    : "";
-  if (!blogUrl) return unavailableSiteSnapshot(input.checkedAt, "Tistory 공개 블로그 주소가 연결 정보에 없습니다.");
-
-  return auditTistorySiteReadiness({
-    blogUrl,
+  const adapter = input.adapters.get(input.connection.platform);
+  if (!adapter) return unavailableSiteSnapshot(input.checkedAt, `${input.connection.platform} 사이트 승인 준비 Adapter가 등록되지 않았습니다.`);
+  return adapter.audit({
+    connection: input.connection,
     checkedAt: input.checkedAt,
     expectedTerms: input.expectedTerms,
     fetcher: input.fetcher,
   });
+}
+
+function defaultSiteReadinessAdapters(): SiteApprovalReadinessAdapterRegistry {
+  return new SiteApprovalReadinessAdapterRegistry([
+    tistorySiteReadinessAdapter,
+    wordpressSiteReadinessAdapter,
+  ]);
 }
 
 function unavailableSiteSnapshot(checkedAt: string, message: string): SiteApprovalReadinessSnapshot {

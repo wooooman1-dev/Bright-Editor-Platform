@@ -39,6 +39,9 @@ export type ApprovalPreparationIssue = Readonly<{
   blocking: true;
 }>;
 
+export const peopleFirstValueAndTrustPrinciple =
+  "애드센스 승인 준비 콘텐츠는 Google 심사 시스템이나 검색 알고리즘을 공략하기 위한 문서가 아니라, 실제 독자의 검색 의도와 문제를 완결적으로 해결하는 독창적이고 검증 가능하며 신뢰할 수 있는 사람 중심 콘텐츠로 작성한다.";
+
 const sharedPrinciples = Object.freeze([
   "사이트와 Project의 주제 및 목적에 일관되게 속한다.",
   "검색 의도와 독자의 실제 문제를 직접 해결한다.",
@@ -73,7 +76,7 @@ const sharedQualityChecks = Object.freeze([
   "과장 및 보장 표현",
   "독자 문제 해결",
   "공개 준비 완결성",
-  "내부 탐색과 사이트 전체 승인 준비 상태",
+  "내부 링크 진단 및 사이트 준비 상태와 원고 품질의 분리",
 ]);
 
 const profileSnapshots: Readonly<Record<ApprovalPolicyProfileId, ApprovalPolicySnapshot>> = Object.freeze({
@@ -88,6 +91,17 @@ const profileSnapshots: Readonly<Record<ApprovalPolicyProfileId, ApprovalPolicyS
     siteIdentity: "복잡한 정부지원, 세금, 주거, 생활금융 기초 제도를 일반 독자가 공식 확인처에서 스스로 확인할 수 있도록 쉽게 설명한다.",
     requiredPrinciples: Object.freeze([
       ...sharedPrinciples,
+      peopleFirstValueAndTrustPrinciple,
+      "독자가 가진 구체적인 질문이나 문제를 먼저 정의하고 서론에서 핵심 답변을 불필요하게 미루지 않는다.",
+      "검색 의도를 해결하는 데 필요한 판단 기준과 실행 방법을 빠짐없이 제공한다.",
+      "다른 문서를 단순 요약·재작성하지 않고, 주제에 적합한 고유한 설명·비교·사례·계산·체크리스트·주의점·선택 기준 중 필요한 요소로 독창적인 기여를 만든다.",
+      "독창성은 확인되지 않은 새로운 사실, 수치, 경험담, 성공 사례 또는 전문가 자격을 발명하는 것이 아니다.",
+      "확인 가능한 사실과 편집 해석을 구분하고, 변동 가능한 정보에는 기준일 또는 확인 시점을 표시하며 중요한 주장은 공식 또는 신뢰할 수 있는 출처로 뒷받침한다.",
+      "조건에 따라 달라지거나 불확실한 내용은 적용 범위와 한계를 명시한다.",
+      "제목과 소제목은 실제 내용을 정확히 설명하고, 키워드 반복·문장 부풀리기·의미 없는 서론과 결론 없이 정보 밀도를 유지하면서 중복과 불필요한 장문을 제거한다.",
+      "관련성이 검증된 공개 글만 내부 링크로 사용한다.",
+      "승인 보장, 수익 보장, 반드시 통과 또는 100% 승인이라는 표현을 사용하지 않는다.",
+      "생활경제 사이트의 주제와 대상 독자에게 일관된 원고를 작성한다.",
       "변경 가능한 대상, 기간, 금액, 소득 기준, 금리와 세율은 공식 출처로 확인한다.",
       "정보 기준일, 최종 검토일과 공식 확인 경로를 제공한다.",
       "공식 문서를 단순 요약하지 않고 독자가 자신의 적용 여부를 판단할 조건, 예외, 확인 순서와 다음 행동을 제공한다.",
@@ -109,6 +123,14 @@ const profileSnapshots: Readonly<Record<ApprovalPolicyProfileId, ApprovalPolicyS
     ]),
     qualityChecks: Object.freeze([
       ...sharedQualityChecks,
+      "Reader Value: 독자의 구체적인 질문을 먼저 정의하고 핵심 답변, 판단 기준과 실행 방법을 실제로 제공하는지 평가한다.",
+      "Original Contribution: 단순 요약·재작성이 아니라 주제에 적합한 설명, 비교, 사례, 계산, 체크리스트, 주의점 또는 선택 기준으로 고유한 가치를 더하는지 평가한다.",
+      "Factual Reliability: 사실과 해석을 구분하고, 변동 정보의 기준일과 신뢰 가능한 출처를 제시하며 확인하지 않은 수치·경험·성공 사례·자격을 만들지 않는지 평가한다.",
+      "Completeness: 검색 의도에 필요한 핵심 질문, 조건, 예외, 판단 기준, 실행 방법과 다음 행동을 빠짐없이 충분히 설명하는지 평가한다.",
+      "Transparency: 정보의 적용 범위, 불확실성, 한계, 확인 시점과 최종 확인 경로를 독자가 이해할 수 있게 밝히는지 평가한다.",
+      "Readability: 제목과 소제목이 실제 내용을 정확히 설명하고, 핵심 답변을 미루거나 키워드를 반복하거나 문장을 부풀리지 않으며 정보 밀도를 유지하는지 평가한다.",
+      "Search Intent Satisfaction: 원고 전체가 생활경제 독자의 실제 검색 질문과 문제를 완결적으로 해결하는지 평가한다.",
+      "Policy Safety: 승인·수익 보장, 반드시 통과, 100% 승인과 그 밖의 과장·미검증 주장을 차단하되 외부 승인 가능성을 점수화하지 않는다.",
       "변경 가능한 생활경제 정보의 최신성",
       "공식 출처와 신청·확인 경로",
       "독자가 자신의 상황을 판단할 수 있는 조건과 예외",

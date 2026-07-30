@@ -43,6 +43,25 @@ describe("WordPress Draft execution and completion UI", () => {
     expect(overlaySource).toContain("<strong>Draft Only</strong>");
   });
 
+  it("animates the WordPress notice only while Category or execution work is running", () => {
+    const css = readFileSync(join(process.cwd(), "app/globals.css"), "utf8");
+
+    expect(overlaySource).toContain("const noticeLoading = categoryLoading || categorySaving || Boolean(executionLoading);");
+    expect(overlaySource).toContain('executionLoading ? "WordPress Draft Readiness를 확인하고 있습니다."');
+    expect(overlaySource).toContain('categoryLoading ? "WordPress 카테고리를 불러오고 있습니다."');
+    expect(overlaySource).toContain("wordpress-draft-notice--loading");
+    expect(css).toContain('[aria-live="polite"].wordpress-draft-notice::before');
+    expect(css).toContain('[aria-live="polite"].wordpress-draft-notice--loading::before');
+    expect(css).toContain('[aria-live="polite"].wordpress-draft-notice--loading::after');
+  });
+
+  it("keeps completion and readiness notices mounted without a loading class", () => {
+    expect(overlaySource).toContain("WordPress 카테고리 적용 완료:");
+    expect(overlaySource).toContain('result.record?.safeMessage ?? "WordPress 실행 결과를 저장했습니다."');
+    expect(overlaySource).toContain('{notice ? <p aria-live="polite"');
+    expect(overlaySource).not.toContain("setTimeout(() => setCategoryNotice");
+  });
+
   it("leaves platform ownership to the Editor's canonical gate", () => {
     expect(editorSource).toContain("editorPublishingPlatformVisibility");
     expect(editorSource).toContain("{wordpressEnabled ? <WordPressDraftOverlay");

@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import type { UserData } from "../../../user-flow/user-data";
 import { ApprovalReadinessApplicationService } from "../../../application/approval/ApprovalReadinessApplicationService";
 import { connectionRepository } from "../../../application/connections/connection-runtime";
-import { resolveTistoryConnectionId } from "../../../application/publishing/TistoryConnectionSelection";
+import { resolveCanonicalPublishingConnection } from "../../../application/publishing/ProjectPublishingTarget";
 import { studioStore } from "../../../application/studio-store";
 
 const collection = "application";
@@ -23,11 +23,8 @@ export async function POST(request: Request) {
     const content = data.contents.find((item) => item.id === contentId && item.workspaceId === workspaceId);
     if (!content) throw new Error("승인 준비 검사 대상 Content를 찾을 수 없습니다.");
 
-    const connectionId = content.platform === "tistory" || content.publishingPreparation?.tistory
-      ? resolveTistoryConnectionId(data, content)
-      : undefined;
-    const connection = connectionId ? await connectionRepository.findById(connectionId) : undefined;
-    if (connection && connection.workspaceId !== workspaceId) throw new Error("발행 계정이 현재 Workspace에 속하지 않습니다.");
+    const connections = await connectionRepository.listByWorkspace(workspaceId);
+    const connection = resolveCanonicalPublishingConnection(data, content, connections);
 
     const result = await new ApprovalReadinessApplicationService().execute({
       data,

@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { applyProjectPublishingTargets, projectPublishingAccountIds } from "../../../../app/application/publishing/ProjectPublishingTarget";
+import {
+  applyProjectPublishingTargets,
+  projectPublishingAccountIds,
+  resolveCanonicalPublishingConnection,
+} from "../../../../app/application/publishing/ProjectPublishingTarget";
 import { createContentFromPlan, createProject, createWorkspace, emptyUserData } from "../../../../app/user-flow/user-data";
+import type { PlatformConnection } from "../../../../core/connections";
 
 const connections = [
   { id: "tistory-1", platform: "tistory" },
@@ -74,6 +79,54 @@ describe("Project publishing target", () => {
     expect(projectPublishingAccountIds(targeted, "project-1", ["wordpress-1", "tistory-1"], connections, "tistory"))
       .toEqual(["tistory-1"]);
   });
+
+  it.each([
+    ["wordpress", "wordpress-1"],
+    ["tistory", "tistory-1"],
+  ] as const)("selects only the Content canonical %s connection when both platforms are active", (platform, connectionId) => {
+    const targeted = applyProjectPublishingTargets(baseData(), "project-1", [connectionId], connections, "targeted");
+    const content = {
+      id: "content-1",
+      workspaceId: "workspace-1",
+      projectId: "project-1",
+      title: "Canonical target",
+      body: "",
+      status: "in_review" as const,
+      platform,
+      selectedPublishingAccountIds: ["tistory-1", "wordpress-1"],
+      publishingAccountId: connectionId,
+      updatedAt: "now",
+    };
+    const data = { ...targeted, contents: [content] };
+
+    expect(resolveCanonicalPublishingConnection(data, content, platformConnections())?.id).toBe(connectionId);
+  });
+
+  it("prefers the Content WordPress preparation over a stale Tistory account field", () => {
+    const targeted = applyProjectPublishingTargets(baseData(), "project-1", ["tistory-1", "wordpress-1"], connections, "targeted");
+    const content = {
+      id: "content-1",
+      workspaceId: "workspace-1",
+      projectId: "project-1",
+      title: "WordPress prepared",
+      body: "",
+      status: "in_review" as const,
+      platform: "tistory",
+      publishingAccountId: "tistory-1",
+      updatedAt: "now",
+      publishingPreparation: {
+        wordpress: {
+          publishingAccountId: "wordpress-1",
+          categoryIds: ["12"],
+          categoryNames: ["생활경제"],
+          updatedAt: "now",
+        },
+      },
+    };
+    const data = { ...targeted, contents: [content] };
+
+    expect(resolveCanonicalPublishingConnection(data, content, platformConnections())?.id).toBe("wordpress-1");
+  });
 });
 
 function baseData() {
@@ -84,4 +137,18 @@ function baseData() {
     brandIdFactory: () => "brand-1",
     now: "now",
   });
+}
+
+function platformConnections(): readonly PlatformConnection[] {
+  return connections.map((connection) => ({
+    ...connection,
+    workspaceId: "workspace-1",
+    displayName: connection.id,
+    status: "connected" as const,
+    publicMetadata: {},
+    createdAt: "now",
+    updatedAt: "now",
+    selectedAsDefault: false,
+    version: 1,
+  }));
 }

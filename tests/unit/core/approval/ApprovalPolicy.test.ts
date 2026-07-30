@@ -4,6 +4,7 @@ import {
   approvalPolicyPromptContext,
   evaluateApprovalPreparationText,
   normalizeContentPurpose,
+  peopleFirstValueAndTrustPrinciple,
   resolveApprovalPolicySnapshot,
 } from "../../../../core/approval";
 
@@ -35,6 +36,57 @@ describe("ApprovalPolicy", () => {
     expect(context).toContain("Docs/current/01_PRODUCT/17_ADSENSE_APPROVAL_READINESS_BLUEPRINT.md");
     expect(context).toContain("unique, non-commodity content");
     expect(context).toContain("Never claim or imply that AdSense approval is guaranteed.");
+  });
+
+  it("delivers the canonical people-first WordPress profile through its snapshot prompt context", () => {
+    const snapshot = resolveApprovalPolicySnapshot("adsense_approval", "wordpress_life_economy_v1")!;
+    const context = approvalPolicyPromptContext(snapshot);
+
+    expect(snapshot.requiredPrinciples).toContain(peopleFirstValueAndTrustPrinciple);
+    for (const requirement of [
+      "구체적인 질문이나 문제를 먼저 정의",
+      "단순 요약·재작성하지 않고",
+      "확인되지 않은 새로운 사실, 수치, 경험담, 성공 사례 또는 전문가 자격",
+      "정보 밀도를 유지하면서 중복과 불필요한 장문을 제거",
+    ]) {
+      expect(snapshot.requiredPrinciples.some((principle) => principle.includes(requirement))).toBe(true);
+    }
+    for (const perspective of [
+      "Reader Value",
+      "Original Contribution",
+      "Factual Reliability",
+      "Completeness",
+      "Transparency",
+      "Readability",
+      "Search Intent Satisfaction",
+      "Policy Safety",
+    ]) {
+      expect(snapshot.qualityChecks.some((check) => check.startsWith(`${perspective}:`))).toBe(true);
+    }
+    expect(context).toContain(peopleFirstValueAndTrustPrinciple);
+    expect(context).toContain("Approval profile: wordpress_life_economy_v1@1.0");
+    expect(context).not.toMatch(/Google\s*AI\s*봇|AI\s*봇에게\s*잘\s*보이/iu);
+    expect(context).not.toMatch(/\b\d{3,}\s*(?:자|단어)\b/u);
+    expect(snapshot.requiredPrinciples).toContain("목표 글자 수, 최소 문단 수, 최소 게시물 수 또는 최소 Category 수를 승인 Gate로 사용하지 않는다.");
+    expect(snapshot.prohibitedClaims.some((claim) => claim.includes("수익") && claim.includes("보장"))).toBe(true);
+    expect(snapshot.prohibitedClaims).toEqual(expect.arrayContaining([
+      "AdSense 승인 보장",
+      "100% 승인",
+      "반드시 통과",
+    ]));
+  });
+
+  it("keeps WordPress 생활경제 rules out of the Tistory profile", () => {
+    const snapshot = resolveApprovalPolicySnapshot("adsense_approval", "tistory_vivarain_art_v1")!;
+    const profileContract = [
+      ...snapshot.requiredPrinciples,
+      ...snapshot.prohibitedClaims,
+      ...snapshot.sourceRequirements,
+      ...snapshot.qualityChecks,
+    ].join("\n");
+
+    expect(profileContract).not.toMatch(/생활경제|정부지원|소득 기준|세율|대출 승인 보장|지원금 수령 보장/u);
+    expect(profileContract).not.toContain(peopleFirstValueAndTrustPrinciple);
   });
 
   it("blocks guarantee, placeholder, fabricated experience, and missing evidence details", () => {

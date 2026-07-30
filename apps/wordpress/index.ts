@@ -3,3 +3,4 @@ export * from "./WordPressCategoryAdapter";
 export * from "./WordPressDraftPublishingAdapter";
 export * from "./WordPressHtmlRenderer";
 export * from "./WordPressMediaAdapter";
+export * from "./approval/WordPressSiteReadinessAudit";

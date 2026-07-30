@@ -3,11 +3,41 @@ import {
   type UserData,
   type WorkspacePlatform,
 } from "../../user-flow/user-data";
+import type { PlatformConnection, Platform } from "../../../core/connections";
 
 export type ProjectPublishingTargetConnection = Readonly<{
   id: string;
   platform: WorkspacePlatform;
 }>;
+
+export function resolveCanonicalPublishingConnection(
+  data: UserData,
+  content: UserData["contents"][number],
+  connections: readonly PlatformConnection[],
+): PlatformConnection | undefined {
+  const project = data.projects.find((item) =>
+    item.id === content.projectId
+    && item.workspaceId === content.workspaceId);
+  if (!project) return undefined;
+
+  const platform = canonicalContentPlatform(project, content);
+  if (!platform) return undefined;
+  const available = connections.filter((connection) =>
+    connection.workspaceId === content.workspaceId
+    && connection.platform === platform);
+  const byId = (id: string | undefined) => id
+    ? available.find((connection) => connection.id === id.trim())
+    : undefined;
+
+  const preparedId = platform === "wordpress"
+    ? content.publishingPreparation?.wordpress?.publishingAccountId
+    : content.publishingPreparation?.tistory?.publishingAccountId;
+  return byId(preparedId)
+    ?? byId(content.publishingAccountId)
+    ?? singleConnection(content.selectedPublishingAccountIds, available)
+    ?? byId(resolveProjectStrategy(project).defaultPublishingAccountId)
+    ?? singleConnection(project.selectedPublishingAccountIds, available);
+}
 
 export function applyProjectPublishingTargets(
   data: UserData,
@@ -53,4 +83,27 @@ export function projectPublishingAccountIds(
   return Object.freeze(accountIds.filter((accountId) => connections.some(
     (connection) => connection.id === accountId && connection.platform === platform,
   )));
+}
+
+function canonicalContentPlatform(
+  project: UserData["projects"][number],
+  content: UserData["contents"][number],
+): Platform | undefined {
+  const hasTistoryPreparation = Boolean(content.publishingPreparation?.tistory);
+  const hasWordPressPreparation = Boolean(content.publishingPreparation?.wordpress);
+  if (hasTistoryPreparation !== hasWordPressPreparation) {
+    return hasWordPressPreparation ? "wordpress" : "tistory";
+  }
+  if (content.platform === "tistory" || content.platform === "wordpress") return content.platform;
+  const projectPlatform = resolveProjectStrategy(project).defaultPlatform;
+  return projectPlatform === "tistory" || projectPlatform === "wordpress" ? projectPlatform : undefined;
+}
+
+function singleConnection(
+  ids: readonly string[] | undefined,
+  connections: readonly PlatformConnection[],
+): PlatformConnection | undefined {
+  const selected = [...new Set((ids ?? []).map((id) => id.trim()).filter(Boolean))]
+    .flatMap((id) => connections.find((connection) => connection.id === id) ?? []);
+  return selected.length === 1 ? selected[0] : undefined;
 }

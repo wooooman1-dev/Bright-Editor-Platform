@@ -9,6 +9,7 @@ import {
   updateProjectApprovalSettings,
 } from "../../../../../app/application/approval/ApprovalContentPolicy";
 import { createProject, createWorkspace, emptyUserData, startContentPlanning } from "../../../../../app/user-flow/user-data";
+import { peopleFirstValueAndTrustPrinciple } from "../../../../../core/approval";
 
 function projectData() {
   const workspace = createWorkspace(emptyUserData, "Studio", "workspace-1");
@@ -75,6 +76,33 @@ describe("ApprovalContentPolicy", () => {
     expect(contentApprovalPromptContext(content)).toContain("Policy documents reviewed:");
   });
 
+  it("snapshots the WordPress 생활경제 approval profile into the Planning Content", () => {
+    const configured = updateProjectApprovalSettings(projectData(), "project-1", {
+      contentPurpose: "adsense_approval",
+      approvalProfileId: "wordpress_life_economy_v1",
+    }, "2026-07-27T01:00:00.000Z");
+    const planning = startContentPlanning(configured, {
+      id: "content-wordpress",
+      projectId: "project-1",
+      request: "생활경제 승인 준비 글을 작성해줘",
+      selectionMode: "automatic",
+      operationId: "operation-wordpress",
+      now: "2026-07-27T02:00:00.000Z",
+    });
+    const snapshotted = snapshotApprovalPolicyForPlanning(planning, "project-1", "content-wordpress");
+
+    expect(snapshotted.contents[0]).toMatchObject({
+      contentPurpose: "adsense_approval",
+      approvalPolicyId: "adsense_approval_mode",
+      approvalPolicyVersion: "1.0",
+      approvalProfileId: "wordpress_life_economy_v1",
+      approvalProfileVersion: "1.0",
+    });
+    const promptContext = contentApprovalPromptContext(snapshotted.contents[0]!);
+    expect(promptContext).toContain("Approval profile: wordpress_life_economy_v1@1.0");
+    expect(promptContext).toContain(peopleFirstValueAndTrustPrinciple);
+  });
+
   it("clears approval metadata for standard Planning", () => {
     const planning = startContentPlanning(projectData(), {
       id: "content-1",
@@ -118,5 +146,6 @@ describe("ApprovalContentPolicy", () => {
     expect(context).toContain("미술 감상");
     expect(context).not.toContain("approvalPolicy");
     expect(context).not.toContain("later project approval policy");
+    expect(context).not.toContain(peopleFirstValueAndTrustPrinciple);
   });
 });

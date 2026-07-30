@@ -25,8 +25,10 @@ const input: GenerationInput = {
 
 class RecordingProvider implements AIProvider {
   request?: AIRequest;
+  calls = 0;
 
   async generate(request: AIRequest) {
+    this.calls += 1;
     this.request = request;
     return { content: "generated", model: "test" };
   }
@@ -61,6 +63,7 @@ describe("AIWorkflow canonical editorial context", () => {
 
     expect(provider.request?.instruction).toContain("Canonical server editorial context");
     expect(provider.request?.instruction).toContain("Approval policy: adsense_approval_mode@1.0");
+    expect(provider.calls).toBe(1);
     expect(result.document.metadata?.approvalPolicy).toMatchObject({
       policyId: "adsense_approval_mode",
       policyVersion: "1.0",

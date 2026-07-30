@@ -11,6 +11,7 @@ import {
   type UserContent,
   type UserData,
 } from "../../../../../app/user-flow/user-data";
+import { contentRevisionId } from "../../../../../core/quality";
 
 function projectData(): UserData {
   const workspace = createWorkspace(emptyUserData, "Studio", "workspace-1");
@@ -180,4 +181,82 @@ describe("ApprovalAwarePersistenceStore", () => {
       highestSimilarity: 1,
     });
   });
+
+  it.each(["missing", "needs_review"] as const)(
+    "preserves a current %s Evidence review and site diagnostics across a stale same-Revision write",
+    async (status) => {
+      const store = new ApprovalAwarePersistenceStore(new InMemoryPersistenceStore());
+      await store.set("application", "user-data", approvalProject());
+      await store.update<UserData>("application", "user-data", (current) => planning(current!));
+      const planned = (await store.get<UserData>("application", "user-data"))!;
+      const paragraph = status === "needs_review"
+        ? "공식 자료 후보 https://www.moma.org/collection/works/79802"
+        : "공식 자료를 추가로 확인해야 합니다.";
+      const documented = {
+        ...planned,
+        contents: [withDocument(planned.contents[0]!, "작품 감상 가이드", "작품을 보는 순서", paragraph)],
+      };
+      await store.set("application", "user-data", documented);
+      const candidate = (await store.get<UserData>("application", "user-data"))!;
+      const content = candidate.contents[0]!;
+      const revisionId = contentRevisionId(content.document!);
+      const sources = status === "needs_review"
+        ? content.document!.metadata!.approvalEvidence!.sources.map((source) => ({
+            ...source,
+            verificationStatus: "unreachable" as const,
+            failureReason: "공식 출처가 일시적으로 응답하지 않았습니다.",
+            checkedAt: "2026-07-28T02:00:00.000Z",
+          }))
+        : [];
+      const reviewed: UserData = {
+        ...candidate,
+        contents: [{
+          ...content,
+          document: {
+            ...content.document!,
+            metadata: {
+              ...content.document!.metadata!,
+              approvalEvidence: {
+                version: "1.0",
+                status,
+                reviewedAt: "2026-07-28T02:00:00.000Z",
+                reviewedRevisionId: revisionId,
+                sources,
+              },
+              siteApprovalReadiness: {
+                version: "1.0",
+                status: "needs_review",
+                checkedAt: "2026-07-28T02:00:00.000Z",
+                checks: [{ key: "privacy", passed: false, message: "개인정보처리방침을 확인하지 못했습니다." }],
+              },
+            },
+          },
+        }],
+      };
+
+      await store.set("application", "user-data", reviewed);
+      const afterReview = (await store.get<UserData>("application", "user-data"))!;
+      expect(afterReview.contents[0]?.document?.metadata?.approvalEvidence).toMatchObject({
+        status,
+        reviewedRevisionId: revisionId,
+      });
+      if (status === "needs_review") {
+        expect(afterReview.contents[0]?.document?.metadata?.approvalEvidence?.sources[0]).toMatchObject({
+          verificationStatus: "unreachable",
+          failureReason: "공식 출처가 일시적으로 응답하지 않았습니다.",
+        });
+      }
+
+      await store.set("application", "user-data", candidate);
+      const afterStaleWrite = (await store.get<UserData>("application", "user-data"))!;
+      expect(afterStaleWrite.contents[0]?.document?.metadata?.approvalEvidence).toMatchObject({
+        status,
+        reviewedRevisionId: revisionId,
+      });
+      expect(afterStaleWrite.contents[0]?.document?.metadata?.siteApprovalReadiness).toMatchObject({
+        status: "needs_review",
+        checkedAt: "2026-07-28T02:00:00.000Z",
+      });
+    },
+  );
 });

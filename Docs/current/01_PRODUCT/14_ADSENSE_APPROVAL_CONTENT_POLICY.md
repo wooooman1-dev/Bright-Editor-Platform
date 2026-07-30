@@ -6,7 +6,7 @@ Status: Accepted
 
 Applies to: Bright Studio WordPress 생활경제 Project의 AdSense 승인 준비 단계
 
-Last updated: 2026-07-27
+Last updated: 2026-07-30
 
 ---
 
@@ -181,6 +181,40 @@ AI Generation 1회
 ```
 
 AdSense 승인 정책은 기존 Generation과 Quality Review에 포함한다. 별도의 불필요한 AI 호출을 추가하지 않는다.
+
+### 7.1 WordPress People-First Writing and Review Criteria
+
+이 프로필은 `15_ADSENSE_APPROVAL_MODE.md`의 People-First Value and Trust Principle을 따른다. 생활경제 승인 준비 원고는 검색 시스템이나 심사 시스템을 공략하는 문서가 아니라 실제 독자의 질문과 문제를 완결적으로 해결하는 문서여야 한다.
+
+작성 기준:
+
+- 독자의 구체적인 질문이나 문제를 먼저 정의하고 서론에서 핵심 답변을 불필요하게 미루지 않는다.
+- 검색 의도에 필요한 판단 기준, 조건, 예외, 실행 방법과 다음 행동을 빠짐없이 제공한다.
+- 다른 문서를 단순 요약·재작성하지 않는다. 주제에 적합한 고유한 설명, 비교, 사례, 계산, 체크리스트, 주의점 또는 선택 기준을 제공한다.
+- 사실과 편집 해석을 구분하고 변동 가능한 정보에는 기준일 또는 확인 시점을 표시한다.
+- 중요한 주장은 공식 또는 신뢰할 수 있는 출처로 뒷받침한다.
+- 확인하지 않은 수치, 경험담, 성공 사례 또는 전문가 자격을 생성하지 않는다.
+- 불확실하거나 조건에 따라 달라지는 내용은 적용 범위와 한계를 명시한다.
+- 제목과 소제목은 실제 내용을 정확히 설명한다.
+- 키워드 반복, 문장 부풀리기, 의미 없는 서론과 결론을 금지하고 정보 밀도를 유지하면서 중복과 불필요한 장문을 제거한다.
+- 관련성이 검증된 공개 글만 내부 링크로 사용한다.
+- 승인 보장, 수익 보장, 반드시 통과 또는 100% 승인이라는 표현을 사용하지 않는다.
+- 생활경제 사이트의 주제와 대상 독자에 맞는 일관성을 유지한다.
+
+기존 단일 Quality Review는 별도 필드나 AdSense 승인 가능성 점수를 만들지 않고 기존 평가 항목의 설명과 판정 기준에서 다음 관점을 함께 평가한다.
+
+```text
+Reader Value
+Original Contribution
+Factual Reliability
+Completeness
+Transparency
+Readability
+Search Intent Satisfaction
+Policy Safety
+```
+
+글자 수는 위 관점의 통과 기준이 아니다. Search Console, Analytics, 검색엔진 차단, 실제 색인 및 sitemap 제출 상태는 이 원고 검토가 아니라 WordPress Site Approval Readiness에서 별도로 다룬다.
 
 ---
 

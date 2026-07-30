@@ -102,7 +102,11 @@ export function WordPressDraftOverlay({ connections, content, data, onPersist, p
     && isWordPressCategorySelectionApplied(readiness.categorySelection.categoryIds, appliedCategoryIds));
   const executionLoading = identity && categorySelectionApplied ? currentExecutionState.loading : false;
   const loading = executionLoading || categoryLoading || categorySaving;
-  const notice = currentExecutionState.notice || categoryNotice
+  const noticeLoading = categoryLoading || categorySaving || Boolean(executionLoading);
+  const executionNotice = currentExecutionState.notice
+    || (executionLoading ? "WordPress Draft Readiness를 확인하고 있습니다." : "");
+  const notice = executionNotice || categoryNotice
+    || (categoryLoading ? "WordPress 카테고리를 불러오고 있습니다." : "")
     || (!wordpressConnections.length ? "Settings에서 WordPress Connection을 먼저 연결해 주세요." : "");
   const preparation = content?.publishingPreparation?.wordpress;
   const outcome = record ? wordpressDraftOutcomePresentation(record) : undefined;
@@ -343,7 +347,7 @@ export function WordPressDraftOverlay({ connections, content, data, onPersist, p
           <button className="mt-5 w-full rounded-xl bg-[#ff6b6b] px-5 py-3 text-sm font-semibold text-white disabled:opacity-50" disabled={!executable} onClick={() => void submit()} type="button">{executionLoading ? "WordPress 검증 중…" : "WordPress에 임시글 저장"}</button>
         </>}
 
-        {notice ? <p aria-live="polite" className="mt-4 rounded-xl bg-blue-50 p-4 text-sm leading-6 text-blue-900">{notice}</p> : null}
+        {notice ? <p aria-live="polite" className={`wordpress-draft-notice mt-4 rounded-xl bg-blue-50 p-4 text-sm leading-6 text-blue-900${noticeLoading ? " wordpress-draft-notice--loading" : ""}`}>{notice}</p> : null}
       </section>
     </div> : null}
   </>;

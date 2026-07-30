@@ -6,7 +6,7 @@ Status: Accepted
 
 Applies to: Tistory, WordPress, and every future platform using `adsense_approval`
 
-Last updated: 2026-07-27
+Last updated: 2026-07-30
 
 ---
 
@@ -67,6 +67,8 @@ WordPress는 사이트 전체를 새로 구성하므로 테마, 메뉴, 카테�
 ---
 
 ## 3. Article Approval Gate
+
+사람 중심의 유용성·독창성·신뢰성에 대한 canonical 원칙은 `15_ADSENSE_APPROVAL_MODE.md`의 `People-First Value and Trust Principle`을 따른다. 이 Blueprint는 해당 내용을 프로필마다 복사하지 않고 같은 policy/profile snapshot을 Planning, Content Opportunity, Generation 및 Quality Review가 사용하는 계약을 유지한다.
 
 모든 승인 준비 원고는 다음 조건을 만족해야 한다.
 
@@ -228,6 +230,8 @@ Tistory와 WordPress 모두 다음을 확인한다.
 - 성능과 깨진 Template
 - 광고 코드와 사용자 경험 충돌
 
+Google Search Console 연결, Google Analytics 연결, 검색엔진 차단 여부, 실제 색인 상태, sitemap 제출 상태와 AdSense 승인 가능성은 Content Quality 점수로 판정하지 않는다. 이 항목은 Site Approval Readiness 또는 사용자 확인 상태로 유지하며, 사이트가 검색엔진 색인을 차단하고 있어도 그 사실만으로 원고 품질을 실패 처리하지 않는다.
+
 사이트 Gate가 미완료이면 원고 품질이 100이어도 `AdSense 신청 준비 완료`로 표시하지 않는다.
 
 ---
@@ -246,6 +250,8 @@ Tistory와 WordPress 모두 다음을 확인한다.
 ```
 
 `standard 품질 승인`과 `승인 준비 정책 통과`를 같은 의미로 표시하지 않는다.
+
+Content Quality는 독자 가치, 독창적 기여, 사실 신뢰성, 완결성, 투명성, 가독성, 검색 의도 충족과 정책 안전성을 평가한다. Site Readiness는 Search Console, Analytics, crawler 접근, 색인, sitemap 및 사이트 운영 상태를 별도 평가한다. 어느 한쪽의 통과가 다른 쪽의 통과를 자동으로 만들지 않는다.
 
 예:
 

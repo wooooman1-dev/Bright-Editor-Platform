@@ -7,6 +7,7 @@ import {
   type ApprovalEvidenceSourceType,
 } from "../../../core/approval";
 import type { ContentDocument } from "../../../core/content";
+import { contentRevisionId } from "../../../core/quality";
 import type { UserContent, UserData } from "../../user-flow/user-data";
 import {
   snapshotApprovalPolicyForPlanning,
@@ -133,7 +134,7 @@ function preserveExistingSnapshot(
       if (priorPurpose === "standard") {
         return { ...sanitized, contentPurpose: "standard" } as UserContent;
       }
-      return {
+      const restored = {
         ...sanitized,
         contentPurpose: "adsense_approval",
         ...(prior.approvalPolicyId ? { approvalPolicyId: prior.approvalPolicyId } : {}),
@@ -141,7 +142,48 @@ function preserveExistingSnapshot(
         ...(prior.approvalProfileId ? { approvalProfileId: prior.approvalProfileId } : {}),
         ...(prior.approvalProfileVersion ? { approvalProfileVersion: prior.approvalProfileVersion } : {}),
       } as UserContent;
+      return preserveCurrentApprovalCheckSnapshots(previous, restored);
     }),
+  };
+}
+
+function preserveCurrentApprovalCheckSnapshots(
+  previous: UserContent,
+  candidate: UserContent,
+): UserContent {
+  if (!previous.document?.metadata || !candidate.document?.metadata) return candidate;
+  const revisionId = contentRevisionId(candidate.document);
+  if (contentRevisionId(previous.document) !== revisionId) return candidate;
+
+  const previousEvidence = previous.document.metadata.approvalEvidence;
+  const candidateEvidence = candidate.document.metadata.approvalEvidence;
+  if (candidateEvidence?.reviewedRevisionId === revisionId) return candidate;
+  if (previousEvidence?.reviewedRevisionId !== revisionId) return candidate;
+
+  const previousQuality = previous.quality as (NonNullable<UserContent["quality"]> & Readonly<{
+    approvalReadiness?: unknown;
+  }>) | undefined;
+  const candidateQuality = candidate.quality;
+  return {
+    ...candidate,
+    document: {
+      ...candidate.document,
+      metadata: {
+        ...candidate.document.metadata,
+        approvalEvidence: previousEvidence,
+        ...(previous.document.metadata.siteApprovalReadiness
+          ? { siteApprovalReadiness: previous.document.metadata.siteApprovalReadiness }
+          : {}),
+      },
+    },
+    ...(candidateQuality && previousQuality?.approvalReadiness
+      ? {
+          quality: {
+            ...candidateQuality,
+            approvalReadiness: previousQuality.approvalReadiness,
+          } as UserContent["quality"],
+        }
+      : {}),
   };
 }
 
@@ -153,6 +195,7 @@ function attachApprovalEvidenceCandidatePacks(data: UserData): UserData {
 
     const candidates = collectEvidenceCandidates(content.document);
     const existing = content.document.metadata.approvalEvidence;
+    if (existing?.reviewedRevisionId === contentRevisionId(content.document)) return content;
     const sourceUrls = candidates.map((candidate) => candidate.url).sort();
     const existingUrls = existing?.sources.map((source) => normalizeSourceUrl(source.url)).filter(Boolean).sort() ?? [];
     if (existing?.status === "verified" && JSON.stringify(sourceUrls) === JSON.stringify(existingUrls)) return content;

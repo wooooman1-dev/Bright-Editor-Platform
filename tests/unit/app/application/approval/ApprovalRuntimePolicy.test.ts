@@ -15,6 +15,10 @@ import {
   emptyUserData,
   startContentPlanning,
 } from "../../../../../app/user-flow/user-data";
+import {
+  approvalPolicySnapshotFromEditorialContext,
+  peopleFirstValueAndTrustPrinciple,
+} from "../../../../../core/approval";
 import type { ContentDocument } from "../../../../../core/content";
 
 function projectData() {
@@ -115,6 +119,42 @@ describe("ApprovalRuntimePolicy", () => {
     expect(restored.metadata?.approvalPolicy).toMatchObject({
       policyId: "adsense_approval_mode",
       profileId: "tistory_vivarain_art_v1",
+    });
+  });
+
+  it("uses the same WordPress policy snapshot for Generation and Quality Review context", () => {
+    const configured = updateProjectApprovalSettings(projectData(), "project-1", {
+      contentPurpose: "adsense_approval",
+      approvalProfileId: "wordpress_life_economy_v1",
+    }, "2026-07-27T01:00:00.000Z");
+    const data = snapshotApprovalPolicyForPlanning(
+      planningContent(configured),
+      "project-1",
+      "content-1",
+    );
+    const content = data.contents[0]!;
+    const planningContext = contentEditorialContext(data, content);
+    const generationContext = contentEditorialContext(data, content);
+    const qualityReviewInstruction = approvalAwareInstruction("Run the only Quality Review call.", data, content);
+    const canonical = preserveContentApprovalPolicy(document(), content);
+    const planningSnapshot = approvalPolicySnapshotFromEditorialContext(planningContext);
+    const generationSnapshot = approvalPolicySnapshotFromEditorialContext(generationContext);
+    const qualityReviewSnapshot = approvalPolicySnapshotFromEditorialContext(qualityReviewInstruction);
+
+    expect(generationContext).toContain("Approval profile: wordpress_life_economy_v1@1.0");
+    expect(planningContext).toContain(peopleFirstValueAndTrustPrinciple);
+    expect(qualityReviewInstruction).toContain(generationContext);
+    expect(qualityReviewInstruction).toContain("Reader Value:");
+    expect(qualityReviewInstruction).toContain("Original Contribution:");
+    expect(qualityReviewInstruction).not.toMatch(/Google\s*AI\s*봇|AI\s*봇에게\s*잘\s*보이/iu);
+    expect(planningSnapshot).toEqual(generationSnapshot);
+    expect(generationSnapshot).toEqual(qualityReviewSnapshot);
+    expect(canonical.metadata?.approvalPolicy).toEqual(generationSnapshot);
+    expect(generationSnapshot).toMatchObject({
+      policyId: "adsense_approval_mode",
+      policyVersion: "1.0",
+      profileId: "wordpress_life_economy_v1",
+      profileVersion: "1.0",
     });
   });
 
