@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { ContentPlanningStrategy, createManualPlanningResult, filterPlanningPlatforms, parsePlanningResult, projectStrategyAIContext } from "../../../../app/application/ContentPlanningStrategy";
+import { ContentPlanningStrategy, createManualPlanningResult, filterPlanningPlatforms, normalizePlanningPrimaryKeyword, parsePlanningResult, projectStrategyAIContext } from "../../../../app/application/ContentPlanningStrategy";
 
 const result = { interpretedIntent: "혈당 관리 글", domain: "health", targetAudience: "50대", contentGoal: "실천 안내", recommendedPrimaryKeyword: "50대 혈당 관리", keywordCandidates: ["50대 혈당 관리", "식후 걷기"], searchIntent: "informational", recommendedContentType: "guide", recommendedPlatforms: ["tistory"], suggestedTitleAngles: ["50대 혈당 관리 가이드"], relatedKeywords: ["식후 혈당"], contentCluster: ["운동", "식단"], recommendationReason: "요청과 독자에 적합", confidence: 0.86, estimateDisclosure: "AI estimate" };
 
@@ -52,10 +52,69 @@ describe("natural-language content planning", () => {
     expect(instruction).toContain("preserve all of the keyword's core concepts");
     expect(instruction).toContain("not only a classification label");
     expect(instruction).toContain("missing/mentioned/sufficient");
+    expect(instruction).toContain("Project-owned labels that are identity, not default search keywords");
     expect(instruction).not.toContain("targetLengthRange");
     expect(plan.recommendedPrimaryKeyword).toBe("50대 혈당 관리");
     expect(plan.estimateDisclosure).toContain("not measured");
   });
+
+  it("removes unrequested project branding and preserves the concrete search task", () => {
+    const plan = parsePlanningResult(JSON.stringify({
+      ...result,
+      interpretedIntent: "통장 쪼개기 방법 안내",
+      domain: "생활경제",
+      targetAudience: "통장 구조를 단순화하려는 직장인",
+      contentGoal: "생활패턴에 맞는 계좌 역할과 선택 기준 안내",
+      suggestedTitleAngles: ["밝은재테크 통장 쪼개기 방법"],
+      opportunityCandidates: [{
+        selectedTopic: "밝은재테크 통장 쪼개기 방법",
+        primaryKeyword: "밝은재테크 통장 쪼개기",
+        secondaryKeywords: ["목적별 통장", "생활비 통장"],
+        searchIntent: "자신의 소비 구조에 맞는 통장 쪼개기 방법과 계좌 역할을 결정",
+        audience: "통장 구조를 단순화하려는 직장인",
+        contentType: "guide",
+        contentAngle: "계좌 수보다 생활패턴별 역할과 선택 기준",
+        readerProblem: "필요한 계좌 수와 역할을 정하지 못함",
+        expectedCoverage: ["계좌 역할", "선택 기준", "자동이체 순서"],
+        selectionRationale: "콘텐츠 공백 추론",
+        opportunityEvidence: [{ source: "inferred", summary: "현재 Project 안에서 중복이 적음" }],
+        confidence: 0.7,
+        cautions: ["외부 검색량 미검증"],
+      }],
+    }), {
+      projectId: "project-1",
+      selectionMode: "automatic",
+      sourceRequest: "오늘의 생활경제 글을 골라줘",
+      projectContext: JSON.stringify({
+        projectStrategy: {
+          projectIdentity: { projectName: "밝은재테크", brandName: "밝은재테크" },
+        },
+      }),
+    });
+
+    expect(plan.recommendedPrimaryKeyword).toBe("통장 쪼개기 방법");
+    expect(plan.suggestedTitleAngles[0]).toBe("통장 쪼개기 방법");
+    expect(plan.opportunityCandidates?.[0]).toMatchObject({
+      selectedTopic: "통장 쪼개기 방법",
+      primaryKeyword: "통장 쪼개기 방법",
+    });
+  });
+
+  it("keeps explicitly requested or third-party brand terms", () => {
+    expect(normalizePlanningPrimaryKeyword(
+      "밝은재테크 통장 쪼개기",
+      "밝은재테크 통장 쪼개기 방법",
+      "밝은재테크 통장 쪼개기 글을 작성해줘",
+      ["밝은재테크"],
+    )).toBe("밝은재테크 통장 쪼개기 방법");
+    expect(normalizePlanningPrimaryKeyword(
+      "카카오뱅크 통장 쪼개기",
+      "카카오뱅크 통장 쪼개기 방법",
+      "오늘의 생활경제 글을 골라줘",
+      ["밝은재테크"],
+    )).toBe("카카오뱅크 통장 쪼개기 방법");
+  });
+
   it("supports a manual fallback without fabricated metrics", () => {
     const plan = createManualPlanningResult("테슬라 실적을 분석하는 블로그 글");
     expect(plan.confidence).toBe(0);
