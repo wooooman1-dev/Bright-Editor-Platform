@@ -19,8 +19,19 @@ export function contentEditorialContext(
     item.id === content.projectId
     && (!data.workspace || item.workspaceId === data.workspace.id));
   if (!project) throw new Error("Content approval context requires its owning Project.");
+  const brandName = project.brandId
+    ? data.brands.find((brand) =>
+        brand.id === project.brandId
+        && brand.workspaceId === project.workspaceId)?.name
+    : undefined;
   return contentBoundEditorialContext(
-    projectStrategyAIContext(resolveProjectStrategy(project)),
+    {
+      ...projectStrategyAIContext(resolveProjectStrategy(project)),
+      projectIdentity: Object.freeze({
+        projectName: project.name,
+        ...(brandName ? { brandName } : {}),
+      }),
+    },
     content,
   );
 }
