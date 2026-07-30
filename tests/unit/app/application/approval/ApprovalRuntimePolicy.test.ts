@@ -82,8 +82,13 @@ describe("ApprovalRuntimePolicy", () => {
     }, "2026-07-27T02:00:00.000Z");
 
     const context = contentEditorialContext(projectChanged, projectChanged.contents[0]!);
+    const parsed = JSON.parse(context) as { projectStrategy?: { projectIdentity?: { projectName?: string; brandName?: string } } };
 
     expect(context).toContain("Approval profile: tistory_vivarain_art_v1@1.0");
+    expect(parsed.projectStrategy?.projectIdentity).toEqual({
+      projectName: "비바레인 미술 감상 가이드",
+      brandName: "비바레인",
+    });
     expect(approvalAwareInstruction("Write.", projectChanged, projectChanged.contents[0]!))
       .toContain("Canonical server editorial context");
   });
