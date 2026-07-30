@@ -54,7 +54,7 @@ describe("natural-language content planning", () => {
     expect(instruction).toContain("missing/mentioned/sufficient");
     expect(instruction).toContain("Project-owned labels that are identity, not default search keywords");
     expect(instruction).not.toContain("targetLengthRange");
-    expect(plan.recommendedPrimaryKeyword).toBe("50대 혈당 관리");
+    expect(plan.recommendedPrimaryKeyword).toBe("50대 혈당 관리 가이드");
     expect(plan.estimateDisclosure).toContain("not measured");
   });
 
