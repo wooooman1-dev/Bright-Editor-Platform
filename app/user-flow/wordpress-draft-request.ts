@@ -39,7 +39,7 @@ export async function requestWordPressDraftCreation(
     error?: string;
   };
   if (!response.ok && !payload.result?.record) {
-    throw new Error(payload.error ?? payload.result?.error ?? "WordPress 임시글 저장에 실패했습니다.");
+    throw new Error(payload.error ?? payload.result?.error ?? "워드프레스 임시글 저장에 실패했습니다.");
   }
   return payload.result;
 }
