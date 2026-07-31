@@ -38,10 +38,29 @@ describe("EditorialMarkupIntegrity", () => {
     });
   });
 
+  it("allows a complete supported HTML table to reach canonical table normalization", () => {
+    const table = "<table><caption>선택 기준</caption><tr><th>조건</th><th>해석</th></tr><tr><td>A &amp; B</td><td>&lt;주의&gt;</td></tr></table>";
+    expect(normalizeEditorialMarkupText(table)).toBe(table);
+
+    const normalized = new ContentNormalizer().normalize({
+      id: "content-html-table",
+      title: "HTML 표",
+      blocks: [{ id: "html-table", type: "paragraph", text: table }],
+    });
+    expect(normalized.blocks).toEqual([{
+      id: "html-table",
+      type: "table",
+      caption: "선택 기준",
+      headers: ["조건", "해석"],
+      rows: [["A & B", "<주의>"]],
+    }]);
+  });
+
   it("rejects malformed or unsupported reader-visible markup instead of guessing", () => {
     expect(() => normalizeEditorialMarkupText("[금융위원회](https://fsc.go.kr/example")).toThrow(EditorialMarkupIntegrityError);
     expect(() => normalizeEditorialMarkupText("![설명](https://example.com/image.png)")).toThrow(EditorialMarkupIntegrityError);
     expect(() => normalizeEditorialMarkupText("<a href=\"https://example.com\">링크</a>")).toThrow(EditorialMarkupIntegrityError);
+    expect(() => normalizeEditorialMarkupText("<table><tr><td>닫히지 않은 표</td></tr>")).toThrow(EditorialMarkupIntegrityError);
     expect(() => normalizeEditorialMarkupText("```html\n<p>본문</p>\n```")).toThrow(EditorialMarkupIntegrityError);
   });
 
