@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
+import { resolveApprovalPolicySnapshot } from "../../../../core/approval";
 import { restoreProtectedEditorialMetadata, type ContentDocument } from "../../../../core/content";
+
+const approvalPolicy = resolveApprovalPolicySnapshot(
+  "adsense_approval",
+  "wordpress_life_economy_v1",
+)!;
 
 const current: ContentDocument = {
   id: "content-1",
@@ -18,14 +24,7 @@ const current: ContentDocument = {
     version: 1,
     videoCount: 0,
     wordCount: 10,
-    approvalPolicy: {
-      policyId: "adsense_approval_mode",
-      policyVersion: "1.0",
-      contentPurpose: "adsense_approval",
-      profileId: "wordpress_life_economy_v1",
-      profileVersion: "1.0",
-      generatedAt: "2026-07-31T00:00:00.000Z",
-    },
+    approvalPolicy,
     approvalEvidence: {
       version: "1.0",
       status: "verified",
