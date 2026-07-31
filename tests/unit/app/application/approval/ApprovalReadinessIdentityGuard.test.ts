@@ -68,8 +68,8 @@ const data: UserData = {
 
 describe("ApprovalReadinessApplicationService identity guard", () => {
   it("rejects contaminated legacy Planning before any external fetch", async () => {
-    const fetcher = vi.fn<typeof fetch>();
-    const service = new ApprovalReadinessApplicationService(fetcher);
+    const fetcher = vi.fn();
+    const service = new ApprovalReadinessApplicationService(fetcher as typeof fetch);
 
     await expect(service.execute({
       data,
