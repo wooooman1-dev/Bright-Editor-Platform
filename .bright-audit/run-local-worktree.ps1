@@ -7,6 +7,7 @@ if (-not (Test-Path (Join-Path $sourceRoot ".git"))) {
 }
 
 $remoteBranch = "fix/wordpress-full-audit"
+$expectedBundleHash = "01b319612e226329b2c0c19fa278f5984b6fbdf85aadcab1f66be99be35241ac"
 $parent = Split-Path $sourceRoot -Parent
 $stamp = [DateTimeOffset]::Now.ToUnixTimeSeconds()
 $localBranch = "fix/wordpress-full-audit-local-$stamp"
@@ -23,37 +24,72 @@ if ($LASTEXITCODE -ne 0) { throw "Could not create the isolated worktree." }
 
 Push-Location $worktree
 try {
-    Write-Host "[3/9] Assembling the correction bundle stored in Git."
-    $base64Builder = [System.Text.StringBuilder]::new()
-    foreach ($index in 0..6) {
-        $part = ".bright-audit/parts/part-{0:D2}.b64" -f $index
-        $value = git show "HEAD:$part"
-        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace(($value -join ""))) {
-            throw "Could not read correction bundle part: $part"
-        }
-        [void]$base64Builder.Append(($value -join ""))
+    Write-Host "[3/9] Reading and verifying the correction bundle stored in Git."
+    $bundlePath = ".bright-audit/bundle.mjs.gz.b64"
+    $encoded = (git show "HEAD:$bundlePath") -join ""
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($encoded)) {
+        throw "Could not read the correction bundle archive."
     }
 
-    $base64 = $base64Builder.ToString() -replace "\s", ""
-    $scriptText = [System.Text.Encoding]::UTF8.GetString(
-        [Convert]::FromBase64String($base64)
+    try {
+        $compressedBytes = [Convert]::FromBase64String(($encoded -replace "\s", ""))
+    }
+    catch {
+        throw "The correction bundle archive is not valid Base64."
+    }
+
+    $compressedStream = [IO.MemoryStream]::new($compressedBytes)
+    $gzipStream = [IO.Compression.GZipStream]::new(
+        $compressedStream,
+        [IO.Compression.CompressionMode]::Decompress
     )
-    $scriptText = $scriptText.Replace(
-        'const EXPECTED_BRANCH = "fix/wordpress-full-audit";',
-        "const EXPECTED_BRANCH = `"$localBranch`";"
-    )
-    [System.IO.File]::WriteAllText(
-        $tempScript,
-        $scriptText,
-        [System.Text.UTF8Encoding]::new($false)
-    )
+    $scriptStream = [IO.MemoryStream]::new()
+    try {
+        $gzipStream.CopyTo($scriptStream)
+    }
+    finally {
+        $gzipStream.Dispose()
+        $compressedStream.Dispose()
+    }
+    $scriptBytes = $scriptStream.ToArray()
+    $scriptStream.Dispose()
+
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try {
+        $actualBundleHash = ([BitConverter]::ToString(
+            $sha256.ComputeHash($scriptBytes)
+        )).Replace("-", "").ToLowerInvariant()
+    }
+    finally {
+        $sha256.Dispose()
+    }
+
+    if ($actualBundleHash -ne $expectedBundleHash) {
+        throw "Correction bundle SHA-256 mismatch. Expected $expectedBundleHash but received $actualBundleHash."
+    }
+
+    [IO.File]::WriteAllBytes($tempScript, $scriptBytes)
 
     node --check $tempScript
     if ($LASTEXITCODE -ne 0) { throw "Correction bundle syntax validation failed." }
 
     Write-Host "[4/9] Applying the root-cause correction bundles."
-    node $tempScript
-    if ($LASTEXITCODE -ne 0) { throw "Correction bundle application failed." }
+    $previousExpectedBranch = $env:BRIGHT_AUDIT_EXPECTED_BRANCH
+    $bundleExitCode = 0
+    try {
+        $env:BRIGHT_AUDIT_EXPECTED_BRANCH = $localBranch
+        node $tempScript $worktree --apply
+        $bundleExitCode = $LASTEXITCODE
+    }
+    finally {
+        if ($null -eq $previousExpectedBranch) {
+            Remove-Item Env:BRIGHT_AUDIT_EXPECTED_BRANCH -ErrorAction SilentlyContinue
+        }
+        else {
+            $env:BRIGHT_AUDIT_EXPECTED_BRANCH = $previousExpectedBranch
+        }
+    }
+    if ($bundleExitCode -ne 0) { throw "Correction bundle application failed." }
 
     Write-Host "[5/9] Verifying that next-env.d.ts is unchanged."
     git diff --exit-code -- next-env.d.ts
