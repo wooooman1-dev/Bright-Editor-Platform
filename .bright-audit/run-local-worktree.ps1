@@ -1,6 +1,18 @@
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+function Get-Sha256Hex([byte[]]$Bytes) {
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try {
+        return ([BitConverter]::ToString(
+            $sha256.ComputeHash($Bytes)
+        )).Replace("-", "").ToLowerInvariant()
+    }
+    finally {
+        $sha256.Dispose()
+    }
+}
+
 $sourceRoot = (Get-Location).Path
 if (-not (Test-Path (Join-Path $sourceRoot ".git"))) {
     throw "Run this from the repository root: F:\Project\bright-editor-platform"
@@ -9,7 +21,11 @@ if (-not (Test-Path (Join-Path $sourceRoot ".git"))) {
 $remoteBranch = "fix/wordpress-full-audit"
 $remoteTrackingRef = "refs/remotes/origin/$remoteBranch"
 $remoteHeadRef = "refs/heads/$remoteBranch"
-$expectedBundleHash = "01b319612e226329b2c0c19fa278f5984b6fbdf85aadcab1f66be99be35241ac"
+$expectedPartLengths = @(6000, 6000, 6000, 644)
+$expectedBase64Length = 18644
+$expectedCompressedHash = "b6296f225de9276905a6e5aefaac6e939234812105553ca60c7c81475d25fed6"
+$expectedScriptLength = 56947
+$expectedScriptHash = "0c31ef2ab82adcdb84d7dc4fda5270faac82b6bb7124c1ce61afdbf5e63ceed0"
 $parent = Split-Path $sourceRoot -Parent
 $stamp = [DateTimeOffset]::Now.ToUnixTimeSeconds()
 $localBranch = "fix/wordpress-full-audit-local-$stamp"
@@ -32,18 +48,39 @@ if ($LASTEXITCODE -ne 0) { throw "Could not create the isolated worktree." }
 
 Push-Location $worktree
 try {
-    Write-Host "[3/9] Reading and verifying the correction bundle stored in Git."
-    $bundlePath = ".bright-audit/bundle.mjs.gz.b64"
-    $encoded = (git show "HEAD:$bundlePath") -join ""
-    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($encoded)) {
-        throw "Could not read the correction bundle archive."
+    Write-Host "[3/9] Reading and verifying the four-part correction archive."
+    $base64Builder = [Text.StringBuilder]::new()
+    for ($index = 0; $index -lt $expectedPartLengths.Count; $index += 1) {
+        $partPath = ".bright-audit/archive-v2/part-{0:D2}.b64" -f $index
+        $rawPart = (git show "HEAD:$partPath") -join ""
+        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($rawPart)) {
+            throw "Could not read correction archive part: $partPath"
+        }
+        $part = $rawPart -replace "\s", ""
+        if ($part.Length -ne $expectedPartLengths[$index]) {
+            throw "Correction archive part length mismatch: $partPath"
+        }
+        if ($part -notmatch '^[A-Za-z0-9+/]*={0,2}$') {
+            throw "Correction archive part contains invalid Base64 characters: $partPath"
+        }
+        [void]$base64Builder.Append($part)
+    }
+
+    $encoded = $base64Builder.ToString()
+    if ($encoded.Length -ne $expectedBase64Length) {
+        throw "Correction archive Base64 length mismatch."
     }
 
     try {
-        $compressedBytes = [Convert]::FromBase64String(($encoded -replace "\s", ""))
+        $compressedBytes = [Convert]::FromBase64String($encoded)
     }
     catch {
-        throw "The correction bundle archive is not valid Base64."
+        throw "The reconstructed correction archive is not valid Base64."
+    }
+
+    $actualCompressedHash = Get-Sha256Hex $compressedBytes
+    if ($actualCompressedHash -ne $expectedCompressedHash) {
+        throw "Correction archive gzip SHA-256 mismatch."
     }
 
     $compressedStream = [IO.MemoryStream]::new($compressedBytes)
@@ -62,18 +99,12 @@ try {
     $scriptBytes = $scriptStream.ToArray()
     $scriptStream.Dispose()
 
-    $sha256 = [Security.Cryptography.SHA256]::Create()
-    try {
-        $actualBundleHash = ([BitConverter]::ToString(
-            $sha256.ComputeHash($scriptBytes)
-        )).Replace("-", "").ToLowerInvariant()
+    if ($scriptBytes.Length -ne $expectedScriptLength) {
+        throw "Correction script length mismatch."
     }
-    finally {
-        $sha256.Dispose()
-    }
-
-    if ($actualBundleHash -ne $expectedBundleHash) {
-        throw "Correction bundle SHA-256 mismatch. Expected $expectedBundleHash but received $actualBundleHash."
+    $actualScriptHash = Get-Sha256Hex $scriptBytes
+    if ($actualScriptHash -ne $expectedScriptHash) {
+        throw "Correction script SHA-256 mismatch."
     }
 
     [IO.File]::WriteAllBytes($tempScript, $scriptBytes)
