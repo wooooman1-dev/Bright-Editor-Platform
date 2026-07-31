@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { AIProvider, AIRequest } from "../../../../core/ai";
+import type { AIProvider, AIRequest, AIResponse } from "../../../../core/ai";
 import {
   AIWorkflow,
   withCanonicalEditorialContext,
@@ -30,11 +30,16 @@ const input: GenerationInput = {
 class RecordingProvider implements AIProvider {
   request?: AIRequest;
   calls = 0;
+  diagnostics?: AIResponse["diagnostics"];
 
   async generate(request: AIRequest) {
     this.calls += 1;
     this.request = request;
-    return { content: "generated", model: "test" };
+    return {
+      content: "generated",
+      model: "test",
+      ...(this.diagnostics ? { diagnostics: this.diagnostics } : {}),
+    };
   }
 }
 
@@ -113,6 +118,35 @@ describe("AIWorkflow canonical editorial context", () => {
       policyVersion: "1.0",
       profileId: "tistory_vivarain_art_v1",
       profileVersion: "1.0",
+    });
+  });
+
+  it("persists approval web-search results as unverified Evidence candidates", async () => {
+    const provider = new RecordingProvider();
+    provider.diagnostics = {
+      requestTimeoutMs: 5_000,
+      elapsedMs: 10,
+      webSources: [{
+        url: "https://www.nga.gov/artworks/1167-portrait-man",
+        title: "Portrait of a Man",
+        excerpt: "Official artwork record",
+      }],
+    };
+
+    const result = await new AIWorkflow(provider, strategy).generate(input);
+
+    expect(result.document.metadata?.approvalEvidence).toMatchObject({
+      version: "1.0",
+      status: "needs_review",
+      sources: [{
+        url: "https://www.nga.gov/artworks/1167-portrait-man",
+        canonicalUrl: "https://www.nga.gov/artworks/1167-portrait-man",
+        title: "Portrait of a Man",
+        publisher: "nga.gov",
+        sourceType: "official_archive",
+        verified: false,
+        selected: false,
+      }],
     });
   });
 
