@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { ApprovalEvidenceSource } from "../../core/approval";
+import type { ApprovalEvidenceSource, SiteApprovalReadinessSnapshot } from "../../core/approval";
 import type { ContentDocument } from "../../core/content";
 import { contentRevisionId, isStandardQualityApproved, type QualityReport } from "../../core/quality";
 import type { UserContent, UserData } from "./user-data";
@@ -13,6 +13,25 @@ export type ApprovalReadinessAutoRunDecision = Readonly<{
   shouldRun: boolean;
   sources: readonly ApprovalEvidenceSource[];
 }>;
+
+const legacyWordPressSiteReadinessKeys = new Set([
+  "theme_plugin_review",
+  "mobile_visual_review",
+  "performance_review",
+  "copyright_review",
+  "site_quality_consistency",
+  "search_console_review",
+  "adsense_external_approval",
+]);
+
+export function isCurrentSiteReadinessSnapshot(
+  snapshot: SiteApprovalReadinessSnapshot | undefined,
+): boolean {
+  if (!snapshot?.checkedAt) return false;
+  return snapshot.checks.every((check) =>
+    check.requirement !== "manual"
+    && !legacyWordPressSiteReadinessKeys.has(check.key));
+}
 
 export function approvalReadinessAutoRunDecision(
   content: UserContent | undefined,
@@ -25,7 +44,8 @@ export function approvalReadinessAutoRunDecision(
   const currentRevisionId = contentRevisionId(content.document);
   const evidence = content.document.metadata?.approvalEvidence;
   const siteReadiness = content.document.metadata?.siteApprovalReadiness;
-  const hasStoredResult = evidence?.reviewedRevisionId === currentRevisionId && Boolean(siteReadiness?.checkedAt);
+  const hasStoredResult = evidence?.reviewedRevisionId === currentRevisionId
+    && isCurrentSiteReadinessSnapshot(siteReadiness);
   const qualityIsCurrent = content.quality !== undefined
     && isStandardQualityApproved(content.quality)
     && content.quality.reviewedRevisionId === currentRevisionId;
@@ -177,7 +197,7 @@ export function ApprovalReadinessActions(props: Readonly<{
     </p>
     {message ? <p aria-live="polite" className={`max-w-[640px] text-right text-xs ${state === "error" ? "text-red-700" : state === "success" ? "text-emerald-700" : "text-[#77777f]"}`}>{message}</p> : null}
     {sources.length ? <details className="mt-2 w-full rounded-xl border border-black/6 bg-[#fafafa] p-4 text-left">
-      <summary className="cursor-pointer text-sm font-semibold">공식 출처 후보 상세 진단 {sources.length}개</summary>
+      <summary className="cursor-pointer text-sm font-semibold">출처 후보 검증 결과 {sources.length}개</summary>
       <div className="mt-4 grid gap-3">
         {sources.map((source, index) => <article className="rounded-xl border border-black/6 bg-white p-4" key={`${source.sourceId}-${index}`}>
           <div className="flex flex-wrap items-start justify-between gap-3">
