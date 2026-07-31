@@ -7,7 +7,7 @@ afterEach(() => {
 });
 
 describe("OpenAI approval web search", () => {
-  it("uses web search inside the existing approval generation call and captures cited sources", async () => {
+  it("uses web search inside the existing approval generation call and captures one canonical source", async () => {
     const fetchMock = vi.fn(async (...args: [RequestInfo | URL, RequestInit?]) => {
       void args;
       return {
@@ -22,7 +22,7 @@ describe("OpenAI approval web search", () => {
               type: "web_search_call",
               action: {
                 sources: [
-                  { type: "url", url: "https://www.gov.kr/portal/service/serviceInfo/test" },
+                  { type: "url", url: "https://www.gov.kr/portal/service/serviceInfo/test?utm_source=openai" },
                 ],
               },
             },
