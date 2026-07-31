@@ -149,11 +149,7 @@ async function markConnectionVerificationRequired(
 }
 
 function platformLabel(platform: Platform): string {
-  if (platform === "wordpress") return "워드프레스";
-  if (platform === "tistory") return "티스토리";
-  if (platform === "youtube") return "유튜브";
-  if (platform === "naver-cafe") return "네이버 카페";
-  return platform;
+  return platform === "wordpress" ? "워드프레스" : "티스토리";
 }
 
 function required(value: unknown): string {
