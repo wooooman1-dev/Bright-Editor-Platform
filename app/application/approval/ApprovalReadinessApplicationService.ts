@@ -20,6 +20,7 @@ import type { ContentDocument } from "../../../core/content";
 import { tistorySiteReadinessAdapter } from "../../../apps/tistory/approval/TistorySiteReadinessAudit";
 import { wordpressSiteReadinessAdapter } from "../../../apps/wordpress/approval/WordPressSiteReadinessAudit";
 import { resolveProjectStrategy, type UserContent, type UserData } from "../../user-flow/user-data";
+import { publishingCategoryNames } from "../publishing/InternalLinkCatalogPolicy";
 import type { ApprovalAwareContent } from "./ApprovalContentPolicy";
 import { resolveOfficialEvidenceSourceFallback } from "./OfficialEvidenceSourceResolver";
 
@@ -54,7 +55,7 @@ export class ApprovalReadinessApplicationService {
     connection?: PlatformConnection;
   }>): Promise<ApprovalReadinessExecutionResult> {
     const content = input.data.contents.find((item) => item.id === input.contentId);
-    if (!content?.document) throw new Error("승인 준비 검사를 실행할 canonical 원고가 없습니다.");
+    if (!content?.document) throw new Error("승인 준비 검사를 실행할 기준 원고가 없습니다.");
 
     const aware = content as ApprovalAwareContent;
     if (normalizeContentPurpose(aware.contentPurpose) !== "adsense_approval") {
@@ -63,7 +64,7 @@ export class ApprovalReadinessApplicationService {
     if (!aware.approvalProfileId) throw new Error("승인 준비 정책 프로필이 없습니다.");
 
     const project = input.data.projects.find((item) => item.id === content.projectId && item.workspaceId === content.workspaceId);
-    if (!project) throw new Error("승인 준비 검사 대상 Project를 찾을 수 없습니다.");
+    if (!project) throw new Error("승인 준비 검사 대상 프로젝트를 찾을 수 없습니다.");
 
     const checkedAt = this.now();
     const candidateUrls = content.document.metadata?.approvalEvidence?.sources
@@ -112,12 +113,15 @@ export class ApprovalReadinessApplicationService {
       },
     };
 
+    const categoryNames = publishingCategoryNames(content);
     const quality = new QualityEngine().review(nextDocument, {
       contentType: content.contentType,
-      platform: content.platform ?? "tistory",
+      platform: content.platform
+        ?? input.connection?.platform
+        ?? resolveProjectStrategy(project).defaultPlatform,
       primaryKeyword: content.primaryKeyword,
       searchIntent: content.searchIntent,
-      categoryName: content.publishingPreparation?.tistory?.platformCategoryName ?? undefined,
+      categoryName: categoryNames.length ? categoryNames.join(", ") : undefined,
       availableInternalLinkCandidates: nextDocument.metadata?.availableRelatedContentCandidates,
       internalLinkCatalogStatus: nextDocument.metadata?.internalLinkCatalogStatus,
       qualityTarget: content.qualityTarget ?? content.opportunity?.qualityTarget ?? nextDocument.metadata?.qualityTarget,
@@ -161,7 +165,7 @@ async function resolveSiteReadiness(input: Readonly<{
 }>): Promise<SiteApprovalReadinessSnapshot> {
   if (!input.connection) return unavailableSiteSnapshot(input.checkedAt, "발행 계정이 선택되지 않아 공개 사이트를 검사하지 못했습니다.");
   const adapter = input.adapters.get(input.connection.platform);
-  if (!adapter) return unavailableSiteSnapshot(input.checkedAt, `${input.connection.platform} 사이트 승인 준비 Adapter가 등록되지 않았습니다.`);
+  if (!adapter) return unavailableSiteSnapshot(input.checkedAt, `${input.connection.platform} 사이트 승인 준비 검사 모듈이 등록되지 않았습니다.`);
   return adapter.audit({
     connection: input.connection,
     checkedAt: input.checkedAt,
