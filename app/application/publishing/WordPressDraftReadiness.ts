@@ -1,10 +1,10 @@
 import type { PlatformConnection } from "../../../core/connections";
-import { findUnrequestedOwnedIdentityPrefixes } from "../../../core/content";
 import { contentRevisionId, PublishingGate } from "../../../core/quality";
 import { PublishingPermissionGate } from "../../../core/publishing";
 import type { WordPressCategoryListResult } from "../../../apps/wordpress";
 import { isPlatformEnabled, resolveWorkspaceSettings } from "../settings/WorkspaceSettingsService";
 import type { UserContent, UserData, UserProject } from "../../user-flow/user-data";
+import { contentOwnedIdentityContamination } from "./ContentOwnedIdentityPolicy";
 import {
   resolveWordPressCategorySelection,
   type WordPressCategorySelectionResolution,
@@ -79,7 +79,7 @@ export function calculateWordPressDraftReadiness(input: Readonly<{
   const draftVerify = permissionAllowed("draft.verify", data, project, content, connection);
   const mediaUpload = !hasWordPressLocalMedia(content.document)
     || permissionAllowed("media.upload", data, project, content, connection);
-  const identityContamination = planningIdentityContamination(data, project, content);
+  const identityContamination = contentOwnedIdentityContamination(data, project, content);
 
   const checks: readonly WordPressDraftReadinessCheck[] = Object.freeze([
     check("workspace_project_content_ownership", projectOwned && contentOwned,
@@ -228,36 +228,6 @@ function categoryMessage(selection: WordPressCategorySelectionResolution, incomp
   if (selection.reason === "connection_mismatch") return "카테고리 목록이 다른 워드프레스 연결 계정에서 조회되었습니다.";
   if (selection.reason === "missing") return "사용 가능한 워드프레스 카테고리를 하나 이상 선택하세요.";
   return "선택한 워드프레스 카테고리가 삭제되었거나 더 이상 사용할 수 없습니다.";
-}
-
-function planningIdentityContamination(
-  data: UserData,
-  project: UserProject,
-  content: UserContent,
-): readonly string[] {
-  const brandName = project.brandId
-    ? data.brands.find((brand) =>
-        brand.id === project.brandId
-        && brand.workspaceId === project.workspaceId)?.name
-    : undefined;
-  const opportunity = content.opportunity;
-  const sourceRequest = opportunity?.sourceRequest
-    ?? content.planningWorkflow?.request
-    ?? content.naturalLanguageRequest
-    ?? "";
-  const selectionMode = opportunity?.selectionMode
-    ?? content.planning?.selectionMode
-    ?? "automatic";
-  return findUnrequestedOwnedIdentityPrefixes({
-    ownedTerms: [project.name, brandName ?? ""],
-    sourceRequest,
-    selectionMode,
-    values: [
-      opportunity?.selectedTopic ?? content.title,
-      opportunity?.primaryKeyword ?? content.primaryKeyword ?? "",
-      ...(opportunity?.secondaryKeywords ?? content.relatedKeywords ?? []),
-    ],
-  });
 }
 
 function invalidCategorySelection(): WordPressCategorySelectionResolution {
