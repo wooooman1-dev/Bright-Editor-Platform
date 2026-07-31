@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { ApprovalReadinessApplicationService } from "../../../../../app/application/approval/ApprovalReadinessApplicationService";
+import type { ApprovalAwareContent } from "../../../../../app/application/approval/ApprovalContentPolicy";
 import type { ContentDocument } from "../../../../../core/content";
 import type { UserData } from "../../../../../app/user-flow/user-data";
 
@@ -27,6 +28,33 @@ const document: ContentDocument = {
   }],
 };
 
+const content: ApprovalAwareContent = {
+  id: "content-1",
+  workspaceId: "workspace-1",
+  projectId: "project-1",
+  title: document.title,
+  primaryKeyword: "밝은재테크 통장 쪼개기",
+  naturalLanguageRequest: "밝은재테크 프로젝트에서 아직 다루지 않은 생활경제 주제를 골라줘",
+  planningWorkflow: {
+    status: "generated",
+    request: "밝은재테크 프로젝트에서 아직 다루지 않은 생활경제 주제를 골라줘",
+    selectionMode: "automatic",
+    operationId: "operation-1",
+    revision: 1,
+    createdAt: "2026-07-31T00:00:00.000Z",
+    updatedAt: "2026-07-31T00:00:00.000Z",
+  },
+  body: "",
+  status: "ready",
+  updatedAt: "2026-07-31T00:00:00.000Z",
+  document,
+  contentPurpose: "adsense_approval",
+  approvalPolicyId: "adsense_approval_mode",
+  approvalPolicyVersion: "1.0",
+  approvalProfileId: "wordpress_life_economy_v1",
+  approvalProfileVersion: "1.0",
+};
+
 const data: UserData = {
   workspace: { id: "workspace-1", name: "Studio" },
   brands: [],
@@ -38,32 +66,7 @@ const data: UserData = {
     createdAt: "2026-07-31T00:00:00.000Z",
     updatedAt: "2026-07-31T00:00:00.000Z",
   }],
-  contents: [{
-    id: "content-1",
-    workspaceId: "workspace-1",
-    projectId: "project-1",
-    title: document.title,
-    primaryKeyword: "밝은재테크 통장 쪼개기",
-    naturalLanguageRequest: "밝은재테크 프로젝트에서 아직 다루지 않은 생활경제 주제를 골라줘",
-    planningWorkflow: {
-      status: "generated",
-      request: "밝은재테크 프로젝트에서 아직 다루지 않은 생활경제 주제를 골라줘",
-      selectionMode: "automatic",
-      operationId: "operation-1",
-      revision: 1,
-      createdAt: "2026-07-31T00:00:00.000Z",
-      updatedAt: "2026-07-31T00:00:00.000Z",
-    },
-    body: "",
-    status: "ready",
-    updatedAt: "2026-07-31T00:00:00.000Z",
-    document,
-    contentPurpose: "adsense_approval",
-    approvalPolicyId: "adsense_approval_mode",
-    approvalPolicyVersion: "1.0",
-    approvalProfileId: "wordpress_life_economy_v1",
-    approvalProfileVersion: "1.0",
-  }],
+  contents: [content],
 };
 
 describe("ApprovalReadinessApplicationService identity guard", () => {
