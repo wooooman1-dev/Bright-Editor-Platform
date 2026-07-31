@@ -1,5 +1,7 @@
 import {
   approvalPolicySnapshotFromEditorialContext,
+  canonicalizeApprovalEvidenceUrl,
+  type ApprovalEvidenceSource,
   type ApprovalPolicySnapshot,
 } from "../approval";
 import {
@@ -7,7 +9,7 @@ import {
   type ConfirmedContentOpportunity,
   type ContentDocument,
 } from "../content";
-import type { AIProvider, AIResponse } from "./AIProvider";
+import type { AIProvider, AIResponse, AIWebSource } from "./AIProvider";
 
 export type PlatformId = string & { readonly __platformId: unique symbol };
 export type ContentTypeId = string & { readonly __contentTypeId: unique symbol };
@@ -84,8 +86,13 @@ export class AIWorkflow {
         },
       });
       const parsedDocument = this.strategy.parse(response.content, input);
+      const policyDocument = withApprovalPolicyMetadata(parsedDocument, input.editorialContext);
       const result = Object.freeze({
-        document: withApprovalPolicyMetadata(parsedDocument, input.editorialContext),
+        document: withApprovalEvidenceMetadata(
+          policyDocument,
+          input.editorialContext,
+          response.diagnostics?.webSources ?? [],
+        ),
         rawResponse: response.content,
         ...(response.diagnostics ? { providerDiagnostics: response.diagnostics } : {}),
       });
@@ -123,6 +130,33 @@ export function withApprovalPolicyMetadata(
   });
 }
 
+export function withApprovalEvidenceMetadata(
+  document: ContentDocument,
+  editorialContext: string | undefined,
+  webSources: readonly AIWebSource[],
+  retrievedAt = new Date().toISOString(),
+): ContentDocument {
+  const snapshot = approvalPolicySnapshotFromEditorialContext(editorialContext);
+  if (!snapshot || !webSources.length) return document;
+  if (!document.metadata) {
+    throw new Error("Approval preparation generation requires canonical document metadata.");
+  }
+
+  const candidates = approvalEvidenceCandidates(webSources, snapshot, retrievedAt);
+  if (!candidates.length) return document;
+  return Object.freeze({
+    ...document,
+    metadata: Object.freeze({
+      ...document.metadata,
+      approvalEvidence: Object.freeze({
+        version: "1.0" as const,
+        status: "needs_review" as const,
+        sources: candidates,
+      }),
+    }),
+  });
+}
+
 export function assertOwnedIdentityKeywordPolicy(input: GenerationInput): void {
   const opportunity = input.contentOpportunity;
   if (!opportunity) return;
@@ -143,6 +177,42 @@ export function assertOwnedIdentityKeywordPolicy(input: GenerationInput): void {
   throw new Error(
     `저장된 콘텐츠 기획에 검색 주제가 아닌 프로젝트명 또는 브랜드명이 포함되어 AI 생성을 차단했습니다: ${contamination.join(", ")}. 새 Content에서 Planning을 다시 실행해 주세요.`,
   );
+}
+
+function approvalEvidenceCandidates(
+  webSources: readonly AIWebSource[],
+  snapshot: ApprovalPolicySnapshot,
+  retrievedAt: string,
+): readonly ApprovalEvidenceSource[] {
+  const candidates = new Map<string, ApprovalEvidenceSource>();
+  for (const source of webSources) {
+    const url = canonicalizeApprovalEvidenceUrl(source.url);
+    if (!url.startsWith("https://") || candidates.has(url)) continue;
+    const publisher = sourcePublisher(url);
+    candidates.set(url, Object.freeze({
+      sourceId: `approval-source-${candidates.size + 1}`,
+      url,
+      canonicalUrl: url,
+      title: source.title?.trim() || publisher,
+      publisher,
+      sourceType: snapshot.profileId === "tistory_vivarain_art_v1"
+        ? "official_archive"
+        : "official_institution",
+      retrievedAt,
+      verified: false,
+      facts: Object.freeze([]),
+      selected: false,
+    }));
+  }
+  return Object.freeze([...candidates.values()]);
+}
+
+function sourcePublisher(value: string): string {
+  try {
+    return new URL(value).hostname.replace(/^www\./i, "");
+  } catch {
+    return "공식 출처 후보";
+  }
 }
 
 function withApprovalEvidenceSearchInstruction(
