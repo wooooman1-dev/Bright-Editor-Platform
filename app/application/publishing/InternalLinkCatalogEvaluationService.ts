@@ -25,6 +25,9 @@ export class InternalLinkCatalogEvaluationService {
     selectedTarget: boolean;
     refresh?: boolean;
   }>): Promise<ContentDocument> {
+    if (input.document.metadata?.internalLinkCatalogStatus === "evaluated") {
+      return input.document;
+    }
     if (!publishingCategoryIdentities(input.content).length) {
       return withInternalLinkCatalogMetadata(input.document, 0, "category_missing");
     }
