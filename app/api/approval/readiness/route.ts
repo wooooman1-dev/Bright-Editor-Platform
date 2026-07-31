@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import type { UserData } from "../../../user-flow/user-data";
+import { normalizeApprovalEvidenceCandidates } from "../../../application/approval/ApprovalEvidenceCandidateNormalization";
 import { ApprovalReadinessApplicationService } from "../../../application/approval/ApprovalReadinessApplicationService";
 import { connectionRepository, targetRepository } from "../../../application/connections/connection-runtime";
 import { resolveCanonicalPublishingConnection } from "../../../application/publishing/ProjectPublishingTarget";
@@ -18,8 +19,9 @@ export async function POST(request: Request) {
     };
     const workspaceId = required(body.workspaceId, "작업공간이 필요합니다.");
     const contentId = required(body.contentId, "콘텐츠가 필요합니다.");
-    const data = await studioStore.get<UserData>(collection, stateId);
-    if (!data?.workspace || data.workspace.id !== workspaceId) throw new Error("작업공간을 찾을 수 없습니다.");
+    const stored = await studioStore.get<UserData>(collection, stateId);
+    if (!stored?.workspace || stored.workspace.id !== workspaceId) throw new Error("작업공간을 찾을 수 없습니다.");
+    const data = normalizeApprovalEvidenceCandidates(stored, contentId);
 
     const content = data.contents.find((item) => item.id === contentId && item.workspaceId === workspaceId);
     if (!content) throw new Error("승인 준비 검사 대상 콘텐츠를 찾을 수 없습니다.");
