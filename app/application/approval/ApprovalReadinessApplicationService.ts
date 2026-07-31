@@ -22,6 +22,7 @@ import { wordpressSiteReadinessAdapter } from "../../../apps/wordpress/approval/
 import { resolveProjectStrategy, type UserContent, type UserData } from "../../user-flow/user-data";
 import { InternalLinkCatalogEvaluationService } from "../publishing/InternalLinkCatalogEvaluationService";
 import { publishingCategoryNames } from "../publishing/InternalLinkCatalogPolicy";
+import { contentOwnedIdentityContamination } from "../publishing/ContentOwnedIdentityPolicy";
 import type { ApprovalAwareContent } from "./ApprovalContentPolicy";
 import { resolveOfficialEvidenceSourceFallback } from "./OfficialEvidenceSourceResolver";
 
@@ -69,6 +70,12 @@ export class ApprovalReadinessApplicationService {
     const project = input.data.projects.find((item) => item.id === content.projectId && item.workspaceId === content.workspaceId);
     if (!project) throw new Error("승인 준비 검사 대상 프로젝트를 찾을 수 없습니다.");
     if (!input.data.workspace) throw new Error("승인 준비 검사 대상 작업공간을 찾을 수 없습니다.");
+    const identityContamination = contentOwnedIdentityContamination(input.data, project, content);
+    if (identityContamination.length) {
+      throw new Error(
+        `기존 기획 또는 원고에 검색 주제가 아닌 프로젝트명·브랜드명이 포함되어 승인 준비 검사를 차단했습니다: ${identityContamination.join(", ")}. 새 콘텐츠에서 기획을 다시 실행해 주세요.`,
+      );
+    }
 
     const checkedAt = this.now();
     const documentWithInternalLinks = await this.internalLinks.evaluate({
