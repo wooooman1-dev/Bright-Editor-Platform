@@ -7,6 +7,10 @@ import {
   type ContentGenerationStrategy,
   type GenerationInput,
 } from "../../../../core/ai/AIWorkflow";
+import {
+  confirmContentOpportunity,
+  createContentOpportunityCandidate,
+} from "../../../../core/content";
 
 const approvalContext = [
   "Content purpose: adsense_approval",
@@ -56,6 +60,46 @@ const strategy: ContentGenerationStrategy = {
   }),
 };
 
+function opportunity(input: Readonly<{
+  selectionMode: "automatic" | "userSpecified";
+  sourceRequest: string;
+  selectedTopic: string;
+  primaryKeyword: string;
+}>) {
+  return confirmContentOpportunity(createContentOpportunityCandidate({
+    sourceRequest: input.sourceRequest,
+    selectionMode: input.selectionMode,
+    selectedTopic: input.selectedTopic,
+    primaryKeyword: input.primaryKeyword,
+    secondaryKeywords: ["생활비 통장"],
+    searchIntent: "통장 구조와 계좌 역할을 결정",
+    audience: "통장 구조를 단순화하려는 직장인",
+    contentType: "article",
+    contentAngle: "계좌 수보다 역할과 선택 기준",
+    readerProblem: "필요한 계좌 수와 역할을 정하지 못함",
+    expectedCoverage: ["계좌 역할", "자동이체 순서"],
+    selectionRationale: "콘텐츠 공백 추론",
+    opportunityEvidence: [{ source: "unknown", summary: "검색량 데이터 없음" }],
+    confidence: 0.7,
+    cautions: [],
+    projectId: "project-1",
+  }), {
+    workspaceId: "workspace-1",
+    projectId: "project-1",
+    contentId: "content-1",
+    confirmedAt: "2026-07-31T00:00:00.000Z",
+  });
+}
+
+const identityContext = JSON.stringify({
+  projectStrategy: {
+    projectIdentity: {
+      projectName: "밝은재테크",
+      brandName: "밝은재테크",
+    },
+  },
+});
+
 describe("AIWorkflow canonical editorial context", () => {
   it("appends server editorial context and snapshots it into the generated document", async () => {
     const provider = new RecordingProvider();
@@ -70,6 +114,42 @@ describe("AIWorkflow canonical editorial context", () => {
       profileId: "tistory_vivarain_art_v1",
       profileVersion: "1.0",
     });
+  });
+
+  it("blocks an automatic Planning snapshot polluted by the Project identity before the provider call", async () => {
+    const provider = new RecordingProvider();
+    const contaminated = opportunity({
+      selectionMode: "automatic",
+      sourceRequest: "밝은재테크 프로젝트에서 아직 다루지 않은 생활경제 주제를 선정해줘",
+      selectedTopic: "밝은재테크 통장 쪼개기 방법",
+      primaryKeyword: "밝은재테크 통장 쪼개기",
+    });
+
+    await expect(new AIWorkflow(provider, strategy).generate({
+      ...input,
+      editorialContext: identityContext,
+      contentOpportunity: contaminated,
+      keywords: [contaminated.primaryKeyword, ...contaminated.secondaryKeywords],
+    })).rejects.toThrow("프로젝트명 또는 브랜드명이 포함되어 AI 생성을 차단했습니다");
+    expect(provider.calls).toBe(0);
+  });
+
+  it("keeps an owned identity when a user explicitly selected it as the search subject", async () => {
+    const provider = new RecordingProvider();
+    const requested = opportunity({
+      selectionMode: "userSpecified",
+      sourceRequest: "밝은재테크 통장 쪼개기 글을 작성해줘",
+      selectedTopic: "밝은재테크 통장 쪼개기 방법",
+      primaryKeyword: "밝은재테크 통장 쪼개기",
+    });
+
+    await new AIWorkflow(provider, strategy).generate({
+      ...input,
+      editorialContext: identityContext,
+      contentOpportunity: requested,
+      keywords: [requested.primaryKeyword, ...requested.secondaryKeywords],
+    });
+    expect(provider.calls).toBe(1);
   });
 
   it("does not duplicate context already included by a strategy", () => {
