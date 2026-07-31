@@ -6,7 +6,7 @@ Status: Accepted
 
 Applies to: Tistory, WordPress, and every future platform using `adsense_approval`
 
-Last updated: 2026-07-30
+Last updated: 2026-07-31
 
 ---
 
@@ -230,7 +230,42 @@ Tistory와 WordPress 모두 다음을 확인한다.
 - 성능과 깨진 Template
 - 광고 코드와 사용자 경험 충돌
 
-Google Search Console 연결, Google Analytics 연결, 검색엔진 차단 여부, 실제 색인 상태, sitemap 제출 상태와 AdSense 승인 가능성은 Content Quality 점수로 판정하지 않는다. 이 항목은 Site Approval Readiness 또는 사용자 확인 상태로 유지하며, 사이트가 검색엔진 색인을 차단하고 있어도 그 사실만으로 원고 품질을 실패 처리하지 않는다.
+### Automatic Audit Boundary
+
+현재 자동 Site Approval Readiness는 공개 사이트에서 실제로 관찰할 수 있는 사실만 판정한다.
+
+자동 검사 범위:
+
+- 안전한 공개 사이트 주소
+- 공개 접근과 응답 상태
+- HTTPS
+- 페이지 제목과 의미 있는 본문
+- Project 주제와 사이트 정체성 신호
+- 모바일 viewport 설정
+- 메뉴와 공개 탐색 링크
+- Category 또는 archive 링크
+- 개인정보처리방침
+- 사이트 소개와 문의 경로
+- 공사 중·점검 중·placeholder 문구
+- robots.txt
+- homepage noindex와 crawler 전체 차단
+- XML sitemap 접근
+
+현재 연결 방식으로 확정할 수 없는 다음 항목은 자동 통과나 실패로 만들지 않는다.
+
+- WordPress 관리자 내부의 Theme·Plugin 상태와 충돌
+- Google Search Console 및 Google Analytics 계정 연결 상태
+- 실제 검색 색인 상태와 sitemap 제출 처리 상태
+- Lighthouse 또는 실제 사용자 성능 점수
+- 사이트 전체 이미지와 자료의 법적 저작권 확정
+- 공개 글 전체의 주제·품질 일관성에 대한 완전한 전수 판정
+- 외부 AdSense 승인 가능성
+
+이 항목은 글마다 사용자가 체크하는 수동 통과 항목으로 만들지 않는다. 현재 자동 준비 상태를 차단하지 않으며, 향후 관리자 진단·Search Console·성능 측정·사이트 전수 검사 연동이 구현되면 실제 관찰 결과로 대체한다.
+
+이미 완료된 사이트 운영 설정은 각 Content의 수동 체크박스로 반복 입력하지 않는다. Site Approval Readiness는 자동 검사 결과와 별도 운영 설정을 혼동하지 않는다.
+
+Google Search Console 연결, Google Analytics 연결, 검색엔진 차단 여부, 실제 색인 상태, sitemap 제출 상태와 AdSense 승인 가능성은 Content Quality 점수로 판정하지 않는다. 자동 연동이 없는 상태에서는 공개 사이트 검사 결과에 포함하지 않으며, 연결이 구현되면 Site Approval Readiness의 별도 관찰 상태로 관리한다. 사이트가 검색엔진 색인을 차단하고 있어도 그 사실만으로 원고 품질을 실패 처리하지 않는다.
 
 사이트 Gate가 미완료이면 원고 품질이 100이어도 `AdSense 신청 준비 완료`로 표시하지 않는다.
 
@@ -251,7 +286,7 @@ Google Search Console 연결, Google Analytics 연결, 검색엔진 차단 여�
 
 `standard 품질 승인`과 `승인 준비 정책 통과`를 같은 의미로 표시하지 않는다.
 
-Content Quality는 독자 가치, 독창적 기여, 사실 신뢰성, 완결성, 투명성, 가독성, 검색 의도 충족과 정책 안전성을 평가한다. Site Readiness는 Search Console, Analytics, crawler 접근, 색인, sitemap 및 사이트 운영 상태를 별도 평가한다. 어느 한쪽의 통과가 다른 쪽의 통과를 자동으로 만들지 않는다.
+Content Quality는 독자 가치, 독창적 기여, 사실 신뢰성, 완결성, 투명성, 가독성, 검색 의도 충족과 정책 안전성을 평가한다. Site Readiness는 현재 연결된 Adapter가 실제로 관찰할 수 있는 crawler 접근, 공개 탐색, 신뢰 페이지, sitemap 및 사이트 운영 상태를 별도 평가한다. 어느 한쪽의 통과가 다른 쪽의 통과를 자동으로 만들지 않는다.
 
 예:
 
