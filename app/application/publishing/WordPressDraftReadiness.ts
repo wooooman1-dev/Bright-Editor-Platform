@@ -1,4 +1,5 @@
 import type { PlatformConnection } from "../../../core/connections";
+import { findUnrequestedOwnedIdentityPrefixes } from "../../../core/content";
 import { contentRevisionId, PublishingGate } from "../../../core/quality";
 import { PublishingPermissionGate } from "../../../core/publishing";
 import type { WordPressCategoryListResult } from "../../../apps/wordpress";
@@ -78,24 +79,66 @@ export function calculateWordPressDraftReadiness(input: Readonly<{
   const draftVerify = permissionAllowed("draft.verify", data, project, content, connection);
   const mediaUpload = !hasWordPressLocalMedia(content.document)
     || permissionAllowed("media.upload", data, project, content, connection);
+  const identityContamination = planningIdentityContamination(data, project, content);
 
   const checks: readonly WordPressDraftReadinessCheck[] = Object.freeze([
-    check("workspace_project_content_ownership", projectOwned && contentOwned, "작업공간, 프로젝트와 콘텐츠의 소유 관계가 일치해야 합니다."),
-    check("wordpress_enabled", enabled, "작업공간 설정에서 워드프레스를 활성화해야 합니다."),
-    check("connection", connectionOwned && connected && verified, "비밀번호가 안전하게 저장된 연결·검증 완료 워드프레스 계정이 필요합니다."),
-    check("selected_target", selectedTarget, "이 워드프레스 계정을 발행 대상으로 선택해야 합니다."),
-    check("category_catalog", categoriesReady, categoryMessage(categorySelection, input.categoryResult.hasMore)),
-    check("quality_revision", qualityReady, "현재 문서 버전이 기본 품질 승인을 통과해야 합니다."),
-    check("review_first", policy.reviewFirst, "검토 후 저장 정책이 활성화되어 있어야 합니다."),
-    check("draft_only", policy.draftOnly, "임시글만 저장 정책이 활성화되어 있어야 합니다."),
-    check("public_publish_off", !policy.publicPublish, "공개 발행은 비활성화되어 있어야 합니다."),
-    check("category_read_permission", categoryRead, "연결 계정에 카테고리 조회 권한이 필요합니다."),
-    check("category_select_permission", categorySelect, "연결 계정에 카테고리 선택 권한이 필요합니다."),
-    check("draft_create_permission", draftCreate, "연결 계정에 임시글 생성 권한이 필요합니다."),
-    check("draft_verify_permission", draftVerify, "연결 계정에 임시글 검증 권한이 필요합니다."),
-    check("local_media", mediaFilesReady, "모든 로컬 이미지는 소유권, 파일 존재, 형식과 크기 검증을 통과해야 합니다."),
-    check("media_upload_permission", mediaUpload, "로컬 이미지가 있으면 이미지 업로드 권한을 명시적으로 허용해야 합니다."),
-    check("final_confirmation", input.finalConfirmation, "사용자의 최종 확인이 필요합니다."),
+    check("workspace_project_content_ownership", projectOwned && contentOwned,
+      "작업공간, 프로젝트와 콘텐츠의 소유 관계를 확인했습니다.",
+      "작업공간, 프로젝트와 콘텐츠의 소유 관계가 일치해야 합니다."),
+    check("wordpress_enabled", enabled,
+      "작업공간에서 워드프레스가 활성화되어 있습니다.",
+      "작업공간 설정에서 워드프레스를 활성화해야 합니다."),
+    check("connection", connectionOwned && connected && verified,
+      "안전하게 저장되고 검증된 워드프레스 연결 계정을 확인했습니다.",
+      "비밀번호가 안전하게 저장된 연결·검증 완료 워드프레스 계정이 필요합니다."),
+    check("selected_target", selectedTarget,
+      "이 워드프레스 계정이 발행 대상으로 선택되어 있습니다.",
+      "이 워드프레스 계정을 발행 대상으로 선택해야 합니다."),
+    check("category_catalog", categoriesReady,
+      categorySelection.valid
+        ? `워드프레스 카테고리 ${categorySelection.categoryIds.length}개를 검증했습니다.`
+        : "워드프레스 카테고리를 확인했습니다.",
+      categoryMessage(categorySelection, input.categoryResult.hasMore)),
+    check("planning_identity", identityContamination.length === 0,
+      "기획 주제와 검색 키워드에 프로젝트명 또는 브랜드명이 검색어로 섞이지 않았습니다.",
+      `기존 기획에 검색 주제가 아닌 프로젝트명 또는 브랜드명이 포함되어 있습니다: ${identityContamination.join(", ")}. 새 Content에서 Planning을 다시 실행해 주세요.`),
+    check("quality_revision", qualityReady,
+      "현재 문서 버전의 기본 품질 승인을 확인했습니다.",
+      "현재 문서 버전이 기본 품질 승인을 통과해야 합니다."),
+    check("review_first", policy.reviewFirst,
+      "검토 후 저장 정책이 활성화되어 있습니다.",
+      "검토 후 저장 정책이 활성화되어 있어야 합니다."),
+    check("draft_only", policy.draftOnly,
+      "임시글만 저장 정책이 활성화되어 있습니다.",
+      "임시글만 저장 정책이 활성화되어 있어야 합니다."),
+    check("public_publish_off", !policy.publicPublish,
+      "공개 발행이 비활성화되어 있습니다.",
+      "공개 발행은 비활성화되어 있어야 합니다."),
+    check("category_read_permission", categoryRead,
+      "카테고리 조회 권한을 확인했습니다.",
+      "연결 계정에 카테고리 조회 권한이 필요합니다."),
+    check("category_select_permission", categorySelect,
+      "카테고리 선택 권한을 확인했습니다.",
+      "연결 계정에 카테고리 선택 권한이 필요합니다."),
+    check("draft_create_permission", draftCreate,
+      "임시글 생성 권한을 확인했습니다.",
+      "연결 계정에 임시글 생성 권한이 필요합니다."),
+    check("draft_verify_permission", draftVerify,
+      "임시글 검증 권한을 확인했습니다.",
+      "연결 계정에 임시글 검증 권한이 필요합니다."),
+    check("local_media", mediaFilesReady,
+      localImageCount === 0
+        ? "검증할 로컬 이미지가 없습니다."
+        : "모든 로컬 이미지의 소유권, 파일 존재, 형식과 크기를 검증했습니다.",
+      "모든 로컬 이미지는 소유권, 파일 존재, 형식과 크기 검증을 통과해야 합니다."),
+    check("media_upload_permission", mediaUpload,
+      localImageCount === 0
+        ? "로컬 이미지가 없어 이미지 업로드 권한이 필요하지 않습니다."
+        : "이미지 업로드 권한을 확인했습니다.",
+      "로컬 이미지가 있으면 이미지 업로드 권한을 명시적으로 허용해야 합니다."),
+    check("final_confirmation", input.finalConfirmation,
+      "사용자의 최종 확인이 완료되었습니다.",
+      "사용자의 최종 확인이 필요합니다."),
   ]);
   const ready = checks.filter((item) => item.key !== "final_confirmation").every((item) => item.passed);
   return Object.freeze({
@@ -187,10 +230,45 @@ function categoryMessage(selection: WordPressCategorySelectionResolution, incomp
   return "선택한 워드프레스 카테고리가 삭제되었거나 더 이상 사용할 수 없습니다.";
 }
 
+function planningIdentityContamination(
+  data: UserData,
+  project: UserProject,
+  content: UserContent,
+): readonly string[] {
+  const brandName = project.brandId
+    ? data.brands.find((brand) =>
+        brand.id === project.brandId
+        && brand.workspaceId === project.workspaceId)?.name
+    : undefined;
+  const opportunity = content.opportunity;
+  const sourceRequest = opportunity?.sourceRequest
+    ?? content.planningWorkflow?.request
+    ?? content.naturalLanguageRequest
+    ?? "";
+  const selectionMode = opportunity?.selectionMode
+    ?? content.planning?.selectionMode
+    ?? "automatic";
+  return findUnrequestedOwnedIdentityPrefixes({
+    ownedTerms: [project.name, brandName ?? ""],
+    sourceRequest,
+    selectionMode,
+    values: [
+      opportunity?.selectedTopic ?? content.title,
+      opportunity?.primaryKeyword ?? content.primaryKeyword ?? "",
+      ...(opportunity?.secondaryKeywords ?? content.relatedKeywords ?? []),
+    ],
+  });
+}
+
 function invalidCategorySelection(): WordPressCategorySelectionResolution {
   return Object.freeze({ valid: false, reason: "invalid", invalidCategoryIds: Object.freeze([]) });
 }
 
-function check(key: string, passed: boolean, message: string): WordPressDraftReadinessCheck {
-  return Object.freeze({ key, passed, message });
+function check(
+  key: string,
+  passed: boolean,
+  passedMessage: string,
+  failedMessage: string,
+): WordPressDraftReadinessCheck {
+  return Object.freeze({ key, passed, message: passed ? passedMessage : failedMessage });
 }
