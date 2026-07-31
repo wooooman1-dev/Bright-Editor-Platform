@@ -2,8 +2,6 @@ import { NextResponse } from "next/server";
 
 import type { UserData } from "../../../user-flow/user-data";
 import { ApprovalReadinessApplicationService } from "../../../application/approval/ApprovalReadinessApplicationService";
-import { WordPressManualSiteReviewApplicationService } from "../../../application/approval/WordPressManualSiteReviewApplicationService";
-import { isWordPressManualSiteReviewKey } from "../../../../apps/wordpress/approval/WordPressManualSiteReview";
 import { connectionRepository } from "../../../application/connections/connection-runtime";
 import { resolveCanonicalPublishingConnection } from "../../../application/publishing/ProjectPublishingTarget";
 import { studioStore } from "../../../application/studio-store";
@@ -14,54 +12,24 @@ const stateId = "user-data";
 export async function POST(request: Request) {
   try {
     const body = await request.json() as {
-      action?: string;
       workspaceId?: string;
       contentId?: string;
-      key?: string;
-      completed?: boolean;
     };
-    const workspaceId = required(body.workspaceId, "Workspace가 필요합니다.");
-    const contentId = required(body.contentId, "Content가 필요합니다.");
+    const workspaceId = required(body.workspaceId, "작업공간이 필요합니다.");
+    const contentId = required(body.contentId, "콘텐츠가 필요합니다.");
     const data = await studioStore.get<UserData>(collection, stateId);
-    if (!data?.workspace || data.workspace.id !== workspaceId) throw new Error("Workspace를 찾을 수 없습니다.");
+    if (!data?.workspace || data.workspace.id !== workspaceId) throw new Error("작업공간을 찾을 수 없습니다.");
 
     const content = data.contents.find((item) => item.id === contentId && item.workspaceId === workspaceId);
-    if (!content) throw new Error("승인 준비 검사 대상 Content를 찾을 수 없습니다.");
+    if (!content) throw new Error("승인 준비 검사 대상 콘텐츠를 찾을 수 없습니다.");
 
     const connections = await connectionRepository.listByWorkspace(workspaceId);
     const connection = resolveCanonicalPublishingConnection(data, content, connections);
-
-    const manualService = new WordPressManualSiteReviewApplicationService();
-    let result;
-    if (body.action === "set_wordpress_manual_site_review") {
-      if (!connection || connection.platform !== "wordpress") {
-        throw new Error("WordPress 연결을 찾을 수 없습니다.");
-      }
-      if (!body.key || !isWordPressManualSiteReviewKey(body.key)) {
-        throw new Error("저장할 WordPress 수동 검토 항목이 올바르지 않습니다.");
-      }
-      result = manualService.execute({
-        data,
-        contentId,
-        connection,
-        key: body.key,
-        completed: body.completed === true,
-      });
-    } else {
-      const audited = await new ApprovalReadinessApplicationService().execute({
-        data,
-        contentId,
-        connection,
-      });
-      result = connection?.platform === "wordpress"
-        ? manualService.preserveAfterAudit({
-            previousData: data,
-            contentId,
-            connection,
-            result: audited,
-          })
-        : audited;
-    }
+    const result = await new ApprovalReadinessApplicationService().execute({
+      data,
+      contentId,
+      connection,
+    });
     await studioStore.set(collection, stateId, result.data);
     const saved = await studioStore.get<UserData>(collection, stateId);
 
