@@ -23,6 +23,7 @@ const markdownImagePattern = /!\[[^\]\n]*\]\([^)\n]*\)/iu;
 const markdownLinkPattern = /(?<!!)\[[^\]\n]+\]\([^)\n]+\)/u;
 const markdownLinkReplacementPattern = /(?<!!)\[([^\]\n]+)\]\([^)\n]+\)/gu;
 const malformedMarkdownLinkPattern = /!?\[[^\]\n]*\]\([^)\n]*(?:$|\n)/mu;
+const supportedHtmlTablePattern = /<table\b[^>]*>[\s\S]*?<\/table>/giu;
 const htmlTagPattern = /<\/?[a-z][^>]*>/iu;
 const codeFencePattern = /```/u;
 
@@ -126,7 +127,8 @@ function analyzeText(value: string, location: string): readonly EditorialMarkupI
   if (markdownImagePattern.test(value)) issues.push(Object.freeze({ code: "markdown_image", location }));
   if (markdownLinkPattern.test(value)) issues.push(Object.freeze({ code: "markdown_link", location }));
   if (malformedMarkdownLinkPattern.test(value)) issues.push(Object.freeze({ code: "malformed_markdown_link", location }));
-  if (htmlTagPattern.test(value)) issues.push(Object.freeze({ code: "html_tag", location }));
+  const unsupportedHtml = value.replace(supportedHtmlTablePattern, "");
+  if (htmlTagPattern.test(unsupportedHtml)) issues.push(Object.freeze({ code: "html_tag", location }));
   if (codeFencePattern.test(value)) issues.push(Object.freeze({ code: "code_fence", location }));
   return Object.freeze(issues);
 }
