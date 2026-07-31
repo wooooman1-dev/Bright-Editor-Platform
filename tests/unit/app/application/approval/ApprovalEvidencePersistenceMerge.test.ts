@@ -1,19 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import { applyApprovalPersistencePolicy } from "../../../../../app/application/approval/ApprovalAwarePersistenceStore";
+import type { ApprovalEvidenceSource } from "../../../../../core/approval";
 import type { UserData } from "../../../../../app/user-flow/user-data";
-
-function userData(paragraph: string, sources: UserData["contents"][number]["document"] extends infer _Document ? never : never): never {
-  void paragraph;
-  void sources;
-  throw new Error("not used");
-}
 
 function candidateData(
   paragraph: string,
-  sources: NonNullable<NonNullable<UserData["contents"][number]["document"]>["metadata"]>["approvalEvidence"] extends infer Pack
-    ? Pack extends { sources: infer Sources } ? Sources : never
-    : never,
+  sources: readonly ApprovalEvidenceSource[],
 ): UserData {
   return {
     workspace: { id: "workspace-1", name: "Studio" },
@@ -66,13 +59,13 @@ function candidateData(
   } as UserData;
 }
 
-const webCandidate = {
+const webCandidate: ApprovalEvidenceSource = {
   sourceId: "web-source-1",
   url: "https://www.fsc.go.kr/po010101/74600?curPage=169&utm_source=openai",
   canonicalUrl: "https://www.fsc.go.kr/po010101/74600?curPage=169&utm_source=openai",
   title: "금융위원회 공식 안내",
   publisher: "금융위원회",
-  sourceType: "official_institution" as const,
+  sourceType: "official_institution",
   retrievedAt: "2026-07-31T00:00:00.000Z",
   verified: false,
   selected: false,
