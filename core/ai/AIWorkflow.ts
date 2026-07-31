@@ -5,6 +5,7 @@ import {
   type ApprovalPolicySnapshot,
 } from "../approval";
 import {
+  findUnrequestedOwnedIdentityOccurrences,
   findUnrequestedOwnedIdentityPrefixes,
   type ConfirmedContentOpportunity,
   type ContentDocument,
@@ -87,12 +88,14 @@ export class AIWorkflow {
       });
       const parsedDocument = this.strategy.parse(response.content, input);
       const policyDocument = withApprovalPolicyMetadata(parsedDocument, input.editorialContext);
+      const generatedDocument = withApprovalEvidenceMetadata(
+        policyDocument,
+        input.editorialContext,
+        response.diagnostics?.webSources ?? [],
+      );
+      assertGeneratedDocumentOwnedIdentityPolicy(generatedDocument, input);
       const result = Object.freeze({
-        document: withApprovalEvidenceMetadata(
-          policyDocument,
-          input.editorialContext,
-          response.diagnostics?.webSources ?? [],
-        ),
+        document: generatedDocument,
         rawResponse: response.content,
         ...(response.diagnostics ? { providerDiagnostics: response.diagnostics } : {}),
       });
@@ -177,6 +180,46 @@ export function assertOwnedIdentityKeywordPolicy(input: GenerationInput): void {
   throw new Error(
     `저장된 콘텐츠 기획에 검색 주제가 아닌 프로젝트명 또는 브랜드명이 포함되어 AI 생성을 차단했습니다: ${contamination.join(", ")}. 새 Content에서 Planning을 다시 실행해 주세요.`,
   );
+}
+
+export function assertGeneratedDocumentOwnedIdentityPolicy(
+  document: ContentDocument,
+  input: GenerationInput,
+): void {
+  const opportunity = input.contentOpportunity;
+  if (!opportunity) return;
+  const ownedTerms = editorialOwnedIdentityTerms(input.editorialContext);
+  if (!ownedTerms.length) return;
+  const contamination = findUnrequestedOwnedIdentityOccurrences({
+    ownedTerms,
+    sourceRequest: opportunity.sourceRequest,
+    selectionMode: opportunity.selectionMode,
+    values: generatedEditorialValues(document),
+  });
+  if (!contamination.length) return;
+  throw new Error(
+    `AI 생성 결과의 제목·본문·메타데이터·이미지 설명 또는 태그에 요청하지 않은 프로젝트명 또는 브랜드명이 포함되어 결과 저장을 차단했습니다: ${contamination.join(", ")}.`,
+  );
+}
+
+function generatedEditorialValues(document: ContentDocument): readonly string[] {
+  const metadata = document.metadata;
+  return Object.freeze([
+    document.title,
+    metadata?.metaDescription ?? "",
+    metadata?.primarySearchIntent ?? "",
+    metadata?.secondaryIntent ?? "",
+    ...(metadata?.secondaryKeywords ?? []),
+    ...(metadata?.relatedTerms ?? []),
+    ...(metadata?.tags ?? []),
+    ...document.blocks.flatMap((block) => {
+      if (block.type === "heading" || block.type === "paragraph") return [block.text];
+      if (block.type === "table") return [block.caption ?? "", ...block.headers, ...block.rows.flat()];
+      if (block.type === "image") return [block.alt, block.prompt ?? "", block.caption ?? ""];
+      if (block.type === "button") return [block.label];
+      return [];
+    }),
+  ].filter(Boolean));
 }
 
 function approvalEvidenceCandidates(
