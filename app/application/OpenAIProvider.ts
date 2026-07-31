@@ -1,4 +1,5 @@
 import type { AIProvider, AIRequest, AIResponse, AIWebSource } from "../../core/ai";
+import { canonicalizeApprovalEvidenceUrl } from "../../core/approval";
 import {
   contentSectionTypes,
   determineContentPlanQualityTarget,
@@ -146,15 +147,14 @@ function extractWebSources(output: readonly OpenAIOutputItem[]): readonly AIWebS
 }
 
 function addWebSource(sources: Map<string, AIWebSource>, source: AIWebSource): void {
+  const key = canonicalizeApprovalEvidenceUrl(source.url);
   let url: URL;
   try {
-    url = new URL(source.url);
+    url = new URL(key);
   } catch {
     return;
   }
   if (url.protocol !== "https:") return;
-  url.hash = "";
-  const key = url.toString();
   const previous = sources.get(key);
   sources.set(key, Object.freeze({
     url: key,
