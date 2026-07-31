@@ -27,6 +27,7 @@ describe("Tistory publishing overlay visibility", () => {
     [["tistory", "wordpress"], "wordpress", { activePlatform: "wordpress", tistoryEnabled: false, wordpressEnabled: true }],
     [["wordpress"], "tistory", { activePlatform: "tistory", tistoryEnabled: false, wordpressEnabled: false }],
     [undefined, "tistory", { activePlatform: "tistory", tistoryEnabled: true, wordpressEnabled: false }],
+    [undefined, "wordpress", { activePlatform: "wordpress", tistoryEnabled: false, wordpressEnabled: true }],
     [[], "tistory", { activePlatform: "tistory", tistoryEnabled: false, wordpressEnabled: false }],
   ] as const)("maps Workspace %j and Project %s to one editor publishing UI", (enabledPlatforms, projectPlatform, expected) => {
     const { content, project } = editorFixture(projectPlatform);
@@ -72,7 +73,7 @@ describe("Tistory publishing overlay visibility", () => {
     const html = renderEditor(platforms, projectPlatform);
     expect(html.includes("티스토리 미리보기")).toBe(showsTistory);
     expect(html.includes("Tistory 임시저장")).toBe(showsTistory);
-    expect(html.includes("WordPress 임시글")).toBe(showsWordPress);
+    expect(html.includes("워드프레스 임시글")).toBe(showsWordPress);
     if (!showsTistory) expect(html).not.toContain("티스토리 하단 태그");
   });
 });
