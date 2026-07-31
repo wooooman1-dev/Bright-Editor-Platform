@@ -3,7 +3,7 @@ import {
   findUnrequestedOwnedIdentityPrefixes,
   type ContentDocument,
 } from "../../../core/content";
-import type { UserContent, UserData, UserProject } from "../../user-flow/user-data";
+import { resolveProjectStrategy, type UserContent, type UserData, type UserProject } from "../../user-flow/user-data";
 
 export function contentOwnedIdentityContamination(
   data: UserData,
@@ -23,7 +23,11 @@ export function contentOwnedIdentityContamination(
   const selectionMode = opportunity?.selectionMode
     ?? content.planning?.selectionMode
     ?? "automatic";
-  const ownedTerms = [project.name, brandName ?? ""];
+  const primaryTopic = resolveProjectStrategy(project).primaryTopic;
+  const projectIdentity = normalizedIdentity(project.name) === normalizedIdentity(primaryTopic)
+    ? ""
+    : project.name;
+  const ownedTerms = [projectIdentity, brandName ?? ""];
   const planningMatches = findUnrequestedOwnedIdentityPrefixes({
     ownedTerms,
     sourceRequest,
@@ -73,4 +77,8 @@ function documentEditorialValues(document: ContentDocument): readonly string[] {
       return [];
     }),
   ].filter(Boolean));
+}
+
+function normalizedIdentity(value: string): string {
+  return value.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase("ko-KR");
 }
