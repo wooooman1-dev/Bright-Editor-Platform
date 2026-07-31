@@ -65,7 +65,7 @@ export function ApprovalReadinessActions(props: Readonly<{
     runningRef.current = true;
     setState("running");
     setMessage(trigger === "automatic"
-      ? "현재 Revision의 공식 출처와 공개 사이트를 자동 검사하고 있습니다."
+      ? "현재 문서 버전의 공식 출처와 공개 사이트를 자동 검사하고 있습니다."
       : "공식 출처와 공개 사이트를 다시 검사하고 있습니다.");
     try {
       const response = await fetch("/api/approval/readiness", {
@@ -106,12 +106,12 @@ export function ApprovalReadinessActions(props: Readonly<{
         ? `공식 출처 ${result.evidence.verifiedSourceCount}개 검증 완료`
         : result.evidence?.status === "missing"
           ? "공식 출처 후보 없음"
-          : `공식 출처 검토 필요 ${result.evidence?.rejectedSourceCount ?? 0}개`;
+          : `공식 출처 확인 필요 ${result.evidence?.rejectedSourceCount ?? 0}개`;
       const siteLabel = result.siteReadiness?.status === "passed"
-        ? "사이트 필수 검사 통과"
+        ? "사이트 자동 검사 통과"
         : result.siteReadiness?.status === "blocked"
-          ? "사이트 차단 항목 있음"
-          : "사이트 설정·수동 확인 필요";
+          ? "사이트 자동 검사 차단 항목 있음"
+          : "사이트 자동 검사 항목 확인 필요";
       setState("success");
       setMessage(`${trigger === "automatic" ? "자동 검사 완료 · " : "재검사 완료 · "}${evidenceLabel} · ${siteLabel}`);
     } catch (error) {
@@ -128,7 +128,7 @@ export function ApprovalReadinessActions(props: Readonly<{
 
     void fetch("/api/studio", { cache: "no-store" })
       .then(async (response) => {
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        if (!response.ok) throw new Error(`응답 상태 ${response.status}`);
         return response.json() as Promise<{ data?: UserData }>;
       })
       .then((result) => {
@@ -138,7 +138,7 @@ export function ApprovalReadinessActions(props: Readonly<{
         setSources(decision.sources);
         setHasStoredResult(decision.hasStoredResult);
         if (decision.hasStoredResult) {
-          setMessage((current) => current || "저장된 현재 Revision의 승인 준비 검사 결과를 표시하고 있습니다.");
+          setMessage((current) => current || "저장된 현재 문서 버전의 승인 준비 검사 결과를 표시하고 있습니다.");
         }
 
         const inspectedKey = [
@@ -172,6 +172,9 @@ export function ApprovalReadinessActions(props: Readonly<{
     >
       {state === "running" ? "승인 준비 검사 중…" : hasStoredResult ? "승인 준비 다시 검사" : "승인 준비 검사 실행"}
     </button>
+    <p className="max-w-[640px] text-right text-xs leading-5 text-[#77777f]">
+      자동 검사는 공개 사이트의 승인 준비 상태를 진단하며 구글 애드센스 승인을 보장하지 않습니다.
+    </p>
     {message ? <p aria-live="polite" className={`max-w-[640px] text-right text-xs ${state === "error" ? "text-red-700" : state === "success" ? "text-emerald-700" : "text-[#77777f]"}`}>{message}</p> : null}
     {sources.length ? <details className="mt-2 w-full rounded-xl border border-black/6 bg-[#fafafa] p-4 text-left">
       <summary className="cursor-pointer text-sm font-semibold">공식 출처 후보 상세 진단 {sources.length}개</summary>
@@ -187,9 +190,9 @@ export function ApprovalReadinessActions(props: Readonly<{
           <a className="mt-3 block break-all text-xs text-blue-700 underline" href={source.url} rel="noreferrer" target="_blank">{source.url}</a>
           <dl className="mt-3 grid gap-1 text-xs text-[#66666f] sm:grid-cols-2">
             <div><dt className="inline font-semibold">공식 기관: </dt><dd className="inline">{source.official === true ? "확인" : source.official === false ? "미확인" : "판정 전"}</dd></div>
-            <div><dt className="inline font-semibold">HTTP: </dt><dd className="inline">{source.httpStatus ?? "미확인"}</dd></div>
-            <div><dt className="inline font-semibold">형식: </dt><dd className="inline break-all">{source.contentType || "미확인"}</dd></div>
-            <div><dt className="inline font-semibold">채택: </dt><dd className="inline">{source.selected ? "예" : "아니요"}</dd></div>
+            <div><dt className="inline font-semibold">응답 상태: </dt><dd className="inline">{source.httpStatus ?? "미확인"}</dd></div>
+            <div><dt className="inline font-semibold">자료 형식: </dt><dd className="inline break-all">{source.contentType || "미확인"}</dd></div>
+            <div><dt className="inline font-semibold">본문 채택: </dt><dd className="inline">{source.selected ? "예" : "아니요"}</dd></div>
           </dl>
           {source.matchedFacts?.length ? <div className="mt-3 rounded-lg bg-emerald-50 p-3 text-xs text-emerald-900"><strong>일치 사실</strong><ul className="mt-1 space-y-1">{source.matchedFacts.map((fact, factIndex) => <li key={`${source.sourceId}-fact-${factIndex}`}>• {fact.field}: {fact.value}</li>)}</ul></div> : null}
           {source.failureReason ? <p className="mt-3 rounded-lg bg-amber-50 p-3 text-xs text-amber-900">{source.failureReason}</p> : null}
