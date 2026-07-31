@@ -23,7 +23,6 @@ $remoteTrackingRef = "refs/remotes/origin/$remoteBranch"
 $remoteHeadRef = "refs/heads/$remoteBranch"
 $expectedPartLengths = @(4664, 4664, 4664, 4660)
 $expectedBase64Length = 18652
-$expectedCompressedHash = "0ba37f2345802775ce298e491c4a03a855e966c39ab3f2ef8e08ed1134016617"
 $expectedScriptLength = 56970
 $expectedScriptHash = "b9076141bfac3f86eb7e8d40fd7be9ba4f1e7ed810bef5a18fc79a91b708e330"
 $parent = Split-Path $sourceRoot -Parent
@@ -72,15 +71,12 @@ try {
     }
 
     try {
+        # Gzip headers can differ while the decompressed script is identical.
+        # Integrity is enforced below using the exact decompressed script SHA-256.
         $compressedBytes = [Convert]::FromBase64String($encoded)
     }
     catch {
         throw "The reconstructed correction archive is not valid Base64."
-    }
-
-    $actualCompressedHash = Get-Sha256Hex $compressedBytes
-    if ($actualCompressedHash -ne $expectedCompressedHash) {
-        throw "Correction archive gzip SHA-256 mismatch."
     }
 
     $compressedStream = [IO.MemoryStream]::new($compressedBytes)
