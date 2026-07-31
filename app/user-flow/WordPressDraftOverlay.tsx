@@ -366,7 +366,7 @@ export function WordPressDraftOverlay({ connections, content, data, onPersist, p
         <Info label="프로젝트" value={project.name} />
         <Info label="대상 계정" value={connection.displayName} />
         <Info label="제목" value={content.document?.title ?? content.title} />
-        <Info label="워드프레스 카테고리" value={readiness?.categorySelection.categoryNames.join(", ") || "선택 필요"} />
+        <Info label="워드프레스 카테고리" value={readiness?.categorySelection.valid === true ? readiness.categorySelection.categoryNames.join(", ") : "선택 필요"} />
         <Info label="문서 버전" value={revisionId || "확인 필요"} />
       </dl>
       <p className="mt-4 rounded-xl bg-[#fff0f0] p-3 text-sm">공개 발행은 하지 않습니다. 확인한 문서 버전만 워드프레스 임시글로 저장합니다.</p>
