@@ -11,6 +11,6 @@ describe("enabled platform publishing enforcement", () => {
   it("blocks Tistory publishing preparation when Tistory is disabled", async () => {
     const response = await POST(new Request("http://localhost/api/tistory", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ workspaceId: "workspace-1", projectId: "project-1", contentId: "content-1", connectionId: "account-1", finalConfirmation: true }) }));
     expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toMatchObject({ error: expect.stringContaining("disabled") });
+    await expect(response.json()).resolves.toMatchObject({ error: expect.stringContaining("티스토리가 비활성화") });
   });
 });
