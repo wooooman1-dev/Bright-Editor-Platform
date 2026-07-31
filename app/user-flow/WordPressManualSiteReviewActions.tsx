@@ -10,7 +10,7 @@ import type { UserData } from "./user-data";
  * WordPress site readiness is now evaluated by automatic public-site checks.
  * The previous checkbox-based manual review UI is intentionally disabled.
  */
-export function WordPressManualSiteReviewActions(_props: Readonly<{
+export function WordPressManualSiteReviewActions(props: Readonly<{
   workspaceId: string;
   contentId: string;
   disabled?: boolean;
@@ -21,5 +21,6 @@ export function WordPressManualSiteReviewActions(_props: Readonly<{
     quality: QualityReport;
   }>) => Promise<void> | void;
 }>): null {
+  void props;
   return null;
 }
