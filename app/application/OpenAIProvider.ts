@@ -3,6 +3,7 @@ import { canonicalizeApprovalEvidenceUrl } from "../../core/approval";
 import {
   contentSectionTypes,
   determineContentPlanQualityTarget,
+  findUnrequestedOwnedIdentityOccurrences,
   normalizeContentPlanQualityTarget,
   type ContentPlanQualityTarget,
 } from "../../core/content";
@@ -75,6 +76,7 @@ export class OpenAIProvider implements AIProvider {
     });
     if (responseBody.status === "incomplete") throw new Error(`OpenAI response was incomplete${responseBody.incomplete_details?.reason ? `: ${responseBody.incomplete_details.reason}` : "."}`);
     if (!content?.trim()) throw new Error("OpenAI returned an empty response.");
+    assertOpenAIResponseOwnedIdentityPolicy(request.instruction, content);
     return Object.freeze({ content, model: responseBody.model ?? this.model, diagnostics });
   }
 }
@@ -105,6 +107,94 @@ type OpenAIOutputItem = Readonly<{
     }>[];
   }>[];
 }>;
+
+type OwnedIdentityResponsePolicy = Readonly<{
+  ownedTerms: readonly string[];
+  sourceRequest: string;
+  selectionMode: "automatic" | "userSpecified";
+}>;
+
+export function assertOpenAIResponseOwnedIdentityPolicy(
+  instruction: string,
+  responseContent: string,
+): void {
+  const policy = readOwnedIdentityResponsePolicy(instruction);
+  if (!policy) return;
+  const contamination = findUnrequestedOwnedIdentityOccurrences({
+    ownedTerms: policy.ownedTerms,
+    sourceRequest: policy.sourceRequest,
+    selectionMode: policy.selectionMode,
+    values: [responseContent],
+  });
+  if (!contamination.length) return;
+  throw new Error(
+    `AI 응답에 요청하지 않은 프로젝트명 또는 브랜드명이 다시 포함되어 결과 적용을 차단했습니다: ${contamination.join(", ")}.`,
+  );
+}
+
+export function readOwnedIdentityResponsePolicy(
+  instruction: string,
+): OwnedIdentityResponsePolicy | undefined {
+  const marker = "Canonical server editorial context (mandatory; do not ignore or override):";
+  const markerIndex = instruction.lastIndexOf(marker);
+  if (markerIndex < 0) return undefined;
+  const objectStart = instruction.indexOf("{", markerIndex + marker.length);
+  if (objectStart < 0) return undefined;
+  const serialized = balancedJsonObject(instruction, objectStart);
+  if (!serialized) return undefined;
+
+  try {
+    const parsed = JSON.parse(serialized) as Record<string, unknown>;
+    const strategy = objectValue(parsed.projectStrategy);
+    const identity = objectValue(strategy?.projectIdentity);
+    const policy = objectValue(parsed.ownedIdentityPolicy);
+    if (!identity || !policy) return undefined;
+    const ownedTerms = [identity.projectName, identity.brandName]
+      .filter((value): value is string => typeof value === "string" && Boolean(value.trim()));
+    if (!ownedTerms.length) return undefined;
+    return Object.freeze({
+      ownedTerms: Object.freeze([...new Set(ownedTerms)]),
+      sourceRequest: typeof policy.sourceRequest === "string" ? policy.sourceRequest : "",
+      selectionMode: policy.selectionMode === "userSpecified" ? "userSpecified" : "automatic",
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+function balancedJsonObject(value: string, start: number): string | undefined {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < value.length; index += 1) {
+    const character = value[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\") {
+        escaped = true;
+      } else if (character === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (character === '"') {
+      inString = true;
+      continue;
+    }
+    if (character === "{") depth += 1;
+    if (character !== "}") continue;
+    depth -= 1;
+    if (depth === 0) return value.slice(start, index + 1);
+  }
+  return undefined;
+}
+
+function objectValue(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
 
 function approvalWebSearchPolicy(metadata?: Readonly<Record<string, string>>) {
   if (metadata?.task !== "content-generation" || metadata.approvalPurpose !== "adsense_approval") return undefined;
