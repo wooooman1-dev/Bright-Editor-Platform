@@ -7,6 +7,8 @@ if (-not (Test-Path (Join-Path $sourceRoot ".git"))) {
 }
 
 $remoteBranch = "fix/wordpress-full-audit"
+$remoteTrackingRef = "refs/remotes/origin/$remoteBranch"
+$remoteHeadRef = "refs/heads/$remoteBranch"
 $expectedBundleHash = "01b319612e226329b2c0c19fa278f5984b6fbdf85aadcab1f66be99be35241ac"
 $parent = Split-Path $sourceRoot -Parent
 $stamp = [DateTimeOffset]::Now.ToUnixTimeSeconds()
@@ -14,9 +16,15 @@ $localBranch = "fix/wordpress-full-audit-local-$stamp"
 $worktree = Join-Path $parent "bright-editor-platform-full-audit-$stamp"
 $tempScript = Join-Path $env:TEMP "bright-full-audit-$stamp.mjs"
 
-Write-Host "[1/9] Fetching the protected branch."
-git -C $sourceRoot fetch origin $remoteBranch
-if ($LASTEXITCODE -ne 0) { throw "Could not fetch the protected branch." }
+Write-Host "[1/9] Fetching and refreshing the protected remote-tracking branch."
+git -C $sourceRoot fetch origin "+${remoteHeadRef}:${remoteTrackingRef}"
+if ($LASTEXITCODE -ne 0) { throw "Could not refresh the protected remote-tracking branch." }
+
+$resolvedRemoteCommit = (git -C $sourceRoot rev-parse "origin/$remoteBranch").Trim()
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($resolvedRemoteCommit)) {
+    throw "Could not resolve the protected remote-tracking branch."
+}
+Write-Host "Protected branch commit: $resolvedRemoteCommit"
 
 Write-Host "[2/9] Creating an isolated worktree: $worktree"
 git -C $sourceRoot worktree add -b $localBranch $worktree "origin/$remoteBranch"
