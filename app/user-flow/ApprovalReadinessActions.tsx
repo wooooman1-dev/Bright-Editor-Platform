@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApprovalEvidenceSource, SiteApprovalReadinessSnapshot } from "../../core/approval";
 import type { ContentDocument } from "../../core/content";
 import { contentRevisionId, isStandardQualityApproved, type QualityReport } from "../../core/quality";
+import { contentOwnedIdentityContamination } from "../application/publishing/ContentOwnedIdentityPolicy";
 import type { UserContent, UserData } from "./user-data";
 
 export type ApprovalReadinessAutoRunDecision = Readonly<{
@@ -31,6 +32,22 @@ export function isCurrentSiteReadinessSnapshot(
   return snapshot.checks.every((check) =>
     check.requirement !== "manual"
     && !legacyWordPressSiteReadinessKeys.has(check.key));
+}
+
+export function approvalReadinessIdentityContamination(
+  data: UserData | undefined,
+  contentId: string,
+): readonly string[] {
+  if (!data?.workspace) return Object.freeze([]);
+  const content = data.contents.find((item) =>
+    item.id === contentId
+    && item.workspaceId === data.workspace?.id);
+  if (!content) return Object.freeze([]);
+  const project = data.projects.find((item) =>
+    item.id === content.projectId
+    && item.workspaceId === data.workspace?.id);
+  if (!project) return Object.freeze([]);
+  return contentOwnedIdentityContamination(data, project, content);
 }
 
 export function approvalReadinessAutoRunDecision(
@@ -72,6 +89,7 @@ export function ApprovalReadinessActions(props: Readonly<{
   const [message, setMessage] = useState("");
   const [sources, setSources] = useState<readonly ApprovalEvidenceSource[]>([]);
   const [hasStoredResult, setHasStoredResult] = useState(false);
+  const [identityContamination, setIdentityContamination] = useState<readonly string[]>([]);
   const runningRef = useRef(false);
   const inspectedKeyRef = useRef("");
   const onCompletedRef = useRef(props.onCompleted);
@@ -154,10 +172,14 @@ export function ApprovalReadinessActions(props: Readonly<{
       .then((result) => {
         if (!active) return;
         const content = result.data?.contents.find((item) => item.id === props.contentId);
+        const contamination = approvalReadinessIdentityContamination(result.data, props.contentId);
         const decision = approvalReadinessAutoRunDecision(content);
+        setIdentityContamination(contamination);
         setSources(decision.sources);
         setHasStoredResult(decision.hasStoredResult);
-        if (decision.hasStoredResult) {
+        if (contamination.length) {
+          setMessage("");
+        } else if (decision.hasStoredResult) {
           setMessage((current) => current || "저장된 현재 문서 버전의 승인 준비 검사 결과를 표시하고 있습니다.");
         }
 
@@ -166,11 +188,12 @@ export function ApprovalReadinessActions(props: Readonly<{
           decision.currentRevisionId,
           content?.document?.metadata?.approvalEvidence?.reviewedRevisionId ?? "",
           content?.document?.metadata?.siteApprovalReadiness?.checkedAt ?? "",
+          contamination.join("|"),
           decision.shouldRun ? "run" : "hold",
         ].join(":");
         if (inspectedKeyRef.current === inspectedKey) return;
         inspectedKeyRef.current = inspectedKey;
-        if (decision.shouldRun) void execute("automatic");
+        if (decision.shouldRun && contamination.length === 0) void execute("automatic");
       })
       .catch((error) => {
         if (!active) return;
@@ -183,14 +206,19 @@ export function ApprovalReadinessActions(props: Readonly<{
     };
   }, [execute, props.contentId, props.disabled]);
 
+  const identityBlocked = identityContamination.length > 0;
+
   return <div className="flex w-full flex-col items-end gap-2">
+    {identityBlocked ? <p aria-live="polite" className="w-full rounded-xl bg-amber-50 px-4 py-3 text-left text-sm leading-6 text-amber-900">
+      기존 기획 또는 원고에 검색 주제가 아닌 프로젝트명·브랜드명이 포함되어 있습니다: {identityContamination.join(", ")}. 이 콘텐츠의 승인 준비 자동 검사를 중단했습니다. 새 콘텐츠에서 기획을 다시 실행해 주세요.
+    </p> : null}
     <button
       className="rounded-xl border border-[#ff6b6b] bg-white px-4 py-2.5 text-sm font-semibold text-[#d94f4f] disabled:opacity-50"
-      disabled={props.disabled || state === "running"}
+      disabled={props.disabled || state === "running" || identityBlocked}
       onClick={() => void execute("manual")}
       type="button"
     >
-      {state === "running" ? "승인 준비 검사 중…" : hasStoredResult ? "승인 준비 다시 검사" : "승인 준비 검사 실행"}
+      {identityBlocked ? "기획 재실행 필요" : state === "running" ? "승인 준비 검사 중…" : hasStoredResult ? "승인 준비 다시 검사" : "승인 준비 검사 실행"}
     </button>
     <p className="max-w-[640px] text-right text-xs leading-5 text-[#77777f]">
       자동 검사는 공개 사이트의 승인 준비 상태를 진단하며 구글 애드센스 승인을 보장하지 않습니다.
