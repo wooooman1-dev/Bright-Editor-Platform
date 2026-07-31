@@ -52,6 +52,14 @@ export {
   type OpportunityAlignmentSignal,
   type OpportunityAlignmentStatus,
 } from "./ContentOpportunityAlignment";
+export {
+  analyzeEditorialMarkupIntegrity,
+  EditorialMarkupIntegrityError,
+  normalizeEditorialMarkupDocument,
+  normalizeEditorialMarkupText,
+  type EditorialMarkupIssue,
+  type EditorialMarkupIssueCode,
+} from "./EditorialMarkupIntegrity";
 export { calculateContentMetrics, canonicalDocumentText } from "./ContentMetrics";
 export {
   analyzeLongFormDocument,
