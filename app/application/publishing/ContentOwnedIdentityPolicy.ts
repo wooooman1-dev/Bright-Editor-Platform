@@ -3,7 +3,7 @@ import {
   findUnrequestedOwnedIdentityPrefixes,
   type ContentDocument,
 } from "../../../core/content";
-import { resolveProjectStrategy, type UserContent, type UserData, type UserProject } from "../../user-flow/user-data";
+import type { UserContent, UserData, UserProject } from "../../user-flow/user-data";
 
 export function contentOwnedIdentityContamination(
   data: UserData,
@@ -23,8 +23,9 @@ export function contentOwnedIdentityContamination(
   const selectionMode = opportunity?.selectionMode
     ?? content.planning?.selectionMode
     ?? "automatic";
-  const primaryTopic = resolveProjectStrategy(project).primaryTopic;
-  const projectIdentity = normalizedIdentity(project.name) === normalizedIdentity(primaryTopic)
+  const explicitPrimaryTopic = project.strategy?.primaryTopic?.trim() ?? "";
+  const projectIdentity = explicitPrimaryTopic
+    && normalizedIdentity(project.name) === normalizedIdentity(explicitPrimaryTopic)
     ? ""
     : project.name;
   const ownedTerms = [projectIdentity, brandName ?? ""];
