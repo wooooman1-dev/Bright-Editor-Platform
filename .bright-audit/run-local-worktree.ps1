@@ -28,10 +28,10 @@ try {
     foreach ($index in 0..6) {
         $part = ".bright-audit/parts/part-{0:D2}.b64" -f $index
         $value = git show "HEAD:$part"
-        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($value)) {
+        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace(($value -join ""))) {
             throw "수정 Bundle 조각을 읽지 못했습니다: $part"
         }
-        [void]$base64Builder.Append($value)
+        [void]$base64Builder.Append(($value -join ""))
     }
 
     $base64 = $base64Builder.ToString() -replace "\s", ""
