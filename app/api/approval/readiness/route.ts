@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 
 import type { UserData } from "../../../user-flow/user-data";
 import { ApprovalReadinessApplicationService } from "../../../application/approval/ApprovalReadinessApplicationService";
-import { connectionRepository } from "../../../application/connections/connection-runtime";
+import { connectionRepository, targetRepository } from "../../../application/connections/connection-runtime";
 import { resolveCanonicalPublishingConnection } from "../../../application/publishing/ProjectPublishingTarget";
+import { isPublishingConnectionSelectedForContent } from "../../../application/publishing/PublishingTargetSelection";
 import { studioStore } from "../../../application/studio-store";
 
 const collection = "application";
@@ -25,10 +26,19 @@ export async function POST(request: Request) {
 
     const connections = await connectionRepository.listByWorkspace(workspaceId);
     const connection = resolveCanonicalPublishingConnection(data, content, connections);
+    const targets = targetRepository.listByProject
+      ? await targetRepository.listByProject(content.projectId)
+      : [];
+    const selectedTarget = Boolean(connection
+      && isPublishingConnectionSelectedForContent(data, content, connection.id)
+      && targets.some((target) =>
+        target.platformConnectionId === connection.id
+        && target.platform === connection.platform));
     const result = await new ApprovalReadinessApplicationService().execute({
       data,
       contentId,
       connection,
+      selectedTarget,
     });
     await studioStore.set(collection, stateId, result.data);
     const saved = await studioStore.get<UserData>(collection, stateId);
