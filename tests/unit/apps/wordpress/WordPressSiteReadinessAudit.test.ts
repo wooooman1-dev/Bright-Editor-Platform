@@ -39,7 +39,7 @@ describe("WordPressSiteReadinessAudit", () => {
       fetcher,
     });
 
-    expect(result.status).toBe("needs_review");
+    expect(result.status).toBe("passed");
     expect(result.checks).toEqual(expect.arrayContaining([
       expect.objectContaining({ key: "https", passed: true }),
       expect.objectContaining({ key: "robots", passed: true }),
@@ -57,7 +57,7 @@ describe("WordPressSiteReadinessAudit", () => {
     expect(fetcher.mock.calls.some((call) => /wp-admin|wp-login/i.test(String(call[0])))).toBe(false);
   });
 
-  it("keeps unobservable WordPress readiness items in needs_review instead of falsely passing them", async () => {
+  it("does not generate user-controlled manual or external approval checks", async () => {
     const result = await auditWordPressSiteReadiness({
       siteUrl: "https://example.com",
       checkedAt,
@@ -65,16 +65,18 @@ describe("WordPressSiteReadinessAudit", () => {
       fetcher: successfulFetcher(),
     });
 
-    expect(result.checks).toEqual(expect.arrayContaining([
-      expect.objectContaining({ key: "theme_plugin_review", passed: false, requirement: "manual" }),
-      expect.objectContaining({ key: "mobile_visual_review", passed: false, requirement: "manual" }),
-      expect.objectContaining({ key: "performance_review", passed: false, requirement: "manual" }),
-      expect.objectContaining({ key: "copyright_review", passed: false, requirement: "manual" }),
-      expect.objectContaining({ key: "site_quality_consistency", passed: false, requirement: "manual" }),
-      expect.objectContaining({ key: "search_console_review", passed: false, requirement: "manual" }),
-      expect.objectContaining({ key: "adsense_external_approval", passed: false }),
+    const keys = result.checks.map((check) => check.key);
+    expect(keys).not.toEqual(expect.arrayContaining([
+      "theme_plugin_review",
+      "mobile_visual_review",
+      "performance_review",
+      "copyright_review",
+      "site_quality_consistency",
+      "search_console_review",
+      "adsense_external_approval",
     ]));
-    expect(result.status).toBe("needs_review");
+    expect(result.checks.some((check) => check.requirement === "manual")).toBe(false);
+    expect(result.status).toBe("passed");
   });
 
   it("records a bounded redirect and blocks a public placeholder homepage", async () => {
@@ -101,7 +103,7 @@ describe("WordPressSiteReadinessAudit", () => {
     expect(result.checks).toContainEqual(expect.objectContaining({
       key: "public_access",
       passed: true,
-      message: expect.stringContaining("redirect 1회"),
+      message: expect.stringContaining("주소 이동 1회"),
     }));
     expect(result.checks).toContainEqual(expect.objectContaining({ key: "placeholder_free", passed: false }));
     expect(fetcher.mock.calls.every((call) => call[1]?.method === "GET")).toBe(true);
@@ -171,7 +173,7 @@ describe("WordPressSiteReadinessAudit", () => {
       })),
     });
     expect(redirects.status).toBe("blocked");
-    expect(redirects.checks.find((check) => check.key === "public_access")?.message).toContain("redirect 제한 1회");
+    expect(redirects.checks.find((check) => check.key === "public_access")?.message).toContain("주소 이동 제한 1회");
 
     const oversized = await auditWordPressSiteReadiness({
       siteUrl: "https://large.example.com",
