@@ -84,6 +84,16 @@ describe("platform-neutral approval readiness", () => {
     expect(source).not.toContain("publishingPreparation?.tistory?.platformCategoryName");
   });
 
+  it("uses the active content platform when legacy workspace platform settings are absent", () => {
+    const source = readFileSync(join(
+      process.cwd(),
+      "app/user-flow/editor-publishing-platform.ts",
+    ), "utf8");
+
+    expect(source).toContain("?? (activePlatform ? [activePlatform] : [])");
+    expect(source).not.toContain('?? ["tistory"]');
+  });
+
   it("removes the user-controlled manual readiness action and checkbox UI", () => {
     const routeSource = readFileSync(join(process.cwd(), "app/api/approval/readiness/route.ts"), "utf8");
     const componentSource = readFileSync(join(process.cwd(), "app/user-flow/WordPressManualSiteReviewActions.tsx"), "utf8");
