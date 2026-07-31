@@ -1,4 +1,8 @@
-import { findUnrequestedOwnedIdentityPrefixes } from "../../../core/content";
+import {
+  findUnrequestedOwnedIdentityOccurrences,
+  findUnrequestedOwnedIdentityPrefixes,
+  type ContentDocument,
+} from "../../../core/content";
 import type { UserContent, UserData, UserProject } from "../../user-flow/user-data";
 
 export function contentOwnedIdentityContamination(
@@ -19,8 +23,9 @@ export function contentOwnedIdentityContamination(
   const selectionMode = opportunity?.selectionMode
     ?? content.planning?.selectionMode
     ?? "automatic";
-  return findUnrequestedOwnedIdentityPrefixes({
-    ownedTerms: [project.name, brandName ?? ""],
+  const ownedTerms = [project.name, brandName ?? ""];
+  const planningMatches = findUnrequestedOwnedIdentityPrefixes({
+    ownedTerms,
     sourceRequest,
     selectionMode,
     values: [
@@ -29,6 +34,13 @@ export function contentOwnedIdentityContamination(
       ...(opportunity?.secondaryKeywords ?? content.relatedKeywords ?? []),
     ],
   });
+  const documentMatches = findUnrequestedOwnedIdentityOccurrences({
+    ownedTerms,
+    sourceRequest,
+    selectionMode,
+    values: content.document ? documentEditorialValues(content.document) : [content.title],
+  });
+  return Object.freeze([...new Set([...planningMatches, ...documentMatches])]);
 }
 
 export function assertContentOwnedIdentityClean(
@@ -39,6 +51,26 @@ export function assertContentOwnedIdentityClean(
   const contamination = contentOwnedIdentityContamination(data, project, content);
   if (!contamination.length) return;
   throw new Error(
-    `기존 기획에 검색 주제가 아닌 프로젝트명 또는 브랜드명이 포함되어 외부 저장을 차단했습니다: ${contamination.join(", ")}. 새 Content에서 Planning을 다시 실행해 주세요.`,
+    `기존 기획 또는 원고에 검색 주제가 아닌 프로젝트명 또는 브랜드명이 포함되어 외부 저장을 차단했습니다: ${contamination.join(", ")}. 새 Content에서 Planning을 다시 실행해 주세요.`,
   );
+}
+
+function documentEditorialValues(document: ContentDocument): readonly string[] {
+  const metadata = document.metadata;
+  return Object.freeze([
+    document.title,
+    metadata?.metaDescription ?? "",
+    metadata?.primarySearchIntent ?? "",
+    metadata?.secondaryIntent ?? "",
+    ...(metadata?.secondaryKeywords ?? []),
+    ...(metadata?.relatedTerms ?? []),
+    ...(metadata?.tags ?? []),
+    ...document.blocks.flatMap((block) => {
+      if (block.type === "heading" || block.type === "paragraph") return [block.text];
+      if (block.type === "table") return [block.caption ?? "", ...block.headers, ...block.rows.flat()];
+      if (block.type === "image") return [block.alt, block.prompt ?? "", block.caption ?? ""];
+      if (block.type === "button") return [block.label];
+      return [];
+    }),
+  ].filter(Boolean));
 }
