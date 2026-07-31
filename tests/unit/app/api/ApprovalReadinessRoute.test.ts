@@ -10,6 +10,11 @@ const mocks = vi.hoisted(() => ({
   execute: vi.fn(),
   set: vi.fn(),
   connections: [] as PlatformConnection[],
+  targets: [] as ReadonlyArray<Readonly<{
+    projectId: string;
+    platform: "tistory" | "wordpress";
+    platformConnectionId: string;
+  }>>,
 }));
 
 vi.mock("../../../../app/application/studio-store", () => ({
@@ -22,6 +27,9 @@ vi.mock("../../../../app/application/studio-store", () => ({
 vi.mock("../../../../app/application/connections/connection-runtime", () => ({
   connectionRepository: {
     listByWorkspace: vi.fn(async () => mocks.connections),
+  },
+  targetRepository: {
+    listByProject: vi.fn(async () => mocks.targets),
   },
 }));
 
@@ -37,6 +45,10 @@ describe("approval readiness route canonical connection selection", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.connections = [connection("tistory"), connection("wordpress")];
+    mocks.targets = [
+      { projectId: "project-1", platform: "tistory", platformConnectionId: "tistory-1" },
+      { projectId: "project-1", platform: "wordpress", platformConnectionId: "wordpress-1" },
+    ];
     mocks.execute.mockImplementation(async (input: { data: UserData; contentId: string }) => result(input.data));
   });
 
@@ -57,6 +69,7 @@ describe("approval readiness route canonical connection selection", () => {
     expect(mocks.execute).toHaveBeenCalledWith(expect.objectContaining({
       contentId: "content-1",
       connection: expect.objectContaining({ id: expectedConnectionId, platform }),
+      selectedTarget: true,
     }));
     expect(mocks.set).toHaveBeenCalledTimes(1);
   });
