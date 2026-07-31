@@ -126,6 +126,31 @@ describe("ApprovalReadinessActions auto run decision", () => {
     expect(decision.hasStoredResult).toBe(true);
   });
 
+  it("invalidates a legacy WordPress manual-review snapshot and runs the current automatic audit", () => {
+    const revisionId = contentRevisionId(document);
+    const checkedDocument: ContentDocument = {
+      ...document,
+      metadata: {
+        ...document.metadata!,
+        approvalEvidence: evidence(revisionId),
+        siteApprovalReadiness: {
+          ...site,
+          status: "needs_review",
+          checks: [{
+            key: "theme_plugin_review",
+            passed: false,
+            requirement: "manual",
+            message: "Theme 또는 Plugin을 수동으로 확인해야 합니다.",
+          }],
+        },
+      },
+    };
+    const decision = approvalReadinessAutoRunDecision(content(checkedDocument, quality(revisionId)));
+
+    expect(decision.hasStoredResult).toBe(false);
+    expect(decision.shouldRun).toBe(true);
+  });
+
   it("waits for a standard quality review that matches the current revision", () => {
     const staleQuality = quality("rev-stale");
     const decision = approvalReadinessAutoRunDecision(content(document, staleQuality));
