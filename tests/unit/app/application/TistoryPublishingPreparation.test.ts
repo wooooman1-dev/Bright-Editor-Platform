@@ -6,7 +6,7 @@ vi.mock("node:fs/promises", () => ({ access: mocks.access }));
 import { applyTistoryPublishingAccount, applyTistoryPublishingCategory, calculateTistoryReadiness, resolveTistoryDefaultCategory, usableTistoryConnections } from "../../../../app/application/publishing/TistoryPublishingPreparation";
 import { QualityEngine } from "../../../../core/quality";
 import { safeDraftPermissions, type PlatformConnection } from "../../../../core/connections";
-import { determineContentPlanQualityTarget, type ContentDocument } from "../../../../core/content";
+import { confirmContentOpportunity, createContentOpportunityCandidate, determineContentPlanQualityTarget, type ContentDocument } from "../../../../core/content";
 import type { UserData } from "../../../../app/user-flow/user-data";
 
 const qualityTarget = determineContentPlanQualityTarget({
@@ -103,5 +103,49 @@ describe("Tistory publishing preparation", () => {
     expect(readiness.checks.find((check) => check.key === "category")?.message).toContain("건강운동");
     expect(readiness.checks.find((check) => check.key === "quality")?.message).toContain(`${quality.overallScore}점`);
     expect(readiness.checks.find((check) => check.key === "final_confirmation")?.passed).toBe(false);
+  });
+
+  it("blocks a legacy automatic Planning keyword prefixed by the Project identity", async () => {
+    let next = applyTistoryPublishingAccount(base, "project", "content", "account", "later");
+    const quality = new QualityEngine().review(document, { contentType: "long-form blog article", platform: "tistory", primaryKeyword: "건강운동 방법", searchIntent: "건강운동 방법" });
+    const opportunity = confirmContentOpportunity(createContentOpportunityCandidate({
+      sourceRequest: "밝은재테크 프로젝트에서 아직 다루지 않은 주제를 선정해줘",
+      selectionMode: "automatic",
+      selectedTopic: "밝은재테크 통장 쪼개기 방법",
+      primaryKeyword: "밝은재테크 통장 쪼개기",
+      secondaryKeywords: ["생활비 통장"],
+      searchIntent: "통장 역할 결정",
+      audience: "직장인",
+      contentType: "article",
+      contentAngle: "계좌 역할과 선택 기준",
+      readerProblem: "계좌 역할을 정하지 못함",
+      expectedCoverage: ["계좌 역할"],
+      selectionRationale: "콘텐츠 공백",
+      opportunityEvidence: [{ source: "unknown", summary: "검색량 미검증" }],
+      confidence: 0.7,
+      cautions: [],
+      projectId: "project",
+    }), { workspaceId: "workspace", projectId: "project", contentId: "content", confirmedAt: "now" });
+    next = {
+      ...next,
+      projects: next.projects.map((project) => ({
+        ...project,
+        name: "밝은재테크",
+        strategy: { ...project.strategy!, defaultTistoryCategory: { publishingAccountId: "account", id: "1057542", name: "건강운동" } },
+      })),
+      contents: next.contents.map((content) => ({
+        ...content,
+        title: opportunity.selectedTopic,
+        primaryKeyword: opportunity.primaryKeyword,
+        relatedKeywords: opportunity.secondaryKeywords,
+        opportunity,
+        publishingPreparation: { tistory: { publishingAccountId: "account", platformCategoryId: "1057542", platformCategoryName: "건강운동", updatedAt: "later" } },
+        quality,
+      })),
+    };
+
+    const readiness = await calculateTistoryReadiness({ data: next, project: next.projects[0], content: next.contents[0], connection, selectedTarget: true, finalConfirmation: false, root: "root" });
+    expect(readiness.checks.find((check) => check.key === "planning_identity")).toMatchObject({ passed: false });
+    expect(readiness.ready).toBe(false);
   });
 });
