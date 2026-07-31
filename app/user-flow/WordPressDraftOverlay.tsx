@@ -56,7 +56,6 @@ export function WordPressDraftOverlay({ connections, content, data, onPersist, p
   onPersist: (data: UserData) => Promise<void>;
   project: UserProject;
 }>) {
-  const [open, setOpen] = useState(false);
   const [selectedConnectionId, setSelectedConnectionId] = useState<string>();
   const [categories, setCategories] = useState<readonly WordPressCategory[]>([]);
   const [categoryIds, setCategoryIds] = useState<readonly string[]>([]);
@@ -67,6 +66,7 @@ export function WordPressDraftOverlay({ connections, content, data, onPersist, p
   const [categoryNotice, setCategoryNotice] = useState("");
   const [executionState, setExecutionState] = useState(() => resetWordPressDraftOverlayState(undefined));
   const [modalView, setModalView] = useState<WordPressDraftModalView>("preparation");
+  const [showConfirmation, setShowConfirmation] = useState(false);
 
   const workspaceId = data?.workspace?.id ?? "";
   const wordpressConnections = useMemo(() => connections.filter((item) => item.platform === "wordpress"), [connections]);
@@ -104,10 +104,10 @@ export function WordPressDraftOverlay({ connections, content, data, onPersist, p
   const loading = executionLoading || categoryLoading || categorySaving;
   const noticeLoading = categoryLoading || categorySaving || Boolean(executionLoading);
   const executionNotice = currentExecutionState.notice
-    || (executionLoading ? "WordPress Draft Readiness를 확인하고 있습니다." : "");
+    || (executionLoading ? "워드프레스 임시글 저장 준비 상태를 확인하고 있습니다." : "");
   const notice = executionNotice || categoryNotice
-    || (categoryLoading ? "WordPress 카테고리를 불러오고 있습니다." : "")
-    || (!wordpressConnections.length ? "Settings에서 WordPress Connection을 먼저 연결해 주세요." : "");
+    || (categoryLoading ? "워드프레스 카테고리를 불러오고 있습니다." : "")
+    || (!wordpressConnections.length ? "설정에서 워드프레스 연결 계정을 먼저 추가해 주세요." : "");
   const preparation = content?.publishingPreparation?.wordpress;
   const outcome = record ? wordpressDraftOutcomePresentation(record) : undefined;
   const localImageCount = content?.document?.blocks.filter((block) => block.type === "image" && /^\/api\/media\//i.test(block.source)).length ?? 0;
@@ -123,9 +123,15 @@ export function WordPressDraftOverlay({ connections, content, data, onPersist, p
   const executable = canSubmitWordPressDraft(submissionGuard);
   const selectedCategoryId = categoryIds[0] ?? "";
   const showOutcome = modalView !== "preparation" && Boolean(outcome && connection);
+  const canOpenConfirmation = Boolean(identity
+    && readiness?.ready
+    && categorySelectionApplied
+    && readinessMatchesAppliedCategory
+    && !loading
+    && (!record || record.status === "verified"));
 
   useEffect(() => {
-    if (!open || !workspaceId || !connectionId) return;
+    if (!workspaceId || !connectionId) return;
     const controller = new AbortController();
     let active = true;
     setCategoryLoading(true);
@@ -158,10 +164,10 @@ export function WordPressDraftOverlay({ connections, content, data, onPersist, p
       active = false;
       controller.abort();
     };
-  }, [connectionId, content.id, open, project.id, workspaceId]);
+  }, [connectionId, content.id, project.id, workspaceId]);
 
   useEffect(() => {
-    if (!open || !identity || !categoryLoaded || !categorySelectionApplied || categorySaving) return;
+    if (!identity || !categoryLoaded || !categorySelectionApplied || categorySaving) return;
     const controller = new AbortController();
     let active = true;
     const requestId = currentExecutionState.requestId;
@@ -195,17 +201,22 @@ export function WordPressDraftOverlay({ connections, content, data, onPersist, p
             error: message(error),
           });
         });
-      })
+      });
     return () => {
       active = false;
       controller.abort();
     };
-  }, [categoryLoaded, categorySaving, categorySelectionApplied, currentExecutionState.requestId, identity, identityKey, open]);
+  }, [categoryLoaded, categorySaving, categorySelectionApplied, currentExecutionState.requestId, identity, identityKey]);
+
+  useEffect(() => {
+    setShowConfirmation(false);
+  }, [identityKey]);
 
   const saveCategory = async () => {
     if (!identity || !selectedCategoryId) return;
+    setShowConfirmation(false);
     setCategorySaving(true);
-    setCategoryNotice("WordPress 카테고리를 적용하고 있습니다.");
+    setCategoryNotice("워드프레스 카테고리를 적용하고 있습니다.");
     try {
       const response = await fetch("/api/publishing/wordpress/categories", {
         method: "POST",
@@ -219,13 +230,13 @@ export function WordPressDraftOverlay({ connections, content, data, onPersist, p
         }),
       });
       const result = await response.json() as WordPressCategoryResponse;
-      if (!response.ok || !result.selection?.valid) throw new Error(result.error ?? "WordPress 카테고리를 적용하지 못했습니다.");
+      if (!response.ok || !result.selection?.valid) throw new Error(result.error ?? "워드프레스 카테고리를 적용하지 못했습니다.");
       setCategories(result.categories ?? categories);
       setCategoryIds(result.selection.categoryIds);
       setAppliedCategoryIds(result.selection.categoryIds);
       setCategoryLoaded(true);
       if (result.data) await onPersist(result.data);
-      setCategoryNotice(`WordPress 카테고리 적용 완료: ${result.selection.categoryNames.join(", ")}`);
+      setCategoryNotice(`워드프레스 카테고리 적용 완료: ${result.selection.categoryNames.join(", ")}`);
       setModalView((current) => reduceWordPressDraftModalView(current, { type: "show_preparation" }));
       setExecutionState((current) => resetWordPressDraftOverlayState(identity, current.requestId));
     } catch (error) {
@@ -236,12 +247,11 @@ export function WordPressDraftOverlay({ connections, content, data, onPersist, p
   };
 
   const submit = async () => {
-    if (!executable) return;
-    if (!identity) return;
+    if (!executable || !identity) return;
     setExecutionState((current) => reduceWordPressDraftOverlayState(current, {
       type: "execution_started",
       identityKey,
-      notice: "WordPress에 비공개 Draft를 저장하고 외부 상태를 검증하고 있습니다.",
+      notice: "워드프레스에 공개되지 않은 임시글을 저장하고 외부 상태를 검증하고 있습니다.",
     }));
     try {
       const result = await requestWordPressDraftCreation(submissionGuard);
@@ -251,8 +261,9 @@ export function WordPressDraftOverlay({ connections, content, data, onPersist, p
         identityKey,
         readiness: result.readiness,
         record: result.record,
-        notice: result.record?.safeMessage ?? "WordPress 실행 결과를 저장했습니다.",
+        notice: result.record?.safeMessage ?? "워드프레스 실행 결과를 저장했습니다.",
       }));
+      setShowConfirmation(false);
       setModalView((current) => reduceWordPressDraftModalView(current, {
         type: "execution_completed",
         hasRecord: Boolean(result.record ?? currentExecutionState.record),
@@ -267,33 +278,24 @@ export function WordPressDraftOverlay({ connections, content, data, onPersist, p
   };
 
   return <>
-    <button className="fixed bottom-6 left-6 z-[70] rounded-2xl bg-[#202024] px-5 py-3 text-sm font-semibold text-white shadow-[0_14px_38px_rgba(0,0,0,0.22)]" onClick={() => {
-      setOpen(true);
-      setModalView((current) => reduceWordPressDraftModalView(current, { type: "open" }));
-      setCategories([]);
-      setCategoryIds([]);
-      setAppliedCategoryIds([]);
-      setCategoryLoaded(false);
-      setCategoryLoading(Boolean(connectionId));
-      setCategoryNotice("");
-      setExecutionState((current) => resetWordPressDraftOverlayState(identity, current.requestId));
-    }} type="button">
-      WordPress 임시글
-    </button>
-
-    {open ? <div className="fixed inset-0 z-[90] flex items-end justify-center bg-black/35 p-4 sm:items-center" role="presentation">
-      <section aria-labelledby="wordpress-draft-title" aria-modal="true" className="max-h-[92vh] w-full max-w-2xl overflow-auto rounded-[24px] bg-white p-6 shadow-2xl sm:p-7" role="dialog">
-        <div className="flex items-start justify-between gap-4">
-          <div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#ff6b6b]">WordPress REST Draft</p><h2 className="mt-2 text-2xl font-semibold" id="wordpress-draft-title">{showOutcome ? "WordPress 실행 결과" : "WordPress 발행 준비"}</h2></div>
-          <button aria-label="닫기" className="rounded-xl border px-3 py-2 text-sm" disabled={loading} onClick={() => setOpen(false)} type="button">닫기</button>
+    <section className="mt-6 rounded-[24px] border border-black/6 bg-white p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold text-[#ff6b6b]">워드프레스 임시글</p>
+          <h2 className="mt-1 text-lg font-semibold">{showOutcome ? "워드프레스 실행 결과" : "워드프레스 임시글 준비"}</h2>
         </div>
+        {!showOutcome && record && outcome && connection ? <button className="rounded-xl border px-4 py-2 text-sm font-semibold" onClick={() => {
+          setShowConfirmation(false);
+          setModalView((current) => reduceWordPressDraftModalView(current, { type: "show_previous_result", hasRecord: true }));
+        }} type="button">이전 저장 결과 보기</button> : null}
+      </div>
 
-        {showOutcome && outcome && connection ? <>
-          <WordPressCompletionCard connection={connection} outcome={outcome} record={record!} />
-          <button className="mt-5 rounded-xl border px-4 py-2.5 text-sm font-semibold" onClick={() => setModalView((current) => reduceWordPressDraftModalView(current, { type: "show_preparation" }))} type="button">준비 화면으로 돌아가기</button>
-        </> : <>
-          {record && outcome && connection ? <button className="mt-5 rounded-xl border px-4 py-2.5 text-sm font-semibold" onClick={() => setModalView((current) => reduceWordPressDraftModalView(current, { type: "show_previous_result", hasRecord: true }))} type="button">이전 저장 결과 보기</button> : null}
-          <label className="mt-5 block text-sm font-semibold">WordPress 계정
+      {showOutcome && outcome && connection ? <>
+        <WordPressCompletionCard connection={connection} outcome={outcome} record={record!} />
+        <button className="mt-5 rounded-xl border px-4 py-2.5 text-sm font-semibold" onClick={() => setModalView((current) => reduceWordPressDraftModalView(current, { type: "show_preparation" }))} type="button">준비 화면으로 돌아가기</button>
+      </> : <>
+        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          <label className="text-sm font-semibold">워드프레스 계정
             <select className="mt-2 w-full rounded-xl border px-4 py-3 font-normal" disabled={categorySaving} onChange={(event) => {
               const nextConnectionId = event.target.value;
               setSelectedConnectionId(nextConnectionId);
@@ -303,53 +305,83 @@ export function WordPressDraftOverlay({ connections, content, data, onPersist, p
               setCategoryLoaded(false);
               setCategoryLoading(Boolean(nextConnectionId));
               setCategoryNotice("");
+              setShowConfirmation(false);
               setModalView((current) => reduceWordPressDraftModalView(current, { type: "show_preparation" }));
               setExecutionState((current) => resetWordPressDraftOverlayState(undefined, current.requestId));
             }} value={connectionId}>
               <option value="">계정을 선택해 주세요</option>
-              {wordpressConnections.map((item) => <option key={item.id} value={item.id}>{item.displayName} · {item.status}</option>)}
+              {wordpressConnections.map((item) => <option key={item.id} value={item.id}>{item.displayName} · {connectionStatusLabel(item.status)}</option>)}
             </select>
           </label>
 
-          <div className="mt-4 rounded-2xl border p-4">
-            <label className="block text-sm font-semibold">WordPress 카테고리
-              <select className="mt-2 w-full rounded-xl border px-4 py-3 font-normal" disabled={!connection || categoryLoading || categorySaving} onChange={(event) => {
-                setCategoryIds(event.target.value ? [event.target.value] : []);
-                setModalView((current) => reduceWordPressDraftModalView(current, { type: "show_preparation" }));
-                if (identity) setExecutionState((current) => {
-                  const aligned = current.identityKey === identityKey
-                    ? current
-                    : resetWordPressDraftOverlayState(identity, current.requestId);
-                  return reduceWordPressDraftOverlayState(aligned, { type: "preparation_changed", identityKey });
-                });
-              }} value={selectedCategoryId}>
-                <option value="">{categoryLoading ? "카테고리를 불러오는 중입니다" : "카테고리를 선택해 주세요"}</option>
-                {categories.map((category) => <option key={category.externalCategoryId} value={category.externalCategoryId}>{category.name}{category.slug ? ` · ${category.slug}` : ""}</option>)}
-              </select>
-            </label>
-            <button className="mt-3 rounded-xl border border-[#202024] px-4 py-2 text-sm font-semibold disabled:opacity-50" disabled={!identity || !selectedCategoryId || categorySelectionApplied || categoryLoading || categorySaving} onClick={() => void saveCategory()} type="button">{categorySaving ? "카테고리 적용 중…" : categorySelectionApplied ? "카테고리 적용 완료" : "카테고리 적용"}</button>
-          </div>
+          <label className="text-sm font-semibold">워드프레스 카테고리
+            <select className="mt-2 w-full rounded-xl border px-4 py-3 font-normal" disabled={!connection || categoryLoading || categorySaving} onChange={(event) => {
+              setCategoryIds(event.target.value ? [event.target.value] : []);
+              setShowConfirmation(false);
+              setModalView((current) => reduceWordPressDraftModalView(current, { type: "show_preparation" }));
+              if (identity) setExecutionState((current) => {
+                const aligned = current.identityKey === identityKey
+                  ? current
+                  : resetWordPressDraftOverlayState(identity, current.requestId);
+                return reduceWordPressDraftOverlayState(aligned, { type: "preparation_changed", identityKey });
+              });
+            }} value={selectedCategoryId}>
+              <option value="">{categoryLoading ? "카테고리를 불러오는 중입니다" : "카테고리를 선택해 주세요"}</option>
+              {categories.map((category) => <option key={category.externalCategoryId} value={category.externalCategoryId}>{category.name}{category.slug ? ` · ${category.slug}` : ""}</option>)}
+            </select>
+          </label>
+        </div>
 
-          <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><strong>Draft Only</strong> · 공개 발행, 예약 발행, 자동 재시도는 실행하지 않습니다.</p>
+        <button className="mt-3 rounded-xl border border-[#202024] px-4 py-2 text-sm font-semibold disabled:opacity-50" disabled={!identity || !selectedCategoryId || categorySelectionApplied || categoryLoading || categorySaving} onClick={() => void saveCategory()} type="button">{categorySaving ? "카테고리 적용 중…" : categorySelectionApplied ? "카테고리 적용 완료" : "카테고리 적용"}</button>
 
-          <dl className="mt-5 grid gap-3 rounded-2xl bg-[#f8f8fa] p-4 text-sm sm:grid-cols-2">
-            <Info label="연결 계정" value={connection ? `${connection.displayName} · ${connection.status}` : "계정 선택 필요"} />
-            <Info label="Category" value={readiness?.categorySelection.valid && readinessMatchesAppliedCategory ? readiness.categorySelection.categoryNames.join(", ") : categorySelectionApplied ? "적용된 Category 재확인 필요" : "Category 적용 필요"} />
-            <Info label="Quality 승인" value={readiness?.checks.find((item) => item.key === "quality_revision")?.passed ? "현재 Revision 승인 완료" : "현재 Revision 승인 필요"} />
-            <Info label="로컬 이미지" value={`${localImageCount}개`} />
-            <Info label="media.upload" value={mediaAllowed ? localImageCount ? "명시적 허용" : "이미지 없음 · 불필요" : "권한 필요"} />
-            <Info label="Featured Image" value={preparation?.featuredImageAssetId ? "선택됨" : "선택 안 함"} />
-          </dl>
+        <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><strong>임시글만 저장</strong> · 공개 발행, 예약 발행, 자동 재실행은 하지 않습니다.</p>
 
-          <div className="mt-5"><h3 className="font-semibold">실행 준비 상태</h3>{readiness?.checks.length ? <div className="mt-3 grid gap-2 sm:grid-cols-2">{readiness.checks.map((check) => <article className={`rounded-xl border p-3 text-sm ${check.passed ? "bg-emerald-50/60" : check.key === "final_confirmation" ? "bg-sky-50" : "bg-amber-50"}`} key={check.key}><strong>{check.passed ? "통과" : check.key === "final_confirmation" ? "사용자 확인 단계" : "차단"}</strong><p className="mt-1 leading-5 text-[#66666f]">{check.message}</p></article>)}</div> : <p className="mt-3 rounded-xl bg-[#f8f8fa] p-3 text-sm">{loading ? "준비 상태를 확인하고 있습니다." : "계정과 카테고리를 적용해 주세요."}</p>}</div>
+        <dl className="mt-5 grid gap-3 rounded-2xl bg-[#f8f8fa] p-4 text-sm sm:grid-cols-2">
+          <Info label="연결 계정" value={connection ? `${connection.displayName} · ${connectionStatusLabel(connection.status)}` : "계정 선택 필요"} />
+          <Info label="카테고리" value={readiness?.categorySelection.valid && readinessMatchesAppliedCategory ? readiness.categorySelection.categoryNames.join(", ") : categorySelectionApplied ? "적용된 카테고리 재확인 필요" : "카테고리 적용 필요"} />
+          <Info label="품질 승인" value={readiness?.checks.find((item) => item.key === "quality_revision")?.passed ? "현재 문서 버전 승인 완료" : "현재 문서 버전 승인 필요"} />
+          <Info label="로컬 이미지" value={`${localImageCount}개`} />
+          <Info label="이미지 업로드 권한" value={mediaAllowed ? localImageCount ? "명시적 허용" : "이미지 없음 · 불필요" : "권한 필요"} />
+          <Info label="대표 이미지" value={preparation?.featuredImageAssetId ? "선택됨" : "선택 안 함"} />
+        </dl>
 
-          <label className="mt-5 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm leading-6"><input checked={finalConfirmation} className="mt-1" disabled={!readiness?.ready || !readinessMatchesAppliedCategory || loading} onChange={(event) => setExecutionState((current) => reduceWordPressDraftOverlayState(current, { type: "confirm", identityKey, value: event.target.checked }))} type="checkbox" /><span>현재 Revision, 계정, Category, 이미지와 Featured Image를 확인했습니다. WordPress에 공개되지 않은 Draft를 저장하는 작업을 최종 확인합니다.</span></label>
-          <button className="mt-5 w-full rounded-xl bg-[#ff6b6b] px-5 py-3 text-sm font-semibold text-white disabled:opacity-50" disabled={!executable} onClick={() => void submit()} type="button">{executionLoading ? "WordPress 검증 중…" : "WordPress에 임시글 저장"}</button>
-        </>}
+        <div className="mt-5">
+          <h3 className="font-semibold">저장 준비 상태</h3>
+          {readiness?.checks.length ? <div className="mt-3 grid gap-2 sm:grid-cols-2">{readiness.checks.map((check) => <article className={`rounded-xl border p-3 text-sm ${check.passed ? "bg-emerald-50/60" : check.key === "final_confirmation" ? "bg-sky-50" : "bg-amber-50"}`} key={check.key}><strong>{check.passed ? "통과" : check.key === "final_confirmation" ? "사용자 확인 단계" : "차단"}</strong><p className="mt-1 leading-5 text-[#66666f]">{check.message}</p></article>)}</div> : <p className="mt-3 rounded-xl bg-[#f8f8fa] p-3 text-sm">{loading ? "준비 상태를 확인하고 있습니다." : "계정과 카테고리를 적용해 주세요."}</p>}
+        </div>
 
-        {notice ? <p aria-live="polite" className={`wordpress-draft-notice mt-4 rounded-xl bg-blue-50 p-4 text-sm leading-6 text-blue-900${noticeLoading ? " wordpress-draft-notice--loading" : ""}`}>{notice}</p> : null}
-      </section>
-    </div> : null}
+        <button className="mt-5 rounded-xl bg-[#ff6b6b] px-5 py-3 text-sm font-semibold text-white disabled:opacity-50" disabled={!canOpenConfirmation} onClick={() => {
+          setExecutionState((current) => reduceWordPressDraftOverlayState(current, { type: "confirm", identityKey, value: false }));
+          setShowConfirmation(true);
+        }} type="button">워드프레스 임시저장</button>
+      </>}
+
+      {notice ? <p aria-live="polite" className={`wordpress-draft-notice mt-4 rounded-xl bg-blue-50 p-4 text-sm leading-6 text-blue-900${noticeLoading ? " wordpress-draft-notice--loading" : ""}`}>{notice}</p> : null}
+    </section>
+
+    {showConfirmation && connection && !showOutcome ? <section className="mt-6 rounded-[24px] border border-red-200 bg-white p-6">
+      <h2 className="text-lg font-semibold">외부 임시저장 최종 확인 · 사용자 확인 필요</h2>
+      <dl className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
+        <Info label="작업공간" value={data.workspace?.name ?? ""} />
+        <Info label="프로젝트" value={project.name} />
+        <Info label="대상 계정" value={connection.displayName} />
+        <Info label="제목" value={content.document?.title ?? content.title} />
+        <Info label="워드프레스 카테고리" value={readiness?.categorySelection.categoryNames.join(", ") || "선택 필요"} />
+        <Info label="문서 버전" value={revisionId || "확인 필요"} />
+      </dl>
+      <p className="mt-4 rounded-xl bg-[#fff0f0] p-3 text-sm">공개 발행은 하지 않습니다. 확인한 문서 버전만 워드프레스 임시글로 저장합니다.</p>
+      <label className="mt-4 flex items-start gap-3 text-sm leading-6">
+        <input checked={finalConfirmation} className="mt-1" disabled={!readiness?.ready || !readinessMatchesAppliedCategory || loading} onChange={(event) => setExecutionState((current) => reduceWordPressDraftOverlayState(current, { type: "confirm", identityKey, value: event.target.checked }))} type="checkbox" />
+        <span>현재 문서 버전, 계정, 카테고리, 이미지와 대표 이미지를 확인했습니다. 워드프레스에 공개되지 않은 임시글을 저장하는 작업을 최종 확인합니다.</span>
+      </label>
+      <div className="mt-5 flex flex-wrap gap-3">
+        <button className="rounded-xl bg-[#ff6b6b] px-5 py-3 text-sm font-semibold text-white disabled:opacity-50" disabled={!executable} onClick={() => void submit()} type="button">{executionLoading ? "워드프레스 검증 중…" : "확인하고 임시저장"}</button>
+        <button className="rounded-xl border px-5 py-3 text-sm font-semibold" disabled={loading} onClick={() => {
+          setExecutionState((current) => reduceWordPressDraftOverlayState(current, { type: "confirm", identityKey, value: false }));
+          setShowConfirmation(false);
+        }} type="button">취소</button>
+      </div>
+    </section> : null}
   </>;
 }
 
@@ -363,16 +395,16 @@ function WordPressCompletionCard({ connection, outcome, record }: Readonly<{
   return <div className="mt-6">
     <div aria-live="polite" className={`rounded-2xl border p-5 ${toneClass}`}><h3 className="text-xl font-semibold">{outcome.title}</h3><p className="mt-2 text-sm leading-6 text-[#55555f]">{outcome.description}</p></div>
     <dl className="mt-5 grid gap-3 rounded-2xl bg-[#f8f8fa] p-4 text-sm sm:grid-cols-2">
-      <Info label="외부 Post ID" value={record.externalPostId ?? "확인되지 않음"} />
-      <Info label="검증" value={record.verified ? "외부 재조회 검증 완료" : record.status} />
-      <Info label="Category" value={record.categoryNames.join(", ") || record.categoryIds.join(", ")} />
+      <Info label="외부 글 ID" value={record.externalPostId ?? "확인되지 않음"} />
+      <Info label="검증 상태" value={record.verified ? "외부 재조회 검증 완료" : recordStatusLabel(record.status)} />
+      <Info label="카테고리" value={record.categoryNames.join(", ") || record.categoryIds.join(", ")} />
       <Info label="업로드 이미지" value={`${record.uploadedMedia.length}개`} />
-      <Info label="Featured Image" value={record.featuredImageAssigned ? "지정 및 검증 대상" : "지정 안 함"} />
-      <Info label="실행 단계" value={record.stage} />
+      <Info label="대표 이미지" value={record.featuredImageAssigned ? "지정 및 검증 대상" : "지정 안 함"} />
+      <Info label="실행 단계" value={recordStageLabel(record.stage)} />
     </dl>
-    {record.cleanupRequired ? <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950"><strong>cleanup_required</strong><p>Media ID: {mediaIds.join(", ") || "확인되지 않음"}</p><p>Media는 자동 삭제하지 않았습니다. WordPress Media Library에서 직접 확인하세요.</p></div> : null}
-    {record.status === "unknown_result" ? <p className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-900">자동 재실행이 차단되었습니다. WordPress 관리자에서 기존 Draft 존재 여부를 먼저 확인하세요.</p> : null}
-    <div className="mt-5 rounded-xl border p-4 text-sm leading-6"><strong>실제 검증 체크리스트</strong><ol className="mt-2 list-decimal space-y-1 pl-5"><li>WordPress 관리자에서 Post가 Draft인지 확인</li><li>Post ID, 제목, 본문과 Category 확인</li><li>공개 글이 생성되지 않았는지 확인</li><li>이미지가 있으면 ALT와 Featured Image 확인</li></ol><a className="mt-3 inline-block font-semibold text-[#ff6b6b] underline" href={wordpressAdminDraftsUrl(connection)} rel="noreferrer" target="_blank">WordPress 관리자에서 확인</a></div>
+    {record.cleanupRequired ? <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950"><strong>정리 필요</strong><p>이미지 ID: {mediaIds.join(", ") || "확인되지 않음"}</p><p>이미지는 자동 삭제하지 않았습니다. 워드프레스 미디어 보관함에서 직접 확인하세요.</p></div> : null}
+    {record.status === "unknown_result" ? <p className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-900">자동 재실행이 차단되었습니다. 워드프레스 관리자에서 기존 임시글 존재 여부를 먼저 확인하세요.</p> : null}
+    <div className="mt-5 rounded-xl border p-4 text-sm leading-6"><strong>실제 저장 결과 확인</strong><ol className="mt-2 list-decimal space-y-1 pl-5"><li>워드프레스 관리자에서 글이 임시글인지 확인</li><li>글 ID, 제목, 본문과 카테고리 확인</li><li>공개 글이 생성되지 않았는지 확인</li><li>이미지가 있으면 대체 텍스트와 대표 이미지 확인</li></ol><a className="mt-3 inline-block font-semibold text-[#ff6b6b] underline" href={wordpressAdminDraftsUrl(connection)} rel="noreferrer" target="_blank">워드프레스 관리자에서 확인</a></div>
   </div>;
 }
 
@@ -383,7 +415,7 @@ async function loadWordPressCategories(
   const query = new URLSearchParams(input);
   const response = await fetch(`/api/publishing/wordpress/categories?${query}`, { cache: "no-store", signal });
   const result = await response.json() as WordPressCategoryResponse;
-  if (!response.ok) throw new Error(result.error ?? "WordPress 카테고리를 불러오지 못했습니다.");
+  if (!response.ok) throw new Error(result.error ?? "워드프레스 카테고리를 불러오지 못했습니다.");
   return result;
 }
 
@@ -400,7 +432,7 @@ async function loadWordPressDraftState(
   });
   const response = await fetch(`/api/publishing/wordpress?${query}`, { cache: "no-store", signal });
   const result = await response.json() as { readiness?: WordPressDraftReadiness | null; record?: PublishingExecutionRecord | null; readinessError?: string; error?: string };
-  if (!response.ok || !result.readiness && !result.record) throw new Error(result.error ?? result.readinessError ?? "WordPress Draft 준비 상태를 확인하지 못했습니다.");
+  if (!response.ok || !result.readiness && !result.record) throw new Error(result.error ?? result.readinessError ?? "워드프레스 임시글 준비 상태를 확인하지 못했습니다.");
   return Object.freeze({
     ...(result.readiness ? { readiness: result.readiness } : {}),
     ...(result.record ? { record: result.record } : {}),
@@ -418,10 +450,43 @@ function wordpressAdminDraftsUrl(connection: WordPressDraftConnection): string {
   catch { return "#"; }
 }
 
+function connectionStatusLabel(status: string): string {
+  if (status === "connected") return "연결됨";
+  if (status === "disconnected") return "연결 안 됨";
+  if (status === "expired") return "재연결 필요";
+  if (status === "error") return "연결 오류";
+  return "상태 확인 필요";
+}
+
+function recordStatusLabel(status: PublishingExecutionRecord["status"]): string {
+  const labels: Partial<Record<PublishingExecutionRecord["status"], string>> = {
+    preparing: "준비 중",
+    media_uploaded: "이미지 업로드 완료",
+    draft_created: "임시글 생성 완료",
+    verified: "검증 완료",
+    verification_failed: "외부 검증 실패",
+    cleanup_required: "정리 필요",
+    unknown_result: "결과 확인 필요",
+    failed: "실패",
+  };
+  return labels[status] ?? "상태 확인 필요";
+}
+
+function recordStageLabel(stage: PublishingExecutionRecord["stage"]): string {
+  const labels: Partial<Record<PublishingExecutionRecord["stage"], string>> = {
+    preparation: "준비",
+    media: "이미지 처리",
+    draft_create: "임시글 생성",
+    draft_verify: "임시글 검증",
+    complete: "완료",
+  };
+  return labels[stage] ?? "상태 확인 필요";
+}
+
 function Info({ label, value }: Readonly<{ label: string; value: string }>) {
   return <div><dt className="font-semibold text-[#77777f]">{label}</dt><dd className="mt-1 break-words">{value}</dd></div>;
 }
 
 function message(error: unknown): string {
-  return error instanceof Error ? error.message : "WordPress Draft 요청을 처리하지 못했습니다.";
+  return error instanceof Error ? error.message : "워드프레스 임시글 요청을 처리하지 못했습니다.";
 }
