@@ -34,21 +34,31 @@ describe("WordPress Draft execution and completion UI", () => {
     expect(overlaySource).toContain('type: "readiness_resolved"');
   });
 
-  it("integrates account and Category preparation before Draft execution", () => {
-    expect(overlaySource).toContain("WordPress 계정");
-    expect(overlaySource).toContain("WordPress 카테고리");
+  it("renders WordPress preparation inline without a floating button or modal", () => {
+    expect(overlaySource).not.toContain("fixed bottom-6 left-6");
+    expect(overlaySource).not.toContain("fixed inset-0");
+    expect(overlaySource).not.toContain('role="dialog"');
+    expect(overlaySource).not.toContain('aria-modal="true"');
+    expect(overlaySource).toContain("워드프레스 임시글 준비");
+    expect(overlaySource).toContain("showConfirmation && connection");
+    expect(overlaySource).toContain("외부 임시저장 최종 확인 · 사용자 확인 필요");
+  });
+
+  it("integrates account and category preparation before Draft execution", () => {
+    expect(overlaySource).toContain("워드프레스 계정");
+    expect(overlaySource).toContain("워드프레스 카테고리");
     expect(overlaySource).toContain("/api/publishing/wordpress/categories");
     expect(overlaySource).toContain('method: "POST"');
     expect(overlaySource).toContain("카테고리 적용");
-    expect(overlaySource).toContain("<strong>Draft Only</strong>");
+    expect(overlaySource).toContain("<strong>임시글만 저장</strong>");
   });
 
-  it("animates the WordPress notice only while Category or execution work is running", () => {
+  it("animates the WordPress notice only while category or execution work is running", () => {
     const css = readFileSync(join(process.cwd(), "app/globals.css"), "utf8");
 
     expect(overlaySource).toContain("const noticeLoading = categoryLoading || categorySaving || Boolean(executionLoading);");
-    expect(overlaySource).toContain('executionLoading ? "WordPress Draft Readiness를 확인하고 있습니다."');
-    expect(overlaySource).toContain('categoryLoading ? "WordPress 카테고리를 불러오고 있습니다."');
+    expect(overlaySource).toContain('executionLoading ? "워드프레스 임시글 저장 준비 상태를 확인하고 있습니다."');
+    expect(overlaySource).toContain('categoryLoading ? "워드프레스 카테고리를 불러오고 있습니다."');
     expect(overlaySource).toContain("wordpress-draft-notice--loading");
     expect(css).toContain('[aria-live="polite"].wordpress-draft-notice::before');
     expect(css).toContain('[aria-live="polite"].wordpress-draft-notice--loading::before');
@@ -56,8 +66,8 @@ describe("WordPress Draft execution and completion UI", () => {
   });
 
   it("keeps completion and readiness notices mounted without a loading class", () => {
-    expect(overlaySource).toContain("WordPress 카테고리 적용 완료:");
-    expect(overlaySource).toContain('result.record?.safeMessage ?? "WordPress 실행 결과를 저장했습니다."');
+    expect(overlaySource).toContain("워드프레스 카테고리 적용 완료:");
+    expect(overlaySource).toContain('result.record?.safeMessage ?? "워드프레스 실행 결과를 저장했습니다."');
     expect(overlaySource).toContain('{notice ? <p aria-live="polite"');
     expect(overlaySource).not.toContain("setTimeout(() => setCategoryNotice");
   });
@@ -71,7 +81,7 @@ describe("WordPress Draft execution and completion UI", () => {
   });
 
   it("requires final confirmation and readiness before calling create_draft", () => {
-    expect(overlaySource).toContain("if (!executable) return");
+    expect(overlaySource).toContain("if (!executable || !identity) return");
     expect(requestSource).toContain('action: "create_draft"');
     expect(requestSource).toContain("finalConfirmation: true");
     expect(overlaySource).toContain("disabled={!executable}");
@@ -242,7 +252,7 @@ describe("WordPress Draft execution and completion UI", () => {
       identityKey: initial.identityKey,
       requestId: initial.requestId,
       record: record("unknown_result"),
-      readinessError: "WordPress Draft readiness could not be verified.",
+      readinessError: "워드프레스 임시글 준비 상태를 확인하지 못했습니다.",
     });
 
     expect(restored.readiness).toBeUndefined();
@@ -250,18 +260,18 @@ describe("WordPress Draft execution and completion UI", () => {
     expect(wordpressDraftOutcomePresentation(restored.record!)).toMatchObject({ tone: "warning", retryBlocked: true });
   });
 
-  it("shows verified completion details and the manual WordPress checklist", () => {
+  it("shows verified completion details and the WordPress result checklist", () => {
     const presentation = wordpressDraftOutcomePresentation(record("verified"));
-    expect(presentation).toMatchObject({ title: "WordPress 임시글 저장 완료", tone: "success", retryBlocked: false });
-    expect(overlaySource).toContain("외부 Post ID");
-    expect(overlaySource).toContain("실제 검증 체크리스트");
-    expect(overlaySource).toContain("WordPress 관리자에서 확인");
+    expect(presentation).toMatchObject({ title: "워드프레스 임시글 저장 완료", tone: "success", retryBlocked: false });
+    expect(overlaySource).toContain("외부 글 ID");
+    expect(overlaySource).toContain("실제 저장 결과 확인");
+    expect(overlaySource).toContain("워드프레스 관리자에서 확인");
   });
 
   it.each([
-    ["cleanup_required", "WordPress Media 확인 필요"],
-    ["unknown_result", "WordPress 결과를 확인할 수 없습니다"],
-    ["verification_failed", "WordPress 외부 검증 실패"],
+    ["cleanup_required", "워드프레스 이미지 확인 필요"],
+    ["unknown_result", "워드프레스 결과를 확인할 수 없습니다"],
+    ["verification_failed", "워드프레스 외부 검증 실패"],
   ] as const)("blocks another click and gives a safe %s completion state", (status, title) => {
     const audit = record(status);
     expect(blocksWordPressDraftExecution(audit)).toBe(true);
@@ -298,7 +308,7 @@ function readiness(): WordPressDraftReadiness {
     executable: false,
     checks: [],
     localImageCount: 0,
-    categorySelection: { valid: true, source: "content", categoryIds: ["12"], categoryNames: ["Household"] },
+    categorySelection: { valid: true, source: "content", categoryIds: ["12"], categoryNames: ["생활경제"] },
   };
 }
 
@@ -354,7 +364,7 @@ function record(status: PublishingExecutionRecord["status"]): PublishingExecutio
     cleanupRequired: status === "cleanup_required",
     verificationChecks: [],
     categoryIds: ["12"],
-    categoryNames: ["Household"],
+    categoryNames: ["생활경제"],
     localImageCount: 1,
     featuredImageAssigned: true,
     createdAt: "2026-07-29T00:00:00.000Z",
