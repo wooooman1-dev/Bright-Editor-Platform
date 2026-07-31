@@ -20,6 +20,7 @@ import type { ContentDocument } from "../../../core/content";
 import { tistorySiteReadinessAdapter } from "../../../apps/tistory/approval/TistorySiteReadinessAudit";
 import { wordpressSiteReadinessAdapter } from "../../../apps/wordpress/approval/WordPressSiteReadinessAudit";
 import { resolveProjectStrategy, type UserContent, type UserData } from "../../user-flow/user-data";
+import { InternalLinkCatalogEvaluationService } from "../publishing/InternalLinkCatalogEvaluationService";
 import { publishingCategoryNames } from "../publishing/InternalLinkCatalogPolicy";
 import type { ApprovalAwareContent } from "./ApprovalContentPolicy";
 import { resolveOfficialEvidenceSourceFallback } from "./OfficialEvidenceSourceResolver";
@@ -37,22 +38,24 @@ export type ApprovalReadinessFetch = SiteApprovalReadinessFetch;
 /**
  * Runs the deterministic approval checks that can be observed now.
  *
- * This service does not add an AI call. It verifies official source pages,
- * compares canonical facts with those pages, delegates the selected public
- * site audit to its registered platform Adapter,
- * persists the resulting snapshots, and recomputes the current Quality report.
+ * This service does not add an AI call. It evaluates the current public-post
+ * catalog, verifies official source pages, compares canonical facts with those
+ * pages, delegates the selected public site audit to its registered platform
+ * Adapter, persists the resulting snapshots, and recomputes Quality.
  */
 export class ApprovalReadinessApplicationService {
   constructor(
     private readonly fetcher: ApprovalReadinessFetch = fetch,
     private readonly now: () => string = () => new Date().toISOString(),
     private readonly siteAdapters: SiteApprovalReadinessAdapterRegistry = defaultSiteReadinessAdapters(),
+    private readonly internalLinks = new InternalLinkCatalogEvaluationService(),
   ) {}
 
   async execute(input: Readonly<{
     data: UserData;
     contentId: string;
     connection?: PlatformConnection;
+    selectedTarget?: boolean;
   }>): Promise<ApprovalReadinessExecutionResult> {
     const content = input.data.contents.find((item) => item.id === input.contentId);
     if (!content?.document) throw new Error("승인 준비 검사를 실행할 기준 원고가 없습니다.");
@@ -65,15 +68,25 @@ export class ApprovalReadinessApplicationService {
 
     const project = input.data.projects.find((item) => item.id === content.projectId && item.workspaceId === content.workspaceId);
     if (!project) throw new Error("승인 준비 검사 대상 프로젝트를 찾을 수 없습니다.");
+    if (!input.data.workspace) throw new Error("승인 준비 검사 대상 작업공간을 찾을 수 없습니다.");
 
     const checkedAt = this.now();
-    const candidateUrls = content.document.metadata?.approvalEvidence?.sources
+    const documentWithInternalLinks = await this.internalLinks.evaluate({
+      workspaceId: input.data.workspace.id,
+      projectId: project.id,
+      content,
+      document: content.document,
+      connection: input.connection,
+      selectedTarget: input.selectedTarget === true,
+      refresh: true,
+    });
+    const candidateUrls = documentWithInternalLinks.metadata?.approvalEvidence?.sources
       .map((source) => canonicalizeApprovalEvidenceUrl(source.url))
       .filter(Boolean) ?? [];
     const uniqueCandidateUrls = [...new Set(candidateUrls)];
     const sourcePages = await fetchApprovalSourcePages(uniqueCandidateUrls, this.fetcher);
     const evidence = verifyApprovalEvidence(
-      content.document,
+      documentWithInternalLinks,
       aware.approvalProfileId as ApprovalPolicyProfileId,
       sourcePages,
       checkedAt,
@@ -89,9 +102,9 @@ export class ApprovalReadinessApplicationService {
     });
 
     const documentWithSnapshots: ContentDocument = {
-      ...content.document,
+      ...documentWithInternalLinks,
       metadata: {
-        ...content.document.metadata!,
+        ...documentWithInternalLinks.metadata!,
         updatedAt: checkedAt,
         approvalEvidence: provisionalEvidence,
         siteApprovalReadiness: siteReadiness,
