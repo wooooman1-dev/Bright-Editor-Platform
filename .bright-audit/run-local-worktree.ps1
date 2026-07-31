@@ -21,11 +21,11 @@ if (-not (Test-Path (Join-Path $sourceRoot ".git"))) {
 $remoteBranch = "fix/wordpress-full-audit"
 $remoteTrackingRef = "refs/remotes/origin/$remoteBranch"
 $remoteHeadRef = "refs/heads/$remoteBranch"
-$expectedPartLengths = @(6000, 6000, 6000, 644)
-$expectedBase64Length = 18644
-$expectedCompressedHash = "b6296f225de9276905a6e5aefaac6e939234812105553ca60c7c81475d25fed6"
-$expectedScriptLength = 56947
-$expectedScriptHash = "0c31ef2ab82adcdb84d7dc4fda5270faac82b6bb7124c1ce61afdbf5e63ceed0"
+$expectedPartLengths = @(4664, 4664, 4664, 4660)
+$expectedBase64Length = 18652
+$expectedCompressedHash = "0ba37f2345802775ce298e491c4a03a855e966c39ab3f2ef8e08ed1134016617"
+$expectedScriptLength = 56970
+$expectedScriptHash = "b9076141bfac3f86eb7e8d40fd7be9ba4f1e7ed810bef5a18fc79a91b708e330"
 $parent = Split-Path $sourceRoot -Parent
 $stamp = [DateTimeOffset]::Now.ToUnixTimeSeconds()
 $localBranch = "fix/wordpress-full-audit-local-$stamp"
@@ -51,7 +51,7 @@ try {
     Write-Host "[3/9] Reading and verifying the four-part correction archive."
     $base64Builder = [Text.StringBuilder]::new()
     for ($index = 0; $index -lt $expectedPartLengths.Count; $index += 1) {
-        $partPath = ".bright-audit/archive-v2/part-{0:D2}.b64" -f $index
+        $partPath = ".bright-audit/archive-v3/part-{0:D2}.b64" -f $index
         $rawPart = (git show "HEAD:$partPath") -join ""
         if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($rawPart)) {
             throw "Could not read correction archive part: $partPath"
