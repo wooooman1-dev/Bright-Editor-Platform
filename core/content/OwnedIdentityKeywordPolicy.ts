@@ -18,6 +18,35 @@ export type OwnedIdentityKeywordPolicyInput = Readonly<{
 export function findUnrequestedOwnedIdentityPrefixes(
   input: OwnedIdentityKeywordPolicyInput,
 ): readonly string[] {
+  return findUnrequestedOwnedTerms(input, (value, term) => hasOwnedIdentityPrefix(value, term));
+}
+
+/**
+ * Finds unrequested owned identity labels anywhere in generated editorial
+ * output. This is intentionally broader than the Planning-prefix check because
+ * a model can reinsert a Project/Brand label into titles, prose, metadata, ALT,
+ * tags, or CTA labels even when the canonical keyword input was clean.
+ */
+export function findUnrequestedOwnedIdentityOccurrences(
+  input: OwnedIdentityKeywordPolicyInput,
+): readonly string[] {
+  return findUnrequestedOwnedTerms(input, (value, term) =>
+    normalize(value).toLocaleLowerCase("ko-KR")
+      .includes(normalize(term).toLocaleLowerCase("ko-KR")));
+}
+
+export function hasOwnedIdentityPrefix(value: string, ownedTerm: string): boolean {
+  const normalizedValue = normalize(value);
+  const normalizedTerm = normalize(ownedTerm);
+  if (!normalizedValue || !normalizedTerm) return false;
+  return new RegExp(`^${escapeRegExp(normalizedTerm)}(?:\\s+|\\s*[-–—:|·]\\s*)`, "iu")
+    .test(normalizedValue);
+}
+
+function findUnrequestedOwnedTerms(
+  input: OwnedIdentityKeywordPolicyInput,
+  matchesValue: (value: string, term: string) => boolean,
+): readonly string[] {
   const request = normalize(input.sourceRequest).toLocaleLowerCase("ko-KR");
   const values = input.values.map(normalize).filter(Boolean);
   const matches = input.ownedTerms
@@ -27,17 +56,9 @@ export function findUnrequestedOwnedIdentityPrefixes(
       const explicitlyRequested = input.selectionMode === "userSpecified"
         && request.includes(term.toLocaleLowerCase("ko-KR"));
       if (explicitlyRequested) return false;
-      return values.some((value) => hasOwnedIdentityPrefix(value, term));
+      return values.some((value) => matchesValue(value, term));
     });
   return Object.freeze([...new Set(matches)]);
-}
-
-export function hasOwnedIdentityPrefix(value: string, ownedTerm: string): boolean {
-  const normalizedValue = normalize(value);
-  const normalizedTerm = normalize(ownedTerm);
-  if (!normalizedValue || !normalizedTerm) return false;
-  return new RegExp(`^${escapeRegExp(normalizedTerm)}(?:\\s+|\\s*[-–—:|·]\\s*)`, "iu")
-    .test(normalizedValue);
 }
 
 function normalize(value: string): string {
