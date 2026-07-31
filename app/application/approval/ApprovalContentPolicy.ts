@@ -138,10 +138,22 @@ export function contentBoundEditorialContext(
     Object.entries(projectContext).filter(([key]) => key !== "approvalPolicy"),
   ));
   const approvalPolicy = contentApprovalPromptContext(content);
+  const sourceRequest = content.opportunity?.sourceRequest
+    ?? content.planningWorkflow?.request
+    ?? content.naturalLanguageRequest
+    ?? "";
+  const selectionMode = content.opportunity?.selectionMode
+    ?? content.planning?.selectionMode
+    ?? content.planningWorkflow?.selectionMode
+    ?? "automatic";
   return JSON.stringify({
     projectStrategy: {
       ...stableProjectContext,
       ...(approvalPolicy ? { approvalPolicy } : {}),
+    },
+    ownedIdentityPolicy: {
+      sourceRequest,
+      selectionMode,
     },
   });
 }
