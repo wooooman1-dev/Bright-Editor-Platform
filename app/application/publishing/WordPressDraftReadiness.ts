@@ -80,22 +80,22 @@ export function calculateWordPressDraftReadiness(input: Readonly<{
     || permissionAllowed("media.upload", data, project, content, connection);
 
   const checks: readonly WordPressDraftReadinessCheck[] = Object.freeze([
-    check("workspace_project_content_ownership", projectOwned && contentOwned, "Workspace, Project, and Content ownership must match."),
-    check("wordpress_enabled", enabled, "WordPress must be enabled in Workspace Settings."),
-    check("connection", connectionOwned && connected && verified, "A connected and verified WordPress Connection with a stored secret is required."),
-    check("selected_target", selectedTarget, "Select this WordPress Connection as the publishing target."),
+    check("workspace_project_content_ownership", projectOwned && contentOwned, "작업공간, 프로젝트와 콘텐츠의 소유 관계가 일치해야 합니다."),
+    check("wordpress_enabled", enabled, "작업공간 설정에서 워드프레스를 활성화해야 합니다."),
+    check("connection", connectionOwned && connected && verified, "비밀번호가 안전하게 저장된 연결·검증 완료 워드프레스 계정이 필요합니다."),
+    check("selected_target", selectedTarget, "이 워드프레스 계정을 발행 대상으로 선택해야 합니다."),
     check("category_catalog", categoriesReady, categoryMessage(categorySelection, input.categoryResult.hasMore)),
-    check("quality_revision", qualityReady, "The current Content Revision requires standard Quality Approval."),
-    check("review_first", policy.reviewFirst, "Review First must remain enabled."),
-    check("draft_only", policy.draftOnly, "Draft Only must remain enabled."),
-    check("public_publish_off", !policy.publicPublish, "Public Publish must remain disabled."),
-    check("category_read_permission", categoryRead, "The Connection must allow category.read."),
-    check("category_select_permission", categorySelect, "The Connection must allow category.select."),
-    check("draft_create_permission", draftCreate, "The Connection must allow draft.create."),
-    check("draft_verify_permission", draftVerify, "The Connection must allow draft.verify."),
-    check("local_media", mediaFilesReady, "Every local image must pass ownership, file, format, and size validation."),
-    check("media_upload_permission", mediaUpload, "Local images require explicit media.upload permission."),
-    check("final_confirmation", input.finalConfirmation, "Final user confirmation is required."),
+    check("quality_revision", qualityReady, "현재 문서 버전이 기본 품질 승인을 통과해야 합니다."),
+    check("review_first", policy.reviewFirst, "검토 후 저장 정책이 활성화되어 있어야 합니다."),
+    check("draft_only", policy.draftOnly, "임시글만 저장 정책이 활성화되어 있어야 합니다."),
+    check("public_publish_off", !policy.publicPublish, "공개 발행은 비활성화되어 있어야 합니다."),
+    check("category_read_permission", categoryRead, "연결 계정에 카테고리 조회 권한이 필요합니다."),
+    check("category_select_permission", categorySelect, "연결 계정에 카테고리 선택 권한이 필요합니다."),
+    check("draft_create_permission", draftCreate, "연결 계정에 임시글 생성 권한이 필요합니다."),
+    check("draft_verify_permission", draftVerify, "연결 계정에 임시글 검증 권한이 필요합니다."),
+    check("local_media", mediaFilesReady, "모든 로컬 이미지는 소유권, 파일 존재, 형식과 크기 검증을 통과해야 합니다."),
+    check("media_upload_permission", mediaUpload, "로컬 이미지가 있으면 이미지 업로드 권한을 명시적으로 허용해야 합니다."),
+    check("final_confirmation", input.finalConfirmation, "사용자의 최종 확인이 필요합니다."),
   ]);
   const ready = checks.filter((item) => item.key !== "final_confirmation").every((item) => item.passed);
   return Object.freeze({
@@ -122,14 +122,14 @@ export function assertWordPressCategoryLookupAllowed(input: Readonly<{
     || !input.data.contents.some((item) => item.id === input.content.id
       && item.projectId === input.project.id
       && item.workspaceId === workspaceId)) {
-    throw new Error("WordPress publishing ownership verification failed.");
+    throw new Error("워드프레스 발행 대상의 소유 관계를 확인하지 못했습니다.");
   }
-  if (!isPlatformEnabled(input.data, "wordpress")) throw new Error("WordPress is disabled in Workspace Settings.");
+  if (!isPlatformEnabled(input.data, "wordpress")) throw new Error("작업공간 설정에서 워드프레스가 비활성화되어 있습니다.");
   if (input.connection.workspaceId !== workspaceId || input.connection.platform !== "wordpress") {
-    throw new Error("WordPress Connection ownership verification failed.");
+    throw new Error("워드프레스 연결 계정의 소유 관계를 확인하지 못했습니다.");
   }
   if (input.connection.status !== "connected" || !validVerificationTime(input.connection.lastVerifiedAt)) {
-    throw new Error("A connected and verified WordPress Connection is required.");
+    throw new Error("연결과 검증이 완료된 워드프레스 계정이 필요합니다.");
   }
   new PublishingPermissionGate().authorize({
     workspaceId,
@@ -180,11 +180,11 @@ function validVerificationTime(value: string | undefined): boolean {
 }
 
 function categoryMessage(selection: WordPressCategorySelectionResolution, incomplete: boolean): string {
-  if (incomplete) return "The complete WordPress Category catalog is required before execution.";
-  if (selection.valid) return `Validated ${selection.categoryIds.length} WordPress Category selection(s).`;
-  if (selection.reason === "connection_mismatch") return "The Category catalog belongs to a different WordPress Connection.";
-  if (selection.reason === "missing") return "Select at least one valid WordPress Category.";
-  return "A selected WordPress Category was deleted or is no longer available.";
+  if (incomplete) return "실행 전에 워드프레스 카테고리 전체 목록을 모두 불러와야 합니다.";
+  if (selection.valid) return `워드프레스 카테고리 ${selection.categoryIds.length}개를 검증했습니다.`;
+  if (selection.reason === "connection_mismatch") return "카테고리 목록이 다른 워드프레스 연결 계정에서 조회되었습니다.";
+  if (selection.reason === "missing") return "사용 가능한 워드프레스 카테고리를 하나 이상 선택하세요.";
+  return "선택한 워드프레스 카테고리가 삭제되었거나 더 이상 사용할 수 없습니다.";
 }
 
 function invalidCategorySelection(): WordPressCategorySelectionResolution {
