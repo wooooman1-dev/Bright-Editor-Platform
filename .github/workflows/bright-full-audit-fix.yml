@@ -6,6 +6,12 @@ on:
       - fix/wordpress-full-audit
     paths:
       - ".github/workflows/bright-full-audit-fix.yml"
+  pull_request:
+    branches:
+      - fix/wordpress-full-audit
+    types:
+      - opened
+      - synchronize
 
 permissions:
   contents: write
