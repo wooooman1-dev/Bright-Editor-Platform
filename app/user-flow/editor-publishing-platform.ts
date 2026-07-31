@@ -19,7 +19,8 @@ export function editorPublishingPlatformVisibility(input: Readonly<{
   content: UserContent;
 }>): EditorPublishingPlatformVisibility {
   const activePlatform = resolveEditorPublishingPlatform(input.project, input.content);
-  const enabledPlatforms = input.enabledPlatforms ?? ["tistory"];
+  const enabledPlatforms = input.enabledPlatforms
+    ?? (activePlatform ? [activePlatform] : []);
   return Object.freeze({
     ...(activePlatform ? { activePlatform } : {}),
     tistoryEnabled: activePlatform === "tistory" && enabledPlatforms.includes("tistory"),
