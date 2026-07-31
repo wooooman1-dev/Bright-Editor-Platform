@@ -168,6 +168,50 @@ describe("AIWorkflow canonical editorial context", () => {
     expect(provider.calls).toBe(0);
   });
 
+  it("blocks a model response that reinserts the Project identity into body, metadata, ALT, or tags", async () => {
+    const provider = new RecordingProvider();
+    const clean = opportunity({
+      selectionMode: "automatic",
+      sourceRequest: "생활경제 주제를 선정해줘",
+      selectedTopic: "통장 쪼개기 방법",
+      primaryKeyword: "통장 쪼개기 방법",
+    });
+    const contaminatedOutput: ContentGenerationStrategy = {
+      createRequest: strategy.createRequest,
+      parse: () => ({
+        id: "content-1",
+        title: "통장 쪼개기 방법",
+        blocks: [
+          { id: "p1", type: "paragraph", text: "밝은재테크 독자를 위한 통장 관리 안내입니다." },
+          { id: "image", type: "image", source: "", alt: "밝은재테크 통장 관리 이미지" },
+        ],
+        metadata: {
+          buttonCount: 0,
+          createdAt: "2026-07-31T00:00:00.000Z",
+          generator: "test",
+          imageCount: 1,
+          language: "ko",
+          readingTime: 1,
+          source: "ai",
+          updatedAt: "2026-07-31T00:00:00.000Z",
+          version: 1,
+          videoCount: 0,
+          wordCount: 10,
+          metaDescription: "밝은재테크 통장 관리 방법",
+          tags: ["밝은재테크", "통장관리"],
+        },
+      }),
+    };
+
+    await expect(new AIWorkflow(provider, contaminatedOutput).generate({
+      ...input,
+      editorialContext: identityContext,
+      contentOpportunity: clean,
+      keywords: [clean.primaryKeyword, ...clean.secondaryKeywords],
+    })).rejects.toThrow("AI 생성 결과의 제목·본문·메타데이터·이미지 설명 또는 태그");
+    expect(provider.calls).toBe(1);
+  });
+
   it("keeps an owned identity when a user explicitly selected it as the search subject", async () => {
     const provider = new RecordingProvider();
     const requested = opportunity({
