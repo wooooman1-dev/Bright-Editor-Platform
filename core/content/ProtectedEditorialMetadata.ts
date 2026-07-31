@@ -1,5 +1,6 @@
-import type { ApprovalEvidencePack } from "../approval";
 import type { ContentDocument } from "./ContentDocument";
+
+type ApprovalEvidencePack = NonNullable<ContentDocument["metadata"]>["approvalEvidence"];
 
 export function restoreProtectedEditorialMetadata(
   current: ContentDocument,
@@ -25,8 +26,8 @@ export function restoreProtectedEditorialMetadata(
 }
 
 function resetApprovalEvidence(
-  pack: ApprovalEvidencePack | undefined,
-): ApprovalEvidencePack | undefined {
+  pack: ApprovalEvidencePack,
+): ApprovalEvidencePack {
   if (!pack?.sources.length) return undefined;
   return Object.freeze({
     version: "1.0",
