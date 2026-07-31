@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { applyApprovalPersistencePolicy } from "../../../../../app/application/approval/ApprovalAwarePersistenceStore";
+import type { ApprovalAwareContent } from "../../../../../app/application/approval/ApprovalContentPolicy";
 import type { ApprovalEvidenceSource } from "../../../../../core/approval";
 import type { UserData } from "../../../../../app/user-flow/user-data";
 
@@ -8,6 +9,44 @@ function candidateData(
   paragraph: string,
   sources: readonly ApprovalEvidenceSource[],
 ): UserData {
+  const content: ApprovalAwareContent = {
+    id: "content-1",
+    workspaceId: "workspace-1",
+    projectId: "project-1",
+    title: "통장 쪼개기 방법",
+    body: "",
+    status: "in_review",
+    updatedAt: "2026-07-31T00:00:00.000Z",
+    contentPurpose: "adsense_approval",
+    approvalPolicyId: "adsense_approval_mode",
+    approvalPolicyVersion: "1.0",
+    approvalProfileId: "wordpress_life_economy_v1",
+    approvalProfileVersion: "1.0",
+    document: {
+      id: "document-1",
+      title: "통장 쪼개기 방법",
+      metadata: {
+        buttonCount: 0,
+        createdAt: "2026-07-31T00:00:00.000Z",
+        generator: "test",
+        imageCount: 0,
+        language: "ko",
+        readingTime: 1,
+        source: "test",
+        updatedAt: "2026-07-31T00:00:00.000Z",
+        version: 1,
+        videoCount: 0,
+        wordCount: 10,
+        approvalEvidence: {
+          version: "1.0",
+          status: "needs_review",
+          sources,
+        },
+      },
+      blocks: [{ id: "p1", type: "paragraph", text: paragraph }],
+    },
+  };
+
   return {
     workspace: { id: "workspace-1", name: "Studio" },
     brands: [],
@@ -19,44 +58,8 @@ function candidateData(
       createdAt: "2026-07-31T00:00:00.000Z",
       updatedAt: "2026-07-31T00:00:00.000Z",
     }],
-    contents: [{
-      id: "content-1",
-      workspaceId: "workspace-1",
-      projectId: "project-1",
-      title: "통장 쪼개기 방법",
-      body: "",
-      status: "in_review",
-      updatedAt: "2026-07-31T00:00:00.000Z",
-      contentPurpose: "adsense_approval",
-      approvalPolicyId: "adsense_approval_mode",
-      approvalPolicyVersion: "1.0",
-      approvalProfileId: "wordpress_life_economy_v1",
-      approvalProfileVersion: "1.0",
-      document: {
-        id: "document-1",
-        title: "통장 쪼개기 방법",
-        metadata: {
-          buttonCount: 0,
-          createdAt: "2026-07-31T00:00:00.000Z",
-          generator: "test",
-          imageCount: 0,
-          language: "ko",
-          readingTime: 1,
-          source: "test",
-          updatedAt: "2026-07-31T00:00:00.000Z",
-          version: 1,
-          videoCount: 0,
-          wordCount: 10,
-          approvalEvidence: {
-            version: "1.0",
-            status: "needs_review",
-            sources,
-          },
-        },
-        blocks: [{ id: "p1", type: "paragraph", text: paragraph }],
-      },
-    }],
-  } as UserData;
+    contents: [content],
+  };
 }
 
 const webCandidate: ApprovalEvidenceSource = {
