@@ -1,9 +1,11 @@
 import type { PersistenceMutation, PersistenceStore } from "../../../core/data";
 import {
+  canonicalizeApprovalEvidenceUrl,
   evaluateApprovalDuplicateRisk,
   normalizeContentPurpose,
   type ApprovalDuplicateCheckSnapshot,
   type ApprovalEvidencePack,
+  type ApprovalEvidenceSource,
   type ApprovalEvidenceSourceType,
 } from "../../../core/approval";
 import type { ContentDocument } from "../../../core/content";
@@ -198,39 +200,18 @@ function attachApprovalEvidenceCandidatePacks(data: UserData): UserData {
     const aware = content as ApprovalAwareContent;
     if (normalizeContentPurpose(aware.contentPurpose) !== "adsense_approval" || !content.document?.metadata) return content;
 
-    const candidates = collectEvidenceCandidates(content.document);
     const existing = content.document.metadata.approvalEvidence;
     if (existing?.reviewedRevisionId === contentRevisionId(content.document)) return content;
-    const sourceUrls = candidates.map((candidate) => candidate.url).sort();
-    const existingUrls = existing?.sources.map((source) => normalizeSourceUrl(source.url)).filter(Boolean).sort() ?? [];
-    if (existing?.status === "verified" && JSON.stringify(sourceUrls) === JSON.stringify(existingUrls)) return content;
 
+    const visibleCandidates = collectEvidenceCandidates(content.document);
     const retrievedAt = latestDocumentTimestamp([content], content.updatedAt);
     const sourceType = approvalEvidenceSourceType(aware.approvalProfileId);
-    const pack: ApprovalEvidencePack = candidates.length
-      ? Object.freeze({
-          version: "1.0",
-          status: "needs_review",
-          sources: Object.freeze(candidates.map((candidate) => Object.freeze({
-            sourceId: evidenceSourceId(candidate.url),
-            url: candidate.url,
-            title: candidate.title,
-            publisher: candidate.publisher,
-            sourceType,
-            retrievedAt,
-            verified: false,
-            facts: Object.freeze([Object.freeze({
-              field: "citedContext",
-              value: candidate.context,
-            })]),
-            rights: Object.freeze({ status: "unknown" as const }),
-          }))),
-        })
-      : Object.freeze({
-          version: "1.0",
-          status: "missing",
-          sources: Object.freeze([]),
-        });
+    const pack = mergeApprovalEvidenceCandidatePack(
+      existing,
+      visibleCandidates,
+      sourceType,
+      retrievedAt,
+    );
 
     if (JSON.stringify(existing) === JSON.stringify(pack)) return content;
     changed = true;
@@ -247,6 +228,87 @@ function attachApprovalEvidenceCandidatePacks(data: UserData): UserData {
   });
 
   return changed ? { ...data, contents } : data;
+}
+
+function mergeApprovalEvidenceCandidatePack(
+  existing: ApprovalEvidencePack | undefined,
+  visibleCandidates: readonly Readonly<{
+    url: string;
+    title: string;
+    publisher: string;
+    context: string;
+  }>[],
+  defaultSourceType: ApprovalEvidenceSourceType,
+  retrievedAt: string,
+): ApprovalEvidencePack {
+  const sources = new Map<string, ApprovalEvidenceSource>();
+
+  for (const source of existing?.sources ?? []) {
+    const url = normalizeSourceUrl(source.url);
+    if (!url || sources.has(url)) continue;
+    sources.set(url, resetEvidenceCandidate(source, url));
+  }
+
+  for (const candidate of visibleCandidates) {
+    const previous = sources.get(candidate.url);
+    const previousFacts = (previous?.facts ?? []).filter((fact) => fact.field !== "citedContext");
+    sources.set(candidate.url, Object.freeze({
+      sourceId: previous?.sourceId ?? evidenceSourceId(candidate.url),
+      url: candidate.url,
+      canonicalUrl: candidate.url,
+      title: usefulSourceLabel(previous?.title, previous?.publisher)
+        ? previous!.title
+        : candidate.title,
+      publisher: usefulSourceLabel(previous?.publisher)
+        ? previous!.publisher
+        : candidate.publisher,
+      sourceType: previous?.sourceType ?? defaultSourceType,
+      retrievedAt: previous?.retrievedAt ?? retrievedAt,
+      verified: false,
+      selected: false,
+      facts: Object.freeze([
+        ...previousFacts,
+        Object.freeze({ field: "citedContext", value: candidate.context }),
+      ]),
+      rights: previous?.rights ?? Object.freeze({ status: "unknown" as const }),
+    }));
+  }
+
+  const values = Object.freeze([...sources.values()]);
+  return values.length
+    ? Object.freeze({
+        version: "1.0",
+        status: "needs_review",
+        sources: values,
+      })
+    : Object.freeze({
+        version: "1.0",
+        status: "missing",
+        sources: Object.freeze([]),
+      });
+}
+
+function resetEvidenceCandidate(
+  source: ApprovalEvidenceSource,
+  url: string,
+): ApprovalEvidenceSource {
+  return Object.freeze({
+    ...source,
+    url,
+    canonicalUrl: url,
+    verified: false,
+    selected: false,
+    verificationStatus: undefined,
+    failureReason: undefined,
+    matchedFacts: undefined,
+    checkedAt: undefined,
+  });
+}
+
+function usefulSourceLabel(value: string | undefined, publisher?: string): boolean {
+  const label = value?.trim();
+  if (!label) return false;
+  return publisher ? label !== publisher.trim() : !/^www\.|\.[a-z]{2,}$/i.test(label);
 }
 
 function collectEvidenceCandidates(document: ContentDocument): readonly Readonly<{
@@ -285,14 +347,8 @@ function approvalEvidenceSourceType(profileId: ApprovalAwareContent["approvalPro
 }
 
 function normalizeSourceUrl(value: string): string | undefined {
-  try {
-    const url = new URL(value.replace(/[.,;:!?]+$/g, ""));
-    if (url.protocol !== "https:") return undefined;
-    url.hash = "";
-    return url.toString();
-  } catch {
-    return undefined;
-  }
+  const canonical = canonicalizeApprovalEvidenceUrl(value.replace(/[.,;:!?]+$/g, ""));
+  return canonical.startsWith("https://") ? canonical : undefined;
 }
 
 function evidenceSourceId(url: string): string {
