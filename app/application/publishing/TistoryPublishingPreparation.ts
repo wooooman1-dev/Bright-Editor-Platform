@@ -7,6 +7,7 @@ import { contentRevisionId, isStandardQualityApproved, QualityEngine } from "../
 import { PublishingPermissionGate } from "../../../core/publishing";
 import { isPlatformEnabled, resolveWorkspaceSettings } from "../settings/WorkspaceSettingsService";
 import { resolveProjectStrategy, type UserContent, type UserData, type UserProject } from "../../user-flow/user-data";
+import { contentOwnedIdentityContamination } from "./ContentOwnedIdentityPolicy";
 
 export type TistoryReadinessCheck = Readonly<{ key: string; passed: boolean; message: string }>;
 export type TistoryReadiness = Readonly<{ ready: boolean; checks: readonly TistoryReadinessCheck[] }>;
@@ -37,7 +38,7 @@ export function applyTistoryPublishingAccount(
 ): UserData {
   const project = data.projects.find((item) => item.id === projectId && item.workspaceId === data.workspace?.id);
   const content = data.contents.find((item) => item.id === contentId && item.projectId === projectId && item.workspaceId === data.workspace?.id);
-  if (!project || !content) throw new Error("발행 준비 대상 Project와 Content를 찾을 수 없습니다.");
+  if (!project || !content) throw new Error("발행 준비 대상 프로젝트와 콘텐츠를 찾을 수 없습니다.");
   const strategy = resolveProjectStrategy(project);
   const defaultCategory = strategy.defaultTistoryCategory?.publishingAccountId === connectionId ? strategy.defaultTistoryCategory : undefined;
   return {
@@ -95,7 +96,7 @@ export function applyTistoryPublishingCategory(
 ): UserData {
   const project = data.projects.find((item) => item.id === projectId && item.workspaceId === data.workspace?.id);
   const content = data.contents.find((item) => item.id === contentId && item.projectId === projectId && item.workspaceId === data.workspace?.id);
-  if (!project || !content) throw new Error("카테고리 적용 대상 Project와 Content를 찾을 수 없습니다.");
+  if (!project || !content) throw new Error("카테고리 적용 대상 프로젝트와 콘텐츠를 찾을 수 없습니다.");
   const strategy = resolveProjectStrategy(project);
   return {
     ...data,
@@ -162,6 +163,7 @@ export async function calculateTistoryReadiness(input: Readonly<{
     && currentRevision
     && content.quality.reviewedRevisionId === currentRevision);
   const localImageCount = content.document?.blocks.filter((block) => block.type === "image" && /^\/api\/media\//i.test(block.source)).length ?? 0;
+  const identityContamination = contentOwnedIdentityContamination(data, project, content);
   let permissionPassed = false;
   let mediaPermissionPassed = localImageCount === 0;
   if (connection && owned) {
@@ -178,14 +180,15 @@ export async function calculateTistoryReadiness(input: Readonly<{
     }
   }
   const checks: TistoryReadinessCheck[] = [
-    { key: "enabled_tistory", passed: enabled, message: enabled ? "티스토리가 Workspace에서 활성화되었습니다." : "Workspace 설정에서 티스토리를 활성화해 주세요." },
-    { key: "publishing_account", passed: owned && connected && verified && session && accountStored, message: owned && connected && verified && session && accountStored ? `계정 ${connection!.displayName}이 자동 적용되었습니다.` : "연결·검증·세션이 유효한 Workspace 소유 티스토리 계정을 적용해 주세요." },
+    { key: "enabled_tistory", passed: enabled, message: enabled ? "작업공간에서 티스토리가 활성화되어 있습니다." : "작업공간 설정에서 티스토리를 활성화해 주세요." },
+    { key: "publishing_account", passed: owned && connected && verified && session && accountStored, message: owned && connected && verified && session && accountStored ? `계정 ${connection!.displayName}이 자동 적용되었습니다.` : "연결·검증·세션이 유효한 작업공간 소유 티스토리 계정을 적용해 주세요." },
     { key: "category", passed: categoryStored, message: categoryStored ? (preparation!.platformCategoryId === null ? "카테고리 없음이 명시적으로 적용되었습니다." : `카테고리 ${preparation!.platformCategoryName}이 적용되었습니다.`) : "티스토리 카테고리 또는 카테고리 없음을 선택해 주세요." },
-    { key: "quality", passed: qualityPassed, message: qualityPassed ? `현재 Revision의 standard 원고 품질 승인 ${content.quality!.overallScore}점이 확인되었습니다.` : "현재 원고 Revision의 품질 승인이 필요합니다." },
-    { key: "media_upload_permission", passed: mediaPermissionPassed, message: localImageCount === 0 ? "외부 업로드가 필요한 로컬 이미지가 없습니다." : mediaPermissionPassed ? `로컬 이미지 ${localImageCount}개의 Tistory 업로드가 허용되었습니다.` : `로컬 이미지 ${localImageCount}개가 있습니다. 설정의 이미지 권한에서 이 계정의 업로드를 허용해 주세요.` },
-    { key: "draft_only", passed: policy.publishing.draftOnly && !policy.publishing.publicPublish, message: policy.publishing.draftOnly && !policy.publishing.publicPublish ? "Draft Only 정책이 적용되었습니다." : "Draft Only 정책을 확인해 주세요." },
-    { key: "review_first", passed: policy.publishing.reviewFirst, message: policy.publishing.reviewFirst ? "Review First 정책이 적용되었습니다." : "Review First 정책을 확인해 주세요." },
-    { key: "permission_gate", passed: permissionPassed, message: permissionPassed ? "Permission Gate에서 임시저장이 허용되었습니다." : "이 계정의 임시저장 권한을 확인해 주세요." },
+    { key: "planning_identity", passed: identityContamination.length === 0, message: identityContamination.length === 0 ? "기획 주제와 검색 키워드에 프로젝트명 또는 브랜드명이 검색어로 섞이지 않았습니다." : `기존 기획에 검색 주제가 아닌 프로젝트명 또는 브랜드명이 포함되어 있습니다: ${identityContamination.join(", ")}. 새 콘텐츠에서 기획을 다시 실행해 주세요.` },
+    { key: "quality", passed: qualityPassed, message: qualityPassed ? `현재 문서 버전의 기본 원고 품질 승인 ${content.quality!.overallScore}점을 확인했습니다.` : "현재 문서 버전의 품질 승인이 필요합니다." },
+    { key: "media_upload_permission", passed: mediaPermissionPassed, message: localImageCount === 0 ? "외부 업로드가 필요한 로컬 이미지가 없습니다." : mediaPermissionPassed ? `로컬 이미지 ${localImageCount}개의 티스토리 업로드가 허용되었습니다.` : `로컬 이미지 ${localImageCount}개가 있습니다. 설정의 이미지 권한에서 이 계정의 업로드를 허용해 주세요.` },
+    { key: "draft_only", passed: policy.publishing.draftOnly && !policy.publishing.publicPublish, message: policy.publishing.draftOnly && !policy.publishing.publicPublish ? "임시글만 저장 정책이 적용되었습니다." : "임시글만 저장 정책을 확인해 주세요." },
+    { key: "review_first", passed: policy.publishing.reviewFirst, message: policy.publishing.reviewFirst ? "검토 후 저장 정책이 적용되었습니다." : "검토 후 저장 정책을 확인해 주세요." },
+    { key: "permission_gate", passed: permissionPassed, message: permissionPassed ? "권한 검사에서 임시저장이 허용되었습니다." : "이 계정의 임시저장 권한을 확인해 주세요." },
     { key: "final_confirmation", passed: input.finalConfirmation, message: input.finalConfirmation ? "최종 사용자 확인이 완료되었습니다." : "최종 확인이 필요합니다." },
   ];
   return Object.freeze({ ready: checks.filter((check) => check.key !== "final_confirmation").every((check) => check.passed), checks: Object.freeze(checks) });
