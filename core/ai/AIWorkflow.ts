@@ -2,7 +2,11 @@ import {
   approvalPolicySnapshotFromEditorialContext,
   type ApprovalPolicySnapshot,
 } from "../approval";
-import type { ConfirmedContentOpportunity, ContentDocument } from "../content";
+import {
+  findUnrequestedOwnedIdentityPrefixes,
+  type ConfirmedContentOpportunity,
+  type ContentDocument,
+} from "../content";
 import type { AIProvider, AIResponse } from "./AIProvider";
 
 export type PlatformId = string & { readonly __platformId: unique symbol };
@@ -56,6 +60,7 @@ export class AIWorkflow {
 
   async generate(input: GenerationInput): Promise<GenerationResult> {
     validateInput(input);
+    assertOwnedIdentityKeywordPolicy(input);
     this.state = Object.freeze({ status: "generating" });
     try {
       const request = this.strategy.createRequest(input);
@@ -118,6 +123,28 @@ export function withApprovalPolicyMetadata(
   });
 }
 
+export function assertOwnedIdentityKeywordPolicy(input: GenerationInput): void {
+  const opportunity = input.contentOpportunity;
+  if (!opportunity) return;
+  const ownedTerms = editorialOwnedIdentityTerms(input.editorialContext);
+  if (!ownedTerms.length) return;
+  const contamination = findUnrequestedOwnedIdentityPrefixes({
+    ownedTerms,
+    sourceRequest: opportunity.sourceRequest,
+    selectionMode: opportunity.selectionMode,
+    values: [
+      opportunity.selectedTopic,
+      opportunity.primaryKeyword,
+      ...opportunity.secondaryKeywords,
+      ...input.keywords,
+    ],
+  });
+  if (!contamination.length) return;
+  throw new Error(
+    `저장된 콘텐츠 기획에 검색 주제가 아닌 프로젝트명 또는 브랜드명이 포함되어 AI 생성을 차단했습니다: ${contamination.join(", ")}. 새 Content에서 Planning을 다시 실행해 주세요.`,
+  );
+}
+
 function withApprovalEvidenceSearchInstruction(
   instruction: string,
   snapshot: ApprovalPolicySnapshot | undefined,
@@ -125,7 +152,8 @@ function withApprovalEvidenceSearchInstruction(
   if (!snapshot) return instruction;
   return `${instruction}\n\nApproval evidence search contract (mandatory):
 - Use the attached web search tool during this same Generation call.
-- Prefer official primary sources required by the active profile. Do not use a secondary blog, copied article, community post, or search-result snippet when an official institution page is available.
+- Prefer official primary sources required by the active profile. Use a direct official detail or guidance page that contains the cited fact; search-result, listing, archive-index, and navigation pages are not accepted as final Evidence.
+- Do not use a secondary blog, copied article, community post, or search-result snippet when an official institution page is available.
 - Use only facts supported by the official pages you actually opened or searched in this response.
 - Include the official HTTPS source URL in the reader-visible source section and include an information date or final review date.
 - For changeable policy or financial facts, state the applicable date and tell the reader where to re-check the current rule.
@@ -141,4 +169,26 @@ function validateInput(input: GenerationInput): void {
   if (input.keywords.length === 0 || input.keywords.some((keyword) => !keyword.trim())) {
     throw new Error("At least one non-empty keyword is required.");
   }
+}
+
+function editorialOwnedIdentityTerms(editorialContext?: string): readonly string[] {
+  if (!editorialContext?.trim()) return Object.freeze([]);
+  try {
+    const parsed = JSON.parse(editorialContext) as Record<string, unknown>;
+    const strategy = objectValue(parsed.projectStrategy);
+    const identity = objectValue(strategy?.projectIdentity);
+    if (!identity) return Object.freeze([]);
+    return Object.freeze([
+      identity.projectName,
+      identity.brandName,
+    ].filter((value): value is string => typeof value === "string" && Boolean(value.trim())));
+  } catch {
+    return Object.freeze([]);
+  }
+}
+
+function objectValue(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
 }
