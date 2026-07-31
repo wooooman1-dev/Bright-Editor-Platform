@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 
-import { TistoryPostWorkflowError } from "../../../../apps/tistory/workflows/TistoryPostReadWorkflow";
+import type { Platform } from "../../../../core/connections";
 import { connectionRepository, targetRepository } from "../../../application/connections/connection-runtime";
 import {
   publishingCategoryIdentities,
   rankPublishingPostCandidates,
 } from "../../../application/publishing/InternalLinkCatalogPolicy";
+import { PublicPostCatalogError } from "../../../application/publishing/PublicPostCatalogError";
 import { PublicPostCatalogApplicationService } from "../../../application/publishing/PublicPostCatalogApplicationService";
 import { resolveCanonicalPublishingConnection } from "../../../application/publishing/ProjectPublishingTarget";
 import { isPublishingConnectionSelectedForContent } from "../../../application/publishing/PublishingTargetSelection";
@@ -23,7 +24,7 @@ export async function GET(request: Request) {
 
     const data = await studioStore.get<UserData>("application", "user-data");
     if (!data?.workspace || data.workspace.id !== workspaceId) {
-      throw new Error("Workspace를 찾을 수 없습니다.");
+      throw new Error("작업공간을 찾을 수 없습니다.");
     }
     const content = data.contents.find((item) =>
       item.id === contentId && item.workspaceId === workspaceId);
@@ -36,10 +37,10 @@ export async function GET(request: Request) {
       ? resolveCanonicalPublishingConnection(data, content, connections)
       : undefined;
     if (!content || !project || !canonical || canonical.id !== connectionId) {
-      throw new Error("현재 Content의 공개 글 조회 대상을 찾을 수 없습니다.");
+      throw new Error("현재 콘텐츠의 공개 글 조회 대상을 찾을 수 없습니다.");
     }
     if (!isPlatformEnabled(data, canonical.platform)) {
-      throw new Error(`${canonical.platform} 플랫폼이 Workspace Settings에서 비활성화되어 있습니다.`);
+      throw new Error(`${platformLabel(canonical.platform)} 플랫폼이 작업공간 설정에서 비활성화되어 있습니다.`);
     }
 
     const categories = publishingCategoryIdentities(content);
@@ -87,26 +88,36 @@ export async function GET(request: Request) {
       posts,
     });
   } catch (error) {
-    if (error instanceof TistoryPostWorkflowError) {
-      if (error.code === "session_expired" && connectionId) {
-        await markTistorySessionExpired(connectionId);
+    if (error instanceof PublicPostCatalogError) {
+      if (error.reconnectRequired && connectionId) {
+        await markConnectionVerificationRequired(
+          connectionId,
+          error.platform,
+          error.message,
+        );
       }
       return NextResponse.json({
-        state: error.code,
+        state: error.state,
         error: error.message,
-        remediation: error.remediation,
-        reconnectRequired: error.code === "session_expired",
+        ...(error.remediation ? { remediation: error.remediation } : {}),
+        reconnectRequired: error.reconnectRequired,
       }, { status: 400 });
     }
 
     const detail =
       error instanceof Error ? error.message : "게시글을 불러오지 못했습니다.";
-    if ((detail === "재연결 필요" || detail === "WordPress reconnect is required.")
-      && connectionId) {
-      await markConnectionVerificationRequired(connectionId, detail);
+    if (/reconnect|재연결/i.test(detail) && connectionId) {
+      const connection = await connectionRepository.findById(connectionId);
+      if (connection) {
+        await markConnectionVerificationRequired(
+          connectionId,
+          connection.platform,
+          detail,
+        );
+      }
     }
     return NextResponse.json({
-      state: /permission|allow/i.test(detail)
+      state: /permission|allow|권한/i.test(detail)
         ? "permission_denied"
         : /reconnect|재연결/i.test(detail)
           ? "session_expired"
@@ -117,36 +128,32 @@ export async function GET(request: Request) {
   }
 }
 
-async function markTistorySessionExpired(connectionId: string): Promise<void> {
+async function markConnectionVerificationRequired(
+  connectionId: string,
+  platform: Platform,
+  detail: string,
+): Promise<void> {
   const connection = await connectionRepository.findById(connectionId);
-  if (!connection || connection.platform !== "tistory") return;
+  if (!connection || connection.platform !== platform) return;
+
   await connectionRepository.save({
     ...connection,
-    status: "expired",
+    status: platform === "tistory" ? "expired" : "verification_required",
     updatedAt: new Date().toISOString(),
     publicMetadata: {
       ...connection.publicMetadata,
-      sessionStateAvailable: false,
-      safeError: "Tistory 로그인 세션이 만료되었습니다. 다시 연결해 주세요.",
+      ...(platform === "tistory" ? { sessionStateAvailable: false } : {}),
+      safeError: detail,
     },
   });
 }
 
-async function markConnectionVerificationRequired(
-  connectionId: string,
-  detail: string,
-): Promise<void> {
-  const connection = await connectionRepository.findById(connectionId);
-  if (!connection || connection.platform !== "wordpress") return;
-  await connectionRepository.save({
-    ...connection,
-    status: "verification_required",
-    updatedAt: new Date().toISOString(),
-    publicMetadata: {
-      ...connection.publicMetadata,
-      safeError: detail,
-    },
-  });
+function platformLabel(platform: Platform): string {
+  if (platform === "wordpress") return "워드프레스";
+  if (platform === "tistory") return "티스토리";
+  if (platform === "youtube") return "유튜브";
+  if (platform === "naver-cafe") return "네이버 카페";
+  return platform;
 }
 
 function required(value: unknown): string {
