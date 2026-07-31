@@ -4,18 +4,21 @@ import { WordPressPostCatalogAdapter } from "../../../../apps/wordpress/WordPres
 
 describe("WordPressPostCatalogAdapter", () => {
   it("reads only published posts with canonical category ids", async () => {
-    const request = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify([{
-      id: 10,
-      link: "https://example.com/saving-account/",
-      date: "2026-07-30T10:00:00",
-      status: "publish",
-      title: { rendered: "통장 쪼개기 방법" },
-      excerpt: { rendered: "<p>생활비 통장을 나누는 기준</p>" },
-      categories: [12],
-    }]), {
-      status: 200,
-      headers: { "X-WP-TotalPages": "1" },
-    }));
+    const request = vi.fn(async (...args: Parameters<typeof fetch>) => {
+      void args;
+      return new Response(JSON.stringify([{
+        id: 10,
+        link: "https://example.com/saving-account/",
+        date: "2026-07-30T10:00:00",
+        status: "publish",
+        title: { rendered: "통장 쪼개기 방법" },
+        excerpt: { rendered: "<p>생활비 통장을 나누는 기준</p>" },
+        categories: [12],
+      }]), {
+        status: 200,
+        headers: { "X-WP-TotalPages": "1" },
+      });
+    });
     const result = await new WordPressPostCatalogAdapter(
       request as typeof fetch,
       () => "2026-07-30T12:00:00.000Z",
