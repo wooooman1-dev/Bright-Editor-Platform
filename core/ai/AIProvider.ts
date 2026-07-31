@@ -7,6 +7,7 @@ export type AIWebSource = Readonly<{
   url: string;
   title?: string;
   excerpt?: string;
+  provenance?: "search_candidate" | "citation";
 }>;
 
 export type AIResponse = Readonly<{
