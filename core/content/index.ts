@@ -38,6 +38,11 @@ export {
   type OpportunityEvidenceSource,
 } from "./ContentOpportunity";
 export {
+  findUnrequestedOwnedIdentityPrefixes,
+  hasOwnedIdentityPrefix,
+  type OwnedIdentityKeywordPolicyInput,
+} from "./OwnedIdentityKeywordPolicy";
+export {
   analyzeContentOpportunityAlignment,
   applyContentOpportunityPolicy,
   contentIntentTerms,
