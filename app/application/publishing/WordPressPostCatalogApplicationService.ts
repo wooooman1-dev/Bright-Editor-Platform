@@ -150,10 +150,20 @@ export class WordPressPostCatalogApplicationService {
       });
     } catch (error) {
       if (error instanceof PublicPostCatalogError) throw error;
+      const detail = publicPostCatalogErrorMessage(error);
+      if (/authentication|permission verification failed/i.test(detail)) {
+        throw new PublicPostCatalogError({
+          platform: "wordpress",
+          state: "session_expired",
+          message: "워드프레스 인증 또는 공개 글 조회 권한을 다시 확인해 주세요.",
+          remediation: "애플리케이션 비밀번호와 공개 글 조회 권한을 확인한 뒤 워드프레스 계정을 다시 연결해 주세요.",
+          reconnectRequired: true,
+        });
+      }
       throw new PublicPostCatalogError({
         platform: "wordpress",
         state: "connection_error",
-        message: publicPostCatalogErrorMessage(error),
+        message: detail,
         remediation: "워드프레스 연결 상태를 확인한 뒤 다시 시도해 주세요.",
       });
     }
