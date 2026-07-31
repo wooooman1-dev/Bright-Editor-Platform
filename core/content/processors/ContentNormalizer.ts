@@ -1,6 +1,7 @@
 import type { ContentBlock } from "../ContentBlock";
 import type { ContentBlockType } from "../ContentBlockType";
 import type { ContentDocument } from "../ContentDocument";
+import { normalizeEditorialMarkupDocument } from "../EditorialMarkupIntegrity";
 import type { HeadingLevel } from "../blocks/HeadingBlock";
 import {
   normalizeStructuredTable,
@@ -11,13 +12,14 @@ import {
 export class ContentNormalizer {
   normalize(document: ContentDocument): ContentDocument {
     try {
+      const markupNormalized = normalizeEditorialMarkupDocument(document);
       const usedIds = new Set(
-        document.blocks.map((block) => block.id).filter(Boolean),
+        markupNormalized.blocks.map((block) => block.id).filter(Boolean),
       );
       const remappedIds = new Map<string, readonly string[]>();
       let previousHeadingLevel: HeadingLevel | undefined;
 
-      const blocks = document.blocks.flatMap((block, index) => {
+      const blocks = markupNormalized.blocks.flatMap((block, index) => {
         const id = block.id || createBlockId(block.type, index, usedIds);
         if (block.type === "paragraph") {
           const normalized = normalizeParagraph(block, id, usedIds);
@@ -41,9 +43,9 @@ export class ContentNormalizer {
         return [normalizedBlock];
       });
 
-      const metadata = remapLongFormStructure(document.metadata, remappedIds);
+      const metadata = remapLongFormStructure(markupNormalized.metadata, remappedIds);
       return Object.freeze({
-        ...document,
+        ...markupNormalized,
         blocks: Object.freeze(blocks),
         ...(metadata ? { metadata } : {}),
       });
