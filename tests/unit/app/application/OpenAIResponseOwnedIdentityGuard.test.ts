@@ -89,12 +89,12 @@ describe("OpenAI owned identity response guard", () => {
   });
 
   it.each([
-    ["제목", JSON.stringify({ title: "밝은재테크 통장 쪼개기 방법", blocks: [] })],
-    ["본문", JSON.stringify({ title: "통장 쪼개기 방법", blocks: [{ type: "paragraph", text: "밝은재테크 기준으로 계좌를 나눕니다." }] })],
-    ["메타 설명", JSON.stringify({ title: "통장 쪼개기 방법", metaDescription: "밝은재테크 통장 관리 안내", blocks: [] })],
-    ["이미지 대체 텍스트", JSON.stringify({ title: "통장 쪼개기 방법", blocks: [{ type: "image", alt: "밝은재테크 통장 구조", source: "" }] })],
-    ["태그", JSON.stringify({ title: "통장 쪼개기 방법", tags: ["밝은재테크"], blocks: [] })],
-  ])("blocks reinsertion in %s for automatic Planning", (_label, response) => {
+    { location: "제목", response: JSON.stringify({ title: "밝은재테크 통장 쪼개기 방법", blocks: [] }) },
+    { location: "본문", response: JSON.stringify({ title: "통장 쪼개기 방법", blocks: [{ type: "paragraph", text: "밝은재테크 기준으로 계좌를 나눕니다." }] }) },
+    { location: "메타 설명", response: JSON.stringify({ title: "통장 쪼개기 방법", metaDescription: "밝은재테크 통장 관리 안내", blocks: [] }) },
+    { location: "이미지 대체 텍스트", response: JSON.stringify({ title: "통장 쪼개기 방법", blocks: [{ type: "image", alt: "밝은재테크 통장 구조", source: "" }] }) },
+    { location: "태그", response: JSON.stringify({ title: "통장 쪼개기 방법", tags: ["밝은재테크"], blocks: [] }) },
+  ])("blocks reinsertion in $location for automatic Planning", ({ response }) => {
     const instruction = canonicalInstruction({
       sourceRequest: "밝은재테크 프로젝트에서 아직 다루지 않은 생활경제 주제를 골라줘",
       selectionMode: "automatic",
