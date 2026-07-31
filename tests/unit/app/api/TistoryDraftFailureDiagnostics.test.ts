@@ -7,7 +7,7 @@ const serviceSource = readFileSync(join(process.cwd(), "app/application/publishi
 
 describe("Tistory Draft failure diagnostics", () => {
   it("returns safe failure details at the API boundary", () => {
-    expect(routeSource).toContain('error: result.error ?? "Tistory 임시저장 작업을 완료하지 못했습니다."');
+    expect(routeSource).toContain('error: result.error ?? "티스토리 임시저장 작업을 완료하지 못했습니다."');
     expect(routeSource).toContain("failedStep: result.failedStep");
     expect(routeSource).toContain("diagnosticCode: failedRecord?.diagnosticCode");
     expect(routeSource).toContain("runtimeFailure: result.diagnostic?.runtimeFailure");
