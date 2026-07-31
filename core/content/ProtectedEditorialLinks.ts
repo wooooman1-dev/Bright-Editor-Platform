@@ -1,6 +1,7 @@
 import type { ContentBlock } from "./ContentBlock";
 import type { ContentDocument } from "./ContentDocument";
 import type { ButtonBlock } from "./blocks/ButtonBlock";
+import { restoreProtectedEditorialMetadata } from "./ProtectedEditorialMetadata";
 import { restoreProtectedImageAssets } from "./ProtectedImageAssets";
 
 type MandatoryLinkPurpose = "internal_link" | "related_post";
@@ -9,7 +10,8 @@ type ProtectedLink = Readonly<{ anchorId?: string; block: ButtonBlock }>;
 export function restoreVerifiedEditorialLinks(base: ContentDocument, candidate: ContentDocument): ContentDocument {
   const protectedLinks = collectProtectedLinks(base.blocks);
   const imageSafeCandidate = restoreProtectedImageAssets(base, candidate);
-  const blocks = imageSafeCandidate.blocks.filter((block) => !isMandatoryLink(block));
+  const editorialSafeCandidate = restoreProtectedEditorialMetadata(base, imageSafeCandidate);
+  const blocks = editorialSafeCandidate.blocks.filter((block) => !isMandatoryLink(block));
   const internalLinks = protectedLinks.filter((item) => item.block.purpose === "internal_link");
   const relatedPosts = protectedLinks.filter((item) => item.block.purpose === "related_post").slice(0, 3);
 
@@ -19,7 +21,7 @@ export function restoreVerifiedEditorialLinks(base: ContentDocument, candidate: 
   }
   blocks.push(...relatedPosts.map((item) => item.block));
 
-  return { ...imageSafeCandidate, blocks };
+  return { ...editorialSafeCandidate, blocks };
 }
 
 export function isVerifiedEditorialLink(block: ContentBlock): block is ButtonBlock & Readonly<{ purpose: MandatoryLinkPurpose }> {
