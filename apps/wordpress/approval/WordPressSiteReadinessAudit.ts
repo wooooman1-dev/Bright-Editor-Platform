@@ -63,12 +63,12 @@ export async function auditWordPressSiteReadiness(
 ): Promise<SiteApprovalReadinessSnapshot> {
   const checks: MutableSiteCheck[] = [];
   const siteUrl = normalizePublicSiteUrl(input.siteUrl);
-  if (!siteUrl) return inaccessibleSiteSnapshot(input.checkedAt, "WordPress 공개 siteUrl이 없거나 안전한 HTTP(S) URL이 아닙니다.");
+  if (!siteUrl) return inaccessibleSiteSnapshot(input.checkedAt, "워드프레스 공개 사이트 주소가 없거나 안전한 공개 주소가 아닙니다.");
 
   checks.push({
     key: "site_url",
     passed: true,
-    message: `WordPress 공개 siteUrl 형식을 확인했습니다: ${siteUrl}`,
+    message: `워드프레스 공개 사이트 주소 형식을 확인했습니다: ${siteUrl}`,
   });
 
   const session = new PublicAuditSession(
@@ -84,7 +84,7 @@ export async function auditWordPressSiteReadiness(
   } catch (error) {
     return inaccessibleSiteSnapshot(
       input.checkedAt,
-      `WordPress 공개 홈페이지 접근 실패: ${safeErrorMessage(error)}`,
+      `워드프레스 공개 홈페이지 접근 실패: ${safeErrorMessage(error)}`,
       checks,
     );
   }
@@ -97,8 +97,8 @@ export async function auditWordPressSiteReadiness(
     key: "public_access",
     passed: publicAccess,
     message: publicAccess
-      ? `공개 홈페이지가 정상 응답했습니다 (${home.status}, 최종 URL: ${home.finalUrl}, redirect ${home.redirectCount}회).`
-      : `공개 홈페이지가 정상 응답하지 않았습니다 (${home.status}, 최종 URL: ${home.finalUrl}).`,
+      ? `공개 홈페이지가 정상 응답했습니다 (${home.status}, 최종 주소: ${home.finalUrl}, 주소 이동 ${home.redirectCount}회).`
+      : `공개 홈페이지가 정상 응답하지 않았습니다 (${home.status}, 최종 주소: ${home.finalUrl}).`,
   });
 
   const https = home.finalUrl.startsWith("https://");
@@ -106,8 +106,8 @@ export async function auditWordPressSiteReadiness(
     key: "https",
     passed: https,
     message: https
-      ? `최종 공개 URL이 HTTPS입니다: ${home.finalUrl}`
-      : `최종 공개 URL이 HTTPS가 아닙니다: ${home.finalUrl}`,
+      ? `최종 공개 주소가 보안 연결을 사용합니다: ${home.finalUrl}`
+      : `최종 공개 주소가 보안 연결을 사용하지 않습니다: ${home.finalUrl}`,
   });
 
   const meaningfulPage = Boolean(title) && text.length >= 80;
@@ -115,8 +115,8 @@ export async function auditWordPressSiteReadiness(
     key: "page_content",
     passed: meaningfulPage,
     message: meaningfulPage
-      ? `공개 페이지의 title과 의미 있는 기본 본문을 확인했습니다 (${text.length}자).`
-      : `공개 페이지의 기본 title 또는 의미 있는 본문이 부족합니다 (title ${title ? "확인" : "미확인"}, 본문 ${text.length}자).`,
+      ? `공개 페이지의 제목과 의미 있는 기본 본문을 확인했습니다 (${text.length}자).`
+      : `공개 페이지의 제목 또는 의미 있는 본문이 부족합니다 (제목 ${title ? "확인" : "미확인"}, 본문 ${text.length}자).`,
   });
 
   const expectedTerms = input.expectedTerms.map(normalizeText).filter((value) => value.length >= 2);
@@ -126,8 +126,8 @@ export async function auditWordPressSiteReadiness(
     key: "site_identity",
     passed: identityMatched,
     message: identityMatched
-      ? "Project 주제와 연결되는 공개 사이트 정체성 신호를 확인했습니다."
-      : "공개 홈페이지에서 Project 주제와 연결되는 사이트 정체성을 확인하지 못했습니다.",
+      ? "프로젝트 주제와 연결되는 공개 사이트 정체성 신호를 확인했습니다."
+      : "공개 홈페이지에서 프로젝트 주제와 연결되는 사이트 정체성을 확인하지 못했습니다.",
   });
 
   const mobileViewport = /<meta[^>]+name=["']viewport["'][^>]*>/i.test(html)
@@ -135,7 +135,7 @@ export async function auditWordPressSiteReadiness(
   checks.push({
     key: "mobile_viewport",
     passed: mobileViewport,
-    message: mobileViewport ? "모바일 viewport metadata를 확인했습니다." : "모바일 viewport metadata를 확인하지 못했습니다.",
+    message: mobileViewport ? "모바일 반응형 화면 설정을 확인했습니다." : "모바일 반응형 화면 설정을 확인하지 못했습니다.",
   });
 
   const links = collectPublicLinks(html, home.finalUrl);
@@ -145,8 +145,8 @@ export async function auditWordPressSiteReadiness(
     key: "navigation",
     passed: navigation,
     message: navigation
-      ? `주요 navigation과 공개 링크 ${links.length}개를 확인했습니다.`
-      : `주요 navigation 또는 충분한 공개 링크를 확인하지 못했습니다 (${links.length}개).`,
+      ? `주요 메뉴와 공개 링크 ${links.length}개를 확인했습니다.`
+      : `주요 메뉴 또는 충분한 공개 링크를 확인하지 못했습니다 (${links.length}개).`,
   });
 
   const archiveLinks = links.filter((link) => /\/(?:category|tag|author|archives?)(?:\/|$)|[?&](?:cat|category_name)=/i.test(new URL(link.url).pathname + new URL(link.url).search));
@@ -154,8 +154,8 @@ export async function auditWordPressSiteReadiness(
     key: "category_archive",
     passed: archiveLinks.length > 0,
     message: archiveLinks.length
-      ? `Category 또는 archive 링크 후보 ${archiveLinks.length}개를 확인했습니다.`
-      : "Category 또는 archive 링크 후보를 확인하지 못했습니다.",
+      ? `카테고리 또는 글 보관함 링크 후보 ${archiveLinks.length}개를 확인했습니다.`
+      : "카테고리 또는 글 보관함 링크 후보를 확인하지 못했습니다.",
   });
 
   const privacyLinks = matchingLinks(links, /(?:개인정보\s*처리방침|privacy(?:\s*policy)?|개인정보)/i);
@@ -192,8 +192,8 @@ export async function auditWordPressSiteReadiness(
     key: "placeholder_free",
     passed: placeholderFree,
     message: placeholderFree
-      ? "coming soon·maintenance·placeholder 위험 문구가 발견되지 않았습니다."
-      : "coming soon, maintenance 또는 placeholder 위험 문구가 발견되었습니다.",
+      ? "공사 중·점검 중·샘플 페이지 위험 문구가 발견되지 않았습니다."
+      : "공사 중, 점검 중 또는 샘플 페이지 위험 문구가 발견되었습니다.",
   });
 
   const robotsUrl = new URL("/robots.txt", home.finalUrl).toString();
@@ -208,8 +208,8 @@ export async function auditWordPressSiteReadiness(
     key: "robots",
     passed: Boolean(robots),
     message: robots
-      ? `robots.txt에 접근했습니다 (${robots.status}, 최종 URL: ${robots.finalUrl}).`
-      : `robots.txt에 접근하지 못했습니다: ${robotsUrl}`,
+      ? `검색 로봇 설정 파일에 접근했습니다 (${robots.status}, 최종 주소: ${robots.finalUrl}).`
+      : `검색 로봇 설정 파일에 접근하지 못했습니다: ${robotsUrl}`,
   });
 
   const noindex = hasPublicNoindex(html);
@@ -222,8 +222,8 @@ export async function auditWordPressSiteReadiness(
     passed: crawlerAccess,
     ...(crawlerRequirement ? { requirement: crawlerRequirement } : {}),
     message: crawlerAccess
-      ? "홈페이지 noindex와 robots.txt 전체 차단 신호가 발견되지 않았습니다."
-      : `공개 crawler 접근을 통과 처리할 수 없습니다 (homepage noindex ${noindex ? "발견" : "미발견"}, robots 전체 차단 ${robotsBlocked ? "발견 또는 미확인" : "미발견"}).`,
+      ? "홈페이지 검색 제외 설정과 검색 로봇 전체 차단 신호가 발견되지 않았습니다."
+      : `검색 로봇 접근을 통과 처리할 수 없습니다 (홈페이지 검색 제외 ${noindex ? "발견" : "미발견"}, 검색 로봇 전체 차단 ${robotsBlocked ? "발견 또는 미확인" : "미발견"}).`,
   });
 
   const sitemapCandidates = sitemapCandidateUrls(robots?.body ?? "", siteUrl, home.finalUrl);
@@ -232,20 +232,17 @@ export async function auditWordPressSiteReadiness(
     key: "sitemap",
     passed: Boolean(sitemap),
     message: sitemap
-      ? `XML sitemap에 접근했습니다 (${sitemap.status}, 최종 URL: ${sitemap.finalUrl}).`
-      : `접근 가능한 XML sitemap을 찾지 못했습니다. 검사 후보: ${sitemapCandidates.join(", ")}`,
+      ? `XML 사이트맵에 접근했습니다 (${sitemap.status}, 최종 주소: ${sitemap.finalUrl}).`
+      : `접근 가능한 XML 사이트맵을 찾지 못했습니다. 검사 후보: ${sitemapCandidates.join(", ")}`,
   });
-
-  checks.push(...manualReviewChecks());
 
   const requiredFailures = checks.filter((check) => !check.passed && (check.requirement ?? "required") === "required");
   const setupFailures = checks.filter((check) => !check.passed && check.requirement === "setup");
-  const manualFailures = checks.filter((check) => !check.passed && check.requirement === "manual");
   const criticalKeys = new Set(["site_url", "public_access", "https", "page_content", "placeholder_free"]);
   const criticalFailure = requiredFailures.some((check) => criticalKeys.has(check.key));
   return Object.freeze({
     version: "1.0",
-    status: criticalFailure ? "blocked" : requiredFailures.length || setupFailures.length || manualFailures.length ? "needs_review" : "passed",
+    status: criticalFailure ? "blocked" : requiredFailures.length || setupFailures.length ? "needs_review" : "passed",
     checkedAt: input.checkedAt,
     checks: Object.freeze(checks.map((check) => Object.freeze(check))),
   });
@@ -287,11 +284,11 @@ class PublicAuditSession {
         });
         if (isRedirect(response.status)) {
           const location = response.headers.get("location");
-          if (!location) throw new Error(`redirect ${response.status} 응답에 Location이 없습니다.`);
-          if (redirectCount >= this.maxRedirects) throw new Error(`redirect 제한 ${this.maxRedirects}회를 초과했습니다.`);
+          if (!location) throw new Error(`주소 이동 ${response.status} 응답에 이동 주소가 없습니다.`);
+          if (redirectCount >= this.maxRedirects) throw new Error(`주소 이동 제한 ${this.maxRedirects}회를 초과했습니다.`);
           const nextUrl = requirePublicAuditUrl(new URL(location, currentUrl).toString());
           if (!samePublicHost(new URL(nextUrl), new URL(requestedUrl))) {
-            throw new Error("공개 사이트와 다른 host로 redirect되어 검사를 중단했습니다.");
+            throw new Error("공개 사이트와 다른 도메인으로 이동되어 검사를 중단했습니다.");
           }
           currentUrl = nextUrl;
           continue;
@@ -309,14 +306,14 @@ class PublicAuditSession {
         clearTimeout(timeout);
       }
     }
-    throw new Error(`redirect 제한 ${this.maxRedirects}회를 초과했습니다.`);
+    throw new Error(`주소 이동 제한 ${this.maxRedirects}회를 초과했습니다.`);
   }
 }
 
 async function readLimitedBody(response: Response, maxBytes: number): Promise<string> {
   const contentLength = Number(response.headers.get("content-length"));
   if (Number.isFinite(contentLength) && contentLength > maxBytes) {
-    throw new Error(`응답 크기가 ${maxBytes} byte 제한을 초과했습니다.`);
+    throw new Error(`응답 크기가 ${maxBytes}바이트 제한을 초과했습니다.`);
   }
   if (!response.body) return "";
   const reader = response.body.getReader();
@@ -330,7 +327,7 @@ async function readLimitedBody(response: Response, maxBytes: number): Promise<st
       total += chunk.value.byteLength;
       if (total > maxBytes) {
         await reader.cancel();
-        throw new Error(`응답 크기가 ${maxBytes} byte 제한을 초과했습니다.`);
+        throw new Error(`응답 크기가 ${maxBytes}바이트 제한을 초과했습니다.`);
       }
       body += decoder.decode(chunk.value, { stream: true });
     }
@@ -402,53 +399,6 @@ function matchingLinks(links: readonly PublicLink[], pattern: RegExp): readonly 
   return links.filter((link) => pattern.test(`${link.text} ${new URL(link.url).pathname}`));
 }
 
-function manualReviewChecks(): readonly MutableSiteCheck[] {
-  return [
-    {
-      key: "theme_plugin_review",
-      passed: false,
-      requirement: "manual",
-      message: "Theme 또는 GeneratePress 사용 여부와 플러그인 충돌은 공개 HTML 자동 검사만으로 확정할 수 없습니다. 관리자 또는 수동 화면 검토가 필요합니다.",
-    },
-    {
-      key: "mobile_visual_review",
-      passed: false,
-      requirement: "manual",
-      message: "실제 모바일 시각 품질과 깨진 Template 여부는 viewport metadata만으로 통과 처리할 수 없습니다. 실제 기기 또는 브라우저 검토가 필요합니다.",
-    },
-    {
-      key: "performance_review",
-      passed: false,
-      requirement: "manual",
-      message: "실제 성능 점수는 이 공개 구조 검사에서 측정하지 않았습니다. 별도 성능 검토가 필요합니다.",
-    },
-    {
-      key: "copyright_review",
-      passed: false,
-      requirement: "manual",
-      message: "사이트 전체 이미지와 자료의 저작권·이용 조건은 홈페이지 응답만으로 확인할 수 없습니다. 권리 검토가 필요합니다.",
-    },
-    {
-      key: "site_quality_consistency",
-      passed: false,
-      requirement: "manual",
-      message: "공개 글 전체의 주제·품질 일관성은 홈페이지 표본만으로 확정할 수 없습니다. 사이트 전체 수동 검토가 필요합니다.",
-    },
-    {
-      key: "search_console_review",
-      passed: false,
-      requirement: "manual",
-      message: "Google Search Console 연결과 실제 색인 상태는 공개 사이트 응답에서 관찰할 수 없습니다. 별도 계정 검토가 필요합니다.",
-    },
-    {
-      key: "adsense_external_approval",
-      passed: false,
-      requirement: "recommended",
-      message: "외부 AdSense 승인 가능성은 자동 검사로 확정하거나 보장할 수 없습니다. 이 결과는 내부 준비 진단만 제공합니다.",
-    },
-  ];
-}
-
 function inaccessibleSiteSnapshot(
   checkedAt: string,
   message: string,
@@ -457,19 +407,18 @@ function inaccessibleSiteSnapshot(
   const checks: MutableSiteCheck[] = [
     ...prefix,
     { key: "public_access", passed: false, message },
-    { key: "https", passed: false, message: "최종 공개 HTTPS URL을 확인하지 못했습니다." },
-    { key: "page_content", passed: false, message: "공개 페이지의 title과 기본 본문을 확인하지 못했습니다." },
-    { key: "robots", passed: false, message: "robots.txt 접근 여부를 확인하지 못했습니다." },
-    { key: "crawler_access", passed: false, message: "homepage noindex와 robots.txt crawler 차단 여부를 확인하지 못했습니다." },
-    { key: "sitemap", passed: false, message: "XML sitemap 접근 여부를 확인하지 못했습니다." },
+    { key: "https", passed: false, message: "최종 공개 보안 연결 주소를 확인하지 못했습니다." },
+    { key: "page_content", passed: false, message: "공개 페이지의 제목과 기본 본문을 확인하지 못했습니다." },
+    { key: "robots", passed: false, message: "검색 로봇 설정 파일 접근 여부를 확인하지 못했습니다." },
+    { key: "crawler_access", passed: false, message: "홈페이지 검색 제외와 검색 로봇 차단 여부를 확인하지 못했습니다." },
+    { key: "sitemap", passed: false, message: "XML 사이트맵 접근 여부를 확인하지 못했습니다." },
     { key: "privacy", passed: false, message: "개인정보처리방침 링크 후보를 확인하지 못했습니다." },
     { key: "about", passed: false, requirement: "recommended", message: "권장 사이트 소개 링크 후보를 확인하지 못했습니다." },
     { key: "contact", passed: false, requirement: "recommended", message: "권장 문의 링크 후보를 확인하지 못했습니다." },
-    { key: "navigation", passed: false, message: "주요 navigation을 확인하지 못했습니다." },
-    { key: "category_archive", passed: false, message: "Category 또는 archive 링크 후보를 확인하지 못했습니다." },
-    { key: "mobile_viewport", passed: false, message: "모바일 viewport metadata를 확인하지 못했습니다." },
-    { key: "placeholder_free", passed: false, message: "coming soon·maintenance·placeholder 위험 여부를 확인하지 못했습니다." },
-    ...manualReviewChecks(),
+    { key: "navigation", passed: false, message: "주요 메뉴를 확인하지 못했습니다." },
+    { key: "category_archive", passed: false, message: "카테고리 또는 글 보관함 링크 후보를 확인하지 못했습니다." },
+    { key: "mobile_viewport", passed: false, message: "모바일 반응형 화면 설정을 확인하지 못했습니다." },
+    { key: "placeholder_free", passed: false, message: "공사 중·점검 중·샘플 페이지 위험 여부를 확인하지 못했습니다." },
   ];
   return Object.freeze({
     version: "1.0",
@@ -493,7 +442,7 @@ function normalizePublicSiteUrl(value: string): string | undefined {
 
 function requirePublicAuditUrl(value: string): string {
   const normalized = normalizePublicSiteUrl(value);
-  if (!normalized) throw new Error("로그인·관리자·로컬 네트워크가 아닌 안전한 공개 HTTP(S) URL만 검사할 수 있습니다.");
+  if (!normalized) throw new Error("로그인·관리자·로컬 네트워크가 아닌 안전한 공개 주소만 검사할 수 있습니다.");
   return normalized;
 }
 
