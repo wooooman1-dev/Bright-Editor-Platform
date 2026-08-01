@@ -353,7 +353,6 @@ function isSupportedHtmlPage(page: ApprovalSourcePage): boolean {
   return /(?:text\/html|application\/xhtml\+xml)/i.test(page.contentType);
 }
 
-
 function factVariants(value: string): readonly string[] {
   const raw = value.normalize("NFKC");
   const variants = [
@@ -489,6 +488,7 @@ const wordpressOfficialDomains = Object.freeze([
   "lh.or.kr",
   "hf.go.kr",
   "nhuf.molit.go.kr",
+  "kdic.or.kr",
 ]);
 
 const vivaRainDeniedDomains = Object.freeze([
