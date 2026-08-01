@@ -403,4 +403,5 @@ const wordpressOfficialDomains = Object.freeze([
   "lh.or.kr",
   "hf.go.kr",
   "nhuf.molit.go.kr",
+  "kdic.or.kr",
 ]);
