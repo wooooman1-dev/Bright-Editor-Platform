@@ -132,4 +132,20 @@ describe("ApprovalPolicy", () => {
 
     expect(issues).not.toContainEqual(expect.objectContaining({ code: "PROFILE_REVIEW_DATE_MISSING" }));
   });
+
+  it("uses canonical Evidence metadata for the official HTTPS URL and review date", () => {
+    const snapshot = resolveApprovalPolicySnapshot("adsense_approval", "wordpress_life_economy_v1")!;
+    const issues = evaluateApprovalPreparationText(
+      "예금자보호 대상과 보호 한도를 확인하는 순서를 설명합니다.",
+      snapshot,
+      {
+        sourceUrls: ["https://www.kdic.or.kr/deposit/selectProtectingProducts.do"],
+        reviewedAt: "2026-08-01T00:00:00.000Z",
+      },
+    );
+
+    expect(issues).not.toContainEqual(expect.objectContaining({ code: "PROFILE_SOURCE_REQUIREMENT_MISSING" }));
+    expect(issues).not.toContainEqual(expect.objectContaining({ code: "PROFILE_SOURCE_URL_MISSING" }));
+    expect(issues).not.toContainEqual(expect.objectContaining({ code: "PROFILE_REVIEW_DATE_MISSING" }));
+  });
 });
