@@ -21,7 +21,6 @@ export function calculateContentMetrics(document: ContentDocument): ContentMetri
   const editorialText = segments.editorial.filter(Boolean).join("\n\n").trim();
   const supplementText = segments.supplement.filter(Boolean).join("\n\n").trim();
   const koreanCharacterCount = (text.match(/[\p{Script=Hangul}]/gu) ?? []).length;
-  const latinWordCount = (text.match(/[A-Za-z0-9]+(?:['’-][A-Za-z0-9]+)*/g) ?? []).length;
   const wordUnits = (text.match(/[\p{Script=Hangul}]+|[A-Za-z0-9]+(?:['’-][A-Za-z0-9]+)*/gu) ?? []).length;
   const readingUnits = ((editorialText.match(/[\p{Script=Hangul}]/gu) ?? []).length) / 500
     + ((editorialText.match(/[A-Za-z0-9]+(?:['’-][A-Za-z0-9]+)*/g) ?? []).length) / 200;
