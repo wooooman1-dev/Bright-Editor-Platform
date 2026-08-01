@@ -9,6 +9,7 @@ import { PublishingPermissionGate } from "../../../core/publishing";
 import { isPlatformEnabled, resolveWorkspaceSettings } from "../settings/WorkspaceSettingsService";
 import { resolveProjectStrategy, type UserContent, type UserData, type UserProject } from "../../user-flow/user-data";
 import { contentOwnedIdentityContamination } from "./ContentOwnedIdentityPolicy";
+import { invalidatePublishingContextDependentStateIfChanged } from "./PublishingContextInvalidation";
 
 export type TistoryReadinessCheck = Readonly<{ key: string; passed: boolean; message: string }>;
 export type TistoryReadiness = Readonly<{ ready: boolean; checks: readonly TistoryReadinessCheck[] }>;
@@ -42,7 +43,7 @@ export function applyTistoryPublishingAccount(
   if (!project || !content) throw new Error("발행 준비 대상 프로젝트와 콘텐츠를 찾을 수 없습니다.");
   const strategy = resolveProjectStrategy(project);
   const defaultCategory = strategy.defaultTistoryCategory?.publishingAccountId === connectionId ? strategy.defaultTistoryCategory : undefined;
-  return {
+  const next: UserData = {
     ...data,
     projects: data.projects.map((item) => item.id === projectId ? {
       ...item,
@@ -55,15 +56,28 @@ export function applyTistoryPublishingAccount(
       platform: "tistory",
       publishingAccountId: connectionId,
       selectedPublishingAccountIds: uniqueAccount(item.selectedPublishingAccountIds, connectionId),
-      ...(defaultCategory ? { publishingPreparation: { ...item.publishingPreparation, tistory: {
-        publishingAccountId: connectionId,
-        platformCategoryId: defaultCategory.id,
-        platformCategoryName: defaultCategory.name,
-        updatedAt,
-      } } } : {}),
+      publishingPreparation: defaultCategory
+        ? {
+            ...item.publishingPreparation,
+            tistory: {
+              publishingAccountId: connectionId,
+              platformCategoryId: defaultCategory.id,
+              platformCategoryName: defaultCategory.name,
+              updatedAt,
+            },
+          }
+        : item.publishingPreparation?.tistory?.publishingAccountId === connectionId
+          ? item.publishingPreparation
+          : withoutTistoryPublishingPreparation(item.publishingPreparation),
       updatedAt,
     } : item),
   };
+  return invalidatePublishingContextDependentStateIfChanged(
+    content,
+    next,
+    contentId,
+    updatedAt,
+  );
 }
 
 export function resolveTistoryDefaultCategory(
@@ -99,7 +113,7 @@ export function applyTistoryPublishingCategory(
   const content = data.contents.find((item) => item.id === contentId && item.projectId === projectId && item.workspaceId === data.workspace?.id);
   if (!project || !content) throw new Error("카테고리 적용 대상 프로젝트와 콘텐츠를 찾을 수 없습니다.");
   const strategy = resolveProjectStrategy(project);
-  return {
+  const next: UserData = {
     ...data,
     projects: data.projects.map((item) => item.id === projectId ? {
       ...item,
@@ -116,15 +130,24 @@ export function applyTistoryPublishingCategory(
       platform: "tistory",
       publishingAccountId: connectionId,
       selectedPublishingAccountIds: uniqueAccount(item.selectedPublishingAccountIds, connectionId),
-      publishingPreparation: { ...item.publishingPreparation, tistory: {
-        publishingAccountId: connectionId,
-        platformCategoryId: category.id,
-        platformCategoryName: category.name,
-        updatedAt,
-      } },
+      publishingPreparation: {
+        ...item.publishingPreparation,
+        tistory: {
+          publishingAccountId: connectionId,
+          platformCategoryId: category.id,
+          platformCategoryName: category.name,
+          updatedAt,
+        },
+      },
       updatedAt,
     } : item),
   };
+  return invalidatePublishingContextDependentStateIfChanged(
+    content,
+    next,
+    contentId,
+    updatedAt,
+  );
 }
 
 export async function calculateTistoryReadiness(input: Readonly<{
@@ -202,6 +225,13 @@ export async function calculateTistoryReadiness(input: Readonly<{
 async function storedSessionExists(connection: PlatformConnection, root = path.join(process.cwd(), ".bright-studio")): Promise<boolean> {
   try { await access(path.join(root, "connections", "tistory", connection.id, "storage-state.json")); return true; }
   catch { return false; }
+}
+
+function withoutTistoryPublishingPreparation(
+  preparation: UserContent["publishingPreparation"],
+): UserContent["publishingPreparation"] {
+  if (!preparation?.tistory) return preparation;
+  return preparation.wordpress ? { wordpress: preparation.wordpress } : undefined;
 }
 
 function uniqueAccount(values: readonly string[] | undefined, connectionId: string): readonly string[] {
