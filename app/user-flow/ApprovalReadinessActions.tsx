@@ -6,10 +6,12 @@ import type { ApprovalEvidenceSource, SiteApprovalReadinessSnapshot } from "../.
 import type { ContentDocument } from "../../core/content";
 import { contentRevisionId, isStandardQualityApproved, type QualityReport } from "../../core/quality";
 import { contentOwnedIdentityContamination } from "../application/publishing/ContentOwnedIdentityPolicy";
+import { publishingInternalLinkContextKey } from "../application/publishing/InternalLinkCatalogPolicy";
 import type { UserContent, UserData } from "./user-data";
 
 export type ApprovalReadinessAutoRunDecision = Readonly<{
   currentRevisionId: string;
+  publishingContextKey: string;
   hasStoredResult: boolean;
   shouldRun: boolean;
   sources: readonly ApprovalEvidenceSource[];
@@ -54,21 +56,32 @@ export function approvalReadinessAutoRunDecision(
   content: UserContent | undefined,
 ): ApprovalReadinessAutoRunDecision {
   if (!content?.document) {
-    return Object.freeze({ currentRevisionId: "", hasStoredResult: false, shouldRun: false, sources: Object.freeze([]) });
+    return Object.freeze({
+      currentRevisionId: "",
+      publishingContextKey: "",
+      hasStoredResult: false,
+      shouldRun: false,
+      sources: Object.freeze([]),
+    });
   }
 
   const approvalContent = content as UserContent & Readonly<{ contentPurpose?: string }>;
   const currentRevisionId = contentRevisionId(content.document);
+  const publishingContextKey = publishingInternalLinkContextKey(content);
   const evidence = content.document.metadata?.approvalEvidence;
   const siteReadiness = content.document.metadata?.siteApprovalReadiness;
+  const catalogContextIsCurrent = content.document.metadata?.internalLinkCatalogContextKey
+    === publishingContextKey;
   const hasStoredResult = evidence?.reviewedRevisionId === currentRevisionId
-    && isCurrentSiteReadinessSnapshot(siteReadiness);
+    && isCurrentSiteReadinessSnapshot(siteReadiness)
+    && catalogContextIsCurrent;
   const qualityIsCurrent = content.quality !== undefined
     && isStandardQualityApproved(content.quality)
     && content.quality.reviewedRevisionId === currentRevisionId;
 
   return Object.freeze({
     currentRevisionId,
+    publishingContextKey,
     hasStoredResult,
     shouldRun: approvalContent.contentPurpose === "adsense_approval" && qualityIsCurrent && !hasStoredResult,
     sources: Object.freeze([...(evidence?.sources ?? [])]),
@@ -163,48 +176,53 @@ export function ApprovalReadinessActions(props: Readonly<{
   useEffect(() => {
     if (props.disabled || runningRef.current) return;
     let active = true;
+    const timer = window.setTimeout(() => {
+      void fetch("/api/studio", { cache: "no-store" })
+        .then(async (response) => {
+          if (!response.ok) throw new Error(`응답 상태 ${response.status}`);
+          return response.json() as Promise<{ data?: UserData }>;
+        })
+        .then((result) => {
+          if (!active) return;
+          const content = result.data?.contents.find((item) => item.id === props.contentId);
+          const contamination = approvalReadinessIdentityContamination(result.data, props.contentId);
+          const decision = approvalReadinessAutoRunDecision(content);
+          const inspectedKey = [
+            props.contentId,
+            decision.currentRevisionId,
+            decision.publishingContextKey,
+            content?.document?.metadata?.internalLinkCatalogContextKey ?? "",
+            content?.document?.metadata?.approvalEvidence?.reviewedRevisionId ?? "",
+            content?.document?.metadata?.siteApprovalReadiness?.checkedAt ?? "",
+            contamination.join("|"),
+            decision.shouldRun ? "run" : "hold",
+          ].join(":");
+          if (inspectedKeyRef.current === inspectedKey) return;
+          inspectedKeyRef.current = inspectedKey;
 
-    void fetch("/api/studio", { cache: "no-store" })
-      .then(async (response) => {
-        if (!response.ok) throw new Error(`응답 상태 ${response.status}`);
-        return response.json() as Promise<{ data?: UserData }>;
-      })
-      .then((result) => {
-        if (!active) return;
-        const content = result.data?.contents.find((item) => item.id === props.contentId);
-        const contamination = approvalReadinessIdentityContamination(result.data, props.contentId);
-        const decision = approvalReadinessAutoRunDecision(content);
-        setIdentityContamination(contamination);
-        setSources(decision.sources);
-        setHasStoredResult(decision.hasStoredResult);
-        if (contamination.length) {
-          setMessage("");
-        } else if (decision.hasStoredResult) {
-          setMessage((current) => current || "저장된 현재 문서 버전의 승인 준비 검사 결과를 표시하고 있습니다.");
-        }
+          setIdentityContamination(contamination);
+          setSources(decision.sources);
+          setHasStoredResult(decision.hasStoredResult);
+          if (contamination.length) {
+            setMessage("");
+          } else if (decision.hasStoredResult) {
+            setMessage((current) => current || "저장된 현재 문서 버전의 승인 준비 검사 결과를 표시하고 있습니다.");
+          }
 
-        const inspectedKey = [
-          props.contentId,
-          decision.currentRevisionId,
-          content?.document?.metadata?.approvalEvidence?.reviewedRevisionId ?? "",
-          content?.document?.metadata?.siteApprovalReadiness?.checkedAt ?? "",
-          contamination.join("|"),
-          decision.shouldRun ? "run" : "hold",
-        ].join(":");
-        if (inspectedKeyRef.current === inspectedKey) return;
-        inspectedKeyRef.current = inspectedKey;
-        if (decision.shouldRun && contamination.length === 0) void execute("automatic");
-      })
-      .catch((error) => {
-        if (!active) return;
-        setState("error");
-        setMessage(`자동 승인 준비 상태를 확인하지 못했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`);
-      });
+          if (decision.shouldRun && contamination.length === 0) void execute("automatic");
+        })
+        .catch((error) => {
+          if (!active) return;
+          setState("error");
+          setMessage(`자동 승인 준비 상태를 확인하지 못했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`);
+        });
+    }, 150);
 
     return () => {
       active = false;
+      window.clearTimeout(timer);
     };
-  }, [execute, props.contentId, props.disabled]);
+  }, [execute, props.contentId, props.disabled, props.onCompleted]);
 
   const identityBlocked = identityContamination.length > 0;
 
