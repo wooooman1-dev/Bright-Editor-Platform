@@ -150,7 +150,7 @@ export function withInternalLinkCatalogMetadata(
       updatedAt: now,
       availableRelatedContentCandidates: count,
       internalLinkCatalogStatus: status,
-      internalLinkCatalogContextKey: contextKey,
+      ...(contextKey ? { internalLinkCatalogContextKey: contextKey } : {}),
     },
   };
 }
