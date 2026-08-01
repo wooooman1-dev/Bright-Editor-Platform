@@ -24,10 +24,14 @@ export class WordPressHtmlRenderer {
 }
 
 function renderTable(block: TableBlock): string {
-  const caption = block.caption ? `<figcaption>${escapeHtml(block.caption)}</figcaption>` : "";
-  const headers = block.headers.map((cell) => `<th scope="col">${escapeHtml(cell)}</th>`).join("");
-  const rows = block.rows.map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`).join("");
-  return `<figure class="wp-block-table">${caption}<table><thead><tr>${headers}</tr></thead><tbody>${rows}</tbody></table></figure>`;
+  const caption = block.caption
+    ? `<figcaption style="margin:0 0 10px;color:#646970;font-size:14px;text-align:left">${escapeHtml(block.caption)}</figcaption>`
+    : "";
+  const headerStyle = "border:1px solid #dcdcde;padding:12px 14px;text-align:left;vertical-align:top;background:#f6f7f7;font-weight:700";
+  const cellStyle = "border:1px solid #dcdcde;padding:12px 14px;text-align:left;vertical-align:top";
+  const headers = block.headers.map((cell) => `<th scope="col" style="${headerStyle}">${escapeHtml(cell)}</th>`).join("");
+  const rows = block.rows.map((row) => `<tr>${row.map((cell) => `<td style="${cellStyle}">${escapeHtml(cell)}</td>`).join("")}</tr>`).join("");
+  return `<figure class="wp-block-table" style="margin:28px 0;overflow-x:auto">${caption}<table style="width:100%;border-collapse:collapse;border-spacing:0;font-size:16px;line-height:1.6"><thead><tr>${headers}</tr></thead><tbody>${rows}</tbody></table></figure>`;
 }
 
 function escapeHtml(value: string) { return value.replace(/[&<>]/g, (value) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[value]!); }
