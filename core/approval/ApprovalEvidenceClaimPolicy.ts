@@ -41,6 +41,8 @@ export function extractProfileApprovalFactsFromText(
 
   const retirementTopic = /퇴직금|퇴직급여|계속\s*근로|평균\s*임금/i.test(text);
   if (retirementTopic) add("retirementTopic", "퇴직금");
+  const depositProtectionTopic = /예금자\s*보호|예금\s*보호|예금보험|보호\s*한도|보호\s*대상\s*금융상품/i.test(text);
+  if (depositProtectionTopic) add("depositProtectionTopic", "예금자보호");
 
   collect("eligibility", /(?:지원|신청|지급|적용)\s*대상\s*[:：]?\s*([^\n.]{2,200})/gi);
   collect("period", /(?:신청|적용|지급)\s*기간\s*[:：]?\s*([^\n.]{2,160})/gi);
@@ -58,7 +60,17 @@ export function extractProfileApprovalFactsFromText(
   collect("statutoryBasis", /((?:근로자퇴직급여\s*보장법|근로기준법|소득세법)[^\n.]{0,160})/gi);
   collect("exceptions", /(?:예외|제외|주의(?:사항)?)\s*[:：]?\s*([^\n.]{2,220})/gi);
 
-  return Object.freeze([...found.values()].slice(0, 40));
+  if (depositProtectionTopic) {
+    collect("depositProtectedProducts", /((?:예금자\s*보호|예금\s*보호|예금보험)[^\n.]{0,160}(?:보호\s*대상|금융상품|예금|적금)[^\n.]{0,80})/gi);
+    collect("depositProtectionLimit", /((?:보호\s*한도|예금\s*보호\s*한도|예금자\s*보호\s*한도|원금)[^\n.]{0,160}(?:1\s*억\s*원|100,?000,?000\s*원|원금[^\n.]{0,40}이자)[^\n.]{0,100})/gi);
+    collect("depositProtectionUnit", /((?:(?:예금자|1\s*인)\s*(?:1\s*인당|당)?|금융회사)[^\n.]{0,140}(?:금융회사\s*별|부보금융회사\s*별|각\s*금융회사)[^\n.]{0,100})/gi);
+    collect("depositProtectionExclusions", /((?:보호되지\s*않|보호\s*대상이\s*아니|비보호|보호\s*제외)[^\n.]{0,220})/gi);
+    collect("depositProtectionCheckPath", /((?:예금보험공사|금융회사|상품설명서|통장|예금보험관계)[^\n.]{0,180}(?:확인|조회|표시|설명)[^\n.]{0,100})/gi);
+    collect("depositProtectionEffectiveDate", /((?:2025\s*년\s*9\s*월\s*1\s*일|2025[-./]\s*9[-./]\s*1)[^\n.]{0,140})/gi);
+    collect("depositProtectionStatutoryBasis", /((?:예금자보호법|예금자보호법\s*시행령)[^\n.]{0,180})/gi);
+  }
+
+  return Object.freeze([...found.values()].slice(0, 50));
 }
 
 export function requiredApprovalFactFields(
@@ -83,6 +95,18 @@ export function requiredApprovalFactFields(
       ...(available.has("leaveTreatment") ? ["leaveTreatment"] : []),
       ...(available.has("interimSettlement") ? ["interimSettlement"] : []),
       ...(available.has("statutoryBasis") ? ["statutoryBasis"] : []),
+    ]);
+  }
+
+  if (/예금자\s*보호|예금\s*보호|예금보험|보호\s*한도|보호\s*대상\s*금융상품/i.test(text)) {
+    return Object.freeze([
+      "depositProtectedProducts",
+      "depositProtectionLimit",
+      "depositProtectionUnit",
+      "depositProtectionCheckPath",
+      ...(available.has("depositProtectionExclusions") ? ["depositProtectionExclusions"] : []),
+      ...(available.has("depositProtectionEffectiveDate") ? ["depositProtectionEffectiveDate"] : []),
+      ...(available.has("depositProtectionStatutoryBasis") ? ["depositProtectionStatutoryBasis"] : []),
     ]);
   }
 
@@ -113,6 +137,13 @@ export function approvalFactMatchesPage(
     interimSettlement: ["중간정산"],
     paymentDeadline: ["14일"],
     statutoryBasis: ["근로자퇴직급여보장법"],
+    depositProtectedProducts: ["예금", "보호"],
+    depositProtectionLimit: ["1억원", "원금", "이자"],
+    depositProtectionUnit: ["금융회사", "별", "1인"],
+    depositProtectionExclusions: ["보호", "대상", "아니"],
+    depositProtectionCheckPath: ["확인"],
+    depositProtectionEffectiveDate: ["2025", "9월", "1일"],
+    depositProtectionStatutoryBasis: ["예금자보호법"],
   };
   const fieldSignals = signalGroups[fact.field];
   if (fieldSignals?.length) {
