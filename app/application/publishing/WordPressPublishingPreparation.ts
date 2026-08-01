@@ -9,6 +9,7 @@ import {
   type UserData,
   type UserProject,
 } from "../../user-flow/user-data";
+import { invalidatePublishingContextDependentStateIfChanged } from "./PublishingContextInvalidation";
 
 export type WordPressCategorySelectionSource = "content" | "project" | "connection";
 
@@ -66,7 +67,7 @@ export function applyWordPressPublishingCategories(
     ? previousPreparation.featuredImageAssetId
     : undefined;
 
-  return {
+  const next: UserData = {
     ...data,
     projects: data.projects.map((item) => item.id === projectId ? {
       ...item,
@@ -92,6 +93,12 @@ export function applyWordPressPublishingCategories(
       updatedAt,
     } : item),
   };
+  return invalidatePublishingContextDependentStateIfChanged(
+    content,
+    next,
+    contentId,
+    updatedAt,
+  );
 }
 
 export function resolveWordPressCategorySelection(input: Readonly<{
