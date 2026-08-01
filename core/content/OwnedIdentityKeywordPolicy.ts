@@ -8,8 +8,9 @@ export type OwnedIdentityKeywordPolicyInput = Readonly<{
 }>;
 
 /**
- * Finds Project/Brand identity labels that were inserted as keyword prefixes
- * even though the user did not choose that identity as the search subject.
+ * Finds Project/Brand identity labels that were inserted as complete keywords
+ * or keyword prefixes even though the user did not choose that identity as the
+ * search subject.
  *
  * Automatic Planning never treats a Project/Brand label in a template request
  * as permission to use it as a search keyword. User-specified Planning may keep
@@ -39,6 +40,9 @@ export function hasOwnedIdentityPrefix(value: string, ownedTerm: string): boolea
   const normalizedValue = normalize(value);
   const normalizedTerm = normalize(ownedTerm);
   if (!normalizedValue || !normalizedTerm) return false;
+  const comparisonValue = normalizedValue.toLocaleLowerCase("ko-KR");
+  const comparisonTerm = normalizedTerm.toLocaleLowerCase("ko-KR");
+  if (comparisonValue === comparisonTerm) return true;
   return new RegExp(`^${escapeRegExp(normalizedTerm)}(?:\\s+|\\s*[-–—:|·]\\s*)`, "iu")
     .test(normalizedValue);
 }
