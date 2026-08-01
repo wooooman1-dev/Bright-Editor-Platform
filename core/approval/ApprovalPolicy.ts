@@ -39,6 +39,11 @@ export type ApprovalPreparationIssue = Readonly<{
   blocking: true;
 }>;
 
+export type ApprovalPreparationEvidenceContext = Readonly<{
+  sourceUrls?: readonly string[];
+  reviewedAt?: string;
+}>;
+
 export const peopleFirstValueAndTrustPrinciple =
   "애드센스 승인 준비 콘텐츠는 Google 심사 시스템이나 검색 알고리즘을 공략하기 위한 문서가 아니라, 실제 독자의 검색 의도와 문제를 완결적으로 해결하는 독창적이고 검증 가능하며 신뢰할 수 있는 사람 중심 콘텐츠로 작성한다.";
 
@@ -238,9 +243,17 @@ export function approvalPolicySnapshotFromEditorialContext(
 export function evaluateApprovalPreparationText(
   text: string,
   snapshot: ApprovalPolicySnapshot,
+  evidence: ApprovalPreparationEvidenceContext = {},
 ): readonly ApprovalPreparationIssue[] {
   const issues: ApprovalPreparationIssue[] = [];
   const normalized = text.replace(/\s+/g, " ").trim();
+  const evidenceSourceUrls = (evidence.sourceUrls ?? []).filter((value) => {
+    try {
+      return new URL(value).protocol === "https:";
+    } catch {
+      return false;
+    }
+  });
 
   if (/(?:애드센스|AdSense).{0,18}(?:100\s*%|무조건|반드시|확실히).{0,12}(?:승인|통과)|(?:승인|통과).{0,18}(?:보장|확정)/i.test(normalized)) {
     issues.push({ code: "APPROVAL_GUARANTEE_CLAIM", message: "AdSense 승인 또는 통과를 보장하는 표현이 있습니다.", blocking: true });
@@ -255,17 +268,20 @@ export function evaluateApprovalPreparationText(
     issues.push({ code: "FABRICATED_EXPERIENCE", message: "확인할 수 없는 직접 경험 또는 방문 경험을 사실처럼 표현했습니다.", blocking: true });
   }
 
-  const hasSourceSignal = /(?:출처|참고 자료|공식 자료|공식 페이지|소장처|최종 검토일|정보 기준일)/i.test(normalized);
+  const hasSourceSignal = evidenceSourceUrls.length > 0
+    || /(?:출처|참고 자료|공식 자료|공식 페이지|소장처|최종 검토일|정보 기준일)/i.test(normalized);
   if (!hasSourceSignal && snapshot.sourceRequirements.length > 0) {
     issues.push({ code: "PROFILE_SOURCE_REQUIREMENT_MISSING", message: "적용 프로필이 요구하는 출처 또는 검토 기준 표시가 없습니다.", blocking: true });
   }
 
-  const hasSourceUrl = /https:\/\/[^\s<>)"']+/i.test(normalized);
+  const hasSourceUrl = evidenceSourceUrls.length > 0
+    || /https:\/\/[^\s<>)"']+/i.test(normalized);
   if (!hasSourceUrl && snapshot.sourceRequirements.length > 0) {
     issues.push({ code: "PROFILE_SOURCE_URL_MISSING", message: "공식 출처를 확인할 수 있는 HTTPS URL이 없습니다.", blocking: true });
   }
 
-  const hasReviewDate = /(?:(?:최종\s*검토일|정보\s*기준일)(?:\s*(?:과|와|및)\s*(?:최종\s*검토일|정보\s*기준일))?)\s*(?:은|는|이|가)?\s*[:：]?\s*(?:20\d{2}[-./년]\s*\d{1,2}(?:[-./월]\s*\d{1,2})?|20\d{2}[-./]\d{1,2}(?:[-./]\d{1,2})?)/i.test(normalized);
+  const hasReviewDate = Boolean(evidence.reviewedAt && Number.isFinite(Date.parse(evidence.reviewedAt)))
+    || /(?:(?:최종\s*검토일|정보\s*기준일)(?:\s*(?:과|와|및)\s*(?:최종\s*검토일|정보\s*기준일))?)\s*(?:은|는|이|가)?\s*[:：]?\s*(?:20\d{2}[-./년]\s*\d{1,2}(?:[-./월]\s*\d{1,2})?|20\d{2}[-./]\d{1,2}(?:[-./]\d{1,2})?)/i.test(normalized);
   if (!hasReviewDate && snapshot.sourceRequirements.length > 0) {
     issues.push({ code: "PROFILE_REVIEW_DATE_MISSING", message: "정보 기준일 또는 최종 검토일을 확인할 수 없습니다.", blocking: true });
   }
