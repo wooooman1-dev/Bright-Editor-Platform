@@ -27,6 +27,7 @@ export type ContentMetadata = Readonly<{
   tags?: readonly string[];
   availableRelatedContentCandidates?: number;
   internalLinkCatalogStatus?: "evaluated" | "category_missing" | "catalog_unavailable";
+  internalLinkCatalogContextKey?: string;
   approvalPolicy?: ApprovalPolicySnapshot;
   approvalEvidence?: ApprovalEvidencePack;
   approvalDuplicateCheck?: ApprovalDuplicateCheckSnapshot;
