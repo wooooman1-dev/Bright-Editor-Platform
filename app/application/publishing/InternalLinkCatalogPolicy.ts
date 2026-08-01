@@ -44,6 +44,33 @@ export function publishingCategoryNames(content: UserContent): readonly string[]
   ]);
 }
 
+export function publishingInternalLinkContextKey(
+  content: UserContent,
+  connectionId?: string,
+): string {
+  const wordpress = content.publishingPreparation?.wordpress;
+  if (wordpress) {
+    return JSON.stringify({
+      platform: "wordpress",
+      publishingAccountId: connectionId ?? wordpress.publishingAccountId,
+      categories: wordpress.categoryIds.map((id, index) => ({
+        id,
+        name: wordpress.categoryNames[index] ?? id,
+      })),
+    });
+  }
+
+  const tistory = content.publishingPreparation?.tistory;
+  return JSON.stringify({
+    platform: "tistory",
+    publishingAccountId: connectionId ?? tistory?.publishingAccountId ?? "",
+    categories: tistory ? [{
+      id: tistory.platformCategoryId,
+      name: tistory.platformCategoryName,
+    }] : [],
+  });
+}
+
 export function removeAutoPlacedPublishingLinks(
   document: ContentDocument,
 ): ContentDocument {
@@ -84,18 +111,20 @@ export function applyInternalLinkCatalogResult(
   document: ContentDocument,
   ranked: readonly PublicPostCandidate[],
   status: "evaluated" | "category_missing" | "catalog_unavailable",
+  contextKey?: string,
 ): ContentDocument {
   const cleanDocument = removeAutoPlacedPublishingLinks(document);
   const placed = status === "evaluated"
     ? placeRecommendedPosts(cleanDocument, ranked)
     : cleanDocument;
-  return withInternalLinkCatalogMetadata(placed, ranked.length, status);
+  return withInternalLinkCatalogMetadata(placed, ranked.length, status, contextKey);
 }
 
 export function withInternalLinkCatalogMetadata(
   document: ContentDocument,
   count: number,
   status: "evaluated" | "category_missing" | "catalog_unavailable",
+  contextKey?: string,
 ): ContentDocument {
   const now = new Date().toISOString();
   const metrics = calculateContentMetrics(document);
@@ -123,6 +152,7 @@ export function withInternalLinkCatalogMetadata(
       updatedAt: now,
       availableRelatedContentCandidates: count,
       internalLinkCatalogStatus: status,
+      internalLinkCatalogContextKey: contextKey,
     },
   };
 }
@@ -137,7 +167,9 @@ export function internalLinkCatalogChanged(
   return before.metadata?.availableRelatedContentCandidates
       !== after.metadata?.availableRelatedContentCandidates
     || before.metadata?.internalLinkCatalogStatus
-      !== after.metadata?.internalLinkCatalogStatus;
+      !== after.metadata?.internalLinkCatalogStatus
+    || before.metadata?.internalLinkCatalogContextKey
+      !== after.metadata?.internalLinkCatalogContextKey;
 }
 
 function normalizeUrl(value: string): string {
