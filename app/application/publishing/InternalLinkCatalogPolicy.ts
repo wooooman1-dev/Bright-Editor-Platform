@@ -131,7 +131,6 @@ export function withInternalLinkCatalogMetadata(
   return {
     ...document,
     metadata: {
-      buttonCount: document.blocks.filter((block) => block.type === "button").length,
       createdAt: document.metadata?.createdAt ?? now,
       generator: document.metadata?.generator ?? "bright-studio",
       imageCount:
