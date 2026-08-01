@@ -108,7 +108,7 @@ Bright Studio의 목표는 자동화된 심사 또는 검색 시스템을 겨냥
 - 이 원칙은 canonical policy/profile snapshot의 `requiredPrinciples`와 `qualityChecks`를 통해 Planning, Content Opportunity, Generation 및 기존 Quality Review에 같은 버전으로 전달한다.
 - AI 호출은 기존 Generation 1회와 Quality Review 1회를 유지한다. 사람 중심 원칙을 위한 별도 AdSense Review 또는 추가 Provider 호출을 만들지 않는다.
 
-Project별 세부 작성 기준은 해당 승인 프로필이 정의한다. WordPress 생활경제 프로필의 분야별 기준은 `14_ADSENSE_APPROVAL_CONTENT_POLICY.md`, Tistory 비바레인 프로필의 분야별 기준은 `16_TISTORY_VIVARAIN_ADSENSE_APPROVAL_PROFILE.md`를 따른다.
+Project별 세부 작성 기준은 해당 승인 프로필이 정의한다. WordPress 밝은재테크 프로필의 분야별 기준은 `14_ADSENSE_APPROVAL_CONTENT_POLICY.md`, Tistory 비바레인 프로필의 분야별 기준은 `16_TISTORY_VIVARAIN_ADSENSE_APPROVAL_PROFILE.md`를 따른다.
 
 ---
 

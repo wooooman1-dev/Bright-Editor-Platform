@@ -7,6 +7,7 @@ import {
 } from "./ContentDepthPolicy";
 import {
   normalizeStructuredText,
+  serializeStructuredList,
   serializeStructuredTable,
   structuredListItems,
   structuredProseText,
@@ -111,6 +112,7 @@ export function analyzeLongFormDocument(document: ContentDocument, requestedTarg
     .map((block) => normalizeStructuredText(block.text));
   const contentTexts = document.blocks.flatMap((block) => {
     if (block.type === "paragraph") return [normalizeStructuredText(block.text)];
+    if (block.type === "list") return [serializeStructuredList(block)];
     if (block.type === "table") return [serializeStructuredTable(block)];
     return [];
   });
@@ -217,7 +219,7 @@ function inferSections(document: ContentDocument, target: ContentPlanQualityTarg
       flush();
       heading = normalizeStructuredText(block.text);
       text = [];
-    } else if (heading && (block.type === "paragraph" || block.type === "table")) {
+    } else if (heading && (block.type === "paragraph" || block.type === "list" || block.type === "table")) {
       text.push(blockStructuredText(block));
     }
   }
@@ -351,6 +353,7 @@ function textBeforeFirstH2(document: ContentDocument): string {
 }
 function blockStructuredText(block: ContentDocument["blocks"][number]): string {
   if (block.type === "heading" || block.type === "paragraph") return normalizeStructuredText(block.text);
+  if (block.type === "list") return serializeStructuredList(block);
   if (block.type === "table") return serializeStructuredTable(block);
   return "";
 }

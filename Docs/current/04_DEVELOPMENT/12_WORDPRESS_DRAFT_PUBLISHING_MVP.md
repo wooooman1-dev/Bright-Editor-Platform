@@ -12,7 +12,7 @@ Base Commit: `1c38eab75492c156b222c30c947be672a68b39df`
 
 승인된 현재 Content Revision을 사용해 WordPress Core REST API로 안전한 비공개 Draft를 생성하고, 외부 Post와 Media를 다시 조회해 결과를 검증한 뒤 Audit과 완료 UI에 반영한다.
 
-Review First와 Draft Only를 유지하고 Public Publish는 실행하지 않는다. 이 MVP는 AdSense 승인을 보장하지 않으며 WordPress 생활경제 Project의 내부 승인 준비 상태와 Draft 저장 결과만 검증한다.
+Review First와 Draft Only를 유지하고 Public Publish는 실행하지 않는다. 이 MVP는 AdSense 승인을 보장하지 않으며 WordPress 밝은재테크 Project의 내부 승인 준비 상태와 Draft 저장 결과만 검증한다.
 
 ## 2. Existing Verified Foundation
 
@@ -60,7 +60,7 @@ Quality, Permission, Idempotency와 Audit 정책은 플랫폼 공통 Core/Applic
 
 - 기존 WordPress Connection 재사용과 실행 직전 연결 상태 확인
 - PlatformConnection별 실제 Category 동적 조회와 복수 Category ID 계약
-- 현재 정책에 따른 `생활경제` Category 선택
+- 현재 정책에 따른 `생활재테크` Category 선택
 - 동일 WordPress Renderer 기반 Preview와 Draft
 - 조건부 WordPress Media Upload
 - ALT 저장과 외부 Media 재조회 검증
@@ -100,7 +100,7 @@ Application Service는 Workspace가 Connection을 소유하고 WordPress가 활�
 
 ## 8. Dynamic Category Strategy
 
-Category ID와 이름을 코드에 하드코딩하지 않는다. WordPress의 실제 Category 목록을 PlatformConnection별로 pagination 조회하고 Canonical Category로 변환한다.
+외부 Category ID는 코드에 하드코딩하지 않는다. WordPress의 실제 Category 목록을 PlatformConnection별로 pagination 조회하고 Canonical Category로 변환한다. 승인 준비에 필요한 Category 이름은 Core 승인 프로필의 단일 정책값을 사용한다.
 
 선택 계약은 `readonly string[]` Category ID 배열을 사용한다. 현재 UI에서 하나만 선택하더라도 Domain과 REST Payload는 처음부터 복수 선택을 지원한다.
 
@@ -129,7 +129,7 @@ Category 선택과 기본값 적용 우선순위는 다음과 같다.
 
 ## 9. Current AdSense Category and Tag Policy
 
-현재 승인된 AdSense Approval Content Policy에서는 실제 WordPress 목록에 존재하는 `생활경제` Category 하나만 사용한다. 정부지원, 세금 기초, 주거 제도와 생활금융 기초는 초기에는 별도 Category가 아니라 콘텐츠 주제다.
+현재 승인된 AdSense Approval Content Policy에서는 실제 WordPress 목록에 존재하는 `생활재테크` Category 하나만 사용한다. 정부지원, 세금 기초, 주거 제도와 생활금융 기초는 초기에는 별도 Category가 아니라 콘텐츠 주제다. 실제 Category 이름은 앞뒤 공백 제거와 안전한 Unicode 정규화 후 정확히 비교하며, `생활경제`를 유사 이름으로 자동 매칭하지 않는다. ID는 현재 Connection API가 반환한 값을 사용한다.
 
 현재 정책에서는 Tag를 보내지 않는다. WordPress에 존재하는 Tag를 자동 생성하거나 추측하지 않는다. 기술 계약은 향후 승인된 정책 변경 시 Tag 확장이 가능해야 한다.
 
@@ -335,7 +335,7 @@ Public Publish, Schedule, Update와 Delete UI는 제공하거나 활성화하지
 
 1. Bright Studio Settings에서 WordPress Connection을 확인한다.
 2. WordPress 실제 Category 목록을 조회한다.
-3. `생활경제` Category를 선택한다.
+3. `생활재테크` Category를 선택한다.
 4. 승인된 현재 Content Revision을 사용한다.
 5. 로컬 이미지를 업로드한다.
 6. ALT 적용을 확인한다.
@@ -369,3 +369,14 @@ Public Publish, Schedule, Update와 Delete UI는 제공하거나 활성화하지
 이 상세 설계는 Approved지만 구현 상태는 Not Implemented다. 현재 Gate는 이 문서와 관련 Source of Truth의 targeted diff를 사용자에게 제시하고 승인을 받는 것이다.
 
 문서 diff 승인 전에는 구현을 시작하지 않는다. 구현 후에도 자동 테스트와 실제 WordPress Draft 외부 검증을 모두 통과하기 전에는 MVP를 Implemented, Completed 또는 Verified로 표시하지 않는다.
+
+## 26. WordPress Full Audit Local Verification (2026-08-01)
+
+Status: Implementation in progress
+
+- Local deterministic tests verified: Category 제안값과 Content 적용값 분리, 발행 문맥 무효화 범위, Evidence provenance와 Claim-source 연결, 승인 준비 idempotency, semantic table과 Preview shell을 로컬 테스트로 확인했다.
+- Browser verification pending: 이 실행 환경의 in-app Browser binding을 사용할 수 없어 실제 화면과 390px 모바일 동작은 확인하지 못했다.
+- External WordPress Draft not verified: 실제 WordPress Draft 저장, 외부 re-read, GeneratePress 시각 일치, WordPress KSES sanitizer 동작은 실행하지 않았다.
+- D-036과 WordPress 승인 준비 정책의 초기 Category 이름은 2026-08-01 결정에 따라 `생활재테크`로 정렬했다. 같은 날 brightjaetech.kr Connection의 실제 WordPress Category 조회에서 `생활재테크`(해당 Connection의 ID 2)를 확인했으며, ID 2를 Core 또는 범용 제품 정책에 고정하지 않는다. Project/Connection 기본값은 계속 제안으로만 표시하고 Content에 명시적으로 적용된 실제 ID와 정규화한 정확한 이름이 모두 일치할 때만 readiness를 통과한다.
+- 격리된 Studio data로 Category 적용과 reload를 확인했다. 원본 Studio data와 외부 WordPress/Tistory에는 쓰지 않았다.
+- Next.js build가 환경에 따라 `next-env.d.ts`의 generated routes import를 바꿀 수 있는 문제가 관찰되었다. 해당 파일은 제품 변경이나 Commit 대상으로 취급하지 않으며 별도 환경 이슈로 남긴다.

@@ -57,7 +57,7 @@ Core Approval Engine
 ```text
 Apps
 ├─ Tistory Vivarain Profile
-└─ WordPress 생활경제 Profile
+└─ WordPress 밝은재테크 Profile
 ```
 
 Tistory는 플랫폼이 일부 기술 기반을 제공하지만, 콘텐츠 품질·출처·저작권·메뉴·카테고리·내부 탐색·신뢰 페이지·모바일 공개 화면 검증 책임이 사라지지 않는다.
@@ -131,7 +131,7 @@ Evidence Pack은 분야에 맞게 최소한 다음을 보존한다.
 - 주요 출처와 최종 검토일
 - 이미지 이용 조건
 
-### WordPress 생활경제
+### WordPress 밝은재테크
 
 최소 검증 대상:
 

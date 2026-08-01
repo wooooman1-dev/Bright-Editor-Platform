@@ -12,6 +12,12 @@ const blocks: readonly ContentBlock[] = [
   { id: "heading-1", level: 2, text: "Overview", type: "heading" },
   { id: "paragraph-1", text: "Platform-independent content.", type: "paragraph" },
   {
+    id: "list-1",
+    items: ["First item", "Second item"],
+    style: "unordered",
+    type: "list",
+  },
+  {
     id: "table-1",
     headers: ["Criterion", "Value"],
     rows: [["Platform", "Independent"]],
@@ -44,6 +50,7 @@ describe("content model", () => {
     expect(contentBlockTypes).toEqual([
       "heading",
       "paragraph",
+      "list",
       "table",
       "image",
       "video",
@@ -72,7 +79,7 @@ describe("content contracts", () => {
     }));
     const renderer: ContentRenderer<{ blockCount: number }> = { render };
 
-    await expect(renderer.render(document)).resolves.toEqual({ blockCount: 6 });
+    await expect(renderer.render(document)).resolves.toEqual({ blockCount: 7 });
     expect(render).toHaveBeenCalledWith(document);
   });
 

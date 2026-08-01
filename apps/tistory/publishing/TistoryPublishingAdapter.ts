@@ -1,5 +1,6 @@
 import type { PreparedPublication, PublicationRequest, PublicationResult, PublishingAdapter } from "../../../core/publishing";
 import { deriveContentTags } from "../../../core/content";
+import { evaluateHtmlIntegrity } from "../../../core/quality";
 import { TistoryHtmlRenderer } from "./TistoryHtmlRenderer";
 import { runTistoryCategoryReadWorkflow, type TistoryCategoryResult } from "../workflows/TistoryCategoryReadWorkflow";
 import { runTistoryPostReadWorkflow, type TistoryPostCatalogResult } from "../workflows/TistoryPostReadWorkflow";
@@ -11,8 +12,13 @@ export class TistoryPublishingAdapter implements PublishingAdapter {
   readonly platform = "tistory";
   constructor(private readonly renderer = new TistoryHtmlRenderer()) {}
   async prepare(request: PublicationRequest): Promise<TistoryPreparedPublication> {
+    const html = this.renderer.render(request.content);
+    const integrity = evaluateHtmlIntegrity(request.content, html);
+    if (!integrity.passed) {
+      throw new Error(`Tistory Draft HTML integrity blocked: ${integrity.issues.map((item) => item.code).join(", ")}.`);
+    }
     return Object.freeze({
-      payload: Object.freeze({ html: this.renderer.render(request.content), tags: deriveContentTags(request.content), title: request.content.title, type: "save-draft" as const }),
+      payload: Object.freeze({ html, tags: deriveContentTags(request.content), title: request.content.title, type: "save-draft" as const }),
       platform: this.platform,
       request,
     });

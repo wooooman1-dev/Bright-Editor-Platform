@@ -4,6 +4,7 @@ import {
   calculateContentMetrics,
   canonicalDocumentText,
   normalizeSeoKeyword,
+  isSystemProjectionBlock,
   titleContainsPrimaryKeyword,
   deriveContentTags,
   requiresLongFormValidation,
@@ -104,7 +105,7 @@ export class QualityEngine {
       dimensions: Object.freeze(dimensions),
       tasks: Object.freeze([...dimensions.flatMap((item) => item.tasks.map((message) => ({ category: item.category, message, status: item.status === "blocked" ? "blocked" as const : "action_required" as const }))), ...opportunityTasks, ...evidenceClaimTasks, ...(signals.hasExplicitQualityTarget ? signals.contentDiagnostic.violations.map((item) => ({ category: "completeness" as const, message: `${item.code}${item.heading ? `: ${item.heading}` : item.requiredElement ? `: ${item.requiredElement}` : ""}`, status: "blocked" as const })) : [])]),
       reviewedAt: context.reviewedAt ?? new Date().toISOString(),
-      reviewedRevisionId: context.revisionId ?? contentRevisionId(document),
+      reviewedRevisionId: context.revisionId ?? editorialRevisionId(document),
       weights: qualityDimensionWeights,
     });
   }
@@ -123,6 +124,22 @@ export class PublishingGate {
 
 export function contentRevisionId(document: ContentDocument): string {
   const source = JSON.stringify({ title: document.title, blocks: document.blocks });
+  return revisionHash(source);
+}
+
+/**
+ * Canonical manuscript revision used by Standard Quality. System-owned catalog
+ * and Evidence projections do not change the user's editorial manuscript.
+ */
+export function editorialRevisionId(document: ContentDocument): string {
+  const source = JSON.stringify({
+    title: document.title,
+    blocks: document.blocks.filter((block) => !isSystemProjectionBlock(block)),
+  });
+  return revisionHash(source);
+}
+
+function revisionHash(source: string): string {
   let hash = 2166136261;
   for (let index = 0; index < source.length; index += 1) { hash ^= source.charCodeAt(index); hash = Math.imul(hash, 16777619); }
   return `rev-${(hash >>> 0).toString(16).padStart(8, "0")}`;
@@ -137,7 +154,7 @@ function measure(document: ContentDocument, context: QualityReviewContext) {
   const images = document.blocks.filter((block) => block.type === "image");
   const imagePromptAnalysis = analyzeImagePrompts(document, context.primaryKeyword);
   const promptScoredImageIds = new Set(images
-    .filter((item) => !isBrightComponentPurpose(item.purpose) || Boolean(item.source.trim()))
+    .filter((item) => Boolean(item.source.trim()))
     .map((item) => item.id));
   const opportunityAlignment = context.opportunity ? analyzeContentOpportunityAlignment(document, context.opportunity) : undefined;
   const unsupportedEvidenceClaims = context.opportunity ? detectUnsupportedEvidenceClaims(text, context.opportunity) : [];
@@ -224,13 +241,12 @@ function evaluate(s: Signals): QualityDimensionResult[] {
   const singleSentenceExcess = Math.max(0, s.singleSentenceParagraphs - singleSentenceThreshold);
   const placedImages = s.images.filter((item) =>
     Boolean(item.source.trim()) || isBrightComponentPurpose(item.purpose));
-  const imageStrategyComplete = s.images.length > 0
-    && placedImages.length === s.images.length
-    && s.images.every((item) => item.alt.trim().length >= 4);
+  const imageStrategyComplete = placedImages.length > 0
+    && placedImages.every((item) => item.alt.trim().length >= 4);
   const actionableImageIssues = s.imagePromptAnalysis.issues.filter((item) => item.code !== "missing_prompt"
     && item.blockIds.every((blockId) => s.promptScoredImageIds.has(blockId)));
   const imagePromptPenalty = actionableImageIssues.reduce((sum, item) => sum + imageIssuePenalty(item), 0);
-  const imageStrategyBaseScore = !s.document.blocks.length ? 0 : imageStrategyComplete ? 94 : s.images.length ? 58 : 72;
+  const imageStrategyBaseScore = !s.document.blocks.length ? 0 : !placedImages.length ? 100 : imageStrategyComplete ? 94 : 58;
   const repeatedImageRolePenalty = s.images.length >= 4 && new Set(s.images.map((item) => item.purpose ?? "inline")).size <= 2 ? 15 : 0;
   const zeroCostVisualSignals = s.images.filter((item) => isBrightComponentPurpose(item.purpose)).length
     + s.contentDiagnostic.sections.reduce((sum, section) => sum + section.tableCount, 0);
@@ -297,16 +313,15 @@ function evaluate(s: Signals): QualityDimensionResult[] {
       [...(!s.document.blocks.length ? ["렌더링할 canonical block이 없습니다."] : []), ...(invalidHeadingOrder ? ["제목 단계가 건너뛰어 HTML 문서 구조가 올바르지 않습니다."] : []), ...(s.emptyParagraphs ? ["빈 문단 블록이 남아 있습니다."] : []), ...(s.duplicateBlockIds ? ["중복된 block id가 있어 목차·앵커 렌더링 충돌 위험이 있습니다."] : []), ...(s.invalidButtonUrls ? ["유효하지 않은 버튼 또는 링크 URL이 있습니다."] : []), ...(s.targetPolicyViolations ? ["내부·외부 링크의 target 정책이 올바르지 않습니다."] : [])], ["빈 블록, 중복 ID, 잘못된 URL과 링크 target 정책을 수정하고 제목 단계를 순서대로 정리하세요."], [{ signal: "blockCount", value: s.document.blocks.length }, { signal: "headingHierarchyValid", value: !invalidHeadingOrder }, { signal: "emptyParagraphs", value: s.emptyParagraphs }, { signal: "duplicateBlockIds", value: s.duplicateBlockIds }, { signal: "invalidButtonUrls", value: s.invalidButtonUrls }, { signal: "targetPolicyViolations", value: s.targetPolicyViolations }]),
     dimension("imageStrategy", imageStrategyScore,
       [
-        ...(imageStrategyComplete ? [] : s.images.length
-          ? [placedImages.length < s.images.length
-            ? "추천된 이미지 블록 중 실제 source 또는 렌더 가능한 Bright 시각 요소가 배치되지 않은 항목이 있습니다."
-            : "이미지 추천 블록의 설명 텍스트가 부족합니다."]
-          : ["본문에 이미지 전략 블록이 없습니다."]),
+        ...(!placedImages.length
+          ? ["실제 공개 HTML에 렌더되는 이미지가 없어 source-empty 편집 추천을 품질 점수에서 제외했습니다."]
+          : imageStrategyComplete ? [] : ["실제 렌더되는 이미지 블록의 설명 텍스트가 부족합니다."]),
         ...actionableImageIssues.map((item) => item.message),
       ],
       actionableImageIssues.length ? actionableImageIssues.map(imageIssueTask) : ["본문 흐름에 맞는 이미지 placeholder와 구체적인 ALT 설명을 배치하세요."],
       [
         { signal: "recommendedImageBlocks", value: s.images.length },
+        { signal: "renderedImageBlocks", value: placedImages.length },
         { signal: "descriptiveImageBlocks", value: s.images.filter((item) => item.alt.trim().length >= 4).length },
         { signal: "uploadedImageBlocks", value: s.images.filter((item) => Boolean(item.source.trim())).length },
         { signal: "promptScoredImageBlocks", value: s.promptScoredImageIds.size },
@@ -317,7 +332,7 @@ function evaluate(s: Signals): QualityDimensionResult[] {
         { signal: "uniformImagePurpose", value: actionableImageIssues.some((item) => item.code === "uniform_purpose") },
         { signal: "repeatedImageRolePenalty", value: repeatedImageRolePenalty },
         { signal: "zeroCostVisualSignals", value: zeroCostVisualSignals },
-      ]),
+      ], placedImages.length ? "evaluated" : "optional"),
     dimension("internalLinks", 100,
       internalLinkReasons.length ? internalLinkReasons : ["내부 링크와 관련 글은 생성·배치 진단 항목이며 품질 점수에는 반영하지 않습니다."],
       [], [{ signal: "scoringExcluded", value: true }, { signal: "placedContextualInternalLinks", value: contextualInternalLinks.length }, { signal: "placedRelatedPosts", value: relatedPosts.length }, { signal: "availableSameCategoryCandidates", value: candidateCount ?? "unknown" }, { signal: "categoryName", value: s.context.categoryName ?? false }, { signal: "catalogStatus", value: s.context.internalLinkCatalogStatus ?? "unknown" }], "optional"),

@@ -44,7 +44,9 @@ export class QualityEngine extends BaseQualityEngine {
       canonicalDocumentText(document),
       snapshot,
       {
-        sourceUrls: evidence?.sources.map((source) => source.canonicalUrl ?? source.url),
+        sourceUrls: evidence?.sources
+          .filter((source) => source.provenance !== "search_candidate")
+          .map((source) => source.canonicalUrl ?? source.url),
         reviewedAt: evidence?.reviewedAt,
       },
     );

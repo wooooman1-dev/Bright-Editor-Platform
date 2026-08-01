@@ -54,6 +54,28 @@ describe("WordPress Draft application service", () => {
     expect(harness.categories.listAllCategories).toHaveBeenCalledTimes(2);
   });
 
+  it("blocks deterministic HTML integrity failures before any external Media write", async () => {
+    const base = imageDocument();
+    const document: ContentDocument = {
+      ...base,
+      blocks: [
+        { id: "raw-source", type: "paragraph", text: "공식 자료 (fsc.go.kr)" },
+        ...base.blocks,
+      ],
+    };
+    const harness = createHarness(document, { mediaPermission: true });
+
+    const result = await harness.service.execute(execution(harness.data, harness.connection));
+
+    expect(result).toMatchObject({
+      status: "failed",
+      stage: "draft_create",
+      record: { safeErrorCode: "HTML_INTEGRITY_BLOCKED" },
+    });
+    expect(harness.media.uploadMedia).not.toHaveBeenCalled();
+    expect(harness.drafts.createDraft).not.toHaveBeenCalled();
+  });
+
   it("re-reads Categories after verified Media and blocks a deleted selection before Post creation", async () => {
     const harness = createHarness(imageDocument(), { mediaPermission: true });
     harness.categories.listAllCategories

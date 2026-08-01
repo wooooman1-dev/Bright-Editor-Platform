@@ -8,7 +8,9 @@ import type { UserData } from "../../../../app/user-flow/user-data";
 import {
   confirmContentOpportunity,
   createContentOpportunityCandidate,
+  type ContentDocument,
 } from "../../../../core/content";
+import { resolveApprovalPolicySnapshot } from "../../../../core/approval";
 
 const opportunity = confirmContentOpportunity(createContentOpportunityCandidate({
   sourceRequest: "고흐 별이 빛나는 밤 감상",
@@ -141,7 +143,8 @@ describe("studio approval policy routes", () => {
       } }),
     }));
 
-    expect(requestInput(fetchSpy)).toContain("Approval profile: tistory_vivarain_art_v1@1.0");
+    expect(requestInput(fetchSpy)).toContain("Approval profile: Tistory · 비바레인 미술@1.0");
+    expect(requestInput(fetchSpy)).not.toContain("tistory_vivarain_art_v1");
   });
 
   it("uses the confirmed Content snapshot for Generation", async () => {
@@ -171,6 +174,49 @@ describe("studio approval policy routes", () => {
       } }),
     }));
 
-    expect(requestInput(fetchSpy)).toContain("Approval profile: tistory_vivarain_art_v1@1.0");
+    expect(requestInput(fetchSpy)).toContain("Approval profile: Tistory · 비바레인 미술@1.0");
+    expect(requestInput(fetchSpy)).not.toContain("tistory_vivarain_art_v1");
+  });
+
+  it("keeps the stable profile ID out of a canonical revision prompt", async () => {
+    const document: ContentDocument = {
+      id: "content-1",
+      title: "별이 빛나는 밤 감상 가이드",
+      blocks: [{ id: "p1", type: "paragraph", text: "작품의 구도와 색을 확인합니다." }],
+      metadata: {
+        buttonCount: 0,
+        createdAt: "2026-07-27T00:00:00.000Z",
+        generator: "test",
+        imageCount: 0,
+        language: "ko",
+        readingTime: 1,
+        source: "test",
+        updatedAt: "2026-07-27T00:00:00.000Z",
+        version: 1,
+        videoCount: 0,
+        wordCount: 20,
+        approvalPolicy: resolveApprovalPolicySnapshot("adsense_approval", "tistory_vivarain_art_v1")!,
+      },
+    };
+    const current = data(approvalContent({ document, status: "in_review" }));
+    storeMocks.get.mockResolvedValue(current);
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ output_text: "not-json" }), { status: 200 }),
+    );
+
+    await POST(new Request("http://localhost/api/studio", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "revise", input: {
+        workspaceId: "workspace-1",
+        projectId: "project-1",
+        contentId: "content-1",
+        instruction: "문장을 다듬어줘",
+        document,
+      } }),
+    }));
+
+    expect(requestInput(fetchSpy)).toContain("Approval profile: Tistory · 비바레인 미술@1.0");
+    expect(requestInput(fetchSpy)).not.toContain("tistory_vivarain_art_v1");
   });
 });

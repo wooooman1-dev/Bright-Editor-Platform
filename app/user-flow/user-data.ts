@@ -2,6 +2,7 @@ import {
   confirmContentOpportunity,
   createContentOpportunityCandidate,
   hasCurrentContentOpportunityFingerprint,
+  serializeStructuredList,
   type ConfirmedContentOpportunity,
   type ContentDocument,
   type ContentOpportunityCandidate,
@@ -488,7 +489,6 @@ export function createContentFromPlan(data: UserData, input: Readonly<{
     ...(input.selectedPublishingAccountIds.length === 1 ? { publishingAccountId: input.selectedPublishingAccountIds[0], platform: resolveProjectStrategy(project).defaultPlatform } : {}),
     title: opportunity.selectedTopic,
     body: existing?.body ?? "", status: "planning", creationMethod: "natural_language", createdAt: existing?.createdAt ?? input.now, updatedAt: input.now,
-    ...(project.strategy?.defaultTistoryCategory ? { publishingPreparation: { tistory: { publishingAccountId: project.strategy.defaultTistoryCategory.publishingAccountId, platformCategoryId: project.strategy.defaultTistoryCategory.id, platformCategoryName: project.strategy.defaultTistoryCategory.name, updatedAt: input.now } } } : {}),
   };
   return { ...data, contents: existing ? data.contents.map((item) => item.id === existing.id ? content : item) : [...data.contents, content] };
 }
@@ -655,7 +655,7 @@ export function parseStoredUserData(raw: string | null): UserData {
 
 function bodyToDocument(content: UserContent, title: string, body: string): ContentDocument {
   const editable = editableTextToBlocks(content.id, body);
-  const nonTextBlocks = content.document?.blocks.filter((block) => block.type !== "heading" && block.type !== "paragraph") ?? [];
+  const nonTextBlocks = content.document?.blocks.filter((block) => block.type !== "heading" && block.type !== "paragraph" && block.type !== "list") ?? [];
   return Object.freeze({ id: content.document?.id ?? content.id, title, blocks: Object.freeze([...editable, ...nonTextBlocks]) });
 }
 
@@ -663,6 +663,7 @@ export function documentToEditableText(document: ContentDocument): string {
   return document.blocks.flatMap((block) => {
     if (block.type === "heading") return [`${"#".repeat(block.level)} ${block.text}`];
     if (block.type === "paragraph") return [block.text];
+    if (block.type === "list") return [serializeStructuredList(block)];
     return [];
   }).join("\n\n");
 }

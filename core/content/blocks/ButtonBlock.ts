@@ -1,5 +1,8 @@
+import type { ContentBlockOwnership } from "../ContentBlockOwnership";
+
 export type ButtonBlock = Readonly<{
   id: string;
+  ownership?: ContentBlockOwnership;
   label: string;
   description?: string;
   affiliate?: boolean;

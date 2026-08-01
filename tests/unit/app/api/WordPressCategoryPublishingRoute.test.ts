@@ -42,7 +42,7 @@ describe("WordPress Category publishing route", () => {
 
   it("reads the selected WordPress target Category catalog with view context", async () => {
     const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify([{ id: 12, name: "?앺솢寃쎌젣", slug: "life-economy", parent: 0 }]), {
+      new Response(JSON.stringify([{ id: 2, name: "생활재테크", parent: 0 }]), {
         status: 200,
         headers: { "X-WP-TotalPages": "1" },
       }),
@@ -52,7 +52,7 @@ describe("WordPress Category publishing route", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
-      categories: [{ externalCategoryId: "12", name: "?앺솢寃쎌젣" }],
+      categories: [{ externalCategoryId: "2", name: "생활재테크" }],
       selection: { valid: false, reason: "missing" },
       preparation: null,
     });
@@ -63,42 +63,42 @@ describe("WordPress Category publishing route", () => {
 
   it("persists a validated WordPress Category on the Project and Content", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify([{ id: 12, name: "?앺솢寃쎌젣", slug: "life-economy", parent: 0 }]), {
+      new Response(JSON.stringify([{ id: 2, name: "생활재테크", parent: 0 }]), {
         status: 200,
         headers: { "X-WP-TotalPages": "1" },
       }),
     );
 
-    const response = await POST(categorySelectionRequest(["12"]));
+    const response = await POST(categorySelectionRequest(["2"]));
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       selection: {
         valid: true,
-        categoryIds: ["12"],
-        categoryNames: ["?앺솢寃쎌젣"],
+        categoryIds: ["2"],
+        categoryNames: ["생활재테크"],
       },
       preparation: {
         publishingAccountId: "wordpress-1",
-        categoryIds: ["12"],
-        categoryNames: ["?앺솢寃쎌젣"],
+        categoryIds: ["2"],
+        categoryNames: ["생활재테크"],
       },
     });
     expect(persistedData.contents[0].publishingPreparation?.wordpress).toMatchObject({
       publishingAccountId: "wordpress-1",
-      categoryIds: ["12"],
-      categoryNames: ["?앺솢寃쎌젣"],
+      categoryIds: ["2"],
+      categoryNames: ["생활재테크"],
     });
     expect(persistedData.projects[0].strategy?.defaultWordPressCategories).toEqual([{
       publishingAccountId: "wordpress-1",
-      id: "12",
-      name: "?앺솢寃쎌젣",
+      id: "2",
+      name: "생활재테크",
     }]);
   });
 
   it("rejects a Category ID that is not present in the current WordPress catalog", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify([{ id: 12, name: "?앺솢寃쎌젣" }]), {
+      new Response(JSON.stringify([{ id: 2, name: "생활재테크" }]), {
         status: 200,
         headers: { "X-WP-TotalPages": "1" },
       }),

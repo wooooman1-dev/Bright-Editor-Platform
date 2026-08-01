@@ -1,4 +1,5 @@
 import type { ContentDocument } from "../content/ContentDocument";
+import { serializeStructuredList } from "../content/StructuredText";
 import type { ApprovalDuplicateCheckSnapshot } from "./ApprovalReadiness";
 
 export type ApprovalDuplicateCandidate = Readonly<{
@@ -99,6 +100,7 @@ function headingTokens(document: ContentDocument): ReadonlySet<string> {
 function bodyTokens(document: ContentDocument): ReadonlySet<string> {
   const text = document.blocks.flatMap((block) => {
     if (block.type === "heading" || block.type === "paragraph") return [block.text];
+    if (block.type === "list") return [serializeStructuredList(block)];
     if (block.type === "table") return [block.caption ?? "", ...block.headers, ...block.rows.flat()];
     if (block.type === "image") return [block.alt, block.prompt ?? ""];
     if (block.type === "button") return [block.label];

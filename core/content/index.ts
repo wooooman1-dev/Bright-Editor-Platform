@@ -1,5 +1,12 @@
 export type { ContentBlock } from "./ContentBlock";
 export {
+  contentBlockOwnership,
+  contentBlockOwnerships,
+  isSystemProjectionBlock,
+  normalizeContentBlockOwnership,
+  type ContentBlockOwnership,
+} from "./ContentBlockOwnership";
+export {
   contentBlockTypes,
   type ContentBlockType,
 } from "./ContentBlockType";
@@ -103,6 +110,7 @@ export type {
   HeadingLevel,
 } from "./blocks/HeadingBlock";
 export type { ImageBlock, ImageBlockPurpose, ImageBlockSourceType } from "./blocks/ImageBlock";
+export type { ListBlock, ListBlockStyle } from "./blocks/ListBlock";
 export type { ParagraphBlock } from "./blocks/ParagraphBlock";
 export type { TableBlock } from "./blocks/TableBlock";
 export type { VideoBlock } from "./blocks/VideoBlock";
@@ -110,12 +118,15 @@ export { ContentNormalizer } from "./processors/ContentNormalizer";
 export {
   normalizeStructuredTable,
   normalizeStructuredText,
+  parseStructuredList,
   parseStructuredText,
+  serializeStructuredList,
   serializeStructuredTable,
   structuredListItems,
   structuredProseText,
   structuredTableCount,
   type StructuredTableData,
+  type StructuredListData,
   type StructuredTextSegment,
 } from "./StructuredText";
 export {

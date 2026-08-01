@@ -4,7 +4,7 @@ import path from "node:path";
 import type { PlatformConnection } from "../../../core/connections";
 import { evaluateApprovalDraftIntegrity } from "../../../core/approval";
 import { analyzeLongFormDocument } from "../../../core/content";
-import { contentRevisionId, isStandardQualityApproved, QualityEngine } from "../../../core/quality";
+import { editorialRevisionId, isStandardQualityApproved, QualityEngine } from "../../../core/quality";
 import { PublishingPermissionGate } from "../../../core/publishing";
 import { isPlatformEnabled, resolveWorkspaceSettings } from "../settings/WorkspaceSettingsService";
 import { resolveProjectStrategy, type UserContent, type UserData, type UserProject } from "../../user-flow/user-data";
@@ -42,7 +42,6 @@ export function applyTistoryPublishingAccount(
   const content = data.contents.find((item) => item.id === contentId && item.projectId === projectId && item.workspaceId === data.workspace?.id);
   if (!project || !content) throw new Error("발행 준비 대상 프로젝트와 콘텐츠를 찾을 수 없습니다.");
   const strategy = resolveProjectStrategy(project);
-  const defaultCategory = strategy.defaultTistoryCategory?.publishingAccountId === connectionId ? strategy.defaultTistoryCategory : undefined;
   const next: UserData = {
     ...data,
     projects: data.projects.map((item) => item.id === projectId ? {
@@ -56,19 +55,9 @@ export function applyTistoryPublishingAccount(
       platform: "tistory",
       publishingAccountId: connectionId,
       selectedPublishingAccountIds: uniqueAccount(item.selectedPublishingAccountIds, connectionId),
-      publishingPreparation: defaultCategory
-        ? {
-            ...item.publishingPreparation,
-            tistory: {
-              publishingAccountId: connectionId,
-              platformCategoryId: defaultCategory.id,
-              platformCategoryName: defaultCategory.name,
-              updatedAt,
-            },
-          }
-        : item.publishingPreparation?.tistory?.publishingAccountId === connectionId
-          ? item.publishingPreparation
-          : withoutTistoryPublishingPreparation(item.publishingPreparation),
+      publishingPreparation: item.publishingPreparation?.tistory?.publishingAccountId === connectionId
+        ? item.publishingPreparation
+        : withoutTistoryPublishingPreparation(item.publishingPreparation),
       updatedAt,
     } : item),
   };
@@ -173,7 +162,7 @@ export async function calculateTistoryReadiness(input: Readonly<{
     && input.selectedTarget);
   const preparation = content.publishingPreparation?.tistory;
   const categoryStored = Boolean(connection && preparation && preparation.publishingAccountId === connection.id);
-  const currentRevision = content.document ? contentRevisionId(content.document) : undefined;
+  const currentRevision = content.document ? editorialRevisionId(content.document) : undefined;
   const currentRuleQuality = content.document ? new QualityEngine().review(content.document, { contentType: content.contentType, platform: content.platform ?? "tistory", primaryKeyword: content.primaryKeyword, searchIntent: content.searchIntent, revisionId: currentRevision }) : undefined;
   const hasDynamicTarget = Boolean(content.document?.metadata?.qualityTarget ?? content.qualityTarget ?? content.opportunity?.qualityTarget);
   const longFormReady = content.document && hasDynamicTarget ? analyzeLongFormDocument(content.document, content.qualityTarget ?? content.opportunity?.qualityTarget) : undefined;

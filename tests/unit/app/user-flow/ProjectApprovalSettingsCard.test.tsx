@@ -86,6 +86,28 @@ describe("ProjectApprovalSettingsCard", () => {
     expect(html).toContain("기존 콘텐츠의 정책은 변경하지 않습니다");
   });
 
+  it("renders the WordPress profile with the actual brightjaetech brand identity", () => {
+    const value = {
+      ...project({
+        defaultPlatform: "wordpress",
+        defaultContentPurpose: "adsense_approval",
+        approvalProfileId: "wordpress_life_economy_v1",
+      }),
+      name: "밝은재테크",
+    } as UserProject;
+
+    const html = renderToStaticMarkup(
+      <ProjectApprovalSettingsCard
+        data={data(value)}
+        onPersist={vi.fn(async () => undefined)}
+        project={value}
+      />,
+    );
+
+    expect(html).toContain("WordPress · 밝은재테크");
+    expect(html).not.toContain("WordPress · 생활경제");
+  });
+
   it("keeps a persisted legacy profile visible instead of silently replacing it", () => {
     const value = project({
       defaultPlatform: "tistory",

@@ -34,6 +34,8 @@ vi.mock("../../../../app/application/connections/connection-runtime", () => ({
 }));
 
 vi.mock("../../../../app/application/approval/ApprovalReadinessApplicationService", () => ({
+  approvalReadinessExecutionIdentity: () => ({ key: "execution-key" }),
+  executeApprovalReadinessOnce: (_key: string, task: () => Promise<unknown>) => task(),
   ApprovalReadinessApplicationService: class {
     execute = mocks.execute;
   },

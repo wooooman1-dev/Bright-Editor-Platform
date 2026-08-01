@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   approvalPolicyPromptContext,
+  approvalPolicySnapshotFromEditorialContext,
   evaluateApprovalPreparationText,
   normalizeContentPurpose,
   peopleFirstValueAndTrustPrinciple,
@@ -64,7 +65,17 @@ describe("ApprovalPolicy", () => {
       expect(snapshot.qualityChecks.some((check) => check.startsWith(`${perspective}:`))).toBe(true);
     }
     expect(context).toContain(peopleFirstValueAndTrustPrinciple);
-    expect(context).toContain("Approval profile: wordpress_life_economy_v1@1.0");
+    expect(snapshot.requiredPublishingCategoryNames).toEqual(["생활재테크"]);
+    expect(snapshot.siteIdentity).toBe("밝은재테크");
+    expect(snapshot.contentDomain).toContain("생활경제");
+    expect(snapshot.profileDisplayName).toBe("WordPress · 밝은재테크");
+    expect(context).toContain("Required publishing categories: 생활재테크");
+    expect(context).not.toContain("Required publishing categories: 생활경제");
+    expect(context).toContain("Approval profile: WordPress · 밝은재테크@1.0");
+    expect(context).toContain("Site and brand identity (metadata only): 밝은재테크");
+    expect(context).toContain("Content domain: 생활경제, 생활금융, 정부지원, 세금, 주거 정보");
+    expect(context).toContain("publishing Category labels are metadata, not default search keywords");
+    expect(context).not.toContain("wordpress_life_economy_v1");
     expect(context).not.toMatch(/Google\s*AI\s*봇|AI\s*봇에게\s*잘\s*보이/iu);
     expect(context).not.toMatch(/\b\d{3,}\s*(?:자|단어)\b/u);
     expect(snapshot.requiredPrinciples).toContain("목표 글자 수, 최소 문단 수, 최소 게시물 수 또는 최소 Category 수를 승인 Gate로 사용하지 않는다.");
@@ -76,7 +87,23 @@ describe("ApprovalPolicy", () => {
     ]));
   });
 
-  it("keeps WordPress 생활경제 rules out of the Tistory profile", () => {
+  it("restores the stable profile ID from public and legacy prompt labels", () => {
+    const current = approvalPolicyPromptContext(
+      resolveApprovalPolicySnapshot("adsense_approval", "wordpress_life_economy_v1")!,
+    );
+    const legacy = [
+      "Content purpose: adsense_approval",
+      "Approval policy: adsense_approval_mode@1.0",
+      "Approval profile: wordpress_life_economy_v1@1.0",
+    ].join("\n");
+
+    expect(approvalPolicySnapshotFromEditorialContext(current)?.profileId)
+      .toBe("wordpress_life_economy_v1");
+    expect(approvalPolicySnapshotFromEditorialContext(legacy)?.profileId)
+      .toBe("wordpress_life_economy_v1");
+  });
+
+  it("keeps the WordPress 생활경제 content-domain rules out of the Tistory profile", () => {
     const snapshot = resolveApprovalPolicySnapshot("adsense_approval", "tistory_vivarain_art_v1")!;
     const profileContract = [
       ...snapshot.requiredPrinciples,
@@ -87,6 +114,12 @@ describe("ApprovalPolicy", () => {
 
     expect(profileContract).not.toMatch(/생활경제|정부지원|소득 기준|세율|대출 승인 보장|지원금 수령 보장/u);
     expect(profileContract).not.toContain(peopleFirstValueAndTrustPrinciple);
+    expect(snapshot).toMatchObject({
+      profileDisplayName: "Tistory · 비바레인 미술",
+      siteIdentity: "비바레인",
+      contentDomain: "서양미술 화가와 작품 감상 정보",
+    });
+    expect(approvalPolicyPromptContext(snapshot)).not.toContain("tistory_vivarain_art_v1");
   });
 
   it("blocks guarantee, placeholder, fabricated experience, and missing evidence details", () => {

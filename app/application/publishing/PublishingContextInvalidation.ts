@@ -1,11 +1,12 @@
-import type { ContentDocument } from "../../../core/content";
+import { contentBlockOwnership, type ContentDocument } from "../../../core/content";
+import type { QualityReport } from "../../../core/quality";
 import type { UserContent, UserData } from "../../user-flow/user-data";
 import { internalLinkCatalogContextKey } from "./InternalLinkCatalogPolicy";
 
 /**
- * Publishing account and Category state live outside ContentDocument while
- * internal-link placement and Quality are derived from that state. Invalidate
- * only those derived projections when the external publishing context changes.
+ * Publishing account and Category state live outside ContentDocument. Only
+ * publishing-context projections are invalidated; the editorial manuscript,
+ * Standard Quality, Evidence, duplicate result, and manual links are durable.
  */
 export function invalidatePublishingContextDependentStateIfChanged(
   before: UserContent,
@@ -18,11 +19,7 @@ export function invalidatePublishingContextDependentStateIfChanged(
   if (internalLinkCatalogContextKey(before) === internalLinkCatalogContextKey(after)) {
     return next;
   }
-  const hasBoundDerivedState = before.document?.metadata?.internalLinkCatalogStatus !== undefined
-    || before.document?.metadata?.internalLinkCatalogContextKey !== undefined;
-  return hasBoundDerivedState
-    ? invalidatePublishingContextDependentState(next, contentId, updatedAt)
-    : next;
+  return invalidatePublishingContextDependentState(next, contentId, updatedAt);
 }
 
 export function invalidatePublishingContextDependentState(
@@ -40,13 +37,14 @@ export function invalidatePublishingContextDependentState(
       return {
         ...content,
         ...(document ? { document } : {}),
-        quality: undefined,
-        status: document ? "in_review" : content.status,
+        ...(content.quality ? { quality: withoutApprovalReadiness(content.quality) } : {}),
         updatedAt,
       };
     }),
-    qualityReports: Object.freeze((data.qualityReports ?? [])
-      .filter((entry) => entry.contentId !== contentId)),
+    qualityReports: Object.freeze((data.qualityReports ?? []).map((entry) =>
+      entry.contentId === contentId
+        ? Object.freeze({ ...entry, report: withoutApprovalReadiness(entry.report) })
+        : entry)),
   };
 }
 
@@ -55,14 +53,15 @@ export function invalidatePublishingContextDocument(
   updatedAt: string,
 ): ContentDocument {
   const blocks = Object.freeze(document.blocks.filter((block) =>
-    !(block.type === "button"
-      && (block.purpose === "internal_link" || block.purpose === "related_post"))));
+    contentBlockOwnership(block) !== "system_catalog"));
   if (!document.metadata) return { ...document, blocks };
 
   const metadata = { ...document.metadata };
   delete metadata.availableRelatedContentCandidates;
   delete metadata.internalLinkCatalogStatus;
   delete metadata.internalLinkCatalogContextKey;
+  delete metadata.siteApprovalReadiness;
+  delete metadata.approvalReadinessExecution;
   return {
     ...document,
     blocks,
@@ -72,4 +71,11 @@ export function invalidatePublishingContextDocument(
       buttonCount: blocks.filter((block) => block.type === "button").length,
     },
   };
+}
+
+function withoutApprovalReadiness(report: QualityReport): QualityReport {
+  if (!("approvalReadiness" in report)) return report;
+  const result = { ...report } as QualityReport & { approvalReadiness?: unknown };
+  delete result.approvalReadiness;
+  return Object.freeze(result);
 }

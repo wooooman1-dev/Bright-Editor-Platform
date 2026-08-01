@@ -299,6 +299,229 @@ describe("WordPress publishing preparation", () => {
     expect(merged.contents[0].publishingPreparation).toEqual(current.contents[0].publishingPreparation);
     expect(merged.contents[0].title).toBe("Client edit");
   });
+
+  it("preserves independent review state and manual links when an applied Category changes", () => {
+    const data = baseData();
+    const quality = {
+      approved: true,
+      approvalType: "standard" as const,
+      approvalState: "approved" as const,
+      findings: [],
+      overallScore: 100,
+      reviews: [],
+      dimensions: [],
+      tasks: [],
+      reviewedAt: CREATED_AT,
+      reviewedRevisionId: "editorial-revision",
+      weights: {} as never,
+    };
+    const reviewed: UserData = {
+      ...data,
+      contents: data.contents.map((content) => ({
+        ...content,
+        status: "ready" as const,
+        quality,
+        document: {
+          id: "document-1",
+          title: content.title,
+          metadata: {
+            buttonCount: 2,
+            createdAt: CREATED_AT,
+            generator: "test",
+            imageCount: 0,
+            language: "ko",
+            readingTime: 1,
+            source: "test",
+            updatedAt: CREATED_AT,
+            version: 1,
+            videoCount: 0,
+            wordCount: 10,
+            internalLinkCatalogStatus: "evaluated",
+            internalLinkCatalogContextKey: "old-context",
+            availableRelatedContentCandidates: 1,
+            approvalEvidence: { version: "1.0", status: "needs_review", sources: [] },
+            approvalDuplicateCheck: {
+              version: "1.0",
+              status: "passed",
+              checkedAt: CREATED_AT,
+              comparedContentIds: [],
+              reasons: [],
+            },
+            siteApprovalReadiness: { version: "1.0", status: "passed", checkedAt: CREATED_AT, checks: [] },
+          },
+          blocks: [
+            { id: "body", type: "paragraph", text: "사용자 본문" },
+            { id: "system-link", type: "button", ownership: "system_catalog", purpose: "internal_link", label: "자동 링크", targetUrl: "https://example.com/system" },
+            { id: "manual-link", type: "button", ownership: "user_manual", purpose: "internal_link", label: "수동 링크", targetUrl: "https://example.com/manual" },
+          ],
+        },
+      })),
+      qualityReports: [{ contentId: "content-1", report: quality }],
+    };
+    const evidence = reviewed.contents[0].document?.metadata?.approvalEvidence;
+    const duplicate = reviewed.contents[0].document?.metadata?.approvalDuplicateCheck;
+    const actualCategories = categoryResult(connection.id, [category("2", "생활재테크")]);
+
+    const applied = applyWordPressPublishingCategories(
+      reviewed, "project-1", "content-1", connection.id, ["2"], actualCategories, UPDATED_AT,
+    );
+    const content = applied.contents[0];
+
+    expect(content.status).toBe("ready");
+    expect(content.quality).toBe(quality);
+    expect(applied.qualityReports?.[0]?.report).toBe(quality);
+    expect(content.document?.metadata?.approvalEvidence).toBe(evidence);
+    expect(content.document?.metadata?.approvalDuplicateCheck).toBe(duplicate);
+    expect(content.document?.metadata?.siteApprovalReadiness).toBeUndefined();
+    expect(content.document?.metadata?.internalLinkCatalogStatus).toBeUndefined();
+    expect(content.document?.blocks.map((block) => block.id)).toEqual(["body", "manual-link"]);
+  });
+
+  it("accepts the exact 생활재테크 Category returned as ID 2 by the current Connection", () => {
+    const actualCategories = categoryResult(connection.id, [category("2", "생활재테크")]);
+    const prepared = approvalData(applyWordPressPublishingCategories(
+      baseData(), "project-1", "content-1", connection.id, ["2"], actualCategories, UPDATED_AT,
+    ));
+
+    expect(resolve(prepared, connection, actualCategories)).toMatchObject({
+      valid: true,
+      source: "content",
+      categoryIds: ["2"],
+      categoryNames: ["생활재테크"],
+      policyCompliant: true,
+      requiredCategoryNames: ["생활재테크"],
+    });
+  });
+
+  it("rejects 생활경제 even when its external ID is 2", () => {
+    const actualCategories = categoryResult(connection.id, [category("2", "생활경제")]);
+    const prepared = approvalData(applyWordPressPublishingCategories(
+      baseData(), "project-1", "content-1", connection.id, ["2"], actualCategories, UPDATED_AT,
+    ));
+
+    expect(resolve(prepared, connection, actualCategories)).toMatchObject({
+      valid: true,
+      source: "content",
+      categoryIds: ["2"],
+      categoryNames: ["생활경제"],
+      policyCompliant: false,
+      requiredCategoryNames: ["생활재테크"],
+      policyReason: expect.stringContaining("정확한 일치"),
+    });
+  });
+
+  it("accepts surrounding whitespace after safe Unicode normalization", () => {
+    const normalizedVariant = ` ${"생활재테크".normalize("NFD")} `;
+    const actualCategories = categoryResult(connection.id, [category("2", normalizedVariant)]);
+    const prepared = approvalData(applyWordPressPublishingCategories(
+      baseData(), "project-1", "content-1", connection.id, ["2"], actualCategories, UPDATED_AT,
+    ));
+
+    expect(resolve(prepared, connection, actualCategories)).toMatchObject({
+      valid: true,
+      categoryIds: ["2"],
+      categoryNames: [normalizedVariant],
+      policyCompliant: true,
+    });
+  });
+
+  it("does not collapse internal whitespace into a policy match", () => {
+    const actualCategories = categoryResult(connection.id, [category("2", "생활 재테크")]);
+    const prepared = approvalData(applyWordPressPublishingCategories(
+      baseData(), "project-1", "content-1", connection.id, ["2"], actualCategories, UPDATED_AT,
+    ));
+
+    expect(resolve(prepared, connection, actualCategories)).toMatchObject({
+      valid: true,
+      categoryNames: ["생활 재테크"],
+      policyCompliant: false,
+    });
+  });
+
+  it("uses the current Connection Category ID instead of depending on ID 2", () => {
+    const actualCategories = categoryResult(connection.id, [category("17", "생활재테크")]);
+    const prepared = approvalData(applyWordPressPublishingCategories(
+      baseData(), "project-1", "content-1", connection.id, ["17"], actualCategories, UPDATED_AT,
+    ));
+
+    expect(resolve(prepared, connection, actualCategories)).toMatchObject({
+      valid: true,
+      source: "content",
+      categoryIds: ["17"],
+      categoryNames: ["생활재테크"],
+      policyCompliant: true,
+    });
+  });
+
+  it("keeps a Project default as a policy-matching proposal until Content applies it", () => {
+    const actualCategories = categoryResult(connection.id, [category("2", "생활재테크")]);
+    const data = approvalData(baseData());
+    const proposed: UserData = {
+      ...data,
+      projects: data.projects.map((project) => ({
+        ...project,
+        strategy: {
+          ...resolveProjectStrategy(project),
+          defaultWordPressCategories: [{ publishingAccountId: connection.id, id: "2", name: "생활재테크" }],
+        },
+      })),
+    };
+
+    expect(resolve(proposed, connection, actualCategories)).toMatchObject({
+      valid: true,
+      source: "project",
+      categoryIds: ["2"],
+      categoryNames: ["생활재테크"],
+      policyCompliant: true,
+    });
+    expect(proposed.contents[0].publishingPreparation?.wordpress).toBeUndefined();
+  });
+
+  it("does not let general 생활경제 topic text alter the exact Category policy", () => {
+    const actualCategories = categoryResult(connection.id, [category("2", "생활재테크")]);
+    const data = baseData();
+    const topicData: UserData = {
+      ...data,
+      contents: data.contents.map((content) => ({
+        ...content,
+        title: "생활경제 정보를 설명하는 원고",
+        body: "생활경제·재테크 콘텐츠라는 주제 표현은 Category 정책값이 아닙니다.",
+      })),
+    };
+    const prepared = approvalData(applyWordPressPublishingCategories(
+      topicData, "project-1", "content-1", connection.id, ["2"], actualCategories, UPDATED_AT,
+    ));
+
+    expect(resolve(prepared, connection, actualCategories)).toMatchObject({
+      source: "content",
+      categoryNames: ["생활재테크"],
+      policyCompliant: true,
+    });
+    expect(prepared.contents[0].title).toContain("생활경제");
+    expect(prepared.contents[0].body).toContain("생활경제·재테크");
+  });
+
+  it("requires 생활재테크 to be the only Category for the initial approval profile", () => {
+    const policyCategories = categoryResult(connection.id, [
+      category("12", "생활재테크"),
+      category("34", "세금"),
+    ]);
+    const prepared = approvalData(applyWordPressPublishingCategories(
+      baseData(),
+      "project-1",
+      "content-1",
+      connection.id,
+      ["12", "34"],
+      policyCategories,
+      UPDATED_AT,
+    ));
+
+    expect(resolve(prepared, connection, policyCategories)).toMatchObject({
+      valid: true,
+      categoryNames: ["생활재테크", "세금"],
+      policyCompliant: false,
+    });
+  });
 });
 
 function resolve(
@@ -312,6 +535,17 @@ function resolve(
     connection: selectedConnection,
     categoryResult: result,
   });
+}
+
+function approvalData(data: UserData): UserData {
+  return {
+    ...data,
+    contents: data.contents.map((content) => ({
+      ...content,
+      contentPurpose: "adsense_approval",
+      approvalProfileId: "wordpress_life_economy_v1",
+    }) as UserData["contents"][number]),
+  };
 }
 
 function category(id: string, name: string): WordPressCategory {

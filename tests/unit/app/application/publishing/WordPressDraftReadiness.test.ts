@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { calculateWordPressDraftReadiness } from "../../../../../app/application/publishing/WordPressDraftReadiness";
-import type { UserData } from "../../../../../app/user-flow/user-data";
+import { resolveProjectStrategy, type UserData } from "../../../../../app/user-flow/user-data";
 import type { WordPressCategoryListResult } from "../../../../../apps/wordpress";
 import { safeDraftPermissions, type PlatformConnection } from "../../../../../core/connections";
 import type { ContentDocument } from "../../../../../core/content";
@@ -80,6 +80,94 @@ describe("WordPress Draft readiness", () => {
       invalidCategoryIds: ["12"],
     });
     expect(check(readiness, "category_catalog")).toBe(false);
+  });
+
+  it("treats a matching Project default as a proposal instead of an applied Category", () => {
+    const context = baseContext();
+    const project = {
+      ...context.project,
+      strategy: {
+        ...resolveProjectStrategy(context.project),
+        defaultWordPressCategories: [{
+          publishingAccountId: context.connection.id,
+          id: "2",
+          name: "생활재테크",
+        }],
+      },
+    };
+    const content = {
+      ...context.content,
+      contentPurpose: "adsense_approval" as const,
+      approvalProfileId: "wordpress_life_economy_v1" as const,
+      publishingPreparation: undefined,
+    };
+    const data: UserData = {
+      ...context.data,
+      projects: [project],
+      contents: [content],
+    };
+    const readiness = calculate({
+      ...context,
+      data,
+      project,
+      content,
+      categoryResult: categoryResult(context.connection.id, [{
+        id: "2",
+        externalCategoryId: "2",
+        platform: "wordpress",
+        name: "생활재테크",
+        selectable: true,
+      }]),
+    });
+
+    expect(readiness.categorySelection).toMatchObject({
+      valid: true,
+      source: "project",
+      categoryIds: ["2"],
+      categoryNames: ["생활재테크"],
+      policyCompliant: true,
+    });
+    expect(check(readiness, "category_catalog")).toBe(false);
+    expect(readiness.checks.find((item) => item.key === "category_catalog")?.message).toContain("제안값");
+  });
+
+  it("accepts an explicitly stored 생활재테크 Category for the approval profile", () => {
+    const context = baseContext();
+    const content = {
+      ...context.content,
+      contentPurpose: "adsense_approval" as const,
+      approvalProfileId: "wordpress_life_economy_v1" as const,
+      publishingPreparation: {
+        wordpress: {
+          publishingAccountId: context.connection.id,
+          categoryIds: ["17"],
+          categoryNames: ["생활재테크"],
+          updatedAt: NOW,
+        },
+      },
+    };
+    const data: UserData = { ...context.data, contents: [content] };
+    const readiness = calculate({
+      ...context,
+      data,
+      content,
+      categoryResult: categoryResult(context.connection.id, [{
+        id: "17",
+        externalCategoryId: "17",
+        platform: "wordpress",
+        name: "생활재테크",
+        selectable: true,
+      }]),
+    });
+
+    expect(readiness.categorySelection).toMatchObject({
+      valid: true,
+      source: "content",
+      categoryIds: ["17"],
+      categoryNames: ["생활재테크"],
+      policyCompliant: true,
+    });
+    expect(check(readiness, "category_catalog")).toBe(true);
   });
 
   it("blocks stale Quality approval and missing final confirmation", () => {

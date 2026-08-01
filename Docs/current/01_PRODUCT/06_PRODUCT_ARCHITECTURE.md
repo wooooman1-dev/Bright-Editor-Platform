@@ -810,7 +810,7 @@ UI
 → Completion UI
 ```
 
-Category는 PlatformConnection별 WordPress 실제 목록을 동적으로 조회한다. 현재 AdSense 승인 준비 정책은 `생활경제` 하나만 선택하지만 데이터 구조와 REST Payload는 복수 Category를 지원한다. Category ID나 이름을 코드에 하드코딩하지 않으며 Draft 실행 직전에 저장된 ID를 실제 목록으로 재검증한다.
+Category는 PlatformConnection별 WordPress 실제 목록을 동적으로 조회한다. 현재 AdSense 승인 준비 정책은 Core 프로필에 정의된 `생활재테크` 하나만 선택하지만 데이터 구조와 REST Payload는 복수 Category를 지원한다. 외부 Category ID는 코드에 하드코딩하지 않으며 Draft 실행 직전에 저장된 ID를 실제 목록으로 재검증한다. 정책 이름은 앞뒤 공백 제거와 안전한 Unicode 정규화 후 정확히 비교하고 유사 이름은 자동 매칭하지 않는다.
 
 Category 적용 우선순위는 Content 직접 선택, Project `defaultWordPressCategories`, `WordPressConnectionProfile.defaultCategoryIds` 순서다. 각 ID는 실제 WordPress 목록으로 재검증하며 유효한 Category가 없으면 Readiness를 차단한다. `미분류`로 자동 대체하지 않는다.
 

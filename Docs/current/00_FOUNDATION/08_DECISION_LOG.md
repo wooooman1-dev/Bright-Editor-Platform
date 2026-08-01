@@ -738,16 +738,27 @@ UI
 
 Category 결정은 다음과 같다.
 
-- Category ID와 이름을 코드에 하드코딩하지 않는다.
+- WordPress Category ID는 사이트·Connection별 외부 식별자이므로 코드에 하드코딩하지 않는다.
+- 승인 준비에 필요한 Category 이름은 Core 승인 프로필에 단일 정책값으로 둔다.
 - WordPress의 실제 Category 목록을 PlatformConnection별로 동적 조회한다.
 - 데이터 구조와 REST Payload는 처음부터 복수 Category를 지원한다.
-- 현재 AdSense 승인 준비 정책에서는 `생활경제` Category 하나만 사용한다.
+- 현재 AdSense 승인 준비 정책에서는 `생활재테크` Category 하나만 사용한다.
+- 앞뒤 공백 제거와 안전한 Unicode 정규화 후 `생활재테크`와 정확히 일치할 때만 정책을 통과한다. `생활경제`를 포함한 유사 이름은 자동 매칭하지 않는다.
 - 향후 Category가 추가되면 코드 변경 없이 실제 목록에서 선택할 수 있어야 한다.
 - 저장된 Category ID는 Draft 실행 직전에 실제 조회 결과로 재검증한다.
 - Category가 삭제되거나 사용할 수 없으면 Readiness를 차단하고 재선택을 요구한다.
 - 임의의 Category나 `미분류`로 자동 대체하지 않는다.
 - 같은 Workspace라도 WordPress 사이트별 Category 목록과 기본 Category를 독립 관리한다.
 - Category 이름이 변경되고 ID가 유지되면 최신 이름으로 동기화할 수 있다.
+
+사이트 정체성과 승인 프로필 표현은 다음과 같이 분리한다.
+
+- 사이트명과 브랜드명은 `밝은재테크`다.
+- 콘텐츠 분야는 `생활경제`이며 생활금융, 정부지원, 세금과 주거 정보를 포함할 수 있다.
+- WordPress 발행 Category 이름은 `생활재테크`다.
+- 내부 호환 식별자 `wordpress_life_economy_v1`은 기존 Project와 Content 복원을 위해 유지하되 사용자 표시명이나 AI Prompt에 노출하지 않는다.
+- 사용자 표시용 프로필명은 `WordPress · 밝은재테크`다.
+- 브랜드명, 콘텐츠 분야, 발행 Category와 내부 프로필 식별자를 하나의 문자열 의미로 공유하지 않는다.
 
 Category 선택과 기본값 적용 우선순위는 다음과 같다.
 

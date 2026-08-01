@@ -1,4 +1,4 @@
-import type { ContentDocument } from "../content";
+import { serializeStructuredList, type ContentDocument } from "../content";
 import type { ApprovalEvidenceFact } from "./ApprovalReadiness";
 import type { ApprovalPolicyProfileId } from "./ApprovalPolicy";
 
@@ -59,6 +59,9 @@ export function extractProfileApprovalFactsFromText(
   collect("paymentDeadline", /((?:퇴직|지급)[^\n.]{0,120}14\s*일\s*이내[^\n.]{0,100})/gi);
   collect("statutoryBasis", /((?:근로자퇴직급여\s*보장법|근로기준법|소득세법)[^\n.]{0,160})/gi);
   collect("exceptions", /(?:예외|제외|주의(?:사항)?)\s*[:：]?\s*([^\n.]{2,220})/gi);
+  collect("continuingTransactionContractDocument", /((?:계속거래|계속\s*이용)[^\n.]{0,180}?계약서[^\n.]{0,100}?(?:소비자[^\n.]{0,40}?)?발급[^\n.]{0,60})/gi);
+  collect("excessiveTerminationPenalty", /((?:해지|해제)[^\n.]{0,140}?손실[^\n.]{0,40}?현저히\s*초과[^\n.]{0,80}?위약금[^\n.]{0,80})/gi);
+  collect("excessPaymentRefund", /((?:실제\s*공급(?:분|된\s*재화등의\s*대가))[^\n.]{0,140}?(?:초과)[^\n.]{0,100}?환급[^\n.]{0,80}?(?:부당[^\n.]{0,40}?)?거부[^\n.]{0,60})/gi);
 
   if (depositProtectionTopic) {
     collect("depositProtectedProducts", /((?:예금자\s*보호|예금\s*보호|예금보험)[^\n.]{0,160}(?:보호\s*대상|금융상품|예금|적금)[^\n.]{0,80})/gi);
@@ -103,10 +106,18 @@ export function requiredApprovalFactFields(
       "depositProtectedProducts",
       "depositProtectionLimit",
       "depositProtectionUnit",
+      "depositProtectionExclusions",
       "depositProtectionCheckPath",
-      ...(available.has("depositProtectionExclusions") ? ["depositProtectionExclusions"] : []),
-      ...(available.has("depositProtectionEffectiveDate") ? ["depositProtectionEffectiveDate"] : []),
-      ...(available.has("depositProtectionStatutoryBasis") ? ["depositProtectionStatutoryBasis"] : []),
+      "depositProtectionEffectiveDate",
+      "depositProtectionStatutoryBasis",
+    ]);
+  }
+
+  if (/계속거래[^\n.]{0,220}계약서|손실[^\n.]{0,80}현저히\s*초과[^\n.]{0,100}위약금|실제\s*공급분[^\n.]{0,180}환급/iu.test(text)) {
+    return Object.freeze([
+      "continuingTransactionContractDocument",
+      "excessiveTerminationPenalty",
+      "excessPaymentRefund",
     ]);
   }
 
@@ -123,6 +134,63 @@ export function requiredApprovalFactFields(
   return Object.freeze(preferred.length >= 2 ? preferred : ["eligibility", "statutoryBasis"]);
 }
 
+/** Claim roles for the canonical official pages used by the deposit profile. */
+export function approvalEvidenceClaimFieldsForSourceUrl(urlValue: string): readonly string[] | undefined {
+  let url: URL;
+  try {
+    url = new URL(urlValue);
+  } catch {
+    return undefined;
+  }
+  const host = url.hostname.toLocaleLowerCase("en-US").replace(/^www\./, "");
+  const path = url.pathname;
+  if (host === "law.go.kr"
+    && path.endsWith("/lsLinkCommonInfo.do")
+    && url.searchParams.get("lsJoLnkSeq") === "1025033501") {
+    return Object.freeze([
+      "continuingTransactionContractDocument",
+      "excessiveTerminationPenalty",
+      "excessPaymentRefund",
+    ]);
+  }
+  if (host === "kdic.or.kr") {
+    if (path.includes("selectProtSystProtTrgtPrdctSumr.do")) {
+      return Object.freeze(["depositProtectedProducts", "depositProtectionExclusions"]);
+    }
+    if (path.includes("ProtSystProtLmts/selectScrn.do")) {
+      return Object.freeze(["depositProtectionLimit", "depositProtectionUnit"]);
+    }
+    if (path.includes("ProtSystProtGudn/selectScrn.do")) {
+      return Object.freeze(["depositProtectionCheckPath"]);
+    }
+  }
+  if (host === "fsc.go.kr" && path.endsWith("/84975")) {
+    return Object.freeze([
+      "depositProtectedProducts",
+      "depositProtectionLimit",
+      "depositProtectionUnit",
+      "depositProtectionExclusions",
+      "depositProtectionCheckPath",
+    ]);
+  }
+  if (host === "fsc.go.kr" && path.endsWith("/84974")) {
+    return Object.freeze([
+      "depositProtectionLimit",
+      "depositProtectionUnit",
+      "depositProtectionEffectiveDate",
+    ]);
+  }
+  if (host === "law.go.kr" && path.endsWith("/lsInfoP.do")) {
+    return Object.freeze([
+      "depositProtectionLimit",
+      "depositProtectionUnit",
+      "depositProtectionEffectiveDate",
+      "depositProtectionStatutoryBasis",
+    ]);
+  }
+  return undefined;
+}
+
 export function approvalFactMatchesPage(
   page: ApprovalFactPage,
   fact: ApprovalEvidenceFact,
@@ -137,6 +205,9 @@ export function approvalFactMatchesPage(
     interimSettlement: ["중간정산"],
     paymentDeadline: ["14일"],
     statutoryBasis: ["근로자퇴직급여보장법"],
+    continuingTransactionContractDocument: ["계속거래", "계약서", "소비자", "발급"],
+    excessiveTerminationPenalty: ["손실", "현저", "초과", "위약금"],
+    excessPaymentRefund: ["실제공급", "대가", "초과", "환급", "부당", "거부"],
     depositProtectedProducts: ["예금", "보호"],
     depositProtectionLimit: ["1억원", "원금", "이자"],
     depositProtectionUnit: ["금융회사", "별", "1인"],
@@ -167,6 +238,7 @@ function documentText(document: ContentDocument): string {
     document.title,
     ...document.blocks.flatMap((block) => {
       if (block.type === "heading" || block.type === "paragraph") return [block.text];
+      if (block.type === "list") return [serializeStructuredList(block)];
       if (block.type === "table") return [block.caption ?? "", ...block.headers, ...block.rows.flat()];
       return [];
     }),

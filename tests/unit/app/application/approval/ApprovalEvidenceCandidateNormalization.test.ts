@@ -39,7 +39,7 @@ const data: UserData = {
       id: "document-1",
       title: "통장 쪼개기 방법",
       metadata: {
-        buttonCount: 0,
+        buttonCount: 2,
         createdAt: "now",
         generator: "test",
         imageCount: 0,
@@ -53,6 +53,10 @@ const data: UserData = {
         approvalEvidence: {
           version: "1.0",
           status: "needs_review",
+          coverageStatus: "verified",
+          presentationStatus: "ready",
+          requiredFactFields: ["depositProtectionLimit"],
+          verifiedFactFields: ["depositProtectionLimit"],
           reviewedAt: "now",
           reviewedRevisionId: "revision",
           sources: [
@@ -64,6 +68,8 @@ const data: UserData = {
               sourceType: "official_institution",
               retrievedAt: "now",
               verified: false,
+              provenance: "document_link",
+              linkedBlockIds: ["p1"],
               facts: [{ field: "yearSignal", value: "2020" }],
             },
             {
@@ -74,12 +80,19 @@ const data: UserData = {
               sourceType: "official_institution",
               retrievedAt: "now",
               verified: false,
+              provenance: "search_candidate",
               facts: [],
             },
           ],
         },
       },
-      blocks: [{ id: "p1", type: "paragraph", text: "계좌 역할을 설명합니다." }],
+      blocks: [
+        { id: "p1", type: "paragraph", text: "계좌 역할을 설명합니다." },
+        { id: "approval-sources-heading", type: "heading", level: 2, text: "공식 출처", ownership: "system_source_projection" },
+        { id: "approval-source-link-1", type: "button", purpose: "source", label: "금융위원회", targetUrl: "https://www.fsc.go.kr", ownership: "system_source_projection" },
+        { id: "manual-source-heading", type: "heading", level: 2, text: "참고 자료", ownership: "user_manual" },
+        { id: "manual-source-link", type: "button", purpose: "source", label: "직접 선택한 자료", targetUrl: "https://www.kdic.or.kr", ownership: "user_manual" },
+      ],
     },
   }],
 };
@@ -98,12 +111,95 @@ describe("approval Evidence candidate normalization", () => {
       verified: false,
     });
     expect(content.document?.metadata?.approvalEvidence?.reviewedRevisionId).toBeUndefined();
-    expect(content.quality).toBeUndefined();
-    expect(content.status).toBe("in_review");
+    expect(content.document?.metadata?.approvalEvidence).toMatchObject({
+      coverageStatus: "needs_review",
+      presentationStatus: "not_projected",
+      verifiedFactFields: [],
+      unverifiedFactFields: ["depositProtectionLimit"],
+    });
+    expect(content.document?.blocks.map((block) => block.id)).toEqual([
+      "p1",
+      "manual-source-heading",
+      "manual-source-link",
+    ]);
+    expect(content.document?.metadata?.buttonCount).toBe(1);
+    expect(content.quality).toBe(data.contents[0]?.quality);
+    expect(content.status).toBe("ready");
   });
 
   it("returns the original data when no candidate normalization is needed", () => {
     const clean = normalizeApprovalEvidenceCandidates(data, "missing-content");
     expect(clean).toBe(data);
+  });
+
+  it("merges law.go.kr host and tracking variants, prefers the linked document source, and removes unrelated search results", () => {
+    const lawUrl = "https://www.law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1025033501";
+    const content = data.contents[0]!;
+    const document = content.document!;
+    const candidateData: UserData = {
+      ...data,
+      contents: [{
+        ...content,
+        document: {
+          ...document,
+          metadata: {
+            ...document.metadata!,
+            approvalEvidence: {
+              version: "1.0",
+              status: "needs_review",
+              sources: [
+                {
+                  sourceId: "search-same",
+                  url: "https://law.go.kr/lsLinkCommonInfo.do?utm_source=openai&lsJoLnkSeq=1025033501&chrClsCd=010202",
+                  title: "검색 후보",
+                  publisher: "law.go.kr",
+                  sourceType: "official_institution",
+                  retrievedAt: "now",
+                  verified: false,
+                  provenance: "search_candidate",
+                  facts: [],
+                },
+                {
+                  sourceId: "document-link",
+                  url: lawUrl,
+                  title: "국가법령정보센터",
+                  publisher: "국가법령정보센터",
+                  sourceType: "official_law",
+                  retrievedAt: "now",
+                  verified: false,
+                  provenance: "document_link",
+                  citationExcerpt: `출처: ${lawUrl}`,
+                  linkedBlockIds: ["claim", "source"],
+                  facts: [{ field: "citedContext", value: `출처: ${lawUrl}` }],
+                },
+                {
+                  sourceId: "unrelated",
+                  url: "https://www.law.go.kr/LSW/lsRvsDocListP.do?lsId=000355",
+                  title: "관련 없는 개정 이력",
+                  publisher: "law.go.kr",
+                  sourceType: "official_law",
+                  retrievedAt: "now",
+                  verified: false,
+                  provenance: "search_candidate",
+                  facts: [],
+                },
+              ],
+            },
+          },
+        },
+      }],
+    };
+
+    const sources = normalizeApprovalEvidenceCandidates(candidateData, content.id)
+      .contents[0]?.document?.metadata?.approvalEvidence?.sources;
+
+    expect(sources).toHaveLength(1);
+    expect(sources?.[0]).toMatchObject({
+      url: "https://law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1025033501",
+      provenance: "document_link",
+      linkedBlockIds: ["claim", "source"],
+      citationExcerpt: `출처: ${lawUrl}`,
+      selected: false,
+    });
   });
 });

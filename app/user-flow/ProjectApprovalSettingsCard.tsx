@@ -2,10 +2,15 @@
 
 import { useMemo, useState } from "react";
 
-import type {
-  ApprovalPolicyProfileId,
-  ContentPurpose,
+import {
+  approvalPolicyProfileDisplayName,
+  type ApprovalPolicyProfileId,
+  type ContentPurpose,
 } from "../../core/approval";
+/*
+ * Profile IDs remain stable persistence keys. User-facing labels come from the
+ * canonical Core profile so identity wording cannot drift from prompt policy.
+ */
 import {
   resolveProjectApprovalSettings,
   updateProjectApprovalSettings,
@@ -15,11 +20,6 @@ import {
   type UserData,
   type UserProject,
 } from "./user-data";
-
-const profileLabels: Readonly<Record<ApprovalPolicyProfileId, string>> = Object.freeze({
-  wordpress_life_economy_v1: "WordPress · 생활경제",
-  tistory_vivarain_art_v1: "Tistory · 비바레인 미술",
-});
 
 export function ProjectApprovalSettingsCard({
   data,
@@ -102,7 +102,7 @@ export function ProjectApprovalSettingsCard({
               value={approvalProfileId}
             >
               {profileOptions.map((profileId) => (
-                <option key={profileId} value={profileId}>{profileLabels[profileId]}</option>
+                <option key={profileId} value={profileId}>{approvalPolicyProfileDisplayName(profileId)}</option>
               ))}
             </select>
           </label>

@@ -1360,9 +1360,11 @@ Pagination을 지원한다.
 
 Category가 많아도 전체 결과를 한 번에 무제한 조회하지 않는다.
 
-Category 선택 모델은 `string[]` ID 배열을 사용한다. 현재 UI와 AdSense 승인 준비 정책이 `생활경제` 하나만 선택하더라도 Domain과 Adapter Contract는 복수 선택을 지원한다.
+Category 선택 모델은 `string[]` ID 배열을 사용한다. 현재 UI와 AdSense 승인 준비 정책이 `생활재테크` 하나만 선택하더라도 Domain과 Adapter Contract는 복수 선택을 지원한다.
 
-Category ID와 이름을 코드에 하드코딩하지 않는다. 같은 Workspace 안에서도 WordPress PlatformConnection별 목록과 기본 Category를 독립적으로 관리한다.
+외부 Category ID는 코드에 하드코딩하지 않는다. 승인 준비에 필요한 Category 이름은 Core 승인 프로필에서 관리하고, Adapter는 실제 Connection API가 반환한 ID와 이름을 전달한다. 같은 Workspace 안에서도 WordPress PlatformConnection별 목록과 기본 Category를 독립적으로 관리한다.
+
+승인 정책 비교는 앞뒤 공백 제거와 안전한 Unicode 정규화까지만 허용한다. `생활재테크`와 정확히 일치해야 하며 `생활경제`를 포함한 유사 이름을 자동 매칭하지 않는다.
 
 Draft 실행 직전에 저장된 Category ID가 현재 실제 조회 결과에 존재하고 선택 가능한지 재검증한다. ID가 유지된 채 이름이 바뀌면 최신 이름으로 동기화할 수 있다.
 

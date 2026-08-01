@@ -71,12 +71,13 @@ const webCandidate: ApprovalEvidenceSource = {
   sourceType: "official_institution",
   retrievedAt: "2026-07-31T00:00:00.000Z",
   verified: false,
+  provenance: "search_candidate",
   selected: false,
   facts: [],
 };
 
 describe("approval Evidence persistence merge", () => {
-  it("excludes a search-only candidate when the article did not cite or expose the URL", () => {
+  it("drops a search-only candidate that is not linked to a Content Claim", () => {
     const saved = applyApprovalPersistencePolicy(undefined, candidateData(
       "공식 안내를 바탕으로 계좌 역할을 설명합니다.",
       [webCandidate],
@@ -84,6 +85,7 @@ describe("approval Evidence persistence merge", () => {
 
     expect(saved.contents[0]?.document?.metadata?.approvalEvidence).toMatchObject({
       status: "missing",
+      coverageStatus: "missing",
       sources: [],
     });
   });
@@ -103,7 +105,10 @@ describe("approval Evidence persistence merge", () => {
       title: "금융위원회 공식 안내",
       publisher: "금융위원회",
       verified: false,
+      provenance: "document_link",
+      selected: false,
     });
+    expect(sources?.[0]?.linkedBlockIds).toEqual(["p1"]);
     expect(sources?.[0]?.facts).toEqual([
       expect.objectContaining({
         field: "citedContext",

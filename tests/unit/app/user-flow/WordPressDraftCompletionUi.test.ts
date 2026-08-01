@@ -53,6 +53,13 @@ describe("WordPress Draft execution and completion UI", () => {
     expect(overlaySource).toContain("<strong>임시글만 저장</strong>");
   });
 
+  it("labels Project and Connection defaults as proposals until Content applies them", () => {
+    expect(overlaySource).toContain('result.selection?.source === "content" ? restoredCategoryIds : []');
+    expect(overlaySource).toContain('result.selection.source !== "content"');
+    expect(overlaySource).toContain("기본 카테고리는 제안값입니다");
+    expect(overlaySource).toContain("제안 카테고리 적용");
+  });
+
   it("animates the WordPress notice only while category or execution work is running", () => {
     const css = readFileSync(join(process.cwd(), "app/globals.css"), "utf8");
 
@@ -308,7 +315,7 @@ function readiness(): WordPressDraftReadiness {
     executable: false,
     checks: [],
     localImageCount: 0,
-    categorySelection: { valid: true, source: "content", categoryIds: ["12"], categoryNames: ["생활경제"] },
+    categorySelection: { valid: true, source: "content", categoryIds: ["2"], categoryNames: ["생활재테크"] },
   };
 }
 
@@ -363,8 +370,8 @@ function record(status: PublishingExecutionRecord["status"]): PublishingExecutio
     uploadedMedia: [{ assetId: "asset-1", externalMediaId: "91" }],
     cleanupRequired: status === "cleanup_required",
     verificationChecks: [],
-    categoryIds: ["12"],
-    categoryNames: ["생활경제"],
+    categoryIds: ["2"],
+    categoryNames: ["생활재테크"],
     localImageCount: 1,
     featuredImageAssigned: true,
     createdAt: "2026-07-29T00:00:00.000Z",

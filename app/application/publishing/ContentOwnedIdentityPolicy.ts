@@ -1,6 +1,7 @@
 import {
   findUnrequestedOwnedIdentityOccurrences,
   findUnrequestedOwnedIdentityPrefixes,
+  serializeStructuredList,
   type ContentDocument,
 } from "../../../core/content";
 import type { UserContent, UserData, UserProject } from "../../user-flow/user-data";
@@ -72,6 +73,7 @@ function documentEditorialValues(document: ContentDocument): readonly string[] {
     ...(metadata?.tags ?? []),
     ...document.blocks.flatMap((block) => {
       if (block.type === "heading" || block.type === "paragraph") return [block.text];
+      if (block.type === "list") return [serializeStructuredList(block)];
       if (block.type === "table") return [block.caption ?? "", ...block.headers, ...block.rows.flat()];
       if (block.type === "image") return [block.alt, block.prompt ?? "", block.caption ?? ""];
       if (block.type === "button") return [block.label];

@@ -249,8 +249,9 @@ Before planning, generating, reviewing, rendering, or publishing WordPress AdSen
 
 Mandatory initial baseline:
 
-- Site identity: 생활경제
-- Initial WordPress Category: `생활경제` only
+- Site and brand identity: 밝은재테크
+- Content domain: 생활경제, 생활금융, 정부지원, 세금, 주거 정보
+- Initial WordPress Category: `생활재테크` only
 - No initial Tags
 - No empty Categories, Tags, menus, or public placeholder pages
 - Initial content scope: government support, tax basics, housing systems, and basic personal-finance information grounded in official sources

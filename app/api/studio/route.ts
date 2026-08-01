@@ -3,7 +3,7 @@
 import { studioStore } from "../../application/studio-store";
 import { mergeServerMutationSnapshot, mergeUserDataSnapshot } from "../../application/persistence/mergeUserDataSnapshot";
 import { AIWorkflow } from "../../../core/ai";
-import { contentRevisionId, evaluateQualityImprovement, evaluateQualityReviewReadiness, isStandardQualityApproved, qualityImprovementRejectionMessage, QualityEngine } from "../../../core/quality";
+import { contentRevisionId, editorialRevisionId, evaluateQualityImprovement, evaluateQualityReviewReadiness, isStandardQualityApproved, qualityImprovementRejectionMessage, QualityEngine } from "../../../core/quality";
 import { contentOpportunityAIContext, EditorialGenerationStrategy } from "../../application/EditorialGenerationStrategy";
 import { OpenAIProvider } from "../../application/OpenAIProvider";
 import { openAIGenerationModel, openAIReviewModel } from "../../application/OpenAIModelPolicy";
@@ -12,7 +12,7 @@ import { ContentPlanningStrategy, createManualPlanningResult, projectStrategyAIC
 import { approvalAwareInstruction, contentEditorialContext, preserveContentApprovalPolicy } from "../../application/approval/ApprovalRuntimePolicy";
 import { TistoryPublishingAdapter } from "../../../apps/tistory/publishing/TistoryPublishingAdapter";
 import { WordPressHtmlRenderer } from "../../../apps/wordpress/WordPressHtmlRenderer";
-import { analyzeLongFormDocument, applyContentDepthPolicy, applyContentOpportunityPolicy, calculateContentMetrics, contentOpportunityKeywords, deriveContentTags, detectContentOpportunitySelectionMode, ensureSeoKeywordPlacement, LongFormValidationError, requiresLongFormValidation, restoreProtectedImageAssets, restoreVerifiedEditorialLinks, type ConfirmedContentOpportunity, type ContentDocument, type LongFormDiagnostic } from "../../../core/content";
+import { analyzeLongFormDocument, applyContentDepthPolicy, applyContentOpportunityPolicy, contentOpportunityKeywords, deriveContentTags, detectContentOpportunitySelectionMode, ensureSeoKeywordPlacement, LongFormValidationError, requiresLongFormValidation, restoreProtectedImageAssets, restoreVerifiedEditorialLinks, type ConfirmedContentOpportunity, type ContentDocument, type LongFormDiagnostic } from "../../../core/content";
 import { ContentDeletionService } from "../../application/content/ContentDeletionService";
 import { applyCanonicalDocument, completeContentGeneration, completeContentPlanning, failContentPlanning, resolveProjectStrategy, startContentPlanning, updateContent, type UserData } from "../../user-flow/user-data";
 import { isPlatformEnabled, resolveWorkspaceSettings } from "../../application/settings/WorkspaceSettingsService";
@@ -324,7 +324,7 @@ export async function POST(request: Request) {
       let document = restoreProtectedImageAssets(content.document, new EditorialGenerationStrategy().parse(finalEdit.content, { contentId, contentType: (content.contentType ?? "article") as never, ...(content.opportunity ? { contentOpportunity: content.opportunity } : {}), keywords, platform: (content.platform ?? "tistory") as never, projectId: content.projectId }));
       document = applyContentPolicy(await placeAvailablePublishingPosts(data, content, document), content);
       const reviewedAt = new Date().toISOString();
-      const quality = new QualityEngine().review(document, { ...qualityContext(content), revisionId: contentRevisionId(document), reviewedAt });
+      const quality = new QualityEngine().review(document, { ...qualityContext(content), revisionId: editorialRevisionId(document), reviewedAt });
       let next = applyCanonicalDocument(data, contentId, document, "ai_revision", reviewedAt);
       next = updateContent(next, contentId, { quality, status: isPublishReady(document, quality) ? "ready" : "in_review", generationError: opportunityFailure(quality), updatedAt: reviewedAt });
       next = { ...next, qualityReports: [...(next.qualityReports ?? []).filter((item) => item.contentId !== contentId), { contentId, report: quality }] };
@@ -341,7 +341,7 @@ export async function POST(request: Request) {
       const keywords = current.opportunity ? contentOpportunityKeywords(current.opportunity) : resolveConfirmedGenerationKeywords(current, [input.primaryKeyword]);
       const provider = new OpenAIProvider(undefined, openAIGenerationModel());
       const response = await provider.generate({
-        instruction: approvalAwareInstruction(`Revise the canonical ContentDocument according to the user's instruction. The confirmed Content Opportunity is immutable: ${JSON.stringify(current.opportunity ?? { primaryKeyword: current.primaryKeyword, searchIntent: current.searchIntent })}. Keep the selected topic, primary keyword, search intent, secondary keywords, and expected coverage aligned as one article; never satisfy this by attaching a keyword to an unrelated title. Preserve unaffected blocks and every attached image source, assetId, ALT, prompt, purpose, and media field. For source-empty recommendations, keep each prompt grounded in its nearest H2 and make image scenes differ in at least two of subject, action, background, composition, viewpoint, or information expression. Never publish or invoke browser automation. Return the complete revised document as JSON only in {"title":"...","blocks":[...]} form.\nUser instruction: ${required(input.instruction)}\nCurrent document: ${JSON.stringify(input.document)}`, data, current),
+        instruction: approvalAwareInstruction(`Revise the canonical ContentDocument according to the user's instruction. The confirmed Content Opportunity is immutable: ${JSON.stringify(current.opportunity ?? { primaryKeyword: current.primaryKeyword, searchIntent: current.searchIntent })}. Keep the selected topic, primary keyword, search intent, secondary keywords, and expected coverage aligned as one article; never satisfy this by attaching a keyword to an unrelated title. Preserve unaffected blocks and every attached image source, assetId, ALT, prompt, purpose, and media field. For source-empty recommendations, keep each prompt grounded in its nearest H2 and make image scenes differ in at least two of subject, action, background, composition, viewpoint, or information expression. Never publish or invoke browser automation. Return the complete revised document as JSON only in {"title":"...","blocks":[...]} form.\nUser instruction: ${required(input.instruction)}\nCurrent document: ${JSON.stringify(contentDocumentAIContext(current.document))}`, data, current),
         metadata: { task: "content-revision" },
       });
       const parsed = new EditorialGenerationStrategy().parse(response.content, {
@@ -375,7 +375,7 @@ Quality tasks: ${JSON.stringify(currentQuality.tasks)}
       let document = restoreProtectedImageAssets(content.document, restoreVerifiedEditorialLinks(content.document, parsed));
       document = applyContentPolicy(await placeAvailablePublishingPosts(data, content, document), content);
       const appliedAt = new Date().toISOString();
-      const quality = new QualityEngine().review(document, { ...qualityContext(content), revisionId: contentRevisionId(document), reviewedAt: appliedAt });
+      const quality = new QualityEngine().review(document, { ...qualityContext(content), revisionId: editorialRevisionId(document), reviewedAt: appliedAt });
       const improvement = evaluateQualityImprovement(currentQuality, quality);
       if (isPublishReady(document, quality)) {
         let next = applyCanonicalDocument(data, contentId, document, "ai_revision", appliedAt);
@@ -399,7 +399,7 @@ Quality tasks: ${JSON.stringify(currentQuality.tasks)}
       document = applyContentPolicy(await placeAvailablePublishingPosts(data, content, document), content);
       const baselineQuality = new QualityEngine().review(content.document, qualityContext(content));
       const appliedAt = new Date().toISOString();
-      const quality = new QualityEngine().review(document, { ...qualityContext(content), revisionId: contentRevisionId(document), reviewedAt: appliedAt });
+      const quality = new QualityEngine().review(document, { ...qualityContext(content), revisionId: editorialRevisionId(document), reviewedAt: appliedAt });
       const improvement = evaluateQualityImprovement(baselineQuality, quality);
       if (!improvement.accepted) throw new Error(qualityImprovementRejectionMessage(improvement));
       if (!isPublishReady(document, quality)) throw new Error(`개선안이 standard 품질 승인 및 Planning 품질 목표를 충족하지 못했습니다. 전체 ${quality.overallScore}점, 승인 유형 ${quality.approvalType ?? "none"}입니다.`);
@@ -464,7 +464,7 @@ Quality tasks: ${JSON.stringify(currentQuality.tasks)}
       const content = data.contents.find((item) => item.id === contentId && item.workspaceId === data.workspace!.id);
       if (!content?.document) throw new Error("Canonical content was not found.");
       const document = await placeAvailablePublishingPosts(data, content, content.document);
-      const quality = new QualityEngine().review(document, { ...qualityContext(content), revisionId: contentRevisionId(document) });
+      const quality = new QualityEngine().review(document, { ...qualityContext(content), revisionId: editorialRevisionId(document) });
       let next = contentRevisionId(document) === contentRevisionId(content.document) ? data : applyCanonicalDocument(data, contentId, document, "autosave", quality.reviewedAt);
       next = updateContent(next, contentId, { quality, status: isPublishReady(document, quality) ? "ready" : "in_review", updatedAt: quality.reviewedAt });
       const persisted = { ...next, qualityReports: [...(next.qualityReports ?? []).filter((item) => item.contentId !== contentId), { contentId, report: quality }] };
@@ -664,7 +664,7 @@ function isPublishReady(document: ContentDocument, quality: ReturnType<QualityEn
 }
 
 function qualityContext(content: UserData["contents"][number], document = content.document) {
-  return { contentType: content.contentType, platform: content.platform ?? "canonical", primaryKeyword: content.primaryKeyword, searchIntent: content.searchIntent, categoryName: publishingCategoryNames(content).join(", ") || undefined, availableInternalLinkCandidates: document?.metadata?.availableRelatedContentCandidates, internalLinkCatalogStatus: document?.metadata?.internalLinkCatalogStatus, qualityTarget: content.qualityTarget ?? content.opportunity?.qualityTarget ?? document?.metadata?.qualityTarget, ...(content.opportunity ? { opportunity: content.opportunity } : {}), revisionId: document ? contentRevisionId(document) : undefined };
+  return { contentType: content.contentType, platform: content.platform ?? "canonical", primaryKeyword: content.primaryKeyword, searchIntent: content.searchIntent, categoryName: publishingCategoryNames(content).join(", ") || undefined, availableInternalLinkCandidates: document?.metadata?.availableRelatedContentCandidates, internalLinkCatalogStatus: document?.metadata?.internalLinkCatalogStatus, qualityTarget: content.qualityTarget ?? content.opportunity?.qualityTarget ?? document?.metadata?.qualityTarget, ...(content.opportunity ? { opportunity: content.opportunity } : {}), revisionId: document ? editorialRevisionId(document) : undefined };
 }
 
 function opportunityFailure(quality: ReturnType<QualityEngine["review"]>): string | undefined {

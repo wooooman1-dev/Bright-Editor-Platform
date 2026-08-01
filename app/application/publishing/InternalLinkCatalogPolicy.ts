@@ -1,5 +1,6 @@
 import {
   calculateContentMetrics,
+  contentBlockOwnership,
   placeRecommendedPosts,
   rankRelatedPosts,
   type ContentDocument,
@@ -17,6 +18,7 @@ export function publishingCategoryIdentities(
 ): readonly PublishingCategoryIdentity[] {
   const wordpress = content.publishingPreparation?.wordpress;
   const tistory = content.publishingPreparation?.tistory;
+  const activePlatform = activePublishingPlatform(content);
   const activeAccountId = content.publishingAccountId?.trim();
   const wordpressMatchesActiveAccount = Boolean(wordpress
     && (!activeAccountId || wordpress.publishingAccountId === activeAccountId));
@@ -31,16 +33,14 @@ export function publishingCategoryIdentities(
     name: tistory!.platformCategoryName,
   })]);
 
-  if (content.platform === "wordpress") {
+  if (activePlatform === "wordpress") {
     return wordpressMatchesActiveAccount ? wordpressCategories() : Object.freeze([]);
   }
-  if (content.platform === "tistory") {
+  if (activePlatform === "tistory") {
     return tistoryMatchesActiveAccount && (tistory?.platformCategoryId || tistory?.platformCategoryName)
       ? tistoryCategories()
       : Object.freeze([]);
   }
-  if (wordpress) return wordpressCategories();
-  if (tistory?.platformCategoryId || tistory?.platformCategoryName) return tistoryCategories();
   return Object.freeze([]);
 }
 
@@ -50,22 +50,19 @@ export function internalLinkCatalogContextKey(
 ): string {
   const categories = publishingCategoryIdentities(content)
     .map((category) => ({
-      id: category.id == null ? null : String(category.id),
-      name: category.name?.trim() ?? null,
+      id: category.id == null ? null : normalizeIdentityValue(String(category.id)),
+      name: category.name ? normalizeIdentityValue(category.name) : null,
     }))
     .sort((left, right) => `${left.id ?? ""}:${left.name ?? ""}`
       .localeCompare(`${right.id ?? ""}:${right.name ?? ""}`, "ko"));
-  const preparationAccount = content.platform === "tistory"
+  const activePlatform = activePublishingPlatform(content);
+  const preparationAccount = activePlatform === "tistory"
     ? content.publishingPreparation?.tistory?.publishingAccountId
-    : content.platform === "wordpress"
+    : activePlatform === "wordpress"
       ? content.publishingPreparation?.wordpress?.publishingAccountId
-      : content.publishingPreparation?.wordpress?.publishingAccountId
-        ?? content.publishingPreparation?.tistory?.publishingAccountId;
+      : undefined;
   return JSON.stringify({
-    platform: content.platform
-      ?? (content.publishingPreparation?.wordpress
-        ? "wordpress"
-        : content.publishingPreparation?.tistory ? "tistory" : "unknown"),
+    platform: activePlatform,
     publishingAccountId: connectionId
       ?? content.publishingAccountId
       ?? preparationAccount
@@ -108,9 +105,7 @@ export function removeAutoPlacedPublishingLinks(
   document: ContentDocument,
 ): ContentDocument {
   const blocks = document.blocks.filter((block) =>
-    !(block.type === "button"
-      && (block.purpose === "internal_link" || block.purpose === "related_post")
-      && /^auto-(?:internal-link|related-post)(?:-\d+)?$/i.test(block.id)));
+    contentBlockOwnership(block) !== "system_catalog");
   return blocks.length === document.blocks.length
     ? document
     : { ...document, blocks: Object.freeze(blocks) };
@@ -211,4 +206,19 @@ function normalizeUrl(value: string): string {
   } catch {
     return value;
   }
+}
+
+function normalizeIdentityValue(value: string): string {
+  return value.normalize("NFKC").replace(/\s+/gu, " ").trim();
+}
+
+function activePublishingPlatform(content: UserContent): "wordpress" | "tistory" | "unknown" {
+  if (content.platform === "wordpress" || content.platform === "tistory") return content.platform;
+  const accountId = content.publishingAccountId?.trim();
+  const wordpressMatches = Boolean(content.publishingPreparation?.wordpress
+    && (!accountId || content.publishingPreparation.wordpress.publishingAccountId === accountId));
+  const tistoryMatches = Boolean(content.publishingPreparation?.tistory
+    && (!accountId || content.publishingPreparation.tistory.publishingAccountId === accountId));
+  if (wordpressMatches !== tistoryMatches) return wordpressMatches ? "wordpress" : "tistory";
+  return "unknown";
 }

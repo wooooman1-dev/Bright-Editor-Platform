@@ -71,15 +71,20 @@ describe("platform-neutral approval readiness", () => {
     });
   });
 
-  it("uses the selected platform and shared publishing categories in the application service", () => {
+  it("uses the selected platform context while preserving the existing Standard Quality review", () => {
     const source = readFileSync(join(
       process.cwd(),
       "app/application/approval/ApprovalReadinessApplicationService.ts",
     ), "utf8");
+    const identitySource = readFileSync(join(
+      process.cwd(),
+      "app/application/approval/ApprovalReadinessExecutionIdentity.ts",
+    ), "utf8");
 
-    expect(source).toContain('import { publishingCategoryNames } from "../publishing/InternalLinkCatalogPolicy";');
-    expect(source).toContain("const categoryNames = publishingCategoryNames(content);");
-    expect(source).toContain("input.connection?.platform");
+    expect(identitySource).toContain('import { internalLinkCatalogContextKey } from "../publishing/InternalLinkCatalogPolicy";');
+    expect(identitySource).toContain("internalLinkCatalogContextKey(content, connectionId)");
+    expect(source).toContain("...content.quality");
+    expect(source).not.toContain("new QualityEngine().review");
     expect(source).not.toContain('content.platform ?? "tistory"');
     expect(source).not.toContain("publishingPreparation?.tistory?.platformCategoryName");
   });

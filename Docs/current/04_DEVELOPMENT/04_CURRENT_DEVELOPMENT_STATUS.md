@@ -506,3 +506,23 @@ Released behavior:
 6. Do not report Sprint 8 complete until its remaining approved scope and external Gates are actually complete.
 
 Do not use `git reset --hard`, `git clean`, force push or unrelated refactoring.
+
+## 14. WordPress Full Audit Branch Update (2026-08-01)
+
+This section supersedes the older WordPress branch and next-action snapshot above for the current audit branch only.
+
+```text
+Branch: fix/wordpress-full-audit
+Status: Implementation in progress
+Local deterministic tests: verified
+Browser verification: pending
+External WordPress Draft: not verified
+```
+
+- D-036과 WordPress 승인 준비 정책의 공식 초기 Category는 `생활재테크` 하나다.
+- 사이트·브랜드 정체성은 `밝은재테크`, 콘텐츠 분야는 `생활경제`, WordPress Category는 `생활재테크`로 분리한다. `생활경제`를 Category 이름으로 자동 매칭하지 않는다.
+- 정책 이름은 앞뒤 공백 제거와 안전한 Unicode 정규화 후 정확히 비교한다.
+- 실제 Category ID는 Connection API가 반환한 값을 사용하며 Core 또는 범용 정책에 ID 2를 고정하지 않는다.
+- Project/Connection 기본 Category는 제안값이고, Content에 명시적으로 적용된 Category만 적용 완료로 취급한다.
+- 실제 브라우저 화면, 외부 WordPress Draft re-read, GeneratePress 시각 일치와 WordPress KSES sanitizer는 아직 검증하지 않았다.
+- `next-env.d.ts`의 generated routes import가 build 환경에 따라 변경되는 문제는 제품 변경과 분리된 환경 이슈로 남아 있다.

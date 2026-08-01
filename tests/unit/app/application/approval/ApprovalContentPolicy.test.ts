@@ -76,7 +76,7 @@ describe("ApprovalContentPolicy", () => {
     expect(contentApprovalPromptContext(content)).toContain("Policy documents reviewed:");
   });
 
-  it("snapshots the WordPress 생활경제 approval profile into the Planning Content", () => {
+  it("snapshots the WordPress 밝은재테크 approval profile into the Planning Content", () => {
     const configured = updateProjectApprovalSettings(projectData(), "project-1", {
       contentPurpose: "adsense_approval",
       approvalProfileId: "wordpress_life_economy_v1",
@@ -99,7 +99,9 @@ describe("ApprovalContentPolicy", () => {
       approvalProfileVersion: "1.0",
     });
     const promptContext = contentApprovalPromptContext(snapshotted.contents[0]!);
-    expect(promptContext).toContain("Approval profile: wordpress_life_economy_v1@1.0");
+    expect(promptContext).toContain("Approval profile: WordPress · 밝은재테크@1.0");
+    expect(promptContext).not.toContain("wordpress_life_economy_v1");
+    expect(promptContext).toContain("Content domain: 생활경제");
     expect(promptContext).toContain(peopleFirstValueAndTrustPrinciple);
   });
 
@@ -124,7 +126,8 @@ describe("ApprovalContentPolicy", () => {
       approvalPolicy: "stale project policy",
     }, data.contents[0]!);
 
-    expect(context).toContain("Approval profile: tistory_vivarain_art_v1@1.0");
+    expect(context).toContain("Approval profile: Tistory · 비바레인 미술@1.0");
+    expect(context).not.toContain("tistory_vivarain_art_v1");
     expect(context).not.toContain("stale project policy");
   });
 

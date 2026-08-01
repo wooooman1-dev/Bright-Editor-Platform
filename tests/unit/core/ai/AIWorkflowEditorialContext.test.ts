@@ -7,16 +7,15 @@ import {
   type ContentGenerationStrategy,
   type GenerationInput,
 } from "../../../../core/ai/AIWorkflow";
+import { approvalPolicyPromptContext, resolveApprovalPolicySnapshot } from "../../../../core/approval";
 import {
   confirmContentOpportunity,
   createContentOpportunityCandidate,
 } from "../../../../core/content";
 
-const approvalContext = [
-  "Content purpose: adsense_approval",
-  "Approval policy: adsense_approval_mode@1.0",
-  "Approval profile: tistory_vivarain_art_v1@1.0",
-].join("\n");
+const approvalContext = approvalPolicyPromptContext(
+  resolveApprovalPolicySnapshot("adsense_approval", "tistory_vivarain_art_v1")!,
+);
 
 const input: GenerationInput = {
   contentId: "content-1",
@@ -112,6 +111,8 @@ describe("AIWorkflow canonical editorial context", () => {
 
     expect(provider.request?.instruction).toContain("Canonical server editorial context");
     expect(provider.request?.instruction).toContain("Approval policy: adsense_approval_mode@1.0");
+    expect(provider.request?.instruction).toContain("Approval profile: Tistory · 비바레인 미술@1.0");
+    expect(provider.request?.instruction).not.toContain("tistory_vivarain_art_v1");
     expect(provider.calls).toBe(1);
     expect(result.document.metadata?.approvalPolicy).toMatchObject({
       policyId: "adsense_approval_mode",
@@ -213,6 +214,45 @@ describe("AIWorkflow canonical editorial context", () => {
       keywords: [clean.primaryKeyword, ...clean.secondaryKeywords],
     })).rejects.toThrow("AI 생성 결과의 제목·본문·메타데이터·이미지 설명 또는 태그");
     expect(provider.calls).toBe(1);
+  });
+
+  it("keeps brand and publishing Category labels out of clean editorial fields", async () => {
+    const provider = new RecordingProvider();
+    const clean = opportunity({
+      selectionMode: "automatic",
+      sourceRequest: "생활경제 주제를 선정해줘",
+      selectedTopic: "예금자보호 확인 방법",
+      primaryKeyword: "예금자보호 확인 방법",
+    });
+    const wordpressContext = JSON.stringify({
+      projectStrategy: {
+        projectIdentity: {
+          projectName: "밝은재테크",
+          brandName: "밝은재테크",
+        },
+        approvalPolicy: approvalPolicyPromptContext(
+          resolveApprovalPolicySnapshot("adsense_approval", "wordpress_life_economy_v1")!,
+        ),
+      },
+      ownedIdentityPolicy: {
+        sourceRequest: clean.sourceRequest,
+        selectionMode: clean.selectionMode,
+      },
+    });
+
+    const result = await new AIWorkflow(provider, strategy).generate({
+      ...input,
+      editorialContext: wordpressContext,
+      contentOpportunity: clean,
+      keywords: [clean.primaryKeyword, ...clean.secondaryKeywords],
+      platform: "wordpress" as GenerationInput["platform"],
+    });
+
+    expect(provider.request?.instruction).toContain("Content domain: 생활경제");
+    expect(provider.request?.instruction).toContain("Required publishing categories: 생활재테크");
+    expect(provider.request?.instruction).not.toContain("wordpress_life_economy_v1");
+    expect(result.document.title).not.toMatch(/밝은재테크|생활재테크/u);
+    expect(result.document.blocks).toEqual([]);
   });
 
   it("keeps an owned identity when a user explicitly selected it as the search subject", async () => {

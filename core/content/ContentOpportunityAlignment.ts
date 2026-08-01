@@ -3,7 +3,7 @@ import { normalizeContentPlanQualityTarget } from "./ContentDepthPolicy";
 import type { ContentDocument } from "./ContentDocument";
 import type { ConfirmedContentOpportunity } from "./ContentOpportunity";
 import { ensureSeoKeywordPlacement, titleContainsPrimaryKeyword } from "./SeoKeywordPlacement";
-import { normalizeStructuredText, serializeStructuredTable, structuredListItems, structuredTableCount } from "./StructuredText";
+import { normalizeStructuredText, serializeStructuredList, serializeStructuredTable, structuredListItems, structuredTableCount } from "./StructuredText";
 
 export type OpportunityAlignmentStatus = "aligned" | "title_only_missing" | "mismatch";
 export type OpportunityAlignmentSignal = Readonly<{
@@ -256,6 +256,7 @@ const freeVisualPurposes = new Set(["comparison", "checklist", "infographic", "s
 
 function readableIntentBlockText(block: ContentBlock): string {
   if (block.type === "heading" || block.type === "paragraph") return block.text;
+  if (block.type === "list") return serializeStructuredList(block);
   if (block.type === "table") return serializeStructuredTable(block);
   if (block.type === "image" && !block.source.trim() && block.purpose && freeVisualPurposes.has(block.purpose)) {
     return [block.alt, block.caption ?? ""].filter(Boolean).join("\n");

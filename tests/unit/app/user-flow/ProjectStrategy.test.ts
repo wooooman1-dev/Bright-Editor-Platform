@@ -13,7 +13,7 @@ describe("Project content strategy", () => {
     expect(request).toContain("현재 Project에서 아직 다루지 않은 주제를 선정해");
   });
 
-  it("persists defaults and applies the default Tistory category to new Content", () => {
+  it("persists a Project default as a proposal without applying it to new Content", () => {
     let data = createWorkspace(emptyUserData, "Workspace", "workspace");
     data = createProject(data, { id: "project", name: "건강운동", brandIdFactory: () => "brand", now: "now" });
     const project = data.projects[0]; const strategy = resolveProjectStrategy(project);
@@ -22,7 +22,8 @@ describe("Project content strategy", () => {
     data = createContentFromPlan(data, { id: "content", projectId: project.id, naturalLanguageRequest: "작성", plan, primaryKeyword: "아침 운동", selectedPublishingAccountIds: ["account"], now: "created" });
     expect(resolveProjectStrategy(data.projects[0]).primaryTopic).toBe("건강운동");
     expect(data.contents[0].platform).toBe("tistory");
-    expect(data.contents[0].publishingPreparation?.tistory).toMatchObject({ platformCategoryId: "1057542", platformCategoryName: "건강운동" });
+    expect(resolveProjectStrategy(data.projects[0]).defaultTistoryCategory).toMatchObject({ id: "1057542", name: "건강운동" });
+    expect(data.contents[0].publishingPreparation?.tistory).toBeUndefined();
   });
   it("renames only the requested Project and preserves its strategy", () => {
     let data = createWorkspace(emptyUserData, "Workspace", "workspace");

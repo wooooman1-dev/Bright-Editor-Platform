@@ -1,4 +1,5 @@
 import type { ContentDocument } from "../content/ContentDocument";
+import { serializeStructuredList } from "../content/StructuredText";
 import { evaluateApprovalPreparationText, type ApprovalPreparationIssue } from "./ApprovalPolicy";
 
 export const approvalReadinessCheckKeys = [
@@ -29,10 +30,20 @@ export type ApprovalEvidenceVerificationStatus =
   | "duplicate_source"
   | "excluded";
 
+export type ApprovalEvidenceProvenance =
+  | "search_candidate"
+  | "citation"
+  | "document_link"
+  | "user_selected"
+  | "system_verified";
+
+export type ApprovalEvidenceStageStatus = "verified" | "failed" | "not_evaluated";
+
 export type ApprovalEvidenceFact = Readonly<{
   field: string;
   value: string;
   excerpt?: string;
+  blockId?: string;
 }>;
 
 export type ApprovalEvidenceSource = Readonly<{
@@ -44,6 +55,10 @@ export type ApprovalEvidenceSource = Readonly<{
   retrievedAt: string;
   verified: boolean;
   facts: readonly ApprovalEvidenceFact[];
+  provenance?: ApprovalEvidenceProvenance;
+  citationExcerpt?: string;
+  linkedBlockIds?: readonly string[];
+  originalUrl?: string;
   canonicalUrl?: string;
   finalUrl?: string;
   httpStatus?: number;
@@ -52,6 +67,9 @@ export type ApprovalEvidenceSource = Readonly<{
   selected?: boolean;
   cited?: boolean;
   verificationStatus?: ApprovalEvidenceVerificationStatus;
+  accessVerificationStatus?: ApprovalEvidenceStageStatus;
+  officialDomainVerificationStatus?: ApprovalEvidenceStageStatus;
+  claimVerificationStatus?: ApprovalEvidenceStageStatus;
   failureReason?: string;
   matchedFacts?: readonly ApprovalEvidenceFact[];
   checkedAt?: string;
@@ -66,6 +84,10 @@ export type ApprovalEvidencePack = Readonly<{
   status: "verified" | "needs_review" | "missing";
   reviewedAt?: string;
   reviewedRevisionId?: string;
+  informationAsOf?: string;
+  coverageStatus?: "verified" | "needs_review" | "missing";
+  presentationStatus?: "ready" | "conflict" | "not_projected";
+  presentationReasons?: readonly string[];
   requiredFactFields?: readonly string[];
   verifiedFactFields?: readonly string[];
   unverifiedFactFields?: readonly string[];
@@ -127,7 +149,9 @@ export function evaluateApprovalDraftIntegrity(document: ContentDocument): Appro
     documentText(document),
     document.metadata.approvalPolicy,
     {
-      sourceUrls: evidence?.sources.map((source) => source.canonicalUrl ?? source.url),
+      sourceUrls: evidence?.sources
+        .filter((source) => source.provenance !== "search_candidate")
+        .map((source) => source.canonicalUrl ?? source.url),
       reviewedAt: evidence?.reviewedAt,
     },
   );
@@ -200,7 +224,15 @@ function approvalPolicyCheck(issues: readonly ApprovalPreparationIssue[]): Appro
 function evidenceCheck(document: ContentDocument): ApprovalReadinessCheck {
   const pack = document.metadata?.approvalEvidence;
   const verifiedSources = pack?.sources.filter(validVerifiedSource) ?? [];
-  if (pack?.status === "verified" && pack.reviewedAt && verifiedSources.length > 0) {
+  if (pack?.presentationStatus === "conflict") {
+    return Object.freeze({
+      key: "evidence",
+      status: "needs_review",
+      message: "수동·AI 출처 섹션과 시스템 Evidence projection이 충돌합니다.",
+      action: pack.presentationReasons?.join(" ") || "중복 출처 섹션의 소유권을 확인하세요.",
+    });
+  }
+  if (pack?.status === "verified" && pack.coverageStatus !== "needs_review" && pack.reviewedAt && verifiedSources.length > 0) {
     return Object.freeze({ key: "evidence", status: "passed", message: `공식 출처 ${verifiedSources.length}개와 최종 검토일을 확인했습니다.` });
   }
   if (pack?.status === "missing") {
@@ -309,6 +341,7 @@ function validVerifiedSource(source: ApprovalEvidenceSource): boolean {
       && Boolean(source.publisher.trim())
       && Boolean(source.retrievedAt)
       && source.verified === true
+      && source.claimVerificationStatus !== "failed"
       && source.facts.length > 0;
   } catch {
     return false;
@@ -320,6 +353,7 @@ function documentText(document: ContentDocument): string {
     document.title,
     ...document.blocks.flatMap((block) => {
       if (block.type === "heading" || block.type === "paragraph") return [block.text];
+      if (block.type === "list") return [serializeStructuredList(block)];
       if (block.type === "button") return [block.label, block.targetUrl];
       if (block.type === "table") return [block.caption ?? "", ...block.headers, ...block.rows.flat()];
       if (block.type === "image") return [block.alt, block.prompt ?? "", block.source];

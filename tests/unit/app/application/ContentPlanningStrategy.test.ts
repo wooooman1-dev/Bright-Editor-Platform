@@ -42,6 +42,35 @@ describe("natural-language content planning", () => {
     expect(strategy.targetLength).toBe("4,500~6,000자");
   });
 
+  it("separates the WordPress brand, content domain, Category, and stable profile ID in Planning context", () => {
+    const context = projectStrategyAIContext({
+      primaryTopic: "밝은재테크",
+      subtopics: ["생활경제·생활금융 콘텐츠 운영"],
+      excludedTopics: [],
+      defaultContentType: "Google SEO 정보 콘텐츠",
+      defaultPlatform: "wordpress",
+      targetAudience: "생활경제 정보를 찾는 일반 독자",
+      tone: "친절하고 신뢰할 수 있는 설명",
+      internalLinkPolicy: "검증된 공개 글만 사용",
+      relatedPostPolicy: "관련 글 최대 3개",
+      ctaPolicy: "필요한 경우만 사용",
+      imageStrategy: "설명 목적 이미지",
+      seoPolicy: "Helpful · Reliable · People-first",
+      defaultContentPurpose: "adsense_approval",
+      approvalProfileId: "wordpress_life_economy_v1",
+    } as Parameters<typeof projectStrategyAIContext>[0] & {
+      defaultContentPurpose: "adsense_approval";
+      approvalProfileId: "wordpress_life_economy_v1";
+    });
+    const serialized = JSON.stringify(context);
+
+    expect(serialized).toContain("Approval profile: WordPress · 밝은재테크@1.0");
+    expect(serialized).toContain("Site and brand identity (metadata only): 밝은재테크");
+    expect(serialized).toContain("Content domain: 생활경제, 생활금융, 정부지원, 세금, 주거 정보");
+    expect(serialized).toContain("Required publishing categories: 생활재테크");
+    expect(serialized).not.toContain("wordpress_life_economy_v1");
+  });
+
   it("uses exactly one provider request and returns structured recommendations", async () => {
     const provider = { generate: vi.fn().mockResolvedValue({ content: JSON.stringify(result), model: "test" }) };
     const plan = await new ContentPlanningStrategy(provider).analyze("50대를 위한 혈당 관리 글을 만들고 싶어");

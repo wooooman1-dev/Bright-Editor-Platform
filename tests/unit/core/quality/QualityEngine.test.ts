@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { confirmContentOpportunity, createContentOpportunityCandidate, type ContentDocument } from "../../../../core/content";
-import { contentRevisionId, PublishingGate, QualityEngine, qualityDimensionWeights, resolveQualityApproval } from "../../../../core/quality";
+import { contentRevisionId, editorialRevisionId, PublishingGate, QualityEngine, qualityDimensionWeights, resolveQualityApproval } from "../../../../core/quality";
 
 const planning: ContentDocument = { id: "planning", title: "건강 관리 가이드 기획안", blocks: [
   { id: "h", type: "heading", level: 2, text: "작성할 내용" },
@@ -104,13 +104,41 @@ describe("QualityEngine dimension scoring", () => {
       { id: "internal", type: "button", purpose: "internal_link", label: "관련 글", targetUrl: "https://bright-health.tistory.com/entry/related" },
     ] };
     const report = new QualityEngine().review(recommended, { primaryKeyword: "추천", searchIntent: "추천" });
-    expect(report.dimensions.find((item) => item.category === "imageStrategy")).toMatchObject({ score: 58, status: "needs_improvement" });
+    expect(report.dimensions.find((item) => item.category === "imageStrategy")).toMatchObject({ score: 100, status: "ready", evaluation: "not_evaluated" });
     expect(report.dimensions.find((item) => item.category === "imageStrategy")?.reasons).toContain(
-      "추천된 이미지 블록 중 실제 source 또는 렌더 가능한 Bright 시각 요소가 배치되지 않은 항목이 있습니다.",
+      "실제 공개 HTML에 렌더되는 이미지가 없어 source-empty 편집 추천을 품질 점수에서 제외했습니다.",
     );
+    expect(report.dimensions.find((item) => item.category === "imageStrategy")?.evidence).toContainEqual({ signal: "renderedImageBlocks", value: 0 });
     expect(report.dimensions.find((item) => item.category === "internalLinks")?.evidence).toContainEqual({ signal: "placedContextualInternalLinks", value: 1 });
     expect(report.dimensions.find((item) => item.category === "cta")).toMatchObject({ score: 100, status: "ready", evaluation: "not_evaluated" });
     expect(report.dimensions.find((item) => item.category === "cta")?.evidence).toContainEqual({ signal: "scoringExcluded", value: true });
+  });
+
+  it("keeps Standard Quality current and approved when the only image is a source-empty editorial recommendation", () => {
+    const base = structured();
+    const document: ContentDocument = {
+      ...base,
+      blocks: base.blocks.map((block) => block.type === "image"
+        ? { ...block, source: "", purpose: "hero" as const }
+        : block),
+    };
+    const revisionId = editorialRevisionId(document);
+    const report = new QualityEngine().review(document, {
+      contentType: "article",
+      platform: "wordpress",
+      primaryKeyword: "건강 관리",
+      searchIntent: "건강 관리 방법",
+      revisionId,
+      reviewedAt: "2026-08-01T00:00:00.000Z",
+    });
+
+    expect(report.reviewedRevisionId).toBe(revisionId);
+    expect(report).toMatchObject({ approved: true, approvalType: "standard" });
+    expect(report.dimensions.find((item) => item.category === "imageStrategy")).toMatchObject({
+      score: 100,
+      status: "ready",
+      evaluation: "not_evaluated",
+    });
   });
 
   it("keeps internal-link placement diagnostics outside the quality score", () => {
@@ -186,10 +214,10 @@ describe("QualityEngine dimension scoring", () => {
     const document: ContentDocument = { id: "duplicate-images", title: "중년 운동", blocks: [
       { id: "h1", type: "heading", level: 2, text: "호흡 준비" },
       { id: "p1", type: "paragraph", text: "어깨를 내리고 호흡을 천천히 정리합니다." },
-      { id: "image-1", type: "image", source: "", purpose: "inline", alt: "호흡 준비 자세", prompt: "중년 여성이 거실에서 스트레칭하는 모습" },
+      { id: "image-1", type: "image", source: "/media/breathing.png", purpose: "inline", alt: "호흡 준비 자세", prompt: "중년 여성이 거실에서 스트레칭하는 모습" },
       { id: "h2", type: "heading", level: 2, text: "허리 자세" },
       { id: "p2", type: "paragraph", text: "무릎과 골반의 위치를 확인하며 허리를 늘립니다." },
-      { id: "image-2", type: "image", source: "", purpose: "inline", alt: "허리와 골반 자세", prompt: "중년 여성이 거실에서 스트레칭하는 모습" },
+      { id: "image-2", type: "image", source: "/media/back.png", purpose: "inline", alt: "허리와 골반 자세", prompt: "중년 여성이 거실에서 스트레칭하는 모습" },
     ] };
     const dimension = new QualityEngine().review(document, { primaryKeyword: "중년 운동", searchIntent: "중년 운동 자세" }).dimensions.find((item) => item.category === "imageStrategy");
 
@@ -328,5 +356,21 @@ describe("QualityEngine dimension scoring", () => {
     expect(report.weights.cta).toBe(0);
     expect(report.dimensions.find((item) => item.category === "internalLinks")?.evaluation).toBe("not_evaluated");
     expect(report.dimensions.find((item) => item.category === "cta")?.evaluation).toBe("not_evaluated");
+  });
+
+  it("keeps the editorial revision stable for system projections but changes it for manual links", () => {
+    const base = structured();
+    const systemProjected: ContentDocument = {
+      ...base,
+      blocks: [...base.blocks, { id: "auto-related-post", type: "button", ownership: "system_catalog", purpose: "related_post", label: "관련 글", targetUrl: "https://example.com/related", target: "_self" }],
+    };
+    const manual: ContentDocument = {
+      ...base,
+      blocks: [...base.blocks, { id: "manual-related", type: "button", ownership: "user_manual", purpose: "related_post", label: "직접 고른 글", targetUrl: "https://example.com/manual", target: "_self" }],
+    };
+
+    expect(contentRevisionId(systemProjected)).not.toBe(contentRevisionId(base));
+    expect(editorialRevisionId(systemProjected)).toBe(editorialRevisionId(base));
+    expect(editorialRevisionId(manual)).not.toBe(editorialRevisionId(base));
   });
 });

@@ -24,5 +24,25 @@ describe("WordPress table rendering", () => {
     expect(html).toContain('<th scope="col" style="border:1px solid #dcdcde');
     expect(html).toContain('<td style="border:1px solid #dcdcde');
     expect(html).toContain("<figcaption");
+    expect(html).toContain("overflow-x:auto");
+    expect(html).toContain("min-width:480px");
+  });
+
+  it("renders normalized lists semantically and omits source-empty image plans", () => {
+    const document: ContentDocument = {
+      id: "list-1",
+      title: "가입 전 순서",
+      blocks: [
+        { id: "steps", type: "paragraph", text: "1. 설명서를 확인합니다.\n2. 한도를 확인합니다." },
+        { id: "image-plan", type: "image", source: "", alt: "계산 예시", purpose: "hero" },
+      ],
+    };
+
+    const html = new WordPressHtmlRenderer().render(document);
+
+    expect(html).toContain("<ol><li>설명서를 확인합니다.</li><li>한도를 확인합니다.</li></ol>");
+    expect(html).not.toContain("<p>1.");
+    expect(html).not.toContain("<!-- image:");
+    expect(html).not.toContain("계산 예시");
   });
 });

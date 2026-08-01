@@ -1,6 +1,7 @@
 import type { AIProvider } from "../../core/ai";
+import { isApprovalPolicyProfileId, resolveApprovalPolicySnapshot, type ApprovalPolicySnapshot } from "../../core/approval";
 import { analyzeLongFormDocument, normalizeContentPlanQualityTarget, restoreProtectedImageAssets, restoreVerifiedEditorialLinks, type ContentDocument, type ContentPlanQualityTarget } from "../../core/content";
-import { contentRevisionId, evaluateQualityReviewReadiness, QualityEngine, type QualityReviewContext } from "../../core/quality";
+import { editorialRevisionId, evaluateQualityReviewReadiness, QualityEngine, type QualityReviewContext } from "../../core/quality";
 import { contentOpportunityAIContext, EditorialGenerationStrategy } from "./EditorialGenerationStrategy";
 
 type ParseInput = Parameters<EditorialGenerationStrategy["parse"]>[1];
@@ -22,16 +23,33 @@ export type EditorialQualityPipelineResult = Readonly<{
   reachedTarget: boolean;
 }>;
 
-export function contentDocumentAIContext(document: ContentDocument): ContentDocument {
+export function contentDocumentAIContext(document: ContentDocument): Readonly<Record<string, unknown>> {
   if (!document.metadata) return document;
   const excluded = new Set(["qualityTarget", "generationDiagnostic", "reviewDiagnostic"]);
-  const metadata = Object.freeze(Object.fromEntries(
+  const metadataEntries = Object.fromEntries(
     Object.entries(document.metadata).filter(([key]) => !excluded.has(key)),
-  )) as NonNullable<ContentDocument["metadata"]>;
+  );
+  const approvalPolicy = publicApprovalPolicyContext(document.metadata.approvalPolicy);
+  const metadata = Object.freeze({
+    ...metadataEntries,
+    ...(approvalPolicy ? { approvalPolicy } : {}),
+  });
   return Object.freeze({
     ...document,
     metadata,
   });
+}
+
+function publicApprovalPolicyContext(
+  stored: ApprovalPolicySnapshot | undefined,
+): Readonly<Record<string, unknown>> | undefined {
+  if (!stored) return undefined;
+  const current = isApprovalPolicyProfileId(stored.profileId)
+    ? resolveApprovalPolicySnapshot(stored.contentPurpose, stored.profileId)
+    : undefined;
+  const publicSnapshot = { ...(current ?? stored) } as Record<string, unknown>;
+  Reflect.deleteProperty(publicSnapshot, "profileId");
+  return Object.freeze(publicSnapshot);
 }
 
 export class EditorialQualityPipeline {
@@ -106,7 +124,7 @@ export class EditorialQualityPipeline {
         current,
         restoreProtectedImageAssets(current, this.strategy.parse(response, parseInput)),
       ));
-      const parsedQuality = this.qualityEngine.review(parsed, { ...qualityContext, revisionId: contentRevisionId(parsed) });
+      const parsedQuality = this.qualityEngine.review(parsed, { ...qualityContext, revisionId: editorialRevisionId(parsed) });
       const parsedDiagnostic = analyzeLongFormDocument(parsed, parseInput.contentOpportunity?.qualityTarget ?? parsed.metadata?.qualityTarget);
       const readiness = evaluateQualityReviewReadiness(parsed, parsedQuality, parsedDiagnostic);
       const linkError = verifiedLinkError(current, parsed);
@@ -116,7 +134,7 @@ export class EditorialQualityPipeline {
         return { document: parsed, quality: parsedQuality, rejectionReason: linkError ?? safetyError ?? shapeError };
       }
       const document = await place(parsed);
-      const quality = this.qualityEngine.review(document, { ...qualityContext, revisionId: contentRevisionId(document) });
+      const quality = this.qualityEngine.review(document, { ...qualityContext, revisionId: editorialRevisionId(document) });
       const placedDiagnostic = analyzeLongFormDocument(document, parseInput.contentOpportunity?.qualityTarget ?? document.metadata?.qualityTarget);
       const placedReadiness = evaluateQualityReviewReadiness(document, quality, placedDiagnostic);
       return placedReadiness.fatal

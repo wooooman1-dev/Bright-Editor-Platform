@@ -42,8 +42,12 @@ type WordPressCategoryResponse = Readonly<{
   categories?: readonly WordPressCategory[];
   selection?: Readonly<{
     valid: boolean;
+    source?: "content" | "project" | "connection";
     categoryIds: readonly string[];
     categoryNames: readonly string[];
+    policyCompliant?: boolean;
+    requiredCategoryNames?: readonly string[];
+    policyReason?: string;
   }>;
   data?: UserData;
   error?: string;
@@ -60,6 +64,7 @@ export function WordPressDraftOverlay({ connections, content, data, onPersist, p
   const [categories, setCategories] = useState<readonly WordPressCategory[]>([]);
   const [categoryIds, setCategoryIds] = useState<readonly string[]>([]);
   const [appliedCategoryIds, setAppliedCategoryIds] = useState<readonly string[]>([]);
+  const [categorySelectionSource, setCategorySelectionSource] = useState<"content" | "project" | "connection">();
   const [categoryLoaded, setCategoryLoaded] = useState(false);
   const [categoryLoading, setCategoryLoading] = useState(false);
   const [categorySaving, setCategorySaving] = useState(false);
@@ -148,7 +153,12 @@ export function WordPressDraftOverlay({ connections, content, data, onPersist, p
         setCategories(result.categories ?? []);
         const restoredCategoryIds = result.selection?.categoryIds ?? [];
         setCategoryIds(restoredCategoryIds);
-        setAppliedCategoryIds(restoredCategoryIds);
+        setAppliedCategoryIds(result.selection?.source === "content" ? restoredCategoryIds : []);
+        setCategorySelectionSource(result.selection?.source);
+        const proposalNotice = result.selection?.valid && result.selection.source !== "content"
+          ? `${result.selection.source === "connection" ? "연결" : "프로젝트"} 기본 카테고리는 제안값입니다. 콘텐츠에 적용하려면 '카테고리 적용'을 누르세요.`
+          : "";
+        setCategoryNotice([proposalNotice, result.selection?.policyReason].filter(Boolean).join(" "));
         setCategoryLoaded(true);
       })
       .catch((error) => {
@@ -156,6 +166,7 @@ export function WordPressDraftOverlay({ connections, content, data, onPersist, p
         setCategories([]);
         setCategoryIds([]);
         setAppliedCategoryIds([]);
+        setCategorySelectionSource(undefined);
         setCategoryLoaded(false);
         setCategoryNotice(message(error));
       })
@@ -234,9 +245,12 @@ export function WordPressDraftOverlay({ connections, content, data, onPersist, p
       setCategories(result.categories ?? categories);
       setCategoryIds(result.selection.categoryIds);
       setAppliedCategoryIds(result.selection.categoryIds);
+      setCategorySelectionSource("content");
       setCategoryLoaded(true);
       if (result.data) await onPersist(result.data);
-      setCategoryNotice(`워드프레스 카테고리 적용 완료: ${result.selection.categoryNames.join(", ")}`);
+      setCategoryNotice(result.selection.policyCompliant === false
+        ? `워드프레스 카테고리는 콘텐츠에 적용됐지만 승인 정책과 일치하지 않습니다. ${result.selection.policyReason ?? "WordPress에서 정책 Category를 준비하거나 별도 정책 결정을 완료해 주세요."}`
+        : `워드프레스 카테고리 적용 완료: ${result.selection.categoryNames.join(", ")}`);
       setModalView((current) => reduceWordPressDraftModalView(current, { type: "show_preparation" }));
       setExecutionState((current) => resetWordPressDraftOverlayState(identity, current.requestId));
     } catch (error) {
@@ -302,6 +316,7 @@ export function WordPressDraftOverlay({ connections, content, data, onPersist, p
               setCategories([]);
               setCategoryIds([]);
               setAppliedCategoryIds([]);
+              setCategorySelectionSource(undefined);
               setCategoryLoaded(false);
               setCategoryLoading(Boolean(nextConnectionId));
               setCategoryNotice("");
@@ -317,6 +332,7 @@ export function WordPressDraftOverlay({ connections, content, data, onPersist, p
           <label className="text-sm font-semibold">워드프레스 카테고리
             <select className="mt-2 w-full rounded-xl border px-4 py-3 font-normal" disabled={!connection || categoryLoading || categorySaving} onChange={(event) => {
               setCategoryIds(event.target.value ? [event.target.value] : []);
+              setCategorySelectionSource(undefined);
               setShowConfirmation(false);
               setModalView((current) => reduceWordPressDraftModalView(current, { type: "show_preparation" }));
               if (identity) setExecutionState((current) => {
@@ -332,7 +348,7 @@ export function WordPressDraftOverlay({ connections, content, data, onPersist, p
           </label>
         </div>
 
-        <button className="mt-3 rounded-xl border border-[#202024] px-4 py-2 text-sm font-semibold disabled:opacity-50" disabled={!identity || !selectedCategoryId || categorySelectionApplied || categoryLoading || categorySaving} onClick={() => void saveCategory()} type="button">{categorySaving ? "카테고리 적용 중…" : categorySelectionApplied ? "카테고리 적용 완료" : "카테고리 적용"}</button>
+        <button className="mt-3 rounded-xl border border-[#202024] px-4 py-2 text-sm font-semibold disabled:opacity-50" disabled={!identity || !selectedCategoryId || categorySelectionApplied || categoryLoading || categorySaving} onClick={() => void saveCategory()} type="button">{categorySaving ? "카테고리 적용 중…" : categorySelectionApplied ? "카테고리 적용 완료" : categorySelectionSource && categorySelectionSource !== "content" ? "제안 카테고리 적용" : "카테고리 적용"}</button>
 
         <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><strong>임시글만 저장</strong> · 공개 발행, 예약 발행, 자동 재실행은 하지 않습니다.</p>
 

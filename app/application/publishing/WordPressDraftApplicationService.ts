@@ -1,6 +1,6 @@
 import type { SecretStore } from "../../../core/connections";
 import type { ContentDocument } from "../../../core/content";
-import { contentRevisionId } from "../../../core/quality";
+import { contentRevisionId, evaluateHtmlIntegrity } from "../../../core/quality";
 import {
   createDraftCreateIdempotencyKey,
   PublishingPermissionGate,
@@ -158,6 +158,25 @@ export class WordPressDraftApplicationService {
     if (!claim.claimed) return duplicateResult(claim.record, prepared.readiness);
     record = claim.record;
 
+    try {
+      const preflightArtifact = await this.drafts.prepare({ content: prepared.content.document, platform: "wordpress" });
+      const preflightIntegrity = evaluateHtmlIntegrity(prepared.content.document, preflightArtifact.payload.html);
+      if (!preflightIntegrity.passed) {
+        return this.persistedFailure(
+          record,
+          identity,
+          "draft_create",
+          [],
+          "HTML_INTEGRITY_BLOCKED",
+          `WordPress Draft HTML integrity blocked: ${preflightIntegrity.issues.map((item) => item.code).join(", ")}.`,
+          prepared.readiness,
+        );
+      }
+    } catch {
+      return this.persistedFailure(record, identity, "draft_create", [],
+        "DRAFT_RENDER_FAILED", "WordPress Draft rendering failed.", prepared.readiness);
+    }
+
     const uploadedMedia: WordPressDraftMediaResult[] = [];
     for (const item of prepared.mediaPlan) {
       try {
@@ -232,6 +251,18 @@ export class WordPressDraftApplicationService {
       const renderedDocument = applyWordPressMediaReplacements(prepared.content.document, uploadedMedia);
       const renderArtifact = await this.drafts.prepare({ content: renderedDocument, platform: "wordpress" });
       html = renderArtifact.payload.html;
+      const htmlIntegrity = evaluateHtmlIntegrity(renderedDocument, html);
+      if (!htmlIntegrity.passed) {
+        return this.persistedFailure(
+          record,
+          identity,
+          "draft_create",
+          uploadedMedia,
+          "HTML_INTEGRITY_BLOCKED",
+          `WordPress Draft HTML integrity blocked: ${htmlIntegrity.issues.map((item) => item.code).join(", ")}.`,
+          executionReadiness,
+        );
+      }
       featuredImageAssetId = prepared.content.publishingPreparation?.wordpress?.publishingAccountId === input.connection.id
         ? prepared.content.publishingPreparation.wordpress.featuredImageAssetId
         : undefined;

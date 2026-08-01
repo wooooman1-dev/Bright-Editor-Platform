@@ -1,5 +1,7 @@
 import {
   canonicalizeApprovalEvidenceUrl,
+  evaluateApprovalPreparationText,
+  evaluateApprovalReadiness,
   normalizeContentPurpose,
   verifyApprovalEvidence,
   type ApprovalEvidenceVerificationResult,
@@ -9,22 +11,19 @@ import {
   type SiteApprovalReadinessSnapshot,
   SiteApprovalReadinessAdapterRegistry,
 } from "../../../core/approval";
-import {
-  contentRevisionId,
-  isStandardQualityApproved,
-  QualityEngine,
-  type QualityReport,
-} from "../../../core/quality";
+import { editorialRevisionId, isStandardQualityApproved, type QualityReport } from "../../../core/quality";
 import type { PlatformConnection } from "../../../core/connections";
-import type { ContentDocument } from "../../../core/content";
+import { canonicalDocumentText, contentBlockOwnership, type ContentDocument } from "../../../core/content";
 import { tistorySiteReadinessAdapter } from "../../../apps/tistory/approval/TistorySiteReadinessAudit";
 import { wordpressSiteReadinessAdapter } from "../../../apps/wordpress/approval/WordPressSiteReadinessAudit";
-import { resolveProjectStrategy, type UserContent, type UserData } from "../../user-flow/user-data";
+import type { UserContent, UserData } from "../../user-flow/user-data";
 import { InternalLinkCatalogEvaluationService } from "../publishing/InternalLinkCatalogEvaluationService";
-import { publishingCategoryNames } from "../publishing/InternalLinkCatalogPolicy";
 import { contentOwnedIdentityContamination } from "../publishing/ContentOwnedIdentityPolicy";
 import type { ApprovalAwareContent } from "./ApprovalContentPolicy";
+import { approvalReadinessExecutionIdentity } from "./ApprovalReadinessExecutionIdentity";
 import { resolveOfficialEvidenceSourceFallback } from "./OfficialEvidenceSourceResolver";
+
+export { approvalReadinessExecutionIdentity } from "./ApprovalReadinessExecutionIdentity";
 
 export type ApprovalReadinessExecutionResult = Readonly<{
   data: UserData;
@@ -36,13 +35,31 @@ export type ApprovalReadinessExecutionResult = Readonly<{
 
 export type ApprovalReadinessFetch = SiteApprovalReadinessFetch;
 
+const inFlightApprovalReadinessExecutions = new Map<string, Promise<ApprovalReadinessExecutionResult>>();
+
+export function executeApprovalReadinessOnce(
+  key: string,
+  task: () => Promise<ApprovalReadinessExecutionResult>,
+): Promise<ApprovalReadinessExecutionResult> {
+  const current = inFlightApprovalReadinessExecutions.get(key);
+  if (current) return current;
+  const execution = task().finally(() => {
+    if (inFlightApprovalReadinessExecutions.get(key) === execution) {
+      inFlightApprovalReadinessExecutions.delete(key);
+    }
+  });
+  inFlightApprovalReadinessExecutions.set(key, execution);
+  return execution;
+}
+
 /**
  * Runs the deterministic approval checks that can be observed now.
  *
  * This service does not add an AI call. It evaluates the current public-post
  * catalog, verifies official source pages, compares canonical facts with those
  * pages, delegates the selected public site audit to its registered platform
- * Adapter, persists the resulting snapshots, and recomputes Quality.
+ * Adapter, persists the resulting snapshots, and updates only the independent
+ * approval-readiness aggregate on the existing Standard Quality report.
  */
 export class ApprovalReadinessApplicationService {
   constructor(
@@ -66,7 +83,6 @@ export class ApprovalReadinessApplicationService {
       throw new Error("애드센스 승인 준비 콘텐츠에서만 승인 준비 검사를 실행할 수 있습니다.");
     }
     if (!aware.approvalProfileId) throw new Error("승인 준비 정책 프로필이 없습니다.");
-
     const project = input.data.projects.find((item) => item.id === content.projectId && item.workspaceId === content.workspaceId);
     if (!project) throw new Error("승인 준비 검사 대상 프로젝트를 찾을 수 없습니다.");
     if (!input.data.workspace) throw new Error("승인 준비 검사 대상 작업공간을 찾을 수 없습니다.");
@@ -76,6 +92,15 @@ export class ApprovalReadinessApplicationService {
         `기존 기획 또는 원고에 검색 주제가 아닌 프로젝트명·브랜드명이 포함되어 승인 준비 검사를 차단했습니다: ${identityContamination.join(", ")}. 새 콘텐츠에서 기획을 다시 실행해 주세요.`,
       );
     }
+    const editorialRevision = editorialRevisionId(content.document);
+    if (!content.quality
+      || !isStandardQualityApproved(content.quality)
+      || content.quality.reviewedRevisionId !== editorialRevision) {
+      throw new Error("현재 편집 원고의 Standard Quality가 유효할 때만 승인 준비 검사를 실행할 수 있습니다.");
+    }
+    const executionIdentity = approvalReadinessExecutionIdentity(content, input.connection?.id);
+    const storedResult = storedApprovalReadinessResult(input.data, content, executionIdentity.key);
+    if (storedResult) return storedResult;
 
     const checkedAt = this.now();
     const documentWithInternalLinks = await this.internalLinks.evaluate({
@@ -103,7 +128,7 @@ export class ApprovalReadinessApplicationService {
     const siteReadiness = await resolveSiteReadiness({
       connection: input.connection,
       checkedAt,
-      expectedTerms: siteIdentityTerms(input.data, project, content),
+      expectedTerms: siteIdentityTerms(input.data, project),
       fetcher: this.fetcher,
       adapters: this.siteAdapters,
     });
@@ -117,44 +142,58 @@ export class ApprovalReadinessApplicationService {
         siteApprovalReadiness: siteReadiness,
       },
     };
-    const documentWithSourceSection = provisionalEvidence.status === "verified" && provisionalEvidence.reviewedAt
+    const projection = provisionalEvidence.status === "verified" && provisionalEvidence.reviewedAt
       ? upsertVerifiedSourceSection(documentWithSnapshots, provisionalEvidence)
-      : removeGeneratedSourceSection(documentWithSnapshots);
-    const revisionId = contentRevisionId(documentWithSourceSection);
+      : Object.freeze({
+          document: removeGeneratedSourceSection(documentWithSnapshots),
+          presentationStatus: "not_projected" as const,
+          presentationReasons: Object.freeze([]),
+        });
     const stableEvidence = Object.freeze({
       ...provisionalEvidence,
-      reviewedRevisionId: revisionId,
+      reviewedRevisionId: editorialRevision,
+      presentationStatus: projection.presentationStatus,
+      ...(projection.presentationReasons.length ? { presentationReasons: projection.presentationReasons } : {}),
     });
     const nextDocument: ContentDocument = {
-      ...documentWithSourceSection,
+      ...projection.document,
       metadata: {
-        ...documentWithSourceSection.metadata!,
+        ...projection.document.metadata!,
         approvalEvidence: stableEvidence,
+        approvalReadinessExecution: Object.freeze({
+          version: "1.0",
+          key: executionIdentity.key,
+          editorialRevisionId: executionIdentity.editorialRevisionId,
+          publishingContextKey: executionIdentity.publishingContextKey,
+          evidenceFingerprint: executionIdentity.evidenceFingerprint,
+          status: "completed",
+          checkedAt,
+        }),
       },
     };
 
-    const categoryNames = publishingCategoryNames(content);
-    const quality = new QualityEngine().review(nextDocument, {
-      contentType: content.contentType,
-      platform: content.platform
-        ?? input.connection?.platform
-        ?? resolveProjectStrategy(project).defaultPlatform,
-      primaryKeyword: content.primaryKeyword,
-      searchIntent: content.searchIntent,
-      categoryName: categoryNames.length ? categoryNames.join(", ") : undefined,
-      availableInternalLinkCandidates: nextDocument.metadata?.availableRelatedContentCandidates,
-      internalLinkCatalogStatus: nextDocument.metadata?.internalLinkCatalogStatus,
-      qualityTarget: content.qualityTarget ?? content.opportunity?.qualityTarget ?? nextDocument.metadata?.qualityTarget,
-      opportunity: content.opportunity,
-      revisionId,
-      reviewedAt: checkedAt,
-    });
+    const policyIssues = nextDocument.metadata?.approvalPolicy
+      ? evaluateApprovalPreparationText(
+          canonicalDocumentText(nextDocument),
+          nextDocument.metadata.approvalPolicy,
+          {
+            sourceUrls: stableEvidence.sources
+              .filter((source) => source.provenance !== "search_candidate")
+              .map((source) => source.canonicalUrl ?? source.url),
+            reviewedAt: stableEvidence.reviewedAt,
+          },
+        )
+      : Object.freeze([]);
+    const approvalReadiness = evaluateApprovalReadiness(nextDocument, policyIssues, true);
+    const quality = Object.freeze({
+      ...content.quality,
+      approvalReadiness,
+    }) as QualityReport;
 
     const nextContent: UserContent = {
       ...content,
       document: nextDocument,
       quality,
-      status: isStandardQualityApproved(quality) ? "ready" : "in_review",
       updatedAt: checkedAt,
     };
     const nextData: UserData = {
@@ -174,6 +213,31 @@ export class ApprovalReadinessApplicationService {
       siteReadiness,
     });
   }
+}
+
+function storedApprovalReadinessResult(
+  data: UserData,
+  content: UserContent,
+  executionKey: string,
+): ApprovalReadinessExecutionResult | undefined {
+  const document = content.document;
+  const quality = content.quality;
+  const execution = document?.metadata?.approvalReadinessExecution;
+  const pack = document?.metadata?.approvalEvidence;
+  const siteReadiness = document?.metadata?.siteApprovalReadiness;
+  if (!document || !quality || !execution || execution.key !== executionKey || !pack || !siteReadiness) return undefined;
+  return Object.freeze({
+    data,
+    document,
+    quality,
+    evidence: Object.freeze({
+      pack,
+      verifiedSourceCount: pack.sources.filter((source) => source.claimVerificationStatus === "verified" || source.verified).length,
+      rejectedSourceCount: pack.sources.filter((source) => !source.verified && source.verificationStatus !== "excluded").length,
+      reasons: Object.freeze([]),
+    }),
+    siteReadiness,
+  });
 }
 
 async function resolveSiteReadiness(input: Readonly<{
@@ -387,19 +451,37 @@ function delay(milliseconds: number): Promise<void> {
 function upsertVerifiedSourceSection(
   document: ContentDocument,
   pack: NonNullable<ContentDocument["metadata"]>["approvalEvidence"],
-): ContentDocument {
+): Readonly<{
+  document: ContentDocument;
+  presentationStatus: "ready" | "conflict";
+  presentationReasons: readonly string[];
+}> {
   const reviewedAt = pack!.reviewedAt!;
   const date = reviewedAt.slice(0, 10);
-  const verifiedSources = pack!.sources.filter((source) => source.verified);
+  const verifiedSources = pack!.sources.filter((source) =>
+    source.verified
+    && source.claimVerificationStatus !== "failed"
+    && source.provenance !== "search_candidate");
   const clean = removeGeneratedSourceSection(document);
-  return {
-    ...clean,
-    blocks: Object.freeze([
+  if (hasEditorialSourceSection(clean)) {
+    return Object.freeze({
+      document: clean,
+      presentationStatus: "conflict",
+      presentationReasons: Object.freeze([
+        "사용자 또는 AI 편집 원고가 소유한 출처 섹션이 있어 시스템 출처 projection을 추가하지 않았습니다. 공개 HTML의 단일 출처 섹션과 canonical Evidence의 링크를 대조하세요.",
+      ]),
+    });
+  }
+  return Object.freeze({
+    document: {
+      ...clean,
+      blocks: Object.freeze([
       ...clean.blocks,
-      Object.freeze({ id: "approval-sources-heading", type: "heading" as const, level: 2 as const, text: "공식 출처와 검토 기준" }),
+      Object.freeze({ id: "approval-sources-heading", type: "heading" as const, ownership: "system_source_projection" as const, level: 2 as const, text: "공식 출처와 검토 기준" }),
       ...verifiedSources.map((source, index) => Object.freeze({
         id: `approval-source-link-${index + 1}`,
         type: "button" as const,
+        ownership: "system_source_projection" as const,
         purpose: "source" as const,
         label: source.publisher && source.publisher !== source.title
           ? `${source.title} · ${source.publisher}`
@@ -407,47 +489,45 @@ function upsertVerifiedSourceSection(
         targetUrl: source.canonicalUrl ?? source.url,
         target: "_blank" as const,
       })),
-      Object.freeze({ id: "approval-review-date", type: "paragraph" as const, text: `정보 기준일: ${date} · 최종 검토일: ${date}` }),
-    ]),
-  };
+      Object.freeze({
+        id: "approval-review-date",
+        type: "paragraph" as const,
+        ownership: "system_source_projection" as const,
+        text: `출처 확인일: ${date} · Claim 최종 검토일: ${date}${pack!.informationAsOf ? ` · 정보 기준일: ${pack!.informationAsOf}` : ""}`,
+      }),
+      ]),
+    },
+    presentationStatus: "ready",
+    presentationReasons: Object.freeze([]),
+  });
 }
 
 function removeGeneratedSourceSection(document: ContentDocument): ContentDocument {
-  const blocks: ContentDocument["blocks"][number][] = [];
-  let skippingSourceSection = false;
-  for (const block of document.blocks) {
-    const sourceHeading = block.type === "heading"
-      && /^(?:공식\s*(?:확인처|출처)|출처|참고\s*자료)(?:와|및|·|\s)*(?:정보\s*기준일|검토\s*기준|최종\s*검토일|자료)?/u.test(block.text.trim());
-    if (sourceHeading) {
-      skippingSourceSection = true;
-      continue;
-    }
-    if (skippingSourceSection && block.type === "heading") skippingSourceSection = false;
-    if (skippingSourceSection) continue;
-    if (generatedSourceBlockIds.has(block.id) || block.id.startsWith("approval-source-link-")) continue;
-    if (block.type === "button" && block.purpose === "source") continue;
-    blocks.push(block);
-  }
+  const blocks = document.blocks.filter((block) =>
+    contentBlockOwnership(block) !== "system_source_projection");
   return blocks.length === document.blocks.length
     ? document
     : { ...document, blocks: Object.freeze(blocks) };
 }
 
+function hasEditorialSourceSection(document: ContentDocument): boolean {
+  return document.blocks.some((block) => {
+    if (contentBlockOwnership(block) === "system_source_projection") return false;
+    if (block.type === "button" && block.purpose === "source") return true;
+    return block.type === "heading"
+      && /^(?:공식\s*(?:확인처|출처|확인\s*자료)|출처|참고\s*자료)(?:\s|$|와|및|·)/u.test(block.text.trim());
+  });
+}
+
 function siteIdentityTerms(
   data: UserData,
   project: UserData["projects"][number],
-  content: UserContent,
 ): readonly string[] {
-  const strategy = resolveProjectStrategy(project);
   const brandName = project.brandId
     ? data.brands.find((brand) => brand.id === project.brandId && brand.workspaceId === project.workspaceId)?.name
     : undefined;
-  const values = [project.name, brandName, strategy.primaryTopic, content.document?.metadata?.approvalPolicy?.siteIdentity]
-    .filter((value): value is string => typeof value === "string" && Boolean(value.trim()));
-  const tokens = values.flatMap((value) => [value, ...value.split(/[\s·|,/]+/g)])
-    .map((value) => value.trim())
-    .filter((value) => value.length >= 2 && value.length <= 40);
-  return Object.freeze([...new Set(tokens)]);
+  const identity = brandName?.trim() || project.name.trim();
+  return Object.freeze(identity ? [identity] : []);
 }
 
 function extractPublisher(html: string, fallbackUrl: string): string {
@@ -488,9 +568,3 @@ function decodeEntities(value: string): string {
 
 const sourceFetchMaxAttempts = 3;
 const sourceFetchMaxDelayMs = 2_000;
-
-const generatedSourceBlockIds = new Set([
-  "approval-sources-heading",
-  "approval-sources-summary",
-  "approval-review-date",
-]);

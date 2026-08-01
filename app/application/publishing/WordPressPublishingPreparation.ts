@@ -1,4 +1,8 @@
 import type { PlatformConnection } from "../../../core/connections";
+import {
+  isApprovalPolicyProfileId,
+  resolveApprovalPolicySnapshot,
+} from "../../../core/approval";
 import type {
   WordPressCategory,
   WordPressCategoryListResult,
@@ -19,6 +23,9 @@ export type WordPressCategorySelectionResolution =
     source: WordPressCategorySelectionSource;
     categoryIds: readonly string[];
     categoryNames: readonly string[];
+    policyCompliant?: boolean;
+    requiredCategoryNames?: readonly string[];
+    policyReason?: string;
   }>
   | Readonly<{
     valid: false;
@@ -120,18 +127,60 @@ export function resolveWordPressCategorySelection(input: Readonly<{
 
   const direct = input.content.publishingPreparation?.wordpress;
   if (direct?.publishingAccountId === input.connection.id) {
-    return validateSelection("content", direct.categoryIds, input.categoryResult.categories);
+    return withApprovalCategoryPolicy(
+      input.content,
+      validateSelection("content", direct.categoryIds, input.categoryResult.categories),
+    );
   }
 
   const projectIds = (input.project.strategy?.defaultWordPressCategories ?? [])
     .filter((category) => category.publishingAccountId === input.connection.id)
     .map((category) => category.id);
-  if (projectIds.length) return validateSelection("project", projectIds, input.categoryResult.categories);
+  if (projectIds.length) return withApprovalCategoryPolicy(
+    input.content,
+    validateSelection("project", projectIds, input.categoryResult.categories),
+  );
 
   const connectionIds = connectionDefaultCategoryIds(input.connection);
-  if (connectionIds !== undefined) return validateSelection("connection", connectionIds, input.categoryResult.categories);
+  if (connectionIds !== undefined) return withApprovalCategoryPolicy(
+    input.content,
+    validateSelection("connection", connectionIds, input.categoryResult.categories),
+  );
 
   return Object.freeze({ valid: false, reason: "missing", invalidCategoryIds: Object.freeze([]) });
+}
+
+function withApprovalCategoryPolicy(
+  content: UserContent,
+  selection: WordPressCategorySelectionResolution,
+): WordPressCategorySelectionResolution {
+  const approvalContent = content as UserContent & Readonly<{
+    contentPurpose?: string;
+    approvalProfileId?: string;
+  }>;
+  if (!selection.valid
+    || approvalContent.contentPurpose !== "adsense_approval"
+    || !isApprovalPolicyProfileId(approvalContent.approvalProfileId)) return selection;
+  const requiredCategoryNames = resolveApprovalPolicySnapshot(
+    approvalContent.contentPurpose,
+    approvalContent.approvalProfileId,
+  )?.requiredPublishingCategoryNames;
+  if (!requiredCategoryNames?.length) return selection;
+  const policyCompliant = selection.categoryNames.length === requiredCategoryNames.length
+    && selection.categoryNames.every((name, index) =>
+      normalizePolicyCategoryName(name) === normalizePolicyCategoryName(requiredCategoryNames[index] ?? ""));
+  return Object.freeze({
+    ...selection,
+    policyCompliant,
+    requiredCategoryNames,
+    ...(!policyCompliant ? {
+      policyReason: `승인 준비 정책은 WordPress 카테고리 '${requiredCategoryNames.join(", ")}'와 현재 Connection에서 선택한 실제 카테고리 이름의 정확한 일치를 요구합니다. 다른 이름은 자동으로 대체하거나 유사 이름으로 인정하지 않습니다.`,
+    } : {}),
+  });
+}
+
+function normalizePolicyCategoryName(value: string): string {
+  return value.normalize("NFKC").trim();
 }
 
 function validateSelection(

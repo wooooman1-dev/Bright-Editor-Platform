@@ -13,8 +13,9 @@ import { resolveContentOpenDestination } from "./content-navigation";
 import { DangerZone } from "./DangerZone";
 import { EditorWorkspace } from "./EditorWorkspace";
 import { ProjectCardActions } from "./ProjectCardActions";
+import { serializeStructuredList } from "../../core/content";
 import { ProjectApprovalSettingsCard } from "./ProjectApprovalSettingsCard";
-import { contentRevisionId } from "../../core/quality";
+import { editorialRevisionId } from "../../core/quality";
 import { applyProjectPublishingTargets } from "../application/publishing/ProjectPublishingTarget";
 import { normalizeQualityReview } from "./quality-review-ui";
 import {
@@ -299,7 +300,7 @@ export function LegacyEditorScreen({ content, data, onBack, onPersist, project }
   const [platform, setPlatform] = useState(content.platform ?? "tistory");
   const [contentType, setContentType] = useState(content.contentType ?? "article");
   const [keywords, setKeywords] = useState("");
-  const normalizedQuality = normalizeQualityReview(content.quality, { currentRevisionId: content.document ? contentRevisionId(content.document) : undefined });
+  const normalizedQuality = normalizeQualityReview(content.quality, { currentRevisionId: content.document ? editorialRevisionId(content.document) : undefined });
   const [generating, setGenerating] = useState(false);
   const [preparedHtml, setPreparedHtml] = useState("");
 
@@ -319,7 +320,9 @@ export function LegacyEditorScreen({ content, data, onBack, onPersist, project }
       const response = await fetch("/api/studio", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "generate", input: { workspaceId: project.workspaceId, contentId: content.id, contentType, keywords: keywords.split(",").map((value) => value.trim()).filter(Boolean), platform, projectId: project.id } }) });
       const result = await response.json() as { document?: import("../../core/content").ContentDocument; quality?: import("../../core/quality").QualityReport; error?: string };
       if (!response.ok || !result.document) throw new Error(result.error ?? "Generation failed.");
-      const generatedBody = result.document.blocks.filter((block) => block.type === "paragraph").map((block) => block.text).join("\n\n");
+      const generatedBody = result.document.blocks.flatMap((block) => block.type === "paragraph"
+        ? [block.text]
+        : block.type === "list" ? [serializeStructuredList(block)] : []).join("\n\n");
       const next: UserData = { ...data, contents: data.contents.map((item) => item.id === content.id ? { ...item, body: generatedBody, contentType, document: result.document, platform, quality: result.quality, title: result.document!.title, updatedAt: nowLabel() } : item), qualityReports: result.quality ? [...(data.qualityReports ?? []).filter((item) => item.contentId !== content.id), { contentId: content.id, report: result.quality }] : data.qualityReports };
       setTitle(result.document.title); setBody(generatedBody); onPersist(next);
       setNotice("Generated, quality-reviewed, and persisted as a draft.");

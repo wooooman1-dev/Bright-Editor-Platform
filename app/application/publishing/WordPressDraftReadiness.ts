@@ -1,6 +1,6 @@
 import type { PlatformConnection } from "../../../core/connections";
 import { evaluateApprovalDraftIntegrity } from "../../../core/approval";
-import { contentRevisionId, PublishingGate } from "../../../core/quality";
+import { editorialRevisionId, PublishingGate } from "../../../core/quality";
 import { PublishingPermissionGate } from "../../../core/publishing";
 import type { WordPressCategoryListResult } from "../../../apps/wordpress";
 import { isPlatformEnabled, resolveWorkspaceSettings } from "../settings/WorkspaceSettingsService";
@@ -68,7 +68,10 @@ export function calculateWordPressDraftReadiness(input: Readonly<{
   const categorySelection = connection
     ? resolveWordPressCategorySelection({ project, content, connection, categoryResult: input.categoryResult })
     : invalidCategorySelection();
-  const categoriesReady = !input.categoryResult.hasMore && categorySelection.valid;
+  const categoriesReady = !input.categoryResult.hasMore
+    && categorySelection.valid
+    && categorySelection.source === "content"
+    && categorySelection.policyCompliant !== false;
   const qualityReady = standardQualityReady(content);
   const approvalIntegrity = content.document
     ? evaluateApprovalDraftIntegrity(content.document)
@@ -99,7 +102,7 @@ export function calculateWordPressDraftReadiness(input: Readonly<{
       "이 워드프레스 계정이 발행 대상으로 선택되어 있습니다.",
       "이 워드프레스 계정을 발행 대상으로 선택해야 합니다."),
     check("category_catalog", categoriesReady,
-      categorySelection.valid
+      categorySelection.valid && categorySelection.policyCompliant !== false
         ? `워드프레스 카테고리 ${categorySelection.categoryIds.length}개를 검증했습니다.`
         : "워드프레스 카테고리를 확인했습니다.",
       categoryMessage(categorySelection, input.categoryResult.hasMore)),
@@ -194,7 +197,7 @@ export function assertWordPressCategoryLookupAllowed(input: Readonly<{
 function standardQualityReady(content: UserContent): boolean {
   if (!content.document || !content.quality) return false;
   try {
-    new PublishingGate().assertReady(content.quality, contentRevisionId(content.document), content.document);
+    new PublishingGate().assertReady(content.quality, editorialRevisionId(content.document), content.document);
     return true;
   } catch { return false; }
 }
@@ -231,6 +234,8 @@ function validVerificationTime(value: string | undefined): boolean {
 
 function categoryMessage(selection: WordPressCategorySelectionResolution, incomplete: boolean): string {
   if (incomplete) return "실행 전에 워드프레스 카테고리 전체 목록을 모두 불러와야 합니다.";
+  if (selection.valid && selection.policyCompliant === false) return selection.policyReason ?? "승인 준비 정책의 필수 카테고리와 실제 WordPress 카테고리가 일치하지 않습니다.";
+  if (selection.valid && selection.source !== "content") return "프로젝트 또는 연결의 기본 카테고리는 제안값입니다. 콘텐츠에 명시적으로 적용해야 합니다.";
   if (selection.valid) return `워드프레스 카테고리 ${selection.categoryIds.length}개를 검증했습니다.`;
   if (selection.reason === "connection_mismatch") return "카테고리 목록이 다른 워드프레스 연결 계정에서 조회되었습니다.";
   if (selection.reason === "missing") return "사용 가능한 워드프레스 카테고리를 하나 이상 선택하세요.";

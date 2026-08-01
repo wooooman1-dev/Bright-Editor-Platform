@@ -30,14 +30,14 @@ export function placeRecommendedPosts(document: ContentDocument, ranked: readonl
     const headings = blocks.map((block, index) => block.type === "heading" && (block.level === 2 || block.level === 3) ? index : -1).filter((index) => index >= 0);
     const insertAt = (headings[Math.floor(headings.length / 2)] ?? Math.max(0, blocks.length - 1)) + 1;
     const candidate = available.shift()!;
-    blocks.splice(insertAt, 0, { id: uniqueBlockId([...blocks, ...relatedPosts], "auto-internal-link"), type: "button", purpose: "internal_link", label: candidate.title, targetUrl: candidate.publishedUrl, target: "_self", sourceExternalPostId: candidate.externalPostId });
+    blocks.splice(insertAt, 0, { id: uniqueBlockId([...blocks, ...relatedPosts], "auto-internal-link"), type: "button", ownership: "system_catalog", purpose: "internal_link", label: candidate.title, targetUrl: candidate.publishedUrl, target: "_self", sourceExternalPostId: candidate.externalPostId });
   }
 
   const used = new Set([...blocks, ...relatedPosts].flatMap((block) => block.type === "button" && block.targetUrl ? [normalizeUrl(block.targetUrl)] : []));
   const missingRelatedPosts = Math.max(0, 3 - relatedPosts.length);
 
   for (const item of available.filter((candidate) => !used.has(normalizeUrl(candidate.publishedUrl))).slice(0, missingRelatedPosts)) {
-    relatedPosts.push({ id: uniqueBlockId([...blocks, ...relatedPosts], "auto-related-post"), type: "button", purpose: "related_post", label: item.title, targetUrl: item.publishedUrl, target: "_self", sourceExternalPostId: item.externalPostId });
+    relatedPosts.push({ id: uniqueBlockId([...blocks, ...relatedPosts], "auto-related-post"), type: "button", ownership: "system_catalog", purpose: "related_post", label: item.title, targetUrl: item.publishedUrl, target: "_self", sourceExternalPostId: item.externalPostId });
     used.add(normalizeUrl(item.publishedUrl));
   }
 

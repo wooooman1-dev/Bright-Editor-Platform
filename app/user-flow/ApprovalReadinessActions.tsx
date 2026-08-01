@@ -4,11 +4,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { ApprovalEvidenceSource, SiteApprovalReadinessSnapshot } from "../../core/approval";
 import type { ContentDocument } from "../../core/content";
-import { contentRevisionId, isStandardQualityApproved, type QualityReport } from "../../core/quality";
+import { editorialRevisionId, isStandardQualityApproved, type QualityReport } from "../../core/quality";
 import { contentOwnedIdentityContamination } from "../application/publishing/ContentOwnedIdentityPolicy";
 import {
   internalLinkCatalogContextIsCurrent,
   internalLinkCatalogContextKey,
+  publishingCategoryIdentities,
 } from "../application/publishing/InternalLinkCatalogPolicy";
 import type { UserContent, UserData } from "./user-data";
 
@@ -18,6 +19,15 @@ export type ApprovalReadinessAutoRunDecision = Readonly<{
   hasStoredResult: boolean;
   shouldRun: boolean;
   sources: readonly ApprovalEvidenceSource[];
+  evidenceSummary?: ApprovalEvidenceSummary;
+}>;
+
+type ApprovalEvidenceSummary = Readonly<{
+  status: "verified" | "needs_review" | "missing";
+  coverageStatus?: "verified" | "needs_review" | "missing";
+  reviewedAt?: string;
+  informationAsOf?: string;
+  presentationStatus?: "ready" | "conflict" | "not_projected";
 }>;
 
 const legacyWordPressSiteReadinessKeys = new Set([
@@ -69,7 +79,7 @@ export function approvalReadinessAutoRunDecision(
   }
 
   const approvalContent = content as UserContent & Readonly<{ contentPurpose?: string }>;
-  const currentRevisionId = contentRevisionId(content.document);
+  const currentRevisionId = editorialRevisionId(content.document);
   const publishingContextKey = internalLinkCatalogContextKey(content);
   const evidence = content.document.metadata?.approvalEvidence;
   const siteReadiness = content.document.metadata?.siteApprovalReadiness;
@@ -77,12 +87,17 @@ export function approvalReadinessAutoRunDecision(
     content,
     content.document,
   );
+  const execution = content.document.metadata?.approvalReadinessExecution;
   const hasStoredResult = evidence?.reviewedRevisionId === currentRevisionId
     && isCurrentSiteReadinessSnapshot(siteReadiness)
-    && catalogContextIsCurrent;
+    && catalogContextIsCurrent
+    && execution?.status === "completed"
+    && execution.editorialRevisionId === currentRevisionId
+    && execution.publishingContextKey === publishingContextKey;
   const qualityIsCurrent = content.quality !== undefined
     && isStandardQualityApproved(content.quality)
     && content.quality.reviewedRevisionId === currentRevisionId;
+  const publishingContextFinalized = publishingContextIsFinalized(content);
 
   return Object.freeze({
     currentRevisionId,
@@ -90,8 +105,18 @@ export function approvalReadinessAutoRunDecision(
     hasStoredResult,
     shouldRun: approvalContent.contentPurpose === "adsense_approval"
       && !hasStoredResult
-      && (!catalogContextIsCurrent || qualityIsCurrent),
+      && qualityIsCurrent
+      && publishingContextFinalized,
     sources: Object.freeze([...(evidence?.sources ?? [])]),
+    ...(evidence ? {
+      evidenceSummary: Object.freeze({
+        status: evidence.status,
+        coverageStatus: evidence.coverageStatus,
+        reviewedAt: evidence.reviewedAt,
+        informationAsOf: evidence.informationAsOf,
+        presentationStatus: evidence.presentationStatus,
+      }),
+    } : {}),
   });
 }
 
@@ -109,6 +134,7 @@ export function ApprovalReadinessActions(props: Readonly<{
   const [state, setState] = useState<"idle" | "running" | "success" | "error">("idle");
   const [message, setMessage] = useState("");
   const [sources, setSources] = useState<readonly ApprovalEvidenceSource[]>([]);
+  const [evidenceSummary, setEvidenceSummary] = useState<ApprovalEvidenceSummary>();
   const [hasStoredResult, setHasStoredResult] = useState(false);
   const [identityContamination, setIdentityContamination] = useState<readonly string[]>([]);
   const runningRef = useRef(false);
@@ -141,7 +167,10 @@ export function ApprovalReadinessActions(props: Readonly<{
         quality?: QualityReport;
         evidence?: Readonly<{
           status: "verified" | "needs_review" | "missing";
+          coverageStatus?: "verified" | "needs_review" | "missing";
           reviewedAt?: string;
+          informationAsOf?: string;
+          presentationStatus?: "ready" | "conflict" | "not_projected";
           verifiedSourceCount: number;
           rejectedSourceCount: number;
           reasons: readonly string[];
@@ -160,6 +189,13 @@ export function ApprovalReadinessActions(props: Readonly<{
         quality: result.quality,
       });
       setSources(result.evidence?.sources ?? []);
+      setEvidenceSummary(result.evidence ? {
+        status: result.evidence.status,
+        coverageStatus: result.evidence.coverageStatus,
+        reviewedAt: result.evidence.reviewedAt,
+        informationAsOf: result.evidence.informationAsOf,
+        presentationStatus: result.evidence.presentationStatus,
+      } : undefined);
       setHasStoredResult(true);
       const evidenceLabel = result.evidence?.status === "verified"
         ? `공식 출처 ${result.evidence.verifiedSourceCount}개 검증 완료`
@@ -172,7 +208,7 @@ export function ApprovalReadinessActions(props: Readonly<{
           ? "사이트 자동 검사 차단 항목 있음"
           : "사이트 자동 검사 항목 확인 필요";
       setState("success");
-      setMessage(`${trigger === "automatic" ? "자동 검사 완료 · " : "재검사 완료 · "}${evidenceLabel} · ${siteLabel}`);
+      setMessage(`${trigger === "automatic" ? "자동 검사 완료 · " : "저장 결과 확인 완료 · "}${evidenceLabel} · ${siteLabel}`);
     } catch (error) {
       setState("error");
       setMessage(error instanceof Error ? error.message : "승인 준비 검사를 완료하지 못했습니다.");
@@ -211,6 +247,7 @@ export function ApprovalReadinessActions(props: Readonly<{
 
           setIdentityContamination(contamination);
           setSources(decision.sources);
+          setEvidenceSummary(decision.evidenceSummary);
           setHasStoredResult(decision.hasStoredResult);
           if (contamination.length) {
             setMessage("");
@@ -253,6 +290,13 @@ export function ApprovalReadinessActions(props: Readonly<{
     {message ? <p aria-live="polite" className={`max-w-[640px] text-right text-xs ${state === "error" ? "text-red-700" : state === "success" ? "text-emerald-700" : "text-[#77777f]"}`}>{message}</p> : null}
     {sources.length ? <details className="mt-2 w-full rounded-xl border border-black/6 bg-[#fafafa] p-4 text-left">
       <summary className="cursor-pointer text-sm font-semibold">출처 후보 검증 결과 {sources.length}개</summary>
+      {evidenceSummary ? <dl className="mt-3 grid gap-1 rounded-lg bg-white p-3 text-xs text-[#66666f] sm:grid-cols-2">
+        <div><dt className="inline font-semibold">Pack 상태: </dt><dd className="inline">{packStatusLabel(evidenceSummary.status)}</dd></div>
+        <div><dt className="inline font-semibold">필수 Claim coverage: </dt><dd className="inline">{packStatusLabel(evidenceSummary.coverageStatus ?? evidenceSummary.status)}</dd></div>
+        <div><dt className="inline font-semibold">Claim 최종 검토일: </dt><dd className="inline">{evidenceSummary.reviewedAt ? evidenceSummary.reviewedAt.slice(0, 10) : "미완료 (검토 필요 상태에서는 정상)"}</dd></div>
+        <div><dt className="inline font-semibold">원고 정보 기준일: </dt><dd className="inline">{evidenceSummary.informationAsOf || "미기록"}</dd></div>
+        <div><dt className="inline font-semibold">출처 섹션 상태: </dt><dd className="inline">{evidenceSummary.presentationStatus ?? "미투영"}</dd></div>
+      </dl> : null}
       <div className="mt-4 grid gap-3">
         {sources.map((source, index) => <article className="rounded-xl border border-black/6 bg-white p-4" key={`${source.sourceId}-${index}`}>
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -264,10 +308,13 @@ export function ApprovalReadinessActions(props: Readonly<{
           </div>
           <a className="mt-3 block break-all text-xs text-blue-700 underline" href={source.url} rel="noreferrer" target="_blank">{source.url}</a>
           <dl className="mt-3 grid gap-1 text-xs text-[#66666f] sm:grid-cols-2">
-            <div><dt className="inline font-semibold">공식 기관: </dt><dd className="inline">{source.official === true ? "확인" : source.official === false ? "미확인" : "판정 전"}</dd></div>
-            <div><dt className="inline font-semibold">응답 상태: </dt><dd className="inline">{source.httpStatus ?? "미확인"}</dd></div>
+            <div><dt className="inline font-semibold">URL 접근: </dt><dd className="inline">{stageStatusLabel(source.accessVerificationStatus)}{source.httpStatus ? ` · HTTP ${source.httpStatus}` : ""}</dd></div>
+            <div><dt className="inline font-semibold">공식 기관: </dt><dd className="inline">{stageStatusLabel(source.officialDomainVerificationStatus)}</dd></div>
+            <div><dt className="inline font-semibold">Claim 검증: </dt><dd className="inline">{stageStatusLabel(source.claimVerificationStatus)}</dd></div>
             <div><dt className="inline font-semibold">자료 형식: </dt><dd className="inline break-all">{source.contentType || "미확인"}</dd></div>
-            <div><dt className="inline font-semibold">본문 채택: </dt><dd className="inline">{source.selected ? "예" : "아니요"}</dd></div>
+            <div><dt className="inline font-semibold">Provenance: </dt><dd className="inline">{source.provenance ?? "legacy_unknown"}</dd></div>
+            <div><dt className="inline font-semibold">본문 채택: </dt><dd className="inline">{source.provenance === "citation" || source.provenance === "user_selected" ? "예" : "아니요"}</dd></div>
+            <div><dt className="inline font-semibold">출처 확인일: </dt><dd className="inline">{source.checkedAt ? source.checkedAt.slice(0, 10) : "미확인"}</dd></div>
           </dl>
           {source.matchedFacts?.length ? <div className="mt-3 rounded-lg bg-emerald-50 p-3 text-xs text-emerald-900"><strong>일치 사실</strong><ul className="mt-1 space-y-1">{source.matchedFacts.map((fact, factIndex) => <li key={`${source.sourceId}-fact-${factIndex}`}>• {fact.field}: {fact.value}</li>)}</ul></div> : null}
           {source.failureReason ? <p className="mt-3 rounded-lg bg-amber-50 p-3 text-xs text-amber-900">{source.failureReason}</p> : null}
@@ -275,6 +322,28 @@ export function ApprovalReadinessActions(props: Readonly<{
       </div>
     </details> : null}
   </div>;
+}
+
+function publishingContextIsFinalized(content: UserContent): boolean {
+  const accountId = content.publishingAccountId?.trim();
+  if (!accountId) return false;
+  if (content.platform === "wordpress") {
+    const preparation = content.publishingPreparation?.wordpress;
+    return Boolean(preparation
+      && preparation.publishingAccountId === accountId
+      && publishingCategoryIdentities(content).length > 0);
+  }
+  if (content.platform === "tistory") {
+    const preparation = content.publishingPreparation?.tistory;
+    return Boolean(preparation && preparation.publishingAccountId === accountId);
+  }
+  return false;
+}
+
+function stageStatusLabel(status: ApprovalEvidenceSource["accessVerificationStatus"]): string {
+  if (status === "verified") return "확인";
+  if (status === "failed") return "실패";
+  return "판정 전";
 }
 
 function evidenceStatusLabel(source: ApprovalEvidenceSource): string {
@@ -288,4 +357,10 @@ function evidenceStatusLabel(source: ApprovalEvidenceSource): string {
     case "excluded": return "사용 제외";
     default: return source.verified ? "검증 완료" : "검토 필요";
   }
+}
+
+function packStatusLabel(status: ApprovalEvidenceSummary["status"]): string {
+  if (status === "verified") return "필수 Claim 검증 완료";
+  if (status === "missing") return "출처 없음";
+  return "검토 필요";
 }

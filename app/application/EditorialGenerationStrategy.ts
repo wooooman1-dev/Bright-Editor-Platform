@@ -237,6 +237,10 @@ function parseBlock(value: unknown, index: number): ContentDocument["blocks"][nu
   const id = typeof block.id === "string" && block.id.trim() ? block.id.trim() : `block-${index + 1}`;
   if (block.type === "heading" && typeof block.text === "string") return { id, level: normalizeLevel(block.level), text: block.text, type: "heading" };
   if (block.type === "paragraph" && typeof block.text === "string") return { id, text: block.text, type: "paragraph" };
+  if (block.type === "list" && Array.isArray(block.items)) {
+    const items = block.items.filter((item): item is string => typeof item === "string" && Boolean(item.trim()));
+    if (items.length) return { id, type: "list", style: block.style === "ordered" ? "ordered" : "unordered", items };
+  }
   if (block.type === "table" && Array.isArray(block.headers) && Array.isArray(block.rows)) {
     const table = normalizeStructuredTable({
       caption: typeof block.caption === "string" ? block.caption : undefined,
@@ -261,7 +265,7 @@ function assertCompleteArticle(blocks: ContentDocument["blocks"]): void {
   const sectionHasContent = h2Indexes.map((start, index) => {
     const end = h2Indexes[index + 1] ?? blocks.length;
     return blocks.slice(start + 1, end).some((block) =>
-      block.type === "paragraph" ? Boolean(block.text.trim()) : block.type === "table" || block.type === "image" || block.type === "button");
+      block.type === "paragraph" ? Boolean(block.text.trim()) : block.type === "list" ? block.items.length > 0 : block.type === "table" || block.type === "image" || block.type === "button");
   });
   const emptySection = sectionHasContent.some((hasContent) => !hasContent);
   if (headings.some((heading) => heading.level === 1) || h2.length === 0 || paragraphs.length === 0 || outlineOnly || planningLanguage || emptySection) {

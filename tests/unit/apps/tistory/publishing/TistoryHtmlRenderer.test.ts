@@ -49,4 +49,21 @@ describe("TistoryHtmlRenderer tables", () => {
     expect(html).toContain("안전 &gt; 우선");
     expect(html).not.toContain("<script>");
   });
+
+  it("renders normalized lists semantically and omits source-empty image plans", () => {
+    const document: ContentDocument = {
+      id: "list",
+      title: "목록",
+      blocks: [
+        { id: "checklist", type: "paragraph", text: "- 상품설명서 확인\n- 보호 한도 확인" },
+        { id: "planned", type: "image", source: "", alt: "추천 이미지", purpose: "hero" },
+      ],
+    };
+
+    const html = new TistoryHtmlRenderer().render(document);
+
+    expect(html).toContain("<ul><li>상품설명서 확인</li><li>보호 한도 확인</li></ul>");
+    expect(html).not.toContain("bright-image-placeholder");
+    expect(html).not.toContain("data-image-required");
+  });
 });

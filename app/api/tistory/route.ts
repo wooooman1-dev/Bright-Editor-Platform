@@ -3,16 +3,15 @@ import { NextResponse } from "next/server";
 import type { UserData } from "../../user-flow/user-data";
 import { assertApprovalDraftIntegrity } from "../../../core/approval";
 import { PlatformConnectionService } from "../../../core/connections";
-import { contentRevisionId, PublishingGate, QualityEngine } from "../../../core/quality";
+import { editorialRevisionId, PublishingGate, QualityEngine } from "../../../core/quality";
 import { classifyTistoryDraftOutcome } from "../../../apps/tistory/workflows/TistoryDraftOutcome";
 import { connectionRepository, connectionStore, targetRepository } from "../../application/connections/connection-runtime";
 import { studioStore } from "../../application/studio-store";
 import { isPlatformEnabled, resolveWorkspaceSettings } from "../../application/settings/WorkspaceSettingsService";
-import { TistoryCategoryApplicationService } from "../../application/publishing/TistoryCategoryApplicationService";
 import { assertContentOwnedIdentityClean } from "../../application/publishing/ContentOwnedIdentityPolicy";
 import { TistoryDraftApplicationService, type PublishingAuditRecord } from "../../application/publishing/TistoryDraftApplicationService";
 import { isRetryableDraftStartupFailure, normalizeDraftStartupFailure } from "../../application/publishing/TistoryDraftStartupRecovery";
-import { applyTistoryPublishingAccount, applyTistoryPublishingCategory, calculateTistoryReadiness, resolveTistoryDefaultCategory, usableTistoryConnections } from "../../application/publishing/TistoryPublishingPreparation";
+import { applyTistoryPublishingAccount, calculateTistoryReadiness, usableTistoryConnections } from "../../application/publishing/TistoryPublishingPreparation";
 
 export async function GET(request: Request) {
   try {
@@ -44,7 +43,7 @@ export async function POST(request: Request) {
     const policy = resolveWorkspaceSettings(data);
     if (!policy.publishing.draftOnly || policy.publishing.publicPublish) throw new Error("현재 작업공간은 안전한 임시저장 정책만 사용할 수 있습니다.");
     if (policy.publishing.reviewFirst && body.finalConfirmation !== true) throw new Error("검토 후 최종 확인이 필요합니다.");
-    const revisionId = contentRevisionId(content.document);
+    const revisionId = editorialRevisionId(content.document);
     if (!content.quality) throw new Error("최근 편집 이후 품질 검토를 통과해야 외부 임시저장을 실행할 수 있습니다.");
     new PublishingGate().assertReady(content.quality, revisionId, content.document);
     const quality = new QualityEngine().review(content.document, { contentType: content.contentType, platform: "tistory", primaryKeyword: content.primaryKeyword, searchIntent: content.searchIntent, revisionId });
@@ -108,25 +107,9 @@ async function prepare(data: UserData, projectId: string, contentId: string, req
   }
   await new PlatformConnectionService(connectionRepository, targetRepository).selectTarget(data.projects.find((item) => item.id === projectId)!, connection.id);
   const updatedAt = new Date().toISOString();
-  let next = applyTistoryPublishingAccount(data, projectId, contentId, connection.id, updatedAt);
-  let project = next.projects.find((item) => item.id === projectId)!;
-  let content = next.contents.find((item) => item.id === contentId)!;
-  if (content.publishingPreparation?.tistory?.publishingAccountId !== connection.id) {
-    try {
-      const categoryResult = await new TistoryCategoryApplicationService().read({ workspaceId: next.workspace!.id, projectId, contentId, connection, selectedTarget: true });
-      const category = resolveTistoryDefaultCategory(project, connection.id, categoryResult.categories);
-      if (category) {
-        next = applyTistoryPublishingCategory(next, projectId, contentId, connection.id, category, updatedAt);
-        project = next.projects.find((item) => item.id === projectId)!;
-        content = next.contents.find((item) => item.id === contentId)!;
-        console.info("[tistory-preparation] category auto-applied", { categoryId: category.id, categoryName: category.name, connectionId: connection.id, contentId, projectId });
-      } else {
-        console.info("[tistory-preparation] no matching default category", { connectionId: connection.id, contentId, projectId, projectTopic: project.strategy?.primaryTopic ?? project.name });
-      }
-    } catch (error) {
-      console.warn("[tistory-preparation] category auto-apply unavailable", { connectionId: connection.id, contentId, error: error instanceof Error ? error.message : "카테고리 준비에 실패했습니다.", projectId });
-    }
-  }
+  const next = applyTistoryPublishingAccount(data, projectId, contentId, connection.id, updatedAt);
+  const project = next.projects.find((item) => item.id === projectId)!;
+  const content = next.contents.find((item) => item.id === contentId)!;
   await studioStore.set("application", "user-data", next);
   return NextResponse.json({ data: next, connectionId: connection.id, automaticallyApplied: !requestedConnectionId && available.length === 1, readiness: await calculateTistoryReadiness({ data: next, project, content, connection, selectedTarget: true, finalConfirmation: false }) });
 }

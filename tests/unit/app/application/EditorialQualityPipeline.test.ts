@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { detectEditorialReviewRegression, EditorialQualityPipeline } from "../../../../app/application/EditorialQualityPipeline";
+import { contentDocumentAIContext, detectEditorialReviewRegression, EditorialQualityPipeline } from "../../../../app/application/EditorialQualityPipeline";
 import { EditorialGenerationStrategy } from "../../../../app/application/EditorialGenerationStrategy";
 import type { AIProvider, AIRequest } from "../../../../core/ai";
+import { resolveApprovalPolicySnapshot } from "../../../../core/approval";
 import { determineContentPlanQualityTarget, type ContentDocument, type ContentPlanQualityTarget } from "../../../../core/content";
 
 type TestQualityReport = {
@@ -63,6 +64,54 @@ function parseInput() {
 }
 
 describe("EditorialQualityPipeline", () => {
+  it("projects the public profile label into Quality prompts without exposing the stable profile ID", () => {
+    const approvalPolicy = {
+      ...resolveApprovalPolicySnapshot("adsense_approval", "wordpress_life_economy_v1")!,
+      siteIdentity: "복잡한 제도 설명이라는 과거 저장값",
+    };
+    const document: ContentDocument = {
+      id: "content-identity",
+      title: "예금자보호 확인 방법",
+      blocks: [
+        { id: "p1", type: "paragraph", text: "보호 대상과 한도를 공식 자료에서 확인합니다." },
+        { id: "image1", type: "image", source: "", alt: "예금자보호 확인 순서", prompt: "공식 확인 화면과 점검표" },
+      ],
+      metadata: {
+        buttonCount: 0,
+        createdAt: "2026-08-01T00:00:00.000Z",
+        generator: "test",
+        imageCount: 1,
+        language: "ko",
+        readingTime: 1,
+        source: "test",
+        updatedAt: "2026-08-01T00:00:00.000Z",
+        version: 1,
+        videoCount: 0,
+        wordCount: 20,
+        metaDescription: "예금자보호 대상과 한도를 확인하는 순서를 안내합니다.",
+        tags: ["예금자보호"],
+        approvalPolicy,
+      },
+    };
+
+    const projected = contentDocumentAIContext(document);
+    const serialized = JSON.stringify(projected);
+
+    expect(serialized).not.toContain("wordpress_life_economy_v1");
+    expect(serialized).not.toContain("복잡한 제도 설명이라는 과거 저장값");
+    expect(serialized).toContain("WordPress · 밝은재테크");
+    expect(serialized).toContain('"siteIdentity":"밝은재테크"');
+    expect(serialized).toContain('"contentDomain":"생활경제, 생활금융, 정부지원, 세금, 주거 정보"');
+    expect(projected).toMatchObject({
+      title: "예금자보호 확인 방법",
+      blocks: document.blocks,
+      metadata: {
+        metaDescription: "예금자보호 대상과 한도를 확인하는 순서를 안내합니다.",
+        tags: ["예금자보호"],
+      },
+    });
+  });
+
   it("uses exactly one final quality-edit call", async () => {
     const initial = new EditorialGenerationStrategy().parse(JSON.stringify(rawDocument()), parseInput());
     const final = JSON.stringify(rawDocument("승인 원고"));

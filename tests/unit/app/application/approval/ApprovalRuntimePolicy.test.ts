@@ -33,6 +33,18 @@ function projectData() {
   });
 }
 
+function wordpressProjectData() {
+  const workspace = createWorkspace(emptyUserData, "Studio", "workspace-1");
+  return createProject(workspace, {
+    id: "project-1",
+    name: "밝은재테크",
+    brandName: "밝은재테크",
+    description: "생활경제·생활금융 콘텐츠 운영",
+    brandIdFactory: () => "brand-1",
+    now: "2026-07-27T00:00:00.000Z",
+  });
+}
+
 function planningContent(data: ReturnType<typeof projectData>) {
   return startContentPlanning(data, {
     id: "content-1",
@@ -84,7 +96,8 @@ describe("ApprovalRuntimePolicy", () => {
     const context = contentEditorialContext(projectChanged, projectChanged.contents[0]!);
     const parsed = JSON.parse(context) as { projectStrategy?: { projectIdentity?: { projectName?: string; brandName?: string } } };
 
-    expect(context).toContain("Approval profile: tistory_vivarain_art_v1@1.0");
+    expect(context).toContain("Approval profile: Tistory · 비바레인 미술@1.0");
+    expect(context).not.toContain("tistory_vivarain_art_v1");
     expect(parsed.projectStrategy?.projectIdentity).toEqual({
       projectName: "비바레인 미술 감상 가이드",
       brandName: "비바레인",
@@ -128,7 +141,7 @@ describe("ApprovalRuntimePolicy", () => {
   });
 
   it("uses the same WordPress policy snapshot for Generation and Quality Review context", () => {
-    const configured = updateProjectApprovalSettings(projectData(), "project-1", {
+    const configured = updateProjectApprovalSettings(wordpressProjectData(), "project-1", {
       contentPurpose: "adsense_approval",
       approvalProfileId: "wordpress_life_economy_v1",
     }, "2026-07-27T01:00:00.000Z");
@@ -146,7 +159,17 @@ describe("ApprovalRuntimePolicy", () => {
     const generationSnapshot = approvalPolicySnapshotFromEditorialContext(generationContext);
     const qualityReviewSnapshot = approvalPolicySnapshotFromEditorialContext(qualityReviewInstruction);
 
-    expect(generationContext).toContain("Approval profile: wordpress_life_economy_v1@1.0");
+    const parsedContext = JSON.parse(generationContext) as {
+      projectStrategy?: { projectIdentity?: { projectName?: string; brandName?: string }; approvalPolicy?: string };
+    };
+    expect(parsedContext.projectStrategy?.projectIdentity).toEqual({
+      projectName: "밝은재테크",
+      brandName: "밝은재테크",
+    });
+    expect(generationContext).toContain("Approval profile: WordPress · 밝은재테크@1.0");
+    expect(generationContext).toContain("Site and brand identity (metadata only): 밝은재테크");
+    expect(generationContext).toContain("Content domain: 생활경제, 생활금융, 정부지원, 세금, 주거 정보");
+    expect(generationContext).not.toContain("wordpress_life_economy_v1");
     expect(planningContext).toContain(peopleFirstValueAndTrustPrinciple);
     expect(qualityReviewInstruction).toContain(generationContext);
     expect(qualityReviewInstruction).toContain("Reader Value:");

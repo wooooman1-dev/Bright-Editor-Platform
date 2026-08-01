@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 
 import type { UserData } from "../../../user-flow/user-data";
 import { normalizeApprovalEvidenceCandidates } from "../../../application/approval/ApprovalEvidenceCandidateNormalization";
-import { ApprovalReadinessApplicationService } from "../../../application/approval/ApprovalReadinessApplicationService";
+import {
+  approvalReadinessExecutionIdentity,
+  ApprovalReadinessApplicationService,
+  executeApprovalReadinessOnce,
+} from "../../../application/approval/ApprovalReadinessApplicationService";
 import { connectionRepository, targetRepository } from "../../../application/connections/connection-runtime";
 import { resolveCanonicalPublishingConnection } from "../../../application/publishing/ProjectPublishingTarget";
 import { isPublishingConnectionSelectedForContent } from "../../../application/publishing/PublishingTargetSelection";
@@ -36,12 +40,14 @@ export async function POST(request: Request) {
       && targets.some((target) =>
         target.platformConnectionId === connection.id
         && target.platform === connection.platform));
-    const result = await new ApprovalReadinessApplicationService().execute({
-      data,
-      contentId,
-      connection,
-      selectedTarget,
-    });
+    const executionIdentity = approvalReadinessExecutionIdentity(content, connection?.id);
+    const result = await executeApprovalReadinessOnce(executionIdentity.key, () =>
+      new ApprovalReadinessApplicationService().execute({
+        data,
+        contentId,
+        connection,
+        selectedTarget,
+      }));
     await studioStore.set(collection, stateId, result.data);
     const saved = await studioStore.get<UserData>(collection, stateId);
 
@@ -51,7 +57,11 @@ export async function POST(request: Request) {
       quality: result.quality,
       evidence: {
         status: result.evidence.pack.status,
+        coverageStatus: result.evidence.pack.coverageStatus,
         reviewedAt: result.evidence.pack.reviewedAt,
+        informationAsOf: result.evidence.pack.informationAsOf,
+        presentationStatus: result.evidence.pack.presentationStatus,
+        presentationReasons: result.evidence.pack.presentationReasons,
         verifiedSourceCount: result.evidence.verifiedSourceCount,
         rejectedSourceCount: result.evidence.rejectedSourceCount,
         reasons: result.evidence.reasons,

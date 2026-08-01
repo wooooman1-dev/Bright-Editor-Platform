@@ -4,7 +4,7 @@ import { publishingInternalLinkContextKey } from "../../../../app/application/pu
 import { approvalReadinessAutoRunDecision } from "../../../../app/user-flow/ApprovalReadinessActions";
 import type { ApprovalEvidencePack, SiteApprovalReadinessSnapshot } from "../../../../core/approval";
 import type { ContentDocument } from "../../../../core/content";
-import { contentRevisionId, type QualityReport } from "../../../../core/quality";
+import { editorialRevisionId, type QualityReport } from "../../../../core/quality";
 import type { UserContent } from "../../../../app/user-flow/user-data";
 
 const document: ContentDocument = {
@@ -55,8 +55,8 @@ function quality(revisionId: string, reviewedAt = "2026-07-28T01:00:00.000Z"): Q
 
 function content(
   nextDocument: ContentDocument = document,
-  nextQuality: QualityReport | undefined = quality(contentRevisionId(nextDocument)),
-  categoryId?: string,
+  nextQuality: QualityReport | undefined = quality(editorialRevisionId(nextDocument)),
+  categoryId = "2",
 ): UserContent {
   return {
     id: "content-1",
@@ -76,7 +76,7 @@ function content(
         wordpress: {
           publishingAccountId: "wordpress-1",
           categoryIds: [categoryId],
-          categoryNames: [categoryId === "2" ? "생활경제" : "다른 카테고리"],
+          categoryNames: [categoryId === "2" ? "생활재테크" : "다른 카테고리"],
           updatedAt: "2026-07-28T01:00:00.000Z",
         },
       },
@@ -113,7 +113,18 @@ function checkedDocument(
       ...document.metadata!,
       approvalEvidence: evidence(revisionId, status),
       siteApprovalReadiness: siteSnapshot,
+      availableRelatedContentCandidates: 0,
+      internalLinkCatalogStatus: "evaluated",
       internalLinkCatalogContextKey: publishingInternalLinkContextKey(contextContent),
+      approvalReadinessExecution: {
+        version: "1.0",
+        key: "stored-execution",
+        editorialRevisionId: revisionId,
+        publishingContextKey: publishingInternalLinkContextKey(contextContent),
+        evidenceFingerprint: "evidence-test",
+        status: "completed",
+        checkedAt: "2026-07-28T02:00:00.000Z",
+      },
     },
   };
 }
@@ -127,7 +138,7 @@ describe("ApprovalReadinessActions auto run decision", () => {
   });
 
   it("reuses a stored result for the same revision and publishing context", () => {
-    const revisionId = contentRevisionId(document);
+    const revisionId = editorialRevisionId(document);
     const contextContent = content(document, quality(revisionId));
     const storedDocument = checkedDocument(revisionId, contextContent);
     const decision = approvalReadinessAutoRunDecision(content(storedDocument, quality(revisionId)));
@@ -137,7 +148,7 @@ describe("ApprovalReadinessActions auto run decision", () => {
   });
 
   it("does not repeat a failed deterministic check for the same revision and publishing context", () => {
-    const revisionId = contentRevisionId(document);
+    const revisionId = editorialRevisionId(document);
     const contextContent = content(document, quality(revisionId));
     const storedDocument = checkedDocument(
       revisionId,
@@ -152,7 +163,7 @@ describe("ApprovalReadinessActions auto run decision", () => {
   });
 
   it("invalidates a legacy WordPress manual-review snapshot and runs the current automatic audit", () => {
-    const revisionId = contentRevisionId(document);
+    const revisionId = editorialRevisionId(document);
     const contextContent = content(document, quality(revisionId));
     const storedDocument = checkedDocument(revisionId, contextContent, "verified", {
       ...site,
@@ -171,7 +182,7 @@ describe("ApprovalReadinessActions auto run decision", () => {
   });
 
   it("invalidates a stored result when the WordPress Category changes", () => {
-    const revisionId = contentRevisionId(document);
+    const revisionId = editorialRevisionId(document);
     const originalContext = content(document, quality(revisionId), "2");
     const storedDocument = checkedDocument(revisionId, originalContext);
     const changedCategory = content(storedDocument, quality(revisionId), "3");

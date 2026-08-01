@@ -34,12 +34,12 @@ const freeVisualSource = readFileSync(join(process.cwd(), "core/media/BrightBody
     expect(imageCostPolicySource).toContain('"infographic"');
   });
 
-  it("shows up to two zero-cost body visual cards in the existing editor", () => {
-    expect(documentEditorSource).toContain("ensureFreeBodyVisuals");
+  it("renders only explicitly stored zero-cost body visual cards in the editor", () => {
+    expect(documentEditorSource).not.toContain("ensureFreeBodyVisuals");
     expect(documentEditorSource).toContain("FreeBodyVisualCard");
     expect(documentEditorSource).toContain('data-free-visual="true"');
     expect(documentEditorSource).toContain("Project 이미지·파일·AI로 교체");
-    expect(freeVisualSource).toContain("const bodyVisualLimit = 2");
+    expect(freeVisualSource).toContain("Bright Studio no longer synthesizes cards");
     expect(freeVisualSource).toContain("renderBrightBodyVisualHtml");
   });
 

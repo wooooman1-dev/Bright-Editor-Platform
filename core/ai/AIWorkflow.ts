@@ -7,6 +7,7 @@ import {
 import {
   findUnrequestedOwnedIdentityOccurrences,
   findUnrequestedOwnedIdentityPrefixes,
+  serializeStructuredList,
   type ConfirmedContentOpportunity,
   type ContentDocument,
 } from "../content";
@@ -214,6 +215,7 @@ function generatedEditorialValues(document: ContentDocument): readonly string[] 
     ...(metadata?.tags ?? []),
     ...document.blocks.flatMap((block) => {
       if (block.type === "heading" || block.type === "paragraph") return [block.text];
+      if (block.type === "list") return [serializeStructuredList(block)];
       if (block.type === "table") return [block.caption ?? "", ...block.headers, ...block.rows.flat()];
       if (block.type === "image") return [block.alt, block.prompt ?? "", block.caption ?? ""];
       if (block.type === "button") return [block.label];
@@ -229,13 +231,14 @@ function approvalEvidenceCandidates(
 ): readonly ApprovalEvidenceSource[] {
   const candidates = new Map<string, ApprovalEvidenceSource>();
   for (const source of webSources) {
-    if (source.provenance === "search_candidate") continue;
     const url = canonicalizeApprovalEvidenceUrl(source.url);
     if (!url.startsWith("https://") || candidates.has(url)) continue;
     const publisher = sourcePublisher(url);
+    const provenance = source.provenance === "citation" ? "citation" : "search_candidate";
     candidates.set(url, Object.freeze({
-      sourceId: `approval-source-${candidates.size + 1}`,
+      sourceId: approvalSourceId(url),
       url,
+      originalUrl: source.url,
       canonicalUrl: url,
       title: source.title?.trim() || publisher,
       publisher,
@@ -244,14 +247,25 @@ function approvalEvidenceCandidates(
         : "official_institution",
       retrievedAt,
       verified: false,
-      facts: Object.freeze(source.excerpt
+      provenance,
+      ...(source.excerpt ? { citationExcerpt: source.excerpt } : {}),
+      facts: Object.freeze(provenance === "citation" && source.excerpt
         ? [Object.freeze({ field: "citedContext", value: source.excerpt })]
         : []),
-      cited: true,
-      selected: true,
+      cited: provenance === "citation",
+      selected: provenance === "citation",
     }));
   }
   return Object.freeze([...candidates.values()]);
+}
+
+function approvalSourceId(url: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < url.length; index += 1) {
+    hash ^= url.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `approval-source-${(hash >>> 0).toString(16).padStart(8, "0")}`;
 }
 
 function sourcePublisher(value: string): string {

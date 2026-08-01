@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  approvalEvidenceClaimFieldsForSourceUrl,
   extractProfileApprovalFacts,
   requiredApprovalFactFields,
 } from "../../../../core/approval";
@@ -48,6 +49,19 @@ function depositProtectionDocument(): ContentDocument {
   };
 }
 
+function continuingTransactionDocument(): ContentDocument {
+  return {
+    ...retirementDocument(),
+    id: "continuing-transaction-1",
+    title: "고정지출 줄이는 방법",
+    blocks: [{
+      id: "claim",
+      type: "paragraph",
+      text: "계속거래 등에 관한 계약에서는 사업자가 계약 내용을 적은 계약서를 소비자에게 발급해야 하며, 해지·해제로 생기는 손실을 현저히 초과하는 위약금을 청구하거나 실제 공급분을 초과해 받은 대금의 환급을 부당하게 거부해서는 안 된다는 기준이 규정되어 있습니다.",
+    }],
+  };
+}
+
 describe("Approval Evidence Claim Policy", () => {
   it("extracts retirement-pay Claim fields instead of artwork-only metadata", () => {
     const document = retirementDocument();
@@ -77,10 +91,11 @@ describe("Approval Evidence Claim Policy", () => {
     const facts = extractProfileApprovalFacts(document, "wordpress_life_economy_v1");
     const fields = new Set(facts.map((fact) => fact.field));
 
-    expect(fields).toEqual(expect.arrayContaining([
+    expect([...fields]).toEqual(expect.arrayContaining([
       "depositProtectedProducts",
       "depositProtectionLimit",
       "depositProtectionUnit",
+      "depositProtectionExclusions",
       "depositProtectionCheckPath",
       "depositProtectionEffectiveDate",
       "depositProtectionStatutoryBasis",
@@ -90,10 +105,49 @@ describe("Approval Evidence Claim Policy", () => {
         "depositProtectedProducts",
         "depositProtectionLimit",
         "depositProtectionUnit",
+        "depositProtectionExclusions",
         "depositProtectionCheckPath",
         "depositProtectionEffectiveDate",
         "depositProtectionStatutoryBasis",
       ]),
     );
+  });
+
+  it("assigns each canonical deposit-protection source only its supported Claim roles", () => {
+    expect(approvalEvidenceClaimFieldsForSourceUrl("https://www.kdic.or.kr/sp/dpstrprot/selectProtSystProtTrgtPrdctSumr.do"))
+      .toEqual(["depositProtectedProducts", "depositProtectionExclusions"]);
+    expect(approvalEvidenceClaimFieldsForSourceUrl("https://www.kdic.or.kr/sp/dpstrprot/ProtSystProtLmts/selectScrn.do"))
+      .toEqual(["depositProtectionLimit", "depositProtectionUnit"]);
+    expect(approvalEvidenceClaimFieldsForSourceUrl("https://www.kdic.or.kr/sp/dpstrprot/ProtSystProtGudn/selectScrn.do"))
+      .toEqual(["depositProtectionCheckPath"]);
+    expect(approvalEvidenceClaimFieldsForSourceUrl("https://www.fsc.go.kr/po020201/84975"))
+      .toEqual(expect.arrayContaining(["depositProtectedProducts", "depositProtectionExclusions", "depositProtectionCheckPath"]));
+    expect(approvalEvidenceClaimFieldsForSourceUrl("https://www.fsc.go.kr/no010101/84974"))
+      .toEqual(["depositProtectionLimit", "depositProtectionUnit", "depositProtectionEffectiveDate"]);
+    expect(approvalEvidenceClaimFieldsForSourceUrl("https://www.law.go.kr/LSW/lsInfoP.do?efYd=20260102&lsiSeq=277269"))
+      .toEqual(expect.arrayContaining(["depositProtectionEffectiveDate", "depositProtectionStatutoryBasis"]));
+  });
+
+  it("extracts only the three continuing-transaction Claims present in the manuscript and assigns the cited law article", () => {
+    const document = continuingTransactionDocument();
+    const facts = extractProfileApprovalFacts(document, "wordpress_life_economy_v1");
+
+    expect(facts.map((fact) => fact.field)).toEqual(expect.arrayContaining([
+      "continuingTransactionContractDocument",
+      "excessiveTerminationPenalty",
+      "excessPaymentRefund",
+    ]));
+    expect(requiredApprovalFactFields(document, "wordpress_life_economy_v1", facts)).toEqual([
+      "continuingTransactionContractDocument",
+      "excessiveTerminationPenalty",
+      "excessPaymentRefund",
+    ]);
+    expect(approvalEvidenceClaimFieldsForSourceUrl(
+      "https://www.law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1025033501",
+    )).toEqual([
+      "continuingTransactionContractDocument",
+      "excessiveTerminationPenalty",
+      "excessPaymentRefund",
+    ]);
   });
 });

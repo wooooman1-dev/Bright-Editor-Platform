@@ -64,6 +64,9 @@ export function normalizeEditorialMarkupDocument(document: ContentDocument): Con
     if (block.type === "heading" || block.type === "paragraph") {
       return Object.freeze({ ...block, text: normalizeEditorialMarkupText(block.text) });
     }
+    if (block.type === "list") {
+      return Object.freeze({ ...block, items: Object.freeze(block.items.map(normalizeEditorialMarkupText)) });
+    }
     if (block.type === "table") {
       return Object.freeze({
         ...block,
@@ -106,6 +109,7 @@ export function analyzeEditorialMarkupIntegrity(document: ContentDocument): read
 
   for (const [index, block] of document.blocks.entries()) {
     if (block.type === "heading" || block.type === "paragraph") values.push([`blocks[${index}].text`, block.text]);
+    if (block.type === "list") block.items.forEach((value, item) => values.push([`blocks[${index}].items[${item}]`, value]));
     if (block.type === "table") {
       values.push([`blocks[${index}].caption`, block.caption ?? ""]);
       block.headers.forEach((value, cell) => values.push([`blocks[${index}].headers[${cell}]`, value]));

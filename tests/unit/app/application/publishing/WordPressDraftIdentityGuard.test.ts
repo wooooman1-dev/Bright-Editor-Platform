@@ -87,7 +87,7 @@ describe("WordPress Draft Project identity guard", () => {
         wordpress: {
           publishingAccountId: "wordpress-1",
           categoryIds: ["2"],
-          categoryNames: ["생활경제"],
+          categoryNames: ["생활재테크"],
           updatedAt: NOW,
         },
       },
@@ -131,7 +131,7 @@ describe("WordPress Draft Project identity guard", () => {
       categoryResult: {
         platform: "wordpress",
         platformConnectionId: connection.id,
-        categories: [{ id: "2", externalCategoryId: "2", platform: "wordpress", name: "생활경제", selectable: true }],
+        categories: [{ id: "2", externalCategoryId: "2", platform: "wordpress", name: "생활재테크", selectable: true }],
         hasMore: false,
         retrievedAt: NOW,
         warnings: [],

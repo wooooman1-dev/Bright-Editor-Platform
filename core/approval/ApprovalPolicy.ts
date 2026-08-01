@@ -14,10 +14,13 @@ export type ApprovalPolicySnapshot = Readonly<{
   policyDocumentPath: "Docs/current/01_PRODUCT/15_ADSENSE_APPROVAL_MODE.md";
   profileId: ApprovalPolicyProfileId;
   profileVersion: "1.0";
+  profileDisplayName: string;
   profileDocumentPath:
     | "Docs/current/01_PRODUCT/14_ADSENSE_APPROVAL_CONTENT_POLICY.md"
     | "Docs/current/01_PRODUCT/16_TISTORY_VIVARAIN_ADSENSE_APPROVAL_PROFILE.md";
   siteIdentity: string;
+  contentDomain: string;
+  requiredPublishingCategoryNames?: readonly string[];
   requiredPrinciples: readonly string[];
   prohibitedClaims: readonly string[];
   sourceRequirements: readonly string[];
@@ -92,8 +95,11 @@ const profileSnapshots: Readonly<Record<ApprovalPolicyProfileId, ApprovalPolicyS
     policyDocumentPath: "Docs/current/01_PRODUCT/15_ADSENSE_APPROVAL_MODE.md",
     profileId: "wordpress_life_economy_v1",
     profileVersion: "1.0",
+    profileDisplayName: "WordPress · 밝은재테크",
     profileDocumentPath: "Docs/current/01_PRODUCT/14_ADSENSE_APPROVAL_CONTENT_POLICY.md",
-    siteIdentity: "복잡한 정부지원, 세금, 주거, 생활금융 기초 제도를 일반 독자가 공식 확인처에서 스스로 확인할 수 있도록 쉽게 설명한다.",
+    siteIdentity: "밝은재테크",
+    contentDomain: "생활경제, 생활금융, 정부지원, 세금, 주거 정보",
+    requiredPublishingCategoryNames: Object.freeze(["생활재테크"]),
     requiredPrinciples: Object.freeze([
       ...sharedPrinciples,
       peopleFirstValueAndTrustPrinciple,
@@ -106,11 +112,11 @@ const profileSnapshots: Readonly<Record<ApprovalPolicyProfileId, ApprovalPolicyS
       "제목과 소제목은 실제 내용을 정확히 설명하고, 키워드 반복·문장 부풀리기·의미 없는 서론과 결론 없이 정보 밀도를 유지하면서 중복과 불필요한 장문을 제거한다.",
       "관련성이 검증된 공개 글만 내부 링크로 사용한다.",
       "승인 보장, 수익 보장, 반드시 통과 또는 100% 승인이라는 표현을 사용하지 않는다.",
-      "생활경제 사이트의 주제와 대상 독자에게 일관된 원고를 작성한다.",
+      "생활경제 분야의 주제와 대상 독자에게 일관된 원고를 작성한다.",
       "변경 가능한 대상, 기간, 금액, 소득 기준, 금리와 세율은 공식 출처로 확인한다.",
       "정보 기준일, 최종 검토일과 공식 확인 경로를 제공한다.",
       "공식 문서를 단순 요약하지 않고 독자가 자신의 적용 여부를 판단할 조건, 예외, 확인 순서와 다음 행동을 제공한다.",
-      "초기 Category는 생활경제 하나만 사용하고 초기 Tag를 만들지 않는다.",
+      "초기 Category는 생활재테크 하나만 사용하고 초기 Tag를 만들지 않는다.",
     ]),
     prohibitedClaims: Object.freeze([
       ...sharedProhibitedClaims,
@@ -149,8 +155,10 @@ const profileSnapshots: Readonly<Record<ApprovalPolicyProfileId, ApprovalPolicyS
     policyDocumentPath: "Docs/current/01_PRODUCT/15_ADSENSE_APPROVAL_MODE.md",
     profileId: "tistory_vivarain_art_v1",
     profileVersion: "1.0",
+    profileDisplayName: "Tistory · 비바레인 미술",
     profileDocumentPath: "Docs/current/01_PRODUCT/16_TISTORY_VIVARAIN_ADSENSE_APPROVAL_PROFILE.md",
-    siteIdentity: "미술 초보 일반 독자가 서양미술의 화가와 작품을 시대적 배경, 시각적 특징, 감상 포인트와 확인 가능한 자료를 통해 쉽게 이해하도록 돕는다.",
+    siteIdentity: "비바레인",
+    contentDomain: "서양미술 화가와 작품 감상 정보",
     requiredPrinciples: Object.freeze([
       ...sharedPrinciples,
       "작품이나 화가를 이해하는 데 필요한 시대적 배경과 실제 관찰 포인트를 제공한다.",
@@ -204,17 +212,26 @@ export function resolveApprovalPolicySnapshot(
   return profileSnapshots[profileId];
 }
 
+export function approvalPolicyProfileDisplayName(profileId: ApprovalPolicyProfileId): string {
+  return profileSnapshots[profileId].profileDisplayName;
+}
+
 export function approvalPolicyPromptContext(snapshot: ApprovalPolicySnapshot): string {
   return [
     `Content purpose: ${snapshot.contentPurpose}`,
     `Approval policy: ${snapshot.policyId}@${snapshot.policyVersion}`,
-    `Approval profile: ${snapshot.profileId}@${snapshot.profileVersion}`,
+    `Approval profile: ${snapshot.profileDisplayName}@${snapshot.profileVersion}`,
     `Policy documents reviewed: ${snapshot.policyDocumentPath} | ${snapshot.profileDocumentPath} | Docs/current/01_PRODUCT/17_ADSENSE_APPROVAL_READINESS_BLUEPRINT.md`,
-    `Site identity: ${snapshot.siteIdentity}`,
+    `Site and brand identity (metadata only): ${snapshot.siteIdentity}`,
+    `Content domain: ${snapshot.contentDomain}`,
+    ...(snapshot.requiredPublishingCategoryNames?.length
+      ? [`Required publishing categories: ${snapshot.requiredPublishingCategoryNames.join(" | ")}`]
+      : []),
     `Required principles: ${snapshot.requiredPrinciples.join(" | ")}`,
     `Prohibited claims: ${snapshot.prohibitedClaims.join(" | ")}`,
     `Source requirements: ${snapshot.sourceRequirements.join(" | ")}`,
     `Approval quality checks: ${snapshot.qualityChecks.join(" | ")}`,
+    "Identity and publishing category boundary: site or brand identity, approval profile display names, and publishing Category labels are metadata, not default search keywords. Do not insert them into the title, body, meta description, image prompt or ALT, tags, or CTA merely because they appear in this policy.",
     "Approval writing strategy: produce people-first, unique, non-commodity content that gives the reader a usable observation order, decision criteria, exceptions, comparison, or next action unavailable from a generic summary.",
     "Evidence integrity: use only verified official Evidence supplied by the server. Never invent a source URL, citation, institution, date, quote, artwork fact, eligibility rule, amount, rate, or deadline. If verified Evidence is unavailable, preserve the limitation instead of fabricating certainty.",
     "Duplicate integrity: the new article must have a distinct role, search intent, structure, claims, and reader value compared with existing Project content. Do not create a template clone with only names or keywords changed.",
@@ -232,8 +249,11 @@ export function approvalPolicySnapshotFromEditorialContext(
   if (!editorialContext.includes("Approval policy: adsense_approval_mode@1.0")) {
     throw new Error("Canonical editorial context contains an unsupported approval policy version.");
   }
-  const profileId = approvalPolicyProfileIds.find((value) =>
-    editorialContext.includes(`Approval profile: ${value}@1.0`));
+  const profileId = approvalPolicyProfileIds.find((value) => {
+    const snapshot = profileSnapshots[value];
+    return editorialContext.includes(`Approval profile: ${snapshot.profileDisplayName}@${snapshot.profileVersion}`)
+      || editorialContext.includes(`Approval profile: ${value}@${snapshot.profileVersion}`);
+  });
   if (!profileId) {
     throw new Error("Canonical editorial context is missing an approved policy profile.");
   }

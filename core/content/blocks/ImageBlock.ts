@@ -1,3 +1,5 @@
+import type { ContentBlockOwnership } from "../ContentBlockOwnership";
+
 export type ImageBlockPurpose =
   | "hero"
   | "comparison"
@@ -15,6 +17,7 @@ export type ImageBlock = Readonly<{
   caption?: string;
   fileName?: string;
   id: string;
+  ownership?: ContentBlockOwnership;
   mimeType?: string;
   prompt?: string;
   purpose?: ImageBlockPurpose;

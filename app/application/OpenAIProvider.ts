@@ -1,5 +1,9 @@
 import type { AIProvider, AIRequest, AIResponse, AIWebSource } from "../../core/ai";
-import { canonicalizeApprovalEvidenceUrl } from "../../core/approval";
+import {
+  approvalOfficialDomains,
+  canonicalizeApprovalEvidenceUrl,
+  type ApprovalPolicyProfileId,
+} from "../../core/approval";
 import {
   contentSectionTypes,
   determineContentPlanQualityTarget,
@@ -198,9 +202,7 @@ function objectValue(value: unknown): Record<string, unknown> | undefined {
 
 function approvalWebSearchPolicy(metadata?: Readonly<Record<string, string>>) {
   if (metadata?.task !== "content-generation" || metadata.approvalPurpose !== "adsense_approval") return undefined;
-  const domains = metadata.approvalProfileId === "wordpress_life_economy_v1"
-    ? wordpressOfficialDomains
-    : undefined;
+  const domains = approvalOfficialDomains(metadata.approvalProfileId as ApprovalPolicyProfileId);
   return {
     type: "web_search" as const,
     search_context_size: "high" as const,
@@ -364,9 +366,11 @@ const editorialDocumentFormat = {
       relatedTerms: { type: "array", items: { type: "string" } },
       tags: { type: "array", items: { type: "string" } },
       blocks: { type: "array", items: { type: "object", required: ["type"], properties: {
-        type: { type: "string", enum: ["heading", "paragraph", "table", "image", "button"] },
+        type: { type: "string", enum: ["heading", "paragraph", "list", "table", "image", "button"] },
         level: { type: "integer" },
         text: { type: "string" },
+        style: { type: "string", enum: ["ordered", "unordered"] },
+        items: { type: "array", items: { type: "string" } },
         headers: { type: "array", items: { type: "string" } },
         rows: { type: "array", items: { type: "array", items: { type: "string" } } },
         caption: { type: "string" },
@@ -386,22 +390,3 @@ const editorialDocumentFormat = {
     },
   },
 } as const;
-
-const wordpressOfficialDomains = Object.freeze([
-  "gov.kr",
-  "go.kr",
-  "korea.kr",
-  "law.go.kr",
-  "nts.go.kr",
-  "fsc.go.kr",
-  "fss.or.kr",
-  "bok.or.kr",
-  "molit.go.kr",
-  "moel.go.kr",
-  "mohw.go.kr",
-  "mois.go.kr",
-  "lh.or.kr",
-  "hf.go.kr",
-  "nhuf.molit.go.kr",
-  "kdic.or.kr",
-]);

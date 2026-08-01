@@ -2,9 +2,13 @@ import { NextResponse } from "next/server";
 
 import { connectionRepository, targetRepository } from "../../../application/connections/connection-runtime";
 import { TistoryCategoryApplicationService } from "../../../application/publishing/TistoryCategoryApplicationService";
+import {
+  applyTistoryPublishingCategory,
+  resolveTistoryDefaultCategory,
+} from "../../../application/publishing/TistoryPublishingPreparation";
 import { isPlatformEnabled } from "../../../application/settings/WorkspaceSettingsService";
 import { studioStore } from "../../../application/studio-store";
-import { resolveProjectStrategy, type UserData } from "../../../user-flow/user-data";
+import type { UserData } from "../../../user-flow/user-data";
 import { TistoryCategoryWorkflowError } from "../../../../apps/tistory/workflows/TistoryCategoryReadWorkflow";
 
 export async function GET(request: Request) {
@@ -13,9 +17,22 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const context = await ownedContext(required(url.searchParams.get("workspaceId")), required(url.searchParams.get("contentId")), required(url.searchParams.get("connectionId")));
     const result = await readCategories(context);
-    const next = await applyProjectDefault(context, result.categories);
-    const preparation = next.contents.find((item) => item.id === context.content.id)?.publishingPreparation?.tistory ?? null;
-    return NextResponse.json({ ...result, preparation, data: next, ...(result.stale ? { safeMessage: "카테고리 목록을 새로 불러오지 못했습니다. 마지막으로 확인된 카테고리를 표시합니다." } : {}) });
+    const preparation = context.content.publishingPreparation?.tistory?.publishingAccountId === context.connection.id
+      ? context.content.publishingPreparation.tistory
+      : null;
+    const proposed = preparation
+      ? undefined
+      : resolveTistoryDefaultCategory(context.project, context.connection.id, result.categories);
+    return NextResponse.json({
+      ...result,
+      preparation,
+      selection: preparation
+        ? { source: "content", categoryId: preparation.platformCategoryId, categoryName: preparation.platformCategoryName }
+        : proposed
+          ? { source: "project", categoryId: proposed.id, categoryName: proposed.name }
+          : null,
+      ...(result.stale ? { safeMessage: "카테고리 목록을 새로 불러오지 못했습니다. 마지막으로 확인된 카테고리를 표시합니다." } : {}),
+    });
   } catch (error) { return failure(error, connectionId); }
 }
 
@@ -31,7 +48,14 @@ export async function POST(request: Request) {
     if (categoryId !== null && !selected) throw new Error("선택한 카테고리를 현재 Tistory 계정에서 찾을 수 없습니다.");
     const next = await studioStore.update<UserData>("application", "user-data", (current) => {
       const fresh = currentData(current, context.data.workspace!.id, context.content.id, context.project.id);
-      return applyCategory(fresh, context.project.id, context.content.id, context.connection.id, categoryId, selected?.name ?? null);
+      return applyTistoryPublishingCategory(
+        fresh,
+        context.project.id,
+        context.content.id,
+        context.connection.id,
+        { id: categoryId, name: selected?.name ?? null },
+        new Date().toISOString(),
+      );
     });
     return NextResponse.json({ preparation: next.contents.find((item) => item.id === context.content.id)?.publishingPreparation?.tistory, data: next });
   } catch (error) { return failure(error, connectionId); }
@@ -51,26 +75,6 @@ async function ownedContext(workspaceId: string, contentId: string, connectionId
   return { data, content, project, connection, selectedTarget };
 }
 function readCategories(context: Awaited<ReturnType<typeof ownedContext>>) { return new TistoryCategoryApplicationService().read({ workspaceId: context.data.workspace!.id, projectId: context.project.id, contentId: context.content.id, connection: context.connection, selectedTarget: context.selectedTarget }); }
-async function applyProjectDefault(context: Awaited<ReturnType<typeof ownedContext>>, categories: readonly Readonly<{ id: string; name: string }>[]) {
-  if (context.content.publishingPreparation?.tistory?.publishingAccountId === context.connection.id) return context.data;
-  const strategy = resolveProjectStrategy(context.project);
-  const configured = strategy.defaultTistoryCategory?.publishingAccountId === context.connection.id ? strategy.defaultTistoryCategory : undefined;
-  const selected = configured?.id ? categories.find((item) => String(item.id) === String(configured.id)) : categories.find((item) => item.name.trim() === strategy.primaryTopic.trim());
-  if (!selected && !configured) return context.data;
-  const id = selected ? String(selected.id) : configured!.id;
-  const name = selected?.name ?? configured!.name;
-  return studioStore.update<UserData>("application", "user-data", (current) => {
-    const fresh = currentData(current, context.data.workspace!.id, context.content.id, context.project.id);
-    const freshContent = fresh.contents.find((item) => item.id === context.content.id)!;
-    if (freshContent.publishingPreparation?.tistory?.publishingAccountId === context.connection.id) return fresh;
-    return applyCategory(fresh, context.project.id, context.content.id, context.connection.id, id, name);
-  });
-}
-function applyCategory(data: UserData, projectId: string, contentId: string, connectionId: string, id: string | null, name: string | null): UserData {
-  const updatedAt = new Date().toISOString();
-  const defaultTistoryCategory = { publishingAccountId: connectionId, id, name };
-  return { ...data, projects: data.projects.map((project) => project.id === projectId ? { ...project, strategy: { ...resolveProjectStrategy(project), defaultTistoryCategory }, updatedAt } : project), contents: data.contents.map((content) => content.id === contentId ? { ...content, platform: "tistory", publishingAccountId: connectionId, publishingPreparation: { ...content.publishingPreparation, tistory: { publishingAccountId: connectionId, platformCategoryId: id, platformCategoryName: name, updatedAt } }, updatedAt } : content) };
-}
 function currentData(data: UserData | undefined, workspaceId: string, contentId: string, projectId: string): UserData {
   if (!data?.workspace || data.workspace.id !== workspaceId || !data.contents.some((item) => item.id === contentId) || !data.projects.some((item) => item.id === projectId)) throw new Error("발행 준비 대상을 다시 확인해 주세요.");
   return data;

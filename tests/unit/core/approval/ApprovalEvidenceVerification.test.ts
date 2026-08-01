@@ -22,6 +22,10 @@ const candidatePack: ApprovalEvidencePack = {
     sourceType: "official_institution",
     retrievedAt: "2026-07-27T00:00:00.000Z",
     verified: false,
+    provenance: "citation",
+    cited: true,
+    selected: true,
+    linkedBlockIds: ["p"],
     facts: [{ field: "citedContext", value: "공식 페이지 후보" }],
   }],
 };
@@ -75,7 +79,7 @@ describe("ApprovalEvidenceVerification", () => {
       reviewedAt: "2026-07-27T10:00:00.000Z",
       sources: [{ verified: true, publisher: "The Museum of Modern Art", verificationStatus: "verified" }],
     });
-    expect(result.pack.sources[0]?.facts.map((fact) => fact.value)).toEqual(expect.arrayContaining([
+    expect(result.pack.sources[0]?.matchedFacts?.map((fact) => fact.value)).toEqual(expect.arrayContaining([
       "The Starry Night",
       "1889년",
       "The Museum of Modern Art",
@@ -253,5 +257,80 @@ describe("ApprovalEvidenceVerification", () => {
       finalUrl: "https://www.gov.kr/service/test",
     })).toBe(true);
     expect(officialSourceAllowed("wordpress_life_economy_v1", officialPage)).toBe(false);
+  });
+
+  it("verifies the three linked continuing-transaction Claims without treating HTTP 200 and an official host as sufficient", () => {
+    const lawUrl = "https://law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1025033501";
+    const claimText = "계속거래 등에 관한 계약에서는 사업자가 계약 내용을 적은 계약서를 소비자에게 발급해야 하며, 해지·해제로 생기는 손실을 현저히 초과하는 위약금을 청구하거나 실제 공급분을 초과해 받은 대금의 환급을 부당하게 거부해서는 안 된다는 기준이 규정되어 있습니다. (law.go.kr)";
+    const lawDocument: ContentDocument = {
+      ...document(),
+      title: "고정지출 줄이는 방법",
+      metadata: {
+        ...document().metadata!,
+        approvalEvidence: {
+          version: "1.0",
+          status: "needs_review",
+          sources: [{
+            sourceId: "law-article",
+            url: lawUrl,
+            canonicalUrl: lawUrl,
+            title: "국가법령정보센터 | 조문정보",
+            publisher: "law.go.kr",
+            sourceType: "official_law",
+            retrievedAt: "2026-08-01T00:00:00.000Z",
+            verified: false,
+            provenance: "citation",
+            cited: true,
+            selected: true,
+            citationExcerpt: `([law.go.kr](${lawUrl}?utm_source=openai))`,
+            linkedBlockIds: ["source"],
+            facts: [],
+          }],
+        },
+      },
+      blocks: [
+        { id: "claim", type: "paragraph", text: claimText },
+        { id: "source", type: "paragraph", text: `정보 기준일은 2026년 8월 1일입니다.\n출처: https://www.law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1025033501` },
+      ],
+    };
+    const officialButUnrelated: ApprovalSourcePage = {
+      requestedUrl: lawUrl,
+      finalUrl: lawUrl,
+      status: 200,
+      contentType: "text/html;charset=UTF-8",
+      title: "국가법령정보센터 | 조문정보",
+      publisher: "law.go.kr",
+      text: "국가법령정보센터의 다른 법령 조문입니다. 직접 연결된 계속거래 계약·위약금·환급 근거를 포함하지 않습니다. ".repeat(8),
+    };
+
+    const mismatch = verifyApprovalEvidence(lawDocument, "wordpress_life_economy_v1", [officialButUnrelated], "2026-08-01T01:00:00.000Z");
+    expect(mismatch.pack.status).toBe("needs_review");
+    expect(mismatch.pack.sources[0]).toMatchObject({
+      accessVerificationStatus: "verified",
+      officialDomainVerificationStatus: "verified",
+      claimVerificationStatus: "failed",
+      verified: false,
+    });
+
+    const verified = verifyApprovalEvidence(lawDocument, "wordpress_life_economy_v1", [{
+      ...officialButUnrelated,
+      text: "방문판매 등에 관한 법률 제30조에 따라 계속거래업자는 계약서를 소비자에게 발급하여야 한다. 제32조는 손실을 현저하게 초과하는 위약금 청구를 금지하고, 실제 공급된 재화등의 대가를 초과해 수령한 대금의 환급을 부당하게 거부하지 못하도록 한다. ".repeat(4),
+    }], "2026-08-01T02:00:00.000Z");
+
+    expect(verified.pack.status).toBe("verified");
+    expect(verified.pack.sources[0]).toMatchObject({
+      title: "방문판매 등에 관한 법률 제30조·제32조",
+      publisher: "국가법령정보센터",
+      accessVerificationStatus: "verified",
+      officialDomainVerificationStatus: "verified",
+      claimVerificationStatus: "verified",
+      checkedAt: "2026-08-01T02:00:00.000Z",
+      linkedBlockIds: expect.arrayContaining(["claim", "source"]),
+    });
+    expect(verified.pack.sources[0]?.matchedFacts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ field: "continuingTransactionContractDocument", blockId: "claim", excerpt: claimText }),
+      expect.objectContaining({ field: "excessiveTerminationPenalty", blockId: "claim" }),
+      expect.objectContaining({ field: "excessPaymentRefund", blockId: "claim" }),
+    ]));
   });
 });

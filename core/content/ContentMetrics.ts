@@ -1,6 +1,6 @@
 import type { ContentBlock } from "./ContentBlock";
 import type { ContentDocument } from "./ContentDocument";
-import { serializeStructuredTable } from "./StructuredText";
+import { serializeStructuredList, serializeStructuredTable } from "./StructuredText";
 
 export type ContentMetrics = Readonly<{
   koreanCharacterCount: number;
@@ -74,6 +74,7 @@ function isSourceBlock(block: ContentBlock): boolean {
 
 function blockText(block: ContentBlock): string {
   if (block.type === "heading" || block.type === "paragraph") return stripMarkup(block.text);
+  if (block.type === "list") return stripMarkup(serializeStructuredList(block));
   if (block.type === "table") return stripMarkup(serializeStructuredTable(block));
   if (block.type === "button") return stripMarkup(block.label);
   if (block.type === "image") return stripMarkup(`${block.alt} ${block.caption ?? ""}`);

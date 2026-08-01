@@ -32,6 +32,15 @@ export type ContentMetadata = Readonly<{
   approvalEvidence?: ApprovalEvidencePack;
   approvalDuplicateCheck?: ApprovalDuplicateCheckSnapshot;
   siteApprovalReadiness?: SiteApprovalReadinessSnapshot;
+  approvalReadinessExecution?: Readonly<{
+    version: "1.0";
+    key: string;
+    editorialRevisionId: string;
+    publishingContextKey: string;
+    evidenceFingerprint: string;
+    status: "completed";
+    checkedAt: string;
+  }>;
   qualityTarget?: ContentPlanQualityTarget;
   generationDiagnostic?: LongFormDiagnostic;
   reviewDiagnostic?: LongFormDiagnostic;
