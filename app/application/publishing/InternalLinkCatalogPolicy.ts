@@ -16,22 +16,82 @@ export function publishingCategoryIdentities(
   content: UserContent,
 ): readonly PublishingCategoryIdentity[] {
   const wordpress = content.publishingPreparation?.wordpress;
-  if (wordpress) {
-    return Object.freeze(wordpress.categoryIds.map((id, index) => Object.freeze({
-      id,
-      name: wordpress.categoryNames[index] ?? id,
-    })));
-  }
-
   const tistory = content.publishingPreparation?.tistory;
-  if (tistory?.platformCategoryId || tistory?.platformCategoryName) {
-    return Object.freeze([Object.freeze({
-      id: tistory.platformCategoryId,
-      name: tistory.platformCategoryName,
-    })]);
-  }
+  const activeAccountId = content.publishingAccountId?.trim();
+  const wordpressMatchesActiveAccount = Boolean(wordpress
+    && (!activeAccountId || wordpress.publishingAccountId === activeAccountId));
+  const tistoryMatchesActiveAccount = Boolean(tistory
+    && (!activeAccountId || tistory.publishingAccountId === activeAccountId));
+  const wordpressCategories = () => Object.freeze(wordpress!.categoryIds.map((id, index) => Object.freeze({
+    id,
+    name: wordpress!.categoryNames[index] ?? id,
+  })));
+  const tistoryCategories = () => Object.freeze([Object.freeze({
+    id: tistory!.platformCategoryId,
+    name: tistory!.platformCategoryName,
+  })]);
 
+  if (content.platform === "wordpress") {
+    return wordpressMatchesActiveAccount ? wordpressCategories() : Object.freeze([]);
+  }
+  if (content.platform === "tistory") {
+    return tistoryMatchesActiveAccount && (tistory?.platformCategoryId || tistory?.platformCategoryName)
+      ? tistoryCategories()
+      : Object.freeze([]);
+  }
+  if (wordpress) return wordpressCategories();
+  if (tistory?.platformCategoryId || tistory?.platformCategoryName) return tistoryCategories();
   return Object.freeze([]);
+}
+
+export function internalLinkCatalogContextKey(
+  content: UserContent,
+  connectionId?: string,
+): string {
+  const categories = publishingCategoryIdentities(content)
+    .map((category) => ({
+      id: category.id == null ? null : String(category.id),
+      name: category.name?.trim() ?? null,
+    }))
+    .sort((left, right) => `${left.id ?? ""}:${left.name ?? ""}`
+      .localeCompare(`${right.id ?? ""}:${right.name ?? ""}`, "ko"));
+  const preparationAccount = content.platform === "tistory"
+    ? content.publishingPreparation?.tistory?.publishingAccountId
+    : content.platform === "wordpress"
+      ? content.publishingPreparation?.wordpress?.publishingAccountId
+      : content.publishingPreparation?.wordpress?.publishingAccountId
+        ?? content.publishingPreparation?.tistory?.publishingAccountId;
+  return JSON.stringify({
+    platform: content.platform
+      ?? (content.publishingPreparation?.wordpress
+        ? "wordpress"
+        : content.publishingPreparation?.tistory ? "tistory" : "unknown"),
+    publishingAccountId: connectionId
+      ?? content.publishingAccountId
+      ?? preparationAccount
+      ?? "",
+    categories,
+  });
+}
+
+/** Backward-compatible alias for callers added during the audit. */
+export const publishingInternalLinkContextKey = internalLinkCatalogContextKey;
+
+export function internalLinkCatalogContextIsCurrent(
+  content: UserContent,
+  document: ContentDocument,
+  connectionId?: string,
+): boolean {
+  const status = document.metadata?.internalLinkCatalogStatus;
+  if (!status
+    || document.metadata?.internalLinkCatalogContextKey
+      !== internalLinkCatalogContextKey(content, connectionId)) {
+    return false;
+  }
+  const hasCategories = publishingCategoryIdentities(content).length > 0;
+  if (hasCategories && status === "category_missing") return false;
+  if (!hasCategories && status !== "category_missing") return false;
+  return true;
 }
 
 export function publishingCategoryNames(content: UserContent): readonly string[] {
@@ -42,33 +102,6 @@ export function publishingCategoryNames(content: UserContent): readonly string[]
         .filter((value): value is string => Boolean(value)),
     ),
   ]);
-}
-
-export function publishingInternalLinkContextKey(
-  content: UserContent,
-  connectionId?: string,
-): string {
-  const wordpress = content.publishingPreparation?.wordpress;
-  if (wordpress) {
-    return JSON.stringify({
-      platform: "wordpress",
-      publishingAccountId: connectionId ?? wordpress.publishingAccountId,
-      categories: wordpress.categoryIds.map((id, index) => ({
-        id,
-        name: wordpress.categoryNames[index] ?? id,
-      })),
-    });
-  }
-
-  const tistory = content.publishingPreparation?.tistory;
-  return JSON.stringify({
-    platform: "tistory",
-    publishingAccountId: connectionId ?? tistory?.publishingAccountId ?? "",
-    categories: tistory ? [{
-      id: tistory.platformCategoryId,
-      name: tistory.platformCategoryName,
-    }] : [],
-  });
 }
 
 export function removeAutoPlacedPublishingLinks(
