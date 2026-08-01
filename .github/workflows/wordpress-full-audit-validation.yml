@@ -1,0 +1,110 @@
+name: WordPress Full Audit Validation
+
+on:
+  push:
+    branches:
+      - feat/wordpress-full-audit-validation
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      BRIGHT_STUDIO_DEV_FIXTURES: "1"
+      BRIGHT_STUDIO_DATA_PATH: ${{ runner.temp }}/bright-studio-ci/studio-data.json
+      BRIGHT_STUDIO_MEDIA_PATH: ${{ runner.temp }}/bright-studio-ci/media
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/wordpress-full-audit-validation
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Run full validation and persist evidence
+        shell: bash
+        run: |
+          set +e
+          mkdir -p .github/validation-logs
+
+          npm ci > .github/validation-logs/install.log 2>&1
+          install_status=$?
+
+          if [ "$install_status" -eq 0 ]; then
+            npm run lint > .github/validation-logs/lint.log 2>&1
+            lint_status=$?
+            npm run typecheck > .github/validation-logs/typecheck.log 2>&1
+            typecheck_status=$?
+            npm test > .github/validation-logs/tests.log 2>&1
+            tests_status=$?
+            npm run build > .github/validation-logs/build.log 2>&1
+            build_status=$?
+          else
+            lint_status=99
+            typecheck_status=99
+            tests_status=99
+            build_status=99
+          fi
+
+          browser_status=99
+          if [ "$install_status" -eq 0 ] && [ "$build_status" -eq 0 ]; then
+            npx playwright install --with-deps chromium > .github/validation-logs/playwright-install.log 2>&1
+            playwright_status=$?
+            if [ "$playwright_status" -eq 0 ]; then
+              npm start > .github/validation-logs/app.log 2>&1 &
+              app_pid=$!
+              ready_status=1
+              for attempt in {1..60}; do
+                curl --fail --silent --show-error http://127.0.0.1:3000/dev/image-workspace > /dev/null
+                ready_status=$?
+                if [ "$ready_status" -eq 0 ]; then
+                  break
+                fi
+                sleep 1
+              done
+              if [ "$ready_status" -eq 0 ]; then
+                node tests/e2e/image-workspace-smoke.mjs > .github/validation-logs/browser.log 2>&1
+                browser_status=$?
+              else
+                browser_status=$ready_status
+                printf 'Application did not become ready.\n' > .github/validation-logs/browser.log
+              fi
+              kill "$app_pid" 2>/dev/null || true
+            else
+              browser_status=$playwright_status
+              cp .github/validation-logs/playwright-install.log .github/validation-logs/browser.log
+            fi
+          else
+            printf 'Browser validation skipped because install or build failed.\n' > .github/validation-logs/browser.log
+          fi
+
+          for file in install lint typecheck tests build browser app playwright-install; do
+            if [ -f ".github/validation-logs/$file.log" ]; then
+              tail -n 250 ".github/validation-logs/$file.log" > ".github/validation-logs/$file-tail.log"
+              rm ".github/validation-logs/$file.log"
+            fi
+          done
+
+          cat > .github/wordpress-full-audit-validation-result.json <<JSON
+          {
+            "validatedCommit": "${GITHUB_SHA}",
+            "install": ${install_status},
+            "lint": ${lint_status},
+            "typecheck": ${typecheck_status},
+            "tests": ${tests_status},
+            "build": ${build_status},
+            "browser": ${browser_status},
+            "passed": $([ "$install_status" -eq 0 ] && [ "$lint_status" -eq 0 ] && [ "$typecheck_status" -eq 0 ] && [ "$tests_status" -eq 0 ] && [ "$build_status" -eq 0 ] && [ "$browser_status" -eq 0 ] && echo true || echo false)
+          }
+          JSON
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/wordpress-full-audit-validation-result.json .github/validation-logs
+          git commit -m "test: record WordPress full audit validation" || true
+          git push
