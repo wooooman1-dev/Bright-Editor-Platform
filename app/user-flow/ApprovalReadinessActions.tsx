@@ -6,7 +6,10 @@ import type { ApprovalEvidenceSource, SiteApprovalReadinessSnapshot } from "../.
 import type { ContentDocument } from "../../core/content";
 import { contentRevisionId, isStandardQualityApproved, type QualityReport } from "../../core/quality";
 import { contentOwnedIdentityContamination } from "../application/publishing/ContentOwnedIdentityPolicy";
-import { publishingInternalLinkContextKey } from "../application/publishing/InternalLinkCatalogPolicy";
+import {
+  internalLinkCatalogContextIsCurrent,
+  internalLinkCatalogContextKey,
+} from "../application/publishing/InternalLinkCatalogPolicy";
 import type { UserContent, UserData } from "./user-data";
 
 export type ApprovalReadinessAutoRunDecision = Readonly<{
@@ -67,11 +70,13 @@ export function approvalReadinessAutoRunDecision(
 
   const approvalContent = content as UserContent & Readonly<{ contentPurpose?: string }>;
   const currentRevisionId = contentRevisionId(content.document);
-  const publishingContextKey = publishingInternalLinkContextKey(content);
+  const publishingContextKey = internalLinkCatalogContextKey(content);
   const evidence = content.document.metadata?.approvalEvidence;
   const siteReadiness = content.document.metadata?.siteApprovalReadiness;
-  const catalogContextIsCurrent = content.document.metadata?.internalLinkCatalogContextKey
-    === publishingContextKey;
+  const catalogContextIsCurrent = internalLinkCatalogContextIsCurrent(
+    content,
+    content.document,
+  );
   const hasStoredResult = evidence?.reviewedRevisionId === currentRevisionId
     && isCurrentSiteReadinessSnapshot(siteReadiness)
     && catalogContextIsCurrent;
@@ -83,7 +88,9 @@ export function approvalReadinessAutoRunDecision(
     currentRevisionId,
     publishingContextKey,
     hasStoredResult,
-    shouldRun: approvalContent.contentPurpose === "adsense_approval" && qualityIsCurrent && !hasStoredResult,
+    shouldRun: approvalContent.contentPurpose === "adsense_approval"
+      && !hasStoredResult
+      && (!catalogContextIsCurrent || qualityIsCurrent),
     sources: Object.freeze([...(evidence?.sources ?? [])]),
   });
 }
@@ -92,6 +99,7 @@ export function ApprovalReadinessActions(props: Readonly<{
   workspaceId: string;
   contentId: string;
   disabled?: boolean;
+  inspectionKey?: string;
   onCompleted: (result: Readonly<{
     data: UserData;
     document: ContentDocument;
@@ -189,6 +197,7 @@ export function ApprovalReadinessActions(props: Readonly<{
           const decision = approvalReadinessAutoRunDecision(content);
           const inspectedKey = [
             props.contentId,
+            props.inspectionKey ?? "",
             decision.currentRevisionId,
             decision.publishingContextKey,
             content?.document?.metadata?.internalLinkCatalogContextKey ?? "",
@@ -222,7 +231,7 @@ export function ApprovalReadinessActions(props: Readonly<{
       active = false;
       window.clearTimeout(timer);
     };
-  }, [execute, props.contentId, props.disabled, props.onCompleted]);
+  }, [execute, props.contentId, props.disabled, props.inspectionKey]);
 
   const identityBlocked = identityContamination.length > 0;
 
