@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { publishingInternalLinkContextKey } from "../../../../app/application/publishing/InternalLinkCatalogPolicy";
 import { approvalReadinessAutoRunDecision } from "../../../../app/user-flow/ApprovalReadinessActions";
 import type { ApprovalEvidencePack, SiteApprovalReadinessSnapshot } from "../../../../core/approval";
 import type { ContentDocument } from "../../../../core/content";
@@ -55,9 +56,11 @@ function quality(revisionId: string, reviewedAt = "2026-07-28T01:00:00.000Z"): Q
 function content(
   nextDocument: ContentDocument = document,
   nextQuality: QualityReport | undefined = quality(contentRevisionId(nextDocument)),
+  categoryId?: string,
 ): UserContent {
   return {
     id: "content-1",
+    workspaceId: "workspace-1",
     projectId: "project-1",
     title: nextDocument.title,
     body: "",
@@ -66,6 +69,18 @@ function content(
     document: nextDocument,
     quality: nextQuality,
     contentPurpose: "adsense_approval",
+    ...(categoryId ? {
+      platform: "wordpress",
+      publishingAccountId: "wordpress-1",
+      publishingPreparation: {
+        wordpress: {
+          publishingAccountId: "wordpress-1",
+          categoryIds: [categoryId],
+          categoryNames: [categoryId === "2" ? "생활경제" : "다른 카테고리"],
+          updatedAt: "2026-07-28T01:00:00.000Z",
+        },
+      },
+    } : {}),
   } as UserContent;
 }
 
@@ -86,6 +101,23 @@ const site: SiteApprovalReadinessSnapshot = {
   checks: [],
 };
 
+function checkedDocument(
+  revisionId: string,
+  contextContent: UserContent,
+  status: ApprovalEvidencePack["status"] = "verified",
+  siteSnapshot: SiteApprovalReadinessSnapshot = site,
+): ContentDocument {
+  return {
+    ...document,
+    metadata: {
+      ...document.metadata!,
+      approvalEvidence: evidence(revisionId, status),
+      siteApprovalReadiness: siteSnapshot,
+      internalLinkCatalogContextKey: publishingInternalLinkContextKey(contextContent),
+    },
+  };
+}
+
 describe("ApprovalReadinessActions auto run decision", () => {
   it("runs automatically once after the current revision receives standard quality approval", () => {
     const decision = approvalReadinessAutoRunDecision(content());
@@ -94,33 +126,26 @@ describe("ApprovalReadinessActions auto run decision", () => {
     expect(decision.hasStoredResult).toBe(false);
   });
 
-  it("reuses a stored result for the same revision", () => {
+  it("reuses a stored result for the same revision and publishing context", () => {
     const revisionId = contentRevisionId(document);
-    const checkedDocument: ContentDocument = {
-      ...document,
-      metadata: {
-        ...document.metadata!,
-        approvalEvidence: evidence(revisionId),
-        siteApprovalReadiness: site,
-      },
-    };
-    const decision = approvalReadinessAutoRunDecision(content(checkedDocument, quality(revisionId)));
+    const contextContent = content(document, quality(revisionId));
+    const storedDocument = checkedDocument(revisionId, contextContent);
+    const decision = approvalReadinessAutoRunDecision(content(storedDocument, quality(revisionId)));
 
     expect(decision.shouldRun).toBe(false);
     expect(decision.hasStoredResult).toBe(true);
   });
 
-  it("does not repeat a failed deterministic check for the same revision", () => {
+  it("does not repeat a failed deterministic check for the same revision and publishing context", () => {
     const revisionId = contentRevisionId(document);
-    const checkedDocument: ContentDocument = {
-      ...document,
-      metadata: {
-        ...document.metadata!,
-        approvalEvidence: evidence(revisionId, "needs_review"),
-        siteApprovalReadiness: { ...site, status: "needs_review" },
-      },
-    };
-    const decision = approvalReadinessAutoRunDecision(content(checkedDocument, quality(revisionId)));
+    const contextContent = content(document, quality(revisionId));
+    const storedDocument = checkedDocument(
+      revisionId,
+      contextContent,
+      "needs_review",
+      { ...site, status: "needs_review" },
+    );
+    const decision = approvalReadinessAutoRunDecision(content(storedDocument, quality(revisionId)));
 
     expect(decision.shouldRun).toBe(false);
     expect(decision.hasStoredResult).toBe(true);
@@ -128,24 +153,29 @@ describe("ApprovalReadinessActions auto run decision", () => {
 
   it("invalidates a legacy WordPress manual-review snapshot and runs the current automatic audit", () => {
     const revisionId = contentRevisionId(document);
-    const checkedDocument: ContentDocument = {
-      ...document,
-      metadata: {
-        ...document.metadata!,
-        approvalEvidence: evidence(revisionId),
-        siteApprovalReadiness: {
-          ...site,
-          status: "needs_review",
-          checks: [{
-            key: "theme_plugin_review",
-            passed: false,
-            requirement: "manual",
-            message: "Theme 또는 Plugin을 수동으로 확인해야 합니다.",
-          }],
-        },
-      },
-    };
-    const decision = approvalReadinessAutoRunDecision(content(checkedDocument, quality(revisionId)));
+    const contextContent = content(document, quality(revisionId));
+    const storedDocument = checkedDocument(revisionId, contextContent, "verified", {
+      ...site,
+      status: "needs_review",
+      checks: [{
+        key: "theme_plugin_review",
+        passed: false,
+        requirement: "manual",
+        message: "Theme 또는 Plugin을 수동으로 확인해야 합니다.",
+      }],
+    });
+    const decision = approvalReadinessAutoRunDecision(content(storedDocument, quality(revisionId)));
+
+    expect(decision.hasStoredResult).toBe(false);
+    expect(decision.shouldRun).toBe(true);
+  });
+
+  it("invalidates a stored result when the WordPress Category changes", () => {
+    const revisionId = contentRevisionId(document);
+    const originalContext = content(document, quality(revisionId), "2");
+    const storedDocument = checkedDocument(revisionId, originalContext);
+    const changedCategory = content(storedDocument, quality(revisionId), "3");
+    const decision = approvalReadinessAutoRunDecision(changedCategory);
 
     expect(decision.hasStoredResult).toBe(false);
     expect(decision.shouldRun).toBe(true);
