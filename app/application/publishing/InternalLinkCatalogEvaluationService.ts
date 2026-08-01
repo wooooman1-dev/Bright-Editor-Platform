@@ -5,7 +5,6 @@ import {
   applyInternalLinkCatalogResult,
   publishingCategoryIdentities,
   rankPublishingPostCandidates,
-  withInternalLinkCatalogMetadata,
 } from "./InternalLinkCatalogPolicy";
 import { PublicPostCatalogApplicationService } from "./PublicPostCatalogApplicationService";
 
@@ -25,14 +24,15 @@ export class InternalLinkCatalogEvaluationService {
     selectedTarget: boolean;
     refresh?: boolean;
   }>): Promise<ContentDocument> {
-    if (input.document.metadata?.internalLinkCatalogStatus === "evaluated") {
+    if (input.document.metadata?.internalLinkCatalogStatus === "evaluated"
+      && input.refresh !== true) {
       return input.document;
     }
     if (!publishingCategoryIdentities(input.content).length) {
-      return withInternalLinkCatalogMetadata(input.document, 0, "category_missing");
+      return applyInternalLinkCatalogResult(input.document, [], "category_missing");
     }
     if (!input.connection) {
-      return withInternalLinkCatalogMetadata(input.document, 0, "catalog_unavailable");
+      return applyInternalLinkCatalogResult(input.document, [], "catalog_unavailable");
     }
 
     try {
@@ -48,7 +48,7 @@ export class InternalLinkCatalogEvaluationService {
       const ranked = rankPublishingPostCandidates(input.document, catalog.posts, input.content);
       return applyInternalLinkCatalogResult(input.document, ranked, "evaluated");
     } catch {
-      return withInternalLinkCatalogMetadata(input.document, 0, "catalog_unavailable");
+      return applyInternalLinkCatalogResult(input.document, [], "catalog_unavailable");
     }
   }
 }
