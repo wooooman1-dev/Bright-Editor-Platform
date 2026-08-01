@@ -39,7 +39,15 @@ export class QualityEngine extends BaseQualityEngine {
     const snapshot = document.metadata?.approvalPolicy;
     if (!snapshot) return report;
 
-    const issues = evaluateApprovalPreparationText(canonicalDocumentText(document), snapshot);
+    const evidence = document.metadata?.approvalEvidence;
+    const issues = evaluateApprovalPreparationText(
+      canonicalDocumentText(document),
+      snapshot,
+      {
+        sourceUrls: evidence?.sources.map((source) => source.canonicalUrl ?? source.url),
+        reviewedAt: evidence?.reviewedAt,
+      },
+    );
     const standardQualityApproved = isBaseStandardQualityApproved(report);
     const approvalReadiness = evaluateApprovalReadiness(document, issues, standardQualityApproved);
 
