@@ -3,8 +3,9 @@ import type { ContentDocument } from "../../../core/content";
 import type { UserContent } from "../../user-flow/user-data";
 import {
   applyInternalLinkCatalogResult,
+  internalLinkCatalogContextIsCurrent,
+  internalLinkCatalogContextKey,
   publishingCategoryIdentities,
-  publishingInternalLinkContextKey,
   rankPublishingPostCandidates,
 } from "./InternalLinkCatalogPolicy";
 import { PublicPostCatalogApplicationService } from "./PublicPostCatalogApplicationService";
@@ -25,17 +26,31 @@ export class InternalLinkCatalogEvaluationService {
     selectedTarget: boolean;
     refresh?: boolean;
   }>): Promise<ContentDocument> {
-    const contextKey = publishingInternalLinkContextKey(input.content, input.connection?.id);
-    if (input.document.metadata?.internalLinkCatalogStatus === "evaluated"
-      && input.document.metadata.internalLinkCatalogContextKey === contextKey
-      && input.refresh !== true) {
+    const contextKey = internalLinkCatalogContextKey(input.content, input.connection?.id);
+    if (input.refresh !== true
+      && input.document.metadata?.internalLinkCatalogStatus === "evaluated"
+      && internalLinkCatalogContextIsCurrent(
+        input.content,
+        input.document,
+        input.connection?.id,
+      )) {
       return input.document;
     }
     if (!publishingCategoryIdentities(input.content).length) {
-      return applyInternalLinkCatalogResult(input.document, [], "category_missing", contextKey);
+      return applyInternalLinkCatalogResult(
+        input.document,
+        [],
+        "category_missing",
+        contextKey,
+      );
     }
     if (!input.connection) {
-      return applyInternalLinkCatalogResult(input.document, [], "catalog_unavailable", contextKey);
+      return applyInternalLinkCatalogResult(
+        input.document,
+        [],
+        "catalog_unavailable",
+        contextKey,
+      );
     }
 
     try {
@@ -48,10 +63,24 @@ export class InternalLinkCatalogEvaluationService {
         selectedTarget: input.selectedTarget,
         refresh: input.refresh,
       });
-      const ranked = rankPublishingPostCandidates(input.document, catalog.posts, input.content);
-      return applyInternalLinkCatalogResult(input.document, ranked, "evaluated", contextKey);
+      const ranked = rankPublishingPostCandidates(
+        input.document,
+        catalog.posts,
+        input.content,
+      );
+      return applyInternalLinkCatalogResult(
+        input.document,
+        ranked,
+        "evaluated",
+        contextKey,
+      );
     } catch {
-      return applyInternalLinkCatalogResult(input.document, [], "catalog_unavailable", contextKey);
+      return applyInternalLinkCatalogResult(
+        input.document,
+        [],
+        "catalog_unavailable",
+        contextKey,
+      );
     }
   }
 }
