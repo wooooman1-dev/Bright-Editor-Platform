@@ -122,9 +122,14 @@ export function evaluateApprovalDraftIntegrity(document: ContentDocument): Appro
   if (!document.metadata?.approvalPolicy) {
     return Object.freeze({ passed: true, reasons: Object.freeze([]) });
   }
+  const evidence = document.metadata.approvalEvidence;
   const issues = evaluateApprovalPreparationText(
     documentText(document),
     document.metadata.approvalPolicy,
+    {
+      sourceUrls: evidence?.sources.map((source) => source.canonicalUrl ?? source.url),
+      reviewedAt: evidence?.reviewedAt,
+    },
   );
   const readiness = evaluateApprovalReadiness(document, issues, true);
   const requiredKeys = new Set<ApprovalReadinessCheckKey>([
