@@ -13,7 +13,7 @@ import {
 const automaticOpportunity = confirmContentOpportunity(createContentOpportunityCandidate({
   sourceRequest: "오늘의 생활경제 주제를 골라줘",
   selectionMode: "automatic",
-  selectedTopic: "통장 역할을 정하는 방법",
+  selectedTopic: "밝은재테크",
   primaryKeyword: "밝은재테크",
   secondaryKeywords: ["생활비 통장"],
   searchIntent: "통장 역할과 자동이체 순서를 결정",
