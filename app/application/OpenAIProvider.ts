@@ -216,6 +216,7 @@ function extractWebSources(output: readonly OpenAIOutputItem[]): readonly AIWebS
       addWebSource(sources, {
         url: source.url,
         ...(source.title ? { title: source.title } : {}),
+        provenance: "search_candidate",
       });
     }
     for (const part of item.content ?? []) {
@@ -229,6 +230,7 @@ function extractWebSources(output: readonly OpenAIOutputItem[]): readonly AIWebS
           url: annotation.url,
           ...(annotation.title ? { title: annotation.title } : {}),
           ...(excerpt ? { excerpt } : {}),
+          provenance: "citation",
         });
       }
     }
@@ -246,10 +248,14 @@ function addWebSource(sources: Map<string, AIWebSource>, source: AIWebSource): v
   }
   if (url.protocol !== "https:") return;
   const previous = sources.get(key);
+  const provenance = source.provenance === "citation" || previous?.provenance === "citation"
+    ? "citation"
+    : "search_candidate";
   sources.set(key, Object.freeze({
     url: key,
     ...(source.title || previous?.title ? { title: source.title ?? previous?.title } : {}),
     ...(source.excerpt || previous?.excerpt ? { excerpt: source.excerpt ?? previous?.excerpt } : {}),
+    provenance,
   }));
 }
 

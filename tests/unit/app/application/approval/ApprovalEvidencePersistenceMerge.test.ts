@@ -76,21 +76,15 @@ const webCandidate: ApprovalEvidenceSource = {
 };
 
 describe("approval Evidence persistence merge", () => {
-  it("preserves a web-search candidate even when the article body does not print the URL", () => {
+  it("excludes a search-only candidate when the article did not cite or expose the URL", () => {
     const saved = applyApprovalPersistencePolicy(undefined, candidateData(
       "공식 안내를 바탕으로 계좌 역할을 설명합니다.",
       [webCandidate],
     ));
 
     expect(saved.contents[0]?.document?.metadata?.approvalEvidence).toMatchObject({
-      status: "needs_review",
-      sources: [{
-        sourceId: "web-source-1",
-        url: "https://www.fsc.go.kr/po010101/74600?curPage=169",
-        title: "금융위원회 공식 안내",
-        publisher: "금융위원회",
-        verified: false,
-      }],
+      status: "missing",
+      sources: [],
     });
   });
 

@@ -130,6 +130,7 @@ describe("AIWorkflow canonical editorial context", () => {
         url: "https://www.nga.gov/artworks/1167-portrait-man",
         title: "Portrait of a Man",
         excerpt: "Official artwork record",
+        provenance: "citation",
       }],
     };
 
@@ -145,7 +146,9 @@ describe("AIWorkflow canonical editorial context", () => {
         publisher: "nga.gov",
         sourceType: "official_archive",
         verified: false,
-        selected: false,
+        cited: true,
+        selected: true,
+        facts: [{ field: "citedContext", value: "Official artwork record" }],
       }],
     });
   });

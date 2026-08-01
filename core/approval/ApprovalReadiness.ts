@@ -1,5 +1,5 @@
 import type { ContentDocument } from "../content/ContentDocument";
-import type { ApprovalPreparationIssue } from "./ApprovalPolicy";
+import { evaluateApprovalPreparationText, type ApprovalPreparationIssue } from "./ApprovalPolicy";
 
 export const approvalReadinessCheckKeys = [
   "standard_quality",
@@ -50,6 +50,7 @@ export type ApprovalEvidenceSource = Readonly<{
   contentType?: string;
   official?: boolean;
   selected?: boolean;
+  cited?: boolean;
   verificationStatus?: ApprovalEvidenceVerificationStatus;
   failureReason?: string;
   matchedFacts?: readonly ApprovalEvidenceFact[];
@@ -65,6 +66,9 @@ export type ApprovalEvidencePack = Readonly<{
   status: "verified" | "needs_review" | "missing";
   reviewedAt?: string;
   reviewedRevisionId?: string;
+  requiredFactFields?: readonly string[];
+  verifiedFactFields?: readonly string[];
+  unverifiedFactFields?: readonly string[];
   sources: readonly ApprovalEvidenceSource[];
 }>;
 
@@ -108,6 +112,41 @@ export type ApprovalReadinessReport = Readonly<{
   applicationReady: boolean;
   checks: readonly ApprovalReadinessCheck[];
 }>;
+
+export type ApprovalDraftIntegrity = Readonly<{
+  passed: boolean;
+  reasons: readonly string[];
+}>;
+
+export function evaluateApprovalDraftIntegrity(document: ContentDocument): ApprovalDraftIntegrity {
+  if (!document.metadata?.approvalPolicy) {
+    return Object.freeze({ passed: true, reasons: Object.freeze([]) });
+  }
+  const issues = evaluateApprovalPreparationText(
+    documentText(document),
+    document.metadata.approvalPolicy,
+  );
+  const readiness = evaluateApprovalReadiness(document, issues, true);
+  const requiredKeys = new Set<ApprovalReadinessCheckKey>([
+    "approval_policy",
+    "evidence",
+    "duplicate",
+  ]);
+  const failed = readiness.checks.filter((check) =>
+    requiredKeys.has(check.key) && check.status !== "passed");
+  return Object.freeze({
+    passed: failed.length === 0,
+    reasons: Object.freeze(failed.map((check) =>
+      [check.message, check.action].filter(Boolean).join(" "))),
+  });
+}
+
+export function assertApprovalDraftIntegrity(document: ContentDocument): void {
+  const result = evaluateApprovalDraftIntegrity(document);
+  if (!result.passed) {
+    throw new Error(`현재 승인 준비 원고의 사실·출처 무결성을 확인해야 외부 임시저장을 실행할 수 있습니다. ${result.reasons.join(" ")}`);
+  }
+}
 
 export function evaluateApprovalReadiness(
   document: ContentDocument,

@@ -222,7 +222,11 @@ function evaluate(s: Signals): QualityDimensionResult[] {
   const searchIntentScore = measuredSearchIntentScore;
   const singleSentenceThreshold = Math.max(2, Math.floor(s.paragraphs.length * 0.4));
   const singleSentenceExcess = Math.max(0, s.singleSentenceParagraphs - singleSentenceThreshold);
-  const imageStrategyComplete = s.images.length > 0 && s.images.every((item) => item.alt.trim().length >= 4);
+  const placedImages = s.images.filter((item) =>
+    Boolean(item.source.trim()) || isBrightComponentPurpose(item.purpose));
+  const imageStrategyComplete = s.images.length > 0
+    && placedImages.length === s.images.length
+    && s.images.every((item) => item.alt.trim().length >= 4);
   const actionableImageIssues = s.imagePromptAnalysis.issues.filter((item) => item.code !== "missing_prompt"
     && item.blockIds.every((blockId) => s.promptScoredImageIds.has(blockId)));
   const imagePromptPenalty = actionableImageIssues.reduce((sum, item) => sum + imageIssuePenalty(item), 0);
@@ -238,8 +242,8 @@ function evaluate(s: Signals): QualityDimensionResult[] {
   const placedInternalLinkCount = contextualInternalLinks.length + relatedPosts.length;
   const linkPlacementMissing = typeof candidateCount === "number" && candidateCount > 0 && placedInternalLinkCount === 0;
   const internalLinkReasons = [
-    ...(s.context.internalLinkCatalogStatus === "catalog_unavailable" ? ["Tistory 공개 글 카탈로그를 불러오지 못해 내부 링크 자동 배치를 완료하지 못했습니다."] : []),
-    ...(s.context.internalLinkCatalogStatus === "category_missing" ? ["현재 콘텐츠의 Tistory 카테고리가 확인되지 않아 내부 링크 자동 배치를 생략했습니다."] : []),
+    ...(s.context.internalLinkCatalogStatus === "catalog_unavailable" ? ["현재 발행 플랫폼의 공개 글 카탈로그를 불러오지 못해 내부 링크 자동 배치를 완료하지 못했습니다."] : []),
+    ...(s.context.internalLinkCatalogStatus === "category_missing" ? ["현재 콘텐츠의 발행 카테고리가 확인되지 않아 내부 링크 자동 배치를 생략했습니다."] : []),
     ...(linkPlacementMissing ? [`같은 카테고리에 사용할 수 있는 공개 글 ${candidateCount}개가 있지만 내부 링크가 배치되지 않았습니다.`] : []),
     ...(contextualInternalLinks.length === 0 && relatedPosts.length > 0 ? ["관련 글은 배치됐지만 본문 문맥에 연결된 내부 링크는 없습니다."] : []),
     ...(typeof candidateCount !== "number" && placedInternalLinkCount === 0 && !s.context.internalLinkCatalogStatus ? ["내부 링크 후보 가용성 정보가 없습니다."] : []),
@@ -293,7 +297,11 @@ function evaluate(s: Signals): QualityDimensionResult[] {
       [...(!s.document.blocks.length ? ["렌더링할 canonical block이 없습니다."] : []), ...(invalidHeadingOrder ? ["제목 단계가 건너뛰어 HTML 문서 구조가 올바르지 않습니다."] : []), ...(s.emptyParagraphs ? ["빈 문단 블록이 남아 있습니다."] : []), ...(s.duplicateBlockIds ? ["중복된 block id가 있어 목차·앵커 렌더링 충돌 위험이 있습니다."] : []), ...(s.invalidButtonUrls ? ["유효하지 않은 버튼 또는 링크 URL이 있습니다."] : []), ...(s.targetPolicyViolations ? ["내부·외부 링크의 target 정책이 올바르지 않습니다."] : [])], ["빈 블록, 중복 ID, 잘못된 URL과 링크 target 정책을 수정하고 제목 단계를 순서대로 정리하세요."], [{ signal: "blockCount", value: s.document.blocks.length }, { signal: "headingHierarchyValid", value: !invalidHeadingOrder }, { signal: "emptyParagraphs", value: s.emptyParagraphs }, { signal: "duplicateBlockIds", value: s.duplicateBlockIds }, { signal: "invalidButtonUrls", value: s.invalidButtonUrls }, { signal: "targetPolicyViolations", value: s.targetPolicyViolations }]),
     dimension("imageStrategy", imageStrategyScore,
       [
-        ...(imageStrategyComplete ? [] : s.images.length ? ["이미지 추천 블록의 설명 텍스트가 부족합니다."] : ["본문에 이미지 전략 블록이 없습니다."]),
+        ...(imageStrategyComplete ? [] : s.images.length
+          ? [placedImages.length < s.images.length
+            ? "추천된 이미지 블록 중 실제 source 또는 렌더 가능한 Bright 시각 요소가 배치되지 않은 항목이 있습니다."
+            : "이미지 추천 블록의 설명 텍스트가 부족합니다."]
+          : ["본문에 이미지 전략 블록이 없습니다."]),
         ...actionableImageIssues.map((item) => item.message),
       ],
       actionableImageIssues.length ? actionableImageIssues.map(imageIssueTask) : ["본문 흐름에 맞는 이미지 placeholder와 구체적인 ALT 설명을 배치하세요."],

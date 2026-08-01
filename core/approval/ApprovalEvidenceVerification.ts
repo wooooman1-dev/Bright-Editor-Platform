@@ -6,6 +6,11 @@ import type {
   ApprovalEvidenceVerificationStatus,
 } from "./ApprovalReadiness";
 import type { ApprovalPolicyProfileId } from "./ApprovalPolicy";
+import {
+  approvalFactMatchesPage,
+  extractProfileApprovalFacts,
+  requiredApprovalFactFields,
+} from "./ApprovalEvidenceClaimPolicy";
 
 export type ApprovalSourcePage = Readonly<{
   requestedUrl: string;
@@ -50,7 +55,9 @@ export function verifyApprovalEvidence(
     });
   }
 
-  const baseFacts = extractApprovalFacts(document);
+  const baseFacts = extractProfileApprovalFacts(document, profileId);
+  const requiredFactFields = requiredApprovalFactFields(document, profileId, baseFacts);
+  const verifiedFactFields = new Set<string>();
   const pagesByCanonicalUrl = new Map<string, ApprovalSourcePage>();
   for (const page of pages) {
     const requested = canonicalizeApprovalEvidenceUrl(page.requestedUrl);
@@ -146,7 +153,7 @@ export function verifyApprovalEvidence(
       baseFacts,
       extractApprovalCitationFacts(document, canonicalUrl),
     );
-    const matchedFacts = sourceFacts.filter((fact) => pageContainsFact(page, fact));
+    const matchedFacts = sourceFacts.filter((fact) => approvalFactMatchesPage(page, fact));
     const matchedValues = new Set(matchedFacts.map((fact) => canonicalFactValue(fact.value)));
     if (matchedValues.size < 2) {
       const reason = `${source.url}: 원고의 서로 다른 작품·제도 사실 2개 이상과 공식 페이지의 일치를 확인하지 못했습니다.`;
@@ -160,6 +167,7 @@ export function verifyApprovalEvidence(
     }
 
     verifiedSourceCount += 1;
+    for (const fact of matchedFacts) verifiedFactFields.add(fact.field);
     return Object.freeze({
       ...source,
       title: page.title || source.title,
@@ -179,18 +187,27 @@ export function verifyApprovalEvidence(
     } satisfies ApprovalEvidenceSource);
   });
 
-  const verified = verifiedSourceCount > 0;
+  const unverifiedFactFields = requiredFactFields.filter((field) => !verifiedFactFields.has(field));
+  if (unverifiedFactFields.length) {
+    reasons.push(`핵심 Claim 검증이 완료되지 않았습니다: ${unverifiedFactFields.join(", ")}`);
+  }
+  const verified = verifiedSourceCount > 0 && unverifiedFactFields.length === 0;
   const pack: ApprovalEvidencePack = Object.freeze({
     version: "1.0",
     status: verified ? "verified" : "needs_review",
     ...(verified ? { reviewedAt } : {}),
+    requiredFactFields: Object.freeze([...requiredFactFields]),
+    verifiedFactFields: Object.freeze([...verifiedFactFields]),
+    unverifiedFactFields: Object.freeze(unverifiedFactFields),
     sources: Object.freeze(sources),
   });
 
   return Object.freeze({
     pack,
     verifiedSourceCount,
-    rejectedSourceCount: sources.length - verifiedSourceCount,
+    rejectedSourceCount: sources.filter((source) =>
+      !source.verified
+      && source.verificationStatus !== "excluded").length,
     reasons: Object.freeze(reasons),
   });
 }
@@ -336,10 +353,6 @@ function isSupportedHtmlPage(page: ApprovalSourcePage): boolean {
   return /(?:text\/html|application\/xhtml\+xml)/i.test(page.contentType);
 }
 
-function pageContainsFact(page: ApprovalSourcePage, fact: ApprovalEvidenceFact): boolean {
-  const haystack = normalizeFact(`${page.title} ${page.publisher} ${page.text}`);
-  return factVariants(fact.value).some((needle) => needle.length >= 3 && haystack.includes(needle));
-}
 
 function factVariants(value: string): readonly string[] {
   const raw = value.normalize("NFKC");

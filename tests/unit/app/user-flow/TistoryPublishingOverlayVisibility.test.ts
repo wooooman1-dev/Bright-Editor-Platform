@@ -59,7 +59,8 @@ describe("Tistory publishing overlay visibility", () => {
 
   it("gates Tistory data loading, rendering, preview, and scheduling together", () => {
     expect(editorSource).toContain("if (!tistoryEnabled) return;");
-    expect(editorSource).toContain("if (!tistoryEnabled || !content.document) return;");
+    expect(editorSource).toContain("if (!activePlatform || !content.document) return;");
+    expect(editorSource).toContain('action: "render-platform"');
     expect(editorSource).toContain('{tistoryEnabled ? <><section className="mt-6');
     expect(editorSource).toContain("candidates={publicPostCatalogEnabled ? postCandidates : []}");
   });

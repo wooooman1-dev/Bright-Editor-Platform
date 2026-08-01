@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import type { UserData } from "../../user-flow/user-data";
+import { assertApprovalDraftIntegrity } from "../../../core/approval";
 import { PlatformConnectionService } from "../../../core/connections";
 import { contentRevisionId, PublishingGate, QualityEngine } from "../../../core/quality";
 import { classifyTistoryDraftOutcome } from "../../../apps/tistory/workflows/TistoryDraftOutcome";
@@ -48,6 +49,7 @@ export async function POST(request: Request) {
     new PublishingGate().assertReady(content.quality, revisionId, content.document);
     const quality = new QualityEngine().review(content.document, { contentType: content.contentType, platform: "tistory", primaryKeyword: content.primaryKeyword, searchIntent: content.searchIntent, revisionId });
     new PublishingGate().assertReady(quality, revisionId, content.document);
+    assertApprovalDraftIntegrity(content.document);
     const connection = await connectionRepository.findById(connectionId);
     if (!connection) throw new Error("발행 계정을 찾을 수 없습니다.");
     const targets = targetRepository.listByProject ? await targetRepository.listByProject(projectId) : [];

@@ -1,4 +1,5 @@
 import type { PlatformConnection } from "../../../core/connections";
+import { evaluateApprovalDraftIntegrity } from "../../../core/approval";
 import { contentRevisionId, PublishingGate } from "../../../core/quality";
 import { PublishingPermissionGate } from "../../../core/publishing";
 import type { WordPressCategoryListResult } from "../../../apps/wordpress";
@@ -69,6 +70,9 @@ export function calculateWordPressDraftReadiness(input: Readonly<{
     : invalidCategorySelection();
   const categoriesReady = !input.categoryResult.hasMore && categorySelection.valid;
   const qualityReady = standardQualityReady(content);
+  const approvalIntegrity = content.document
+    ? evaluateApprovalDraftIntegrity(content.document)
+    : Object.freeze({ passed: false, reasons: Object.freeze(["기준 원고가 없습니다."]) });
   const policy = resolveWorkspaceSettings(data).publishing;
   const localImageCount = content.document?.blocks.filter((block) => block.type === "image"
     && /^\/api\/media\//i.test(block.source)).length ?? 0;
@@ -105,6 +109,9 @@ export function calculateWordPressDraftReadiness(input: Readonly<{
     check("quality_revision", qualityReady,
       "현재 문서 버전의 기본 품질 승인을 확인했습니다.",
       "현재 문서 버전이 기본 품질 승인을 통과해야 합니다."),
+    check("approval_article_integrity", approvalIntegrity.passed,
+      "현재 승인 준비 원고의 정책·핵심 Claim·공식 출처·중복 무결성을 확인했습니다.",
+      approvalIntegrity.reasons.join(" ") || "현재 승인 준비 원고의 사실·출처 검증이 필요합니다."),
     check("review_first", policy.reviewFirst,
       "검토 후 저장 정책이 활성화되어 있습니다.",
       "검토 후 저장 정책이 활성화되어 있어야 합니다."),

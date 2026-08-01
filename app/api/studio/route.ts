@@ -11,6 +11,7 @@ import { contentDocumentAIContext, EditorialQualityPipeline } from "../../applic
 import { ContentPlanningStrategy, createManualPlanningResult, projectStrategyAIContext } from "../../application/ContentPlanningStrategy";
 import { approvalAwareInstruction, contentEditorialContext, preserveContentApprovalPolicy } from "../../application/approval/ApprovalRuntimePolicy";
 import { TistoryPublishingAdapter } from "../../../apps/tistory/publishing/TistoryPublishingAdapter";
+import { WordPressHtmlRenderer } from "../../../apps/wordpress/WordPressHtmlRenderer";
 import { analyzeLongFormDocument, applyContentDepthPolicy, applyContentOpportunityPolicy, calculateContentMetrics, contentOpportunityKeywords, deriveContentTags, detectContentOpportunitySelectionMode, ensureSeoKeywordPlacement, LongFormValidationError, requiresLongFormValidation, restoreProtectedImageAssets, restoreVerifiedEditorialLinks, type ConfirmedContentOpportunity, type ContentDocument, type LongFormDiagnostic } from "../../../core/content";
 import { ContentDeletionService } from "../../application/content/ContentDeletionService";
 import { applyCanonicalDocument, completeContentGeneration, completeContentPlanning, failContentPlanning, resolveProjectStrategy, startContentPlanning, updateContent, type UserData } from "../../user-flow/user-data";
@@ -422,13 +423,28 @@ Quality tasks: ${JSON.stringify(currentQuality.tasks)}
       await studioStore.set(collection, stateId, result.data);
       return NextResponse.json(result);
     }
-    if (body.action === "render-tistory") {
+    if (body.action === "render-platform" || body.action === "render-tistory") {
       const data = await ownedWorkspace(required(body.input?.workspaceId));
       const contentId = required(body.input?.contentId);
       const content = data.contents.find((item) => item.id === contentId && item.workspaceId === data.workspace!.id);
       if (!content?.document) throw new Error("Canonical content was not found.");
-      const prepared = await new TistoryPublishingAdapter().prepare({ content: content.document, platform: "tistory" });
-      return NextResponse.json({ html: prepared.payload.html, revisionId: contentRevisionId(content.document) });
+      const requestedPlatform = body.action === "render-tistory"
+        ? "tistory"
+        : required(body.input?.platform);
+      if (requestedPlatform !== "tistory" && requestedPlatform !== "wordpress") {
+        throw new Error("지원하지 않는 Preview 플랫폼입니다.");
+      }
+      const html = requestedPlatform === "wordpress"
+        ? new WordPressHtmlRenderer().render(content.document)
+        : (await new TistoryPublishingAdapter().prepare({
+            content: content.document,
+            platform: "tistory",
+          })).payload.html;
+      return NextResponse.json({
+        html,
+        platform: requestedPlatform,
+        revisionId: contentRevisionId(content.document),
+      });
     }
     if (body.action === "prepare-tistory") {
       const data = await ownedWorkspace(required(body.input?.workspaceId));

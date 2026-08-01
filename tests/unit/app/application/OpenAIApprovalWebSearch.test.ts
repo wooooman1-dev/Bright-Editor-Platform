@@ -75,6 +75,7 @@ describe("OpenAI approval web search", () => {
         url: "https://www.gov.kr/portal/service/serviceInfo/test",
         title: "정부24 공식 안내",
         excerpt: "공식 신청 대상과 기준",
+        provenance: "citation",
       },
     ]);
   });

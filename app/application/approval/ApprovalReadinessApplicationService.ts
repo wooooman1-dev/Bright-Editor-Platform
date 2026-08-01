@@ -390,25 +390,47 @@ function upsertVerifiedSourceSection(
 ): ContentDocument {
   const reviewedAt = pack!.reviewedAt!;
   const date = reviewedAt.slice(0, 10);
-  const sources = pack!.sources
-    .filter((source) => source.verified)
-    .map((source) => `${source.title} (${source.url})`)
-    .join(" · ");
-  const blocks = document.blocks.filter((block) => !generatedSourceBlockIds.has(block.id));
+  const verifiedSources = pack!.sources.filter((source) => source.verified);
+  const clean = removeGeneratedSourceSection(document);
   return {
-    ...document,
+    ...clean,
     blocks: Object.freeze([
-      ...blocks,
+      ...clean.blocks,
       Object.freeze({ id: "approval-sources-heading", type: "heading" as const, level: 2 as const, text: "공식 출처와 검토 기준" }),
-      Object.freeze({ id: "approval-sources-summary", type: "paragraph" as const, text: `주요 출처: ${sources}` }),
+      ...verifiedSources.map((source, index) => Object.freeze({
+        id: `approval-source-link-${index + 1}`,
+        type: "button" as const,
+        purpose: "source" as const,
+        label: source.publisher && source.publisher !== source.title
+          ? `${source.title} · ${source.publisher}`
+          : source.title,
+        targetUrl: source.canonicalUrl ?? source.url,
+        target: "_blank" as const,
+      })),
       Object.freeze({ id: "approval-review-date", type: "paragraph" as const, text: `정보 기준일: ${date} · 최종 검토일: ${date}` }),
     ]),
   };
 }
 
 function removeGeneratedSourceSection(document: ContentDocument): ContentDocument {
-  const blocks = document.blocks.filter((block) => !generatedSourceBlockIds.has(block.id));
-  return blocks.length === document.blocks.length ? document : { ...document, blocks: Object.freeze(blocks) };
+  const blocks: ContentDocument["blocks"][number][] = [];
+  let skippingSourceSection = false;
+  for (const block of document.blocks) {
+    const sourceHeading = block.type === "heading"
+      && /^(?:공식\s*(?:확인처|출처)|출처|참고\s*자료)(?:와|및|·|\s)*(?:정보\s*기준일|검토\s*기준|최종\s*검토일|자료)?/u.test(block.text.trim());
+    if (sourceHeading) {
+      skippingSourceSection = true;
+      continue;
+    }
+    if (skippingSourceSection && block.type === "heading") skippingSourceSection = false;
+    if (skippingSourceSection) continue;
+    if (generatedSourceBlockIds.has(block.id) || block.id.startsWith("approval-source-link-")) continue;
+    if (block.type === "button" && block.purpose === "source") continue;
+    blocks.push(block);
+  }
+  return blocks.length === document.blocks.length
+    ? document
+    : { ...document, blocks: Object.freeze(blocks) };
 }
 
 function siteIdentityTerms(

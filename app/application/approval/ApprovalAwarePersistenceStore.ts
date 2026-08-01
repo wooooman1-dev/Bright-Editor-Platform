@@ -95,7 +95,11 @@ export function applyApprovalPersistencePolicy(
   for (const content of candidate.contents) {
     const previous = previousById.get(content.id);
     if (previous) {
-      next = preserveExistingSnapshot(next, previous, content);
+      if (publishingContextFingerprint(previous) !== publishingContextFingerprint(content)) {
+        next = invalidatePublishingContextDependentState(next, content.id);
+      } else {
+        next = preserveExistingSnapshot(next, previous, content);
+      }
       continue;
     }
     if (content.planningWorkflow) {
@@ -243,8 +247,13 @@ function mergeApprovalEvidenceCandidatePack(
 ): ApprovalEvidencePack {
   const sources = new Map<string, ApprovalEvidenceSource>();
 
+  const visibleUrls = new Set(visibleCandidates.map((candidate) => candidate.url));
   for (const source of existing?.sources ?? []) {
     const url = normalizeSourceUrl(source.url);
+    const cited = source.cited === true
+      || source.selected === true
+      || source.facts.some((fact) => fact.field === "citedContext");
+    if (!url || (!cited && !visibleUrls.has(url))) continue;
     if (!url || sources.has(url)) continue;
     sources.set(url, resetEvidenceCandidate(source, url));
   }
@@ -265,7 +274,8 @@ function mergeApprovalEvidenceCandidatePack(
       sourceType: previous?.sourceType ?? defaultSourceType,
       retrievedAt: previous?.retrievedAt ?? retrievedAt,
       verified: false,
-      selected: false,
+      cited: true,
+      selected: true,
       facts: Object.freeze([
         ...previousFacts,
         Object.freeze({ field: "citedContext", value: candidate.context }),
@@ -297,7 +307,7 @@ function resetEvidenceCandidate(
     url,
     canonicalUrl: url,
     verified: false,
-    selected: false,
+    selected: source.cited === true || source.selected === true,
     verificationStatus: undefined,
     failureReason: undefined,
     matchedFacts: undefined,
@@ -414,6 +424,60 @@ function sameDuplicateSnapshot(
   right: ApprovalDuplicateCheckSnapshot,
 ): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function publishingContextFingerprint(content: UserContent): string {
+  const wordpress = content.publishingPreparation?.wordpress;
+  const tistory = content.publishingPreparation?.tistory;
+  return JSON.stringify({
+    platform: content.platform ?? "",
+    publishingAccountId: content.publishingAccountId ?? "",
+    wordpress: wordpress
+      ? {
+          account: wordpress.publishingAccountId,
+          categoryIds: [...wordpress.categoryIds].sort(),
+          categoryNames: [...wordpress.categoryNames].sort(),
+        }
+      : null,
+    tistory: tistory
+      ? {
+          account: tistory.publishingAccountId,
+          categoryId: tistory.platformCategoryId,
+          categoryName: tistory.platformCategoryName,
+        }
+      : null,
+  });
+}
+
+function invalidatePublishingContextDependentState(
+  data: UserData,
+  contentId: string,
+): UserData {
+  return {
+    ...data,
+    contents: data.contents.map((content) => {
+      if (content.id !== contentId || !content.document?.metadata) return content;
+      const metadata = { ...content.document.metadata };
+      Reflect.deleteProperty(metadata as Record<string, unknown>, "availableRelatedContentCandidates");
+      Reflect.deleteProperty(metadata as Record<string, unknown>, "internalLinkCatalogStatus");
+      Reflect.deleteProperty(metadata as Record<string, unknown>, "siteApprovalReadiness");
+      const blocks = content.document.blocks.filter((block) =>
+        !(block.type === "button"
+          && (block.purpose === "internal_link" || block.purpose === "related_post")
+          && Boolean(block.sourceExternalPostId)));
+      return {
+        ...content,
+        status: "draft",
+        quality: undefined,
+        document: {
+          ...content.document,
+          metadata,
+          blocks: Object.freeze(blocks),
+        },
+      };
+    }),
+    qualityReports: (data.qualityReports ?? []).filter((item) => item.contentId !== contentId),
+  };
 }
 
 function omitApprovalSnapshot(content: ApprovalAwareContent): Partial<ApprovalAwareContent> {

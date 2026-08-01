@@ -104,7 +104,10 @@ describe("QualityEngine dimension scoring", () => {
       { id: "internal", type: "button", purpose: "internal_link", label: "관련 글", targetUrl: "https://bright-health.tistory.com/entry/related" },
     ] };
     const report = new QualityEngine().review(recommended, { primaryKeyword: "추천", searchIntent: "추천" });
-    expect(report.dimensions.find((item) => item.category === "imageStrategy")).toMatchObject({ score: 94 });
+    expect(report.dimensions.find((item) => item.category === "imageStrategy")).toMatchObject({ score: 58, status: "needs_improvement" });
+    expect(report.dimensions.find((item) => item.category === "imageStrategy")?.reasons).toContain(
+      "추천된 이미지 블록 중 실제 source 또는 렌더 가능한 Bright 시각 요소가 배치되지 않은 항목이 있습니다.",
+    );
     expect(report.dimensions.find((item) => item.category === "internalLinks")?.evidence).toContainEqual({ signal: "placedContextualInternalLinks", value: 1 });
     expect(report.dimensions.find((item) => item.category === "cta")).toMatchObject({ score: 100, status: "ready", evaluation: "not_evaluated" });
     expect(report.dimensions.find((item) => item.category === "cta")?.evidence).toContainEqual({ signal: "scoringExcluded", value: true });
@@ -239,7 +242,7 @@ describe("QualityEngine dimension scoring", () => {
     const base = structured();
     const filler = "독자가 실천할 수 있는 기준과 확인 순서를 구체적으로 설명합니다. 결과를 기록하고 비교하면 상황에 맞게 방법을 조정할 수 있습니다. ";
     const rawBlocks: ContentDocument["blocks"] = [
-      ...base.blocks.filter((block) => block.type !== "button").flatMap((block) => block.type === "paragraph" && block.text.length > 500 ? [{ ...block, id: `${block.id}-a`, text: block.text.slice(0, Math.ceil(block.text.length / 2)) }, { ...block, id: `${block.id}-b`, text: block.text.slice(Math.ceil(block.text.length / 2)) }] : [block]).map((block) => block.type === "image" ? { ...block, source: "" } : block),
+      ...base.blocks.filter((block) => block.type !== "button").flatMap((block) => block.type === "paragraph" && block.text.length > 500 ? [{ ...block, id: `${block.id}-a`, text: block.text.slice(0, Math.ceil(block.text.length / 2)) }, { ...block, id: `${block.id}-b`, text: block.text.slice(Math.ceil(block.text.length / 2)) }] : [block]).map((block) => block.type === "image" ? { ...block, source: "", purpose: "infographic" as const } : block),
       { id: "h-extra", type: "heading", level: 2, text: "상황별 조정 기준" },
       ...Array.from({ length: 10 }, (_, index) => ({ id: `filler-${index}`, type: "paragraph" as const, text: `${index + 1}번째 확인 항목에서는 조건을 구분합니다. ${filler.repeat(3)}` })),
       { id: "internal", type: "button", purpose: "internal_link", label: "건강 기록", targetUrl: "https://bright-health.tistory.com/entry/health-log" },

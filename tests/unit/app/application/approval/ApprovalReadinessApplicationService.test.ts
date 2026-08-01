@@ -165,8 +165,11 @@ describe("ApprovalReadinessApplicationService", () => {
       text: "정보 기준일: 2026-07-27 · 최종 검토일: 2026-07-27",
     }));
     expect(result.document.blocks).toContainEqual(expect.objectContaining({
-      id: "approval-sources-summary",
-      text: expect.stringContaining(sourceUrl),
+      id: "approval-source-link-1",
+      type: "button",
+      purpose: "source",
+      targetUrl: sourceUrl,
+      target: "_blank",
     }));
     expect(approvalQuality.approvalReadiness?.checks).toContainEqual(expect.objectContaining({ key: "evidence", status: "passed" }));
     expect(approvalQuality.approvalReadiness?.checks).toContainEqual(expect.objectContaining({ key: "site_readiness", status: "passed" }));

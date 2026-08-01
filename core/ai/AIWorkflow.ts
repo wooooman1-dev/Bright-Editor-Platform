@@ -229,6 +229,7 @@ function approvalEvidenceCandidates(
 ): readonly ApprovalEvidenceSource[] {
   const candidates = new Map<string, ApprovalEvidenceSource>();
   for (const source of webSources) {
+    if (source.provenance === "search_candidate") continue;
     const url = canonicalizeApprovalEvidenceUrl(source.url);
     if (!url.startsWith("https://") || candidates.has(url)) continue;
     const publisher = sourcePublisher(url);
@@ -243,8 +244,11 @@ function approvalEvidenceCandidates(
         : "official_institution",
       retrievedAt,
       verified: false,
-      facts: Object.freeze([]),
-      selected: false,
+      facts: Object.freeze(source.excerpt
+        ? [Object.freeze({ field: "citedContext", value: source.excerpt })]
+        : []),
+      cited: true,
+      selected: true,
     }));
   }
   return Object.freeze([...candidates.values()]);

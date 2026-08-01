@@ -6,7 +6,7 @@ import { ContentNormalizer, createContentOutline, type ContentBlock, type Conten
 import { brightBodyVisualContent, ensureFreeBodyVisuals, isFreeBodyVisualBlock } from "../../core/media";
 import { ImageBlockEditor } from "./ImageBlockEditor";
 
-type ButtonPurpose = "cta" | "internal_link" | "monetization" | "related_post";
+type ButtonPurpose = "cta" | "internal_link" | "monetization" | "related_post" | "source";
 
 export function ContentDocumentEditor({
   document: inputDocument,
@@ -202,7 +202,7 @@ function ButtonEditor({ block, disabled, onChange }: { block: Extract<ContentBlo
   if (!editing) return <button className={`block w-full rounded-xl p-4 text-left ${value.purpose === "related_post" ? "bg-sky-50" : value.purpose === "internal_link" ? "border border-sky-100 bg-white" : value.purpose === "monetization" ? "bg-violet-50" : "bg-[#fff0f0]"}`} onClick={() => setEditing(true)} type="button"><span className="block text-xs font-semibold text-[#77777f]">{purposeLabel(value.purpose ?? "cta")}{value.targetUrl ? "" : " · 링크 입력 필요"}</span><span className={`${value.purpose === "cta" || value.purpose === "monetization" ? "mt-2 inline-flex rounded-lg bg-[#ff6b6b] px-5 py-3 font-semibold text-white" : "mt-1 block font-semibold text-sky-900"}`}>{value.label || "버튼 문구 입력"}</span></button>;
   return <div className={`rounded-xl p-4 ${value.purpose === "monetization" ? "bg-violet-50" : value.purpose === "related_post" ? "bg-sky-50" : "bg-[#fff0f0]"}`}>
     <div className="grid gap-3 sm:grid-cols-2">
-      <Field label="유형"><select className="input" onChange={(event) => setValue({ ...value, purpose: event.target.value as ButtonPurpose, target: event.target.value === "monetization" ? "_blank" : "_self" })} value={value.purpose ?? "cta"}><option value="cta">CTA</option><option value="internal_link">내부 링크</option><option value="monetization">수익 링크</option><option value="related_post">관련 글</option></select></Field>
+      <Field label="유형"><select className="input" onChange={(event) => setValue({ ...value, purpose: event.target.value as ButtonPurpose, target: event.target.value === "monetization" ? "_blank" : "_self" })} value={value.purpose ?? "cta"}><option value="cta">CTA</option><option value="internal_link">내부 링크</option><option value="monetization">수익 링크</option><option value="related_post">관련 글</option><option value="source">공식 출처</option></select></Field>
       <Field label="열기 방식"><select className="input" onChange={(event) => setValue({ ...value, target: event.target.value as "_self" | "_blank" })} value={value.target ?? "_self"}><option value="_self">현재 창</option><option value="_blank">새 창</option></select></Field>
       <Field label="버튼 문구"><input className="input" onChange={(event) => setValue({ ...value, label: event.target.value })} value={value.label} /></Field>
       <Field label={`URL ${value.targetUrl ? "" : "· 입력 필요"}`}><input className="input" onChange={(event) => setValue({ ...value, targetUrl: event.target.value })} value={value.targetUrl} /></Field>
@@ -220,4 +220,4 @@ function RelatedPosts({ candidates, current, disabled, onAdd }: { candidates: re
 
 function Field({ label, children }: { label: string; children: ReactNode }) { return <label className="text-sm font-semibold">{label}{children}</label>; }
 function blockLabel(block: ContentBlock) { if (block.type === "heading") return `H${block.level}`; if (block.type === "paragraph") return "문단"; if (block.type === "table") return "표"; if (block.type === "image") return block.source ? "이미지" : isFreeBodyVisualBlock(block) ? "무료 시각 카드" : "추천 이미지"; if (block.type === "button") return purposeLabel(block.purpose ?? "cta"); return "비디오"; }
-function purposeLabel(value: ButtonPurpose) { return ({ cta: "CTA", internal_link: "내부 링크", monetization: "수익 링크", related_post: "관련 글" })[value]; }
+function purposeLabel(value: ButtonPurpose) { return ({ cta: "CTA", internal_link: "내부 링크", monetization: "수익 링크", related_post: "관련 글", source: "공식 출처" })[value]; }
