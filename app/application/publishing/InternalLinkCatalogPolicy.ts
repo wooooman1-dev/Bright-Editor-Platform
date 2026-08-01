@@ -131,9 +131,7 @@ export function withInternalLinkCatalogMetadata(
   return {
     ...document,
     metadata: {
-      buttonCount:
-        document.metadata?.buttonCount
-        ?? document.blocks.filter((block) => block.type === "button").length,
+      buttonCount: document.blocks.filter((block) => block.type === "button").length,
       createdAt: document.metadata?.createdAt ?? now,
       generator: document.metadata?.generator ?? "bright-studio",
       imageCount:
@@ -149,6 +147,7 @@ export function withInternalLinkCatalogMetadata(
         ?? document.blocks.filter((block) => block.type === "video").length,
       wordCount: document.metadata?.wordCount ?? metrics.wordUnits,
       ...document.metadata,
+      buttonCount: document.blocks.filter((block) => block.type === "button").length,
       updatedAt: now,
       availableRelatedContentCandidates: count,
       internalLinkCatalogStatus: status,
