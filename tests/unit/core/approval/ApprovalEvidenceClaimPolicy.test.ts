@@ -33,6 +33,21 @@ function retirementDocument(): ContentDocument {
   };
 }
 
+function depositProtectionDocument(): ContentDocument {
+  return {
+    ...retirementDocument(),
+    id: "deposit-protection-1",
+    title: "예금자보호 확인 방법",
+    blocks: [
+      { id: "p1", type: "paragraph", text: "예금자보호 대상 금융상품인지 먼저 확인합니다." },
+      { id: "p2", type: "paragraph", text: "원금과 이자를 합해 1인당 금융회사별 1억원까지 보호 한도를 확인합니다." },
+      { id: "p3", type: "paragraph", text: "예금보험공사 또는 금융회사 상품설명서에서 예금보험관계 표시를 확인합니다." },
+      { id: "p4", type: "paragraph", text: "2025년 9월 1일부터 적용되는 기준인지 확인합니다." },
+      { id: "p5", type: "paragraph", text: "예금자보호법의 적용 범위와 보호 제외 상품도 확인합니다." },
+    ],
+  };
+}
+
 describe("Approval Evidence Claim Policy", () => {
   it("extracts retirement-pay Claim fields instead of artwork-only metadata", () => {
     const document = retirementDocument();
@@ -53,6 +68,31 @@ describe("Approval Evidence Claim Policy", () => {
         "averageWage",
         "retirementPayFormula",
         "paymentDeadline",
+      ]),
+    );
+  });
+
+  it("extracts and requires the critical deposit-protection Claim fields", () => {
+    const document = depositProtectionDocument();
+    const facts = extractProfileApprovalFacts(document, "wordpress_life_economy_v1");
+    const fields = new Set(facts.map((fact) => fact.field));
+
+    expect(fields).toEqual(expect.arrayContaining([
+      "depositProtectedProducts",
+      "depositProtectionLimit",
+      "depositProtectionUnit",
+      "depositProtectionCheckPath",
+      "depositProtectionEffectiveDate",
+      "depositProtectionStatutoryBasis",
+    ]));
+    expect(requiredApprovalFactFields(document, "wordpress_life_economy_v1", facts)).toEqual(
+      expect.arrayContaining([
+        "depositProtectedProducts",
+        "depositProtectionLimit",
+        "depositProtectionUnit",
+        "depositProtectionCheckPath",
+        "depositProtectionEffectiveDate",
+        "depositProtectionStatutoryBasis",
       ]),
     );
   });
