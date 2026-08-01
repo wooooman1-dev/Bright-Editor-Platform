@@ -82,7 +82,7 @@ export class ContentPlanningStrategy {
       instruction: `Analyze this content request as an editorial strategist. Do not write the final content. ${modeInstruction}
 Request: ${request}
 Project strategy: ${context.projectContext ?? "Use only the request and supplied project context."}
-Project-owned labels that are identity, not default search keywords: ${JSON.stringify(ownedBrandTerms)}. Do not prefix selectedTopic or primaryKeyword with these labels unless the user's request explicitly makes that label the search subject. Keep third-party product, institution, and service names when they are genuinely part of the search task.
+Project-owned labels that are identity, not default search keywords: ${JSON.stringify(ownedBrandTerms)}. Do not use these labels as the complete selectedTopic or primaryKeyword, and do not prefix selectedTopic or primaryKeyword with them unless the user's request explicitly makes that label the search subject. Keep third-party product, institution, and service names when they are genuinely part of the search task.
 Existing content to avoid duplicating: ${(context.existingContent ?? []).join(" | ") || "none supplied"}
 Server-verified Evidence bundle (read-only; never invent, alter, or add IDs/providers/metrics): ${JSON.stringify((context.evidenceBundle ?? []).map((value) => ({ evidenceId: value.evidenceId, provider: value.provider, evidenceType: value.evidenceType, metric: value.metric, keyword: value.keyword, topic: value.topic, pageUrl: value.pageUrl, periodStart: value.periodStart, periodEnd: value.periodEnd, freshness: value.freshness, verified: value.verified, value: value.value, unit: value.unit, relativeValue: value.relativeValue, changeRate: value.changeRate, limitations: value.limitations })))}
 Enabled publishing platforms: ${enabledPlatforms ? (enabledPlatforms.join(", ") || "none") : "not restricted"}. ${enabledPlatforms ? "Recommend platforms only from this list." : ""}
@@ -162,7 +162,9 @@ export function parsePlanningResult(
   const preserveRequestedOwnedTerms = context.selectionMode === "userSpecified";
   const normalizedBase = Object.freeze({
     ...base,
-    suggestedTitleAngles: Object.freeze(base.suggestedTitleAngles.map((title) => stripUnrequestedOwnedPrefix(title, sourceRequest, ownedBrandTerms, preserveRequestedOwnedTerms))),
+    suggestedTitleAngles: Object.freeze(base.suggestedTitleAngles
+      .map((title) => stripUnrequestedOwnedPrefix(title, sourceRequest, ownedBrandTerms, preserveRequestedOwnedTerms))
+      .filter(Boolean)),
   });
   const candidates = parseOpportunityCandidates(value.opportunityCandidates, {
     sourceRequest,
@@ -197,7 +199,8 @@ export function parsePlanningResult(
     projectId: context.projectId,
   });
   const legacyKeywords = list(value.keywordCandidates, [rawKeyword])
-    .map((candidateKeyword) => normalizePlanningPrimaryKeyword(candidateKeyword, selectedTopic, sourceRequest, ownedBrandTerms, preserveRequestedOwnedTerms));
+    .map((candidateKeyword) => normalizePlanningPrimaryKeyword(candidateKeyword, selectedTopic, sourceRequest, ownedBrandTerms, preserveRequestedOwnedTerms))
+    .filter(Boolean);
   return fromCandidates(normalizedBase, [legacyCandidate], context.selectionMode, legacyKeywords);
 }
 
@@ -218,6 +221,7 @@ function parseOpportunityCandidates(
         context.ownedBrandTerms,
         context.preserveRequestedOwnedTerms,
       );
+      if (!selectedTopic || !primaryKeyword) return [];
       const searchIntent = text(value.searchIntent, "opportunity.searchIntent");
       const audience = text(value.audience, "opportunity.audience");
       const contentType = text(value.contentType, "opportunity.contentType");
@@ -305,8 +309,8 @@ export function normalizePlanningPrimaryKeyword(
   preserveRequestedOwnedTerms = true,
 ): string {
   const original = normalizedPhrase(primaryKeyword);
-  const stripped = stripUnrequestedOwnedPrefix(original, sourceRequest, ownedBrandTerms, preserveRequestedOwnedTerms);
-  const keyword = stripped || original;
+  const keyword = stripUnrequestedOwnedPrefix(original, sourceRequest, ownedBrandTerms, preserveRequestedOwnedTerms);
+  if (!keyword) return "";
   const topic = stripUnrequestedOwnedPrefix(selectedTopic, sourceRequest, ownedBrandTerms, preserveRequestedOwnedTerms);
   const keywordTokens = normalizedPhrase(keyword).split(/\s+/).filter(Boolean);
   const topicTokens = normalizedPhrase(topic).split(/\s+/).filter(Boolean);
@@ -349,9 +353,14 @@ function stripUnrequestedOwnedPrefix(
   for (const rawTerm of ownedBrandTerms) {
     const term = normalizedPhrase(rawTerm);
     if (!term || (preserveRequestedOwnedTerms && request.includes(term.toLocaleLowerCase("ko-KR")))) continue;
+    if (result.toLocaleLowerCase("ko-KR") === term.toLocaleLowerCase("ko-KR")) {
+      result = "";
+      break;
+    }
     const pattern = new RegExp(`^${escapeRegExp(term)}(?:\\s+|\\s*[-–—:|·]\\s*)`, "iu");
     const next = result.replace(pattern, "").trim();
-    if (next) result = next;
+    if (next !== result) result = next;
+    if (!result) break;
   }
   return result;
 }
