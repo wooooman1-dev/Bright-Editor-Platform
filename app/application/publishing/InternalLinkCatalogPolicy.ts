@@ -44,6 +44,18 @@ export function publishingCategoryNames(content: UserContent): readonly string[]
   ]);
 }
 
+export function removeAutoPlacedPublishingLinks(
+  document: ContentDocument,
+): ContentDocument {
+  const blocks = document.blocks.filter((block) =>
+    !(block.type === "button"
+      && (block.purpose === "internal_link" || block.purpose === "related_post")
+      && /^auto-(?:internal-link|related-post)(?:-\d+)?$/i.test(block.id)));
+  return blocks.length === document.blocks.length
+    ? document
+    : { ...document, blocks: Object.freeze(blocks) };
+}
+
 export function rankPublishingPostCandidates(
   document: ContentDocument,
   candidates: readonly PublicPostCandidate[],
@@ -52,9 +64,10 @@ export function rankPublishingPostCandidates(
   const categories = publishingCategoryIdentities(content);
   if (!categories.length) return Object.freeze([]);
 
+  const cleanDocument = removeAutoPlacedPublishingLinks(document);
   const unique = new Map<string, PublicPostCandidate>();
   for (const category of categories) {
-    const ranked = rankRelatedPosts(document, candidates, {
+    const ranked = rankRelatedPosts(cleanDocument, candidates, {
       primaryKeyword: content.primaryKeyword,
       categoryId: category.id,
       categoryName: category.name ?? undefined,
@@ -72,9 +85,10 @@ export function applyInternalLinkCatalogResult(
   ranked: readonly PublicPostCandidate[],
   status: "evaluated" | "category_missing" | "catalog_unavailable",
 ): ContentDocument {
+  const cleanDocument = removeAutoPlacedPublishingLinks(document);
   const placed = status === "evaluated"
-    ? placeRecommendedPosts(document, ranked)
-    : document;
+    ? placeRecommendedPosts(cleanDocument, ranked)
+    : cleanDocument;
   return withInternalLinkCatalogMetadata(placed, ranked.length, status);
 }
 
