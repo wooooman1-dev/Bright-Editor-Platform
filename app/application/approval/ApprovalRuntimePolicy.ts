@@ -6,6 +6,7 @@ import {
   type UserContent,
   type UserData,
 } from "../../user-flow/user-data";
+import { withApprovalGenerationTrace } from "./ApprovalGenerationTrace";
 import {
   contentBoundEditorialContext,
   resolveContentApprovalSnapshot,
@@ -64,11 +65,12 @@ export function preserveContentApprovalPolicy(
   if (!metadata) {
     throw new Error("Approval preparation content requires canonical document metadata.");
   }
-  return Object.freeze({
+  const protectedDocument = Object.freeze({
     ...document,
     metadata: Object.freeze({
       ...metadata,
       approvalPolicy,
     }),
   });
+  return withApprovalGenerationTrace(protectedDocument, content.document);
 }
