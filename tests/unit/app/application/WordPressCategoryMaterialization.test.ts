@@ -28,9 +28,11 @@ const catalog: WordPressCategoryListResult = Object.freeze({
   platform: "wordpress",
   platformConnectionId: connection.id,
   categories: Object.freeze([
-    Object.freeze({ platform: "wordpress", externalCategoryId: "12", name: "생활재테크", slug: "life", count: 3, selectable: true }),
-    Object.freeze({ platform: "wordpress", externalCategoryId: "34", name: "금융상식", slug: "finance", count: 2, selectable: true }),
+    Object.freeze({ id: "12", platform: "wordpress", externalCategoryId: "12", name: "생활재테크", slug: "life", selectable: true }),
+    Object.freeze({ id: "34", platform: "wordpress", externalCategoryId: "34", name: "금융상식", slug: "finance", selectable: true }),
   ]),
+  hasMore: false,
+  warnings: Object.freeze([]),
   retrievedAt: "2026-08-02T00:00:00.000Z",
 });
 
@@ -112,12 +114,15 @@ describe("WordPress inherited Category materialization", () => {
 
   it("leaves an invalid inherited Category unresolved instead of guessing", () => {
     const current = data();
-    current.projects[0] = {
-      ...current.projects[0],
-      strategy: { ...current.projects[0].strategy!, defaultWordPressCategories: [{ publishingAccountId: connection.id, id: "999", name: "삭제됨" }] },
+    const invalidData: UserData = {
+      ...current,
+      projects: current.projects.map((project) => project.id === "project-1" ? {
+        ...project,
+        strategy: { ...project.strategy!, defaultWordPressCategories: [{ publishingAccountId: connection.id, id: "999", name: "삭제됨" }] },
+      } : project),
     };
     const result = materializeWordPressCategorySelection({
-      data: current, projectId: "project-1", contentId: "content-1", connection, categoryResult: catalog, updatedAt: "now",
+      data: invalidData, projectId: "project-1", contentId: "content-1", connection, categoryResult: catalog, updatedAt: "now",
     });
     expect(result.applied).toBe(false);
     expect(result.selection).toMatchObject({ valid: false, reason: "invalid", invalidCategoryIds: ["999"] });
