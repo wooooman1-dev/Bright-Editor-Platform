@@ -5,3 +5,9 @@ export * from "./ApprovalEvidenceVerification";
 export * from "./ApprovalEvidenceClaimPolicy";
 export * from "./ApprovalOfficialSourcePolicy";
 export * from "./SiteApprovalReadinessAdapter";
+export {
+  approvalPolicyPromptContext,
+  assertApprovalDraftIntegrity,
+  evaluateApprovalDraftIntegrity,
+  evaluateApprovalPreparationText,
+} from "./ApprovalLegalScopePolicy";
