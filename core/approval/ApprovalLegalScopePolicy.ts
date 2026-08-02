@@ -12,9 +12,14 @@ import type {
 import type { ApprovalDraftIntegrity } from "./ApprovalReadiness";
 
 const strictDefinitionMessage = "방문판매법상 계속거래의 법정 정의와 성립 요건이 빠져 있습니다.";
+const ambiguousDatePrinciple = "정보 기준일, 최종 검토일과 공식 확인 경로를 제공한다.";
+const separatedDatePrinciple = "본문에는 정보 기준일과 공식 재확인 경로를 제공한다. 출처 확인일과 Claim 최종 검토일은 Bright Studio가 Evidence 검증 후 별도로 기록한다.";
 
 export function approvalPolicyPromptContext(snapshot: ApprovalPolicySnapshot): string {
-  const base = baseApprovalPolicyPromptContext(snapshot);
+  const base = removeConflictingDateInstruction(
+    baseApprovalPolicyPromptContext(snapshot),
+    snapshot,
+  );
   if (snapshot.profileId !== "wordpress_life_economy_v1") return base;
   return [
     base,
@@ -49,6 +54,14 @@ export function assertApprovalDraftIntegrity(document: ContentDocument): void {
   if (!result.passed) {
     throw new Error(`현재 승인 준비 원고의 사실·출처 무결성을 확인해야 외부 임시저장을 실행할 수 있습니다. ${result.reasons.join(" ")}`);
   }
+}
+
+function removeConflictingDateInstruction(
+  context: string,
+  snapshot: ApprovalPolicySnapshot,
+): string {
+  if (snapshot.profileId !== "wordpress_life_economy_v1") return context;
+  return context.replace(ambiguousDatePrinciple, separatedDatePrinciple);
 }
 
 function refineDefinitionRequirement(
