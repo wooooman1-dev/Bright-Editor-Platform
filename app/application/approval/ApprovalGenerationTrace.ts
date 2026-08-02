@@ -95,7 +95,7 @@ function documentPassages(document: ContentDocument): readonly Readonly<{ blockI
       return [{ blockId: block.id, text: block.text }];
     }
     if (block.type === "list") {
-      return [{ blockId: block.id, text: block.items.map((item) => item.text).join("\n") }];
+      return [{ blockId: block.id, text: block.items.join("\n") }];
     }
     if (block.type === "table") {
       return [{
