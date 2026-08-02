@@ -17,6 +17,7 @@ import {
   type WordPressCategoryListResult,
   type WordPressConnectionInput,
   type WordPressDraftVerification,
+  type WordPressSeoMetadata,
 } from "../../../apps/wordpress";
 import type { PlatformConnection } from "../../../core/connections";
 import type { UserContent, UserData, UserProject } from "../../user-flow/user-data";
@@ -31,6 +32,14 @@ import {
   type WordPressLocalMediaItem,
   type WordPressLocalMediaReader,
 } from "./WordPressMediaPreparation";
+import {
+  legacyWordPressContentRevisionId,
+  projectWordPressBodyDocument,
+  resolveWordPressFeaturedImageAssetId,
+  resolveWordPressSeoMetadata,
+  wordpressBodyMediaUrls,
+  wordpressDraftExecutionRevisionId,
+} from "./WordPressDraftProjection";
 import {
   InMemoryWordPressPublishingRecordRepository,
   type WordPressPublishingRecordRepository,
@@ -73,7 +82,9 @@ export type WordPressDraftExecutionInput = Readonly<{
 
 type CategoryReader = Pick<WordPressCategoryAdapter, "listAllCategories">;
 type MediaWriter = Pick<WordPressMediaAdapter, "uploadMedia" | "storeAlt" | "readMedia" | "verifyMedia">;
-type DraftWriter = Pick<WordPressDraftPublishingAdapter, "prepare" | "createDraft" | "readDraft" | "verifyDraft">;
+type DraftWriter =
+  & Pick<WordPressDraftPublishingAdapter, "prepare" | "createDraft" | "readDraft" | "verifyDraft">
+  & Partial<Pick<WordPressDraftPublishingAdapter, "capabilities">>;
 
 export type WordPressDraftApplicationDependencies = Readonly<{
   secrets: Pick<SecretStore, "readSecret">;
@@ -94,6 +105,8 @@ type PreparedExecution = Readonly<{
   categoryResult: WordPressCategoryListResult;
   mediaPlan: readonly WordPressLocalMediaItem[];
   readiness: WordPressDraftReadiness;
+  featuredImageAssetId?: string;
+  seoMetadata?: WordPressSeoMetadata;
 }>;
 
 type WordPressDraftExecutionIdentity = Readonly<{
@@ -101,13 +114,15 @@ type WordPressDraftExecutionIdentity = Readonly<{
   projectId: string;
   contentId: string;
   contentRevisionId: string;
+  executionRevisionId: string;
   platformConnectionId: string;
   idempotencyKey: string;
+  legacyIdempotencyKey: string;
 }>;
 
 type PublishingRecordUpdate = Partial<Omit<PublishingExecutionRecord,
   "id" | "idempotencyKey" | "workspaceId" | "projectId" | "contentId" | "contentRevisionId"
-  | "platformConnectionId" | "platform" | "workflow" | "schemaVersion" | "createdAt" | "updatedAt">>;
+  | "executionRevisionId" | "platformConnectionId" | "platform" | "workflow" | "schemaVersion" | "createdAt" | "updatedAt">>;
 
 export class WordPressDraftApplicationService {
   private readonly categories: CategoryReader;
@@ -140,6 +155,8 @@ export class WordPressDraftApplicationService {
     }
     const existing = await this.records.findByIdempotencyKey(identity.idempotencyKey);
     if (existing) return duplicateResult(existing);
+    const legacy = await this.records.findByIdempotencyKey(identity.legacyIdempotencyKey);
+    if (legacy) return legacyIdentityBlockedResult(identity, legacy);
 
     let prepared: PreparedExecution;
     try { prepared = await this.prepare(input); }
@@ -159,8 +176,12 @@ export class WordPressDraftApplicationService {
     record = claim.record;
 
     try {
-      const preflightArtifact = await this.drafts.prepare({ content: prepared.content.document, platform: "wordpress" });
-      const preflightIntegrity = evaluateHtmlIntegrity(prepared.content.document, preflightArtifact.payload.html);
+      const preflightDocument = projectWordPressBodyDocument(
+        prepared.content.document,
+        prepared.featuredImageAssetId,
+      );
+      const preflightArtifact = await this.drafts.prepare({ content: preflightDocument, platform: "wordpress" });
+      const preflightIntegrity = evaluateHtmlIntegrity(preflightDocument, preflightArtifact.payload.html);
       if (!preflightIntegrity.passed) {
         return this.persistedFailure(
           record,
@@ -245,13 +266,18 @@ export class WordPressDraftApplicationService {
     }
 
     let html: string;
-    let featuredImageAssetId: string | undefined;
+    let bodyMediaUrls: readonly string[] = Object.freeze([]);
     let featuredMediaId: string | undefined;
     try {
       const renderedDocument = applyWordPressMediaReplacements(prepared.content.document, uploadedMedia);
-      const renderArtifact = await this.drafts.prepare({ content: renderedDocument, platform: "wordpress" });
+      const bodyDocument = projectWordPressBodyDocument(
+        renderedDocument,
+        prepared.featuredImageAssetId,
+      );
+      const renderArtifact = await this.drafts.prepare({ content: bodyDocument, platform: "wordpress" });
       html = renderArtifact.payload.html;
-      const htmlIntegrity = evaluateHtmlIntegrity(renderedDocument, html);
+      bodyMediaUrls = wordpressBodyMediaUrls(bodyDocument);
+      const htmlIntegrity = evaluateHtmlIntegrity(bodyDocument, html);
       if (!htmlIntegrity.passed) {
         return this.persistedFailure(
           record,
@@ -263,17 +289,15 @@ export class WordPressDraftApplicationService {
           executionReadiness,
         );
       }
-      featuredImageAssetId = prepared.content.publishingPreparation?.wordpress?.publishingAccountId === input.connection.id
-        ? prepared.content.publishingPreparation.wordpress.featuredImageAssetId
-        : undefined;
-      featuredMediaId = featuredImageAssetId
-        ? uploadedMedia.find((media) => media.assetId === featuredImageAssetId && media.verified)?.externalMediaId
+      featuredMediaId = prepared.featuredImageAssetId
+        ? uploadedMedia.find((media) =>
+          media.assetId === prepared.featuredImageAssetId && media.verified)?.externalMediaId
         : undefined;
     } catch {
       return this.persistedFailure(record, identity, "draft_create", uploadedMedia,
         "DRAFT_RENDER_FAILED", "WordPress Draft rendering failed.", executionReadiness);
     }
-    if (featuredImageAssetId && !featuredMediaId) {
+    if (prepared.featuredImageAssetId && !featuredMediaId) {
       return this.persistedFailure(record, identity, "media", uploadedMedia,
         "FEATURED_IMAGE_NOT_VERIFIED", "The selected WordPress Featured Image was not verified.");
     }
@@ -291,6 +315,7 @@ export class WordPressDraftApplicationService {
           categories: categorySelection.categoryIds,
           ...(input.slug?.trim() ? { slug: input.slug.trim() } : {}),
           ...(featuredMediaId ? { featuredMediaId } : {}),
+          ...(prepared.seoMetadata ? { seoMetadata: prepared.seoMetadata } : {}),
         },
       });
       externalId = created.externalId;
@@ -325,8 +350,9 @@ export class WordPressDraftApplicationService {
         title: prepared.content.document.title,
         content: html,
         categoryIds: categorySelection.categoryIds,
-        mediaUrls: uploadedMedia.map((media) => media.sourceUrl),
+        mediaUrls: bodyMediaUrls,
         ...(featuredMediaId ? { featuredMediaId } : {}),
+        ...(prepared.seoMetadata ? { seoMetadata: prepared.seoMetadata } : {}),
       });
       if (!verification.verified) {
         record = await this.persist(record, {
@@ -376,11 +402,26 @@ export class WordPressDraftApplicationService {
       throw new Error("WordPress publishing identity could not be verified.");
     }
     const revisionId = contentRevisionId(content.document);
+    const legacyRevisionId = legacyWordPressContentRevisionId(content.document);
+    const canonicalContent = content as UserContent & Readonly<{ document: ContentDocument }>;
+    const executionRevisionId = wordpressDraftExecutionRevisionId(
+      canonicalContent,
+      input.connection.id,
+      input.slug,
+    );
+    const legacyIdempotencyKey = createDraftCreateIdempotencyKey({
+      workspaceId,
+      projectId: project.id,
+      contentId: content.id,
+      contentRevisionId: legacyRevisionId,
+      platformConnectionId: input.connection.id,
+    });
     const idempotencyKey = createDraftCreateIdempotencyKey({
       workspaceId,
       projectId: project.id,
       contentId: content.id,
       contentRevisionId: revisionId,
+      executionRevisionId,
       platformConnectionId: input.connection.id,
     });
     return Object.freeze({
@@ -388,8 +429,10 @@ export class WordPressDraftApplicationService {
       projectId: project.id,
       contentId: content.id,
       contentRevisionId: revisionId,
+      executionRevisionId,
       platformConnectionId: input.connection.id,
       idempotencyKey,
+      legacyIdempotencyKey,
     });
   }
 
@@ -404,6 +447,7 @@ export class WordPressDraftApplicationService {
       projectId: identity.projectId,
       contentId: identity.contentId,
       contentRevisionId: identity.contentRevisionId,
+      executionRevisionId: identity.executionRevisionId,
       platformConnectionId: identity.platformConnectionId,
       platform: "wordpress",
       workflow: "draft.create",
@@ -481,15 +525,33 @@ export class WordPressDraftApplicationService {
       throw new Error("WordPress category result belongs to a different connection.");
     }
     const preparation = content.publishingPreparation?.wordpress;
+    const explicitFeaturedImageAssetId = preparation?.publishingAccountId === input.connection.id
+      ? preparation.featuredImageAssetId
+      : undefined;
+    const featuredImageAssetId = resolveWordPressFeaturedImageAssetId(
+      content.document,
+      explicitFeaturedImageAssetId,
+    );
+    const canonicalContent = content as UserContent & Readonly<{ document: ContentDocument }>;
+    const seoMetadata = resolveWordPressSeoMetadata(canonicalContent);
+    if (seoMetadata) {
+      if (!this.drafts.capabilities) {
+        throw new Error("WordPress Draft SEO capability verification is unavailable.");
+      }
+      const capabilities = await this.drafts.capabilities(credentials);
+      if (!capabilities.yoastSeoMetadata) {
+        throw new Error(
+          `WordPress does not expose the required Yoast SEO metadata fields through REST: ${capabilities.writableMetaKeys.join(", ") || "none"}.`,
+        );
+      }
+    }
     const mediaPlan = await prepareWordPressLocalMedia({
       document: content.document,
       mediaAssets: input.data.mediaMetadata ?? [],
       workspaceId: input.data.workspace!.id,
       projectId: project.id,
       contentId: content.id,
-      ...(preparation?.publishingAccountId === input.connection.id && preparation.featuredImageAssetId
-        ? { featuredImageAssetId: preparation.featuredImageAssetId }
-        : {}),
+      ...(featuredImageAssetId ? { featuredImageAssetId } : {}),
       ...(this.dependencies.localMedia ? { reader: this.dependencies.localMedia } : {}),
       ...(this.dependencies.maxMediaBytes ? { maxBytes: this.dependencies.maxMediaBytes } : {}),
     });
@@ -502,14 +564,17 @@ export class WordPressDraftApplicationService {
       selectedTarget: input.selectedTarget,
       finalConfirmation: input.finalConfirmation,
       mediaValidationPassed: true,
+      ...(featuredImageAssetId ? { featuredImageAssetId } : {}),
     });
     return Object.freeze({
       project,
-      content: content as UserContent & Readonly<{ document: ContentDocument }>,
+      content: canonicalContent,
       credentials,
       categoryResult,
       mediaPlan,
       readiness,
+      ...(featuredImageAssetId ? { featuredImageAssetId } : {}),
+      ...(seoMetadata ? { seoMetadata } : {}),
     });
   }
 
@@ -540,6 +605,7 @@ export class WordPressDraftApplicationService {
       selectedTarget: input.selectedTarget,
       finalConfirmation: input.finalConfirmation,
       mediaValidationPassed: true,
+      ...(prepared.featuredImageAssetId ? { featuredImageAssetId: prepared.featuredImageAssetId } : {}),
     });
   }
 
@@ -604,6 +670,23 @@ function withIdentity(
     ...result,
     idempotencyKey: identity.idempotencyKey,
     contentRevisionId: identity.contentRevisionId,
+  });
+}
+
+function legacyIdentityBlockedResult(
+  identity: WordPressDraftExecutionIdentity,
+  record: PublishingExecutionRecord,
+): WordPressDraftExecutionResult {
+  return Object.freeze({
+    status: "failed",
+    stage: "readiness",
+    cleanupRequired: record.cleanupRequired,
+    uploadedMedia: Object.freeze([]),
+    idempotencyKey: identity.idempotencyKey,
+    contentRevisionId: identity.contentRevisionId,
+    reused: false,
+    duplicateBlocked: true,
+    error: "A legacy WordPress Draft record exists for this canonical Revision. Review the existing WordPress Draft before an explicit new-attempt workflow.",
   });
 }
 

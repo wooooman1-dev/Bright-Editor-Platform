@@ -12,9 +12,12 @@ describe("Editor content title and deletion UX", () => {
   it("shows exact primary-keyword title status and one-click correction", () => {
     expect(editorSource).toContain("<ContentSeoTitleStatus");
     expect(editorSource).toContain("primaryKeyword={content.primaryKeyword}");
-    expect(titleSource).toContain("대표 키워드가 제목에 없습니다.");
-    expect(titleSource).toContain("대표 키워드로 제목 보정");
+    expect(titleSource).toContain("대표 키워드가 SEO 제목에 없습니다.");
+    expect(titleSource).toContain("SEO 제목 보정");
     expect(titleSource).toContain("buildReadableSeoTitle(currentTitle, keyword)");
+    expect(editorSource).toContain("currentTitle={liveDocument?.metadata?.seoTitle ?? title}");
+    expect(editorSource).toContain("metadata: Object.freeze({ ...liveDocument.metadata, seoTitle })");
+    expect(editorSource).not.toContain("commitDocument({ ...liveDocument, title: seoTitle }");
   });
 
   it("synchronizes a server-corrected Quality Review document into the editor", () => {

@@ -29,6 +29,7 @@ export type PublishingExecutionRecord = Readonly<{
   projectId: string;
   contentId: string;
   contentRevisionId: string;
+  executionRevisionId?: string;
   platformConnectionId: string;
   platform: "wordpress";
   workflow: "draft.create";
@@ -64,19 +65,33 @@ export type DraftCreateIdempotencyIdentity = Readonly<{
   projectId: string;
   contentId: string;
   contentRevisionId: string;
+  executionRevisionId?: string;
   platformConnectionId: string;
 }>;
 
 export function createDraftCreateIdempotencyKey(input: DraftCreateIdempotencyIdentity): string {
+  if (!input.executionRevisionId?.trim()) {
+    const fields = [
+      input.workspaceId,
+      input.projectId,
+      input.contentId,
+      input.contentRevisionId,
+      input.platformConnectionId,
+      "draft.create",
+    ];
+    return `publishing:v1:${fields.map((value) => encodeURIComponent(value.trim())).join("|")}`;
+  }
+
   const fields = [
     input.workspaceId,
     input.projectId,
     input.contentId,
     input.contentRevisionId,
+    input.executionRevisionId,
     input.platformConnectionId,
     "draft.create",
   ];
-  return `publishing:v1:${fields.map((value) => encodeURIComponent(value.trim())).join("|")}`;
+  return `publishing:v2:${fields.map((value) => encodeURIComponent(value.trim())).join("|")}`;
 }
 
 export function isPublishingExecutionRecord(value: unknown): value is PublishingExecutionRecord {
@@ -90,6 +105,7 @@ export function isPublishingExecutionRecord(value: unknown): value is Publishing
     && typeof candidate.projectId === "string"
     && typeof candidate.contentId === "string"
     && typeof candidate.contentRevisionId === "string"
+    && (candidate.executionRevisionId === undefined || typeof candidate.executionRevisionId === "string")
     && typeof candidate.platformConnectionId === "string"
     && candidate.platform === "wordpress"
     && candidate.workflow === "draft.create"

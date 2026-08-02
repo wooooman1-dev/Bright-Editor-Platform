@@ -288,9 +288,10 @@ export function structuredGenerationFormat(target: ContentPlanQualityTarget = de
   schema: {
     type: "object",
     additionalProperties: false,
-    required: ["title", "metaDescription", "primarySearchIntent", "secondaryIntent", "secondaryKeywords", "relatedTerms", "tags", "introduction", "sections", "conclusion", "images", "cta"],
+    required: ["title", "seoTitle", "metaDescription", "primarySearchIntent", "secondaryIntent", "secondaryKeywords", "relatedTerms", "tags", "introduction", "sections", "conclusion", "images", "cta"],
     properties: {
       title: { type: "string" },
+      seoTitle: { type: "string" },
       metaDescription: { type: "string" },
       primarySearchIntent: { type: "string" },
       secondaryIntent: { type: "string" },
@@ -359,6 +360,7 @@ const editorialDocumentFormat = {
     required: ["title", "blocks"],
     properties: {
       title: { type: "string" },
+      seoTitle: { type: "string" },
       metaDescription: { type: "string" },
       primarySearchIntent: { type: "string" },
       secondaryIntent: { type: "string" },

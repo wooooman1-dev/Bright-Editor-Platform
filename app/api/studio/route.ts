@@ -8,6 +8,7 @@ import { contentOpportunityAIContext, EditorialGenerationStrategy } from "../../
 import { OpenAIProvider } from "../../application/OpenAIProvider";
 import { openAIGenerationModel, openAIReviewModel } from "../../application/OpenAIModelPolicy";
 import { contentDocumentAIContext, EditorialQualityPipeline } from "../../application/EditorialQualityPipeline";
+import { preserveCanonicalSeoMetadata } from "../../application/SeoMetadataPolicy";
 import { ContentPlanningStrategy, createManualPlanningResult, projectStrategyAIContext } from "../../application/ContentPlanningStrategy";
 import { approvalAwareInstruction, contentEditorialContext, preserveContentApprovalPolicy } from "../../application/approval/ApprovalRuntimePolicy";
 import { TistoryPublishingAdapter } from "../../../apps/tistory/publishing/TistoryPublishingAdapter";
@@ -321,7 +322,7 @@ export async function POST(request: Request) {
         ),
         metadata: { task: "quality-final-edit" },
       });
-      let document = restoreProtectedImageAssets(content.document, new EditorialGenerationStrategy().parse(finalEdit.content, { contentId, contentType: (content.contentType ?? "article") as never, ...(content.opportunity ? { contentOpportunity: content.opportunity } : {}), keywords, platform: (content.platform ?? "tistory") as never, projectId: content.projectId }));
+      let document = preserveCanonicalSeoMetadata(content.document, restoreProtectedImageAssets(content.document, new EditorialGenerationStrategy().parse(finalEdit.content, { contentId, contentType: (content.contentType ?? "article") as never, ...(content.opportunity ? { contentOpportunity: content.opportunity } : {}), keywords, platform: (content.platform ?? "tistory") as never, projectId: content.projectId })));
       document = applyContentPolicy(await placeAvailablePublishingPosts(data, content, document), content);
       const reviewedAt = new Date().toISOString();
       const quality = new QualityEngine().review(document, { ...qualityContext(content), revisionId: editorialRevisionId(document), reviewedAt });
@@ -349,7 +350,7 @@ export async function POST(request: Request) {
         ...(current.opportunity ? { contentOpportunity: current.opportunity } : {}), keywords,
         platform: "editor" as never, projectId,
       });
-      const document = applyContentPolicy(restoreProtectedImageAssets(current.document, parsed), current, true);
+      const document = applyContentPolicy(preserveCanonicalSeoMetadata(current.document, restoreProtectedImageAssets(current.document, parsed)), current, true);
       return NextResponse.json({ document });
     }
     if (body.action === "improve-quality") {
@@ -372,7 +373,7 @@ Quality tasks: ${JSON.stringify(currentQuality.tasks)}
         contentId, contentType: (content.contentType ?? "article") as never,
         ...(content.opportunity ? { contentOpportunity: content.opportunity } : {}), keywords, platform: (content.platform ?? "canonical") as never, projectId: content.projectId,
       });
-      let document = restoreProtectedImageAssets(content.document, restoreVerifiedEditorialLinks(content.document, parsed));
+      let document = preserveCanonicalSeoMetadata(content.document, restoreProtectedImageAssets(content.document, restoreVerifiedEditorialLinks(content.document, parsed)));
       document = applyContentPolicy(await placeAvailablePublishingPosts(data, content, document), content);
       const appliedAt = new Date().toISOString();
       const quality = new QualityEngine().review(document, { ...qualityContext(content), revisionId: editorialRevisionId(document), reviewedAt: appliedAt });
@@ -395,7 +396,7 @@ Quality tasks: ${JSON.stringify(currentQuality.tasks)}
       if (!raw || typeof raw !== "object") throw new Error("개선 문서가 없습니다.");
       const candidate = raw as import("../../../core/content").ContentDocument;
       if (candidate.id !== content.document.id) throw new Error("개선 문서 ID가 현재 문서와 일치하지 않습니다.");
-      let document = restoreProtectedImageAssets(content.document, restoreVerifiedEditorialLinks(content.document, candidate));
+      let document = preserveCanonicalSeoMetadata(content.document, restoreProtectedImageAssets(content.document, restoreVerifiedEditorialLinks(content.document, candidate)));
       document = applyContentPolicy(await placeAvailablePublishingPosts(data, content, document), content);
       const baselineQuality = new QualityEngine().review(content.document, qualityContext(content));
       const appliedAt = new Date().toISOString();

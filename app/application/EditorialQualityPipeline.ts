@@ -3,6 +3,7 @@ import { isApprovalPolicyProfileId, resolveApprovalPolicySnapshot, type Approval
 import { analyzeLongFormDocument, normalizeContentPlanQualityTarget, restoreProtectedImageAssets, restoreVerifiedEditorialLinks, type ContentDocument, type ContentPlanQualityTarget } from "../../core/content";
 import { editorialRevisionId, evaluateQualityReviewReadiness, QualityEngine, type QualityReviewContext } from "../../core/quality";
 import { contentOpportunityAIContext, EditorialGenerationStrategy } from "./EditorialGenerationStrategy";
+import { preserveCanonicalSeoMetadata } from "./SeoMetadataPolicy";
 
 type ParseInput = Parameters<EditorialGenerationStrategy["parse"]>[1];
 type QualityReport = ReturnType<QualityEngine["review"]>;
@@ -181,7 +182,7 @@ Mandatory server approval contract after your edit:
   Work from the explicit priority list below. Correct blocked and below-threshold dimensions first, using their reasons, tasks, and evidence. Do not rewrite or expand a dimension that already meets its threshold unless a priority correction requires a small consistency edit. Judge every required element as missing, merely mentioned, or sufficiently explained. Only sufficient information counts as complete. Add only a small missing fact, criterion, example, caution, or next action when needed. Remove repetition and verbose explanation. When repeatedCoreAdviceCount is nonzero, keep the strongest occurrence in its owning H2 and delete or replace later repetitions with genuinely new section-specific information. When practicalToolSignals are insufficient, convert existing generic advice into a usable checklist, ordered decision path, comparison criteria, or worked application instead of appending general prose. A comparison may use a table, criteria, and lists instead of prose when that is clearer. When two candidates have equal quality, prefer the more concise result. Stop editing when the search intent and reader problem are fully resolved. This is not another AI call.
 Reader usefulness is a mandatory final-edit contract. Do not respond to a low usefulness score by merely adding sentences, rephrasing the same point, or filling length with general advice. Use the Quality report, manuscript diagnostics, required information, confirmed search intent, outline, H2 headings, and current section structure to identify which H2 fails to fulfill its own heading and editorial purpose, which H2 duplicates another section, which section lacks the concrete information appropriate to its purpose, and whether the conclusion lacks a useful next step. For every deficient section: identify the section purpose implied by the confirmed search intent, outline, and H2 heading; identify the information currently missing; add only the section-appropriate value such as a core concept, mechanism, distinguishing criterion, situation-specific difference, selection criterion, observable check, step sequence, applicability, exception, common mistake, or next action; remove or merge duplicate prose; and replace abstract encouragement with concrete explanation. Do not force methods, examples, cautions, or checklists into sections that do not need them. Every H2 must provide distinct new information, no H2 may consist only of generalities, and the conclusion must help the reader make a next decision or action rather than simply repeat the article. Preserve all already strong sections and do not damage approved keyword placement, links, images, or structure. Before returning JSON, verify for each H2: fulfillment of its heading and editorial purpose, the new information, the section-appropriate concrete value, and its distinction from every other section. If any H2 fails that check, revise it before returning the manuscript.
 Evidence integrity is a mandatory final-edit contract. Do not preserve or add any unsupported research, survey, statistic, percentage, probability, ranking, market-volume, treatment-effect, expert-consensus, or causal claim unless the current canonical document or supplied editorial context contains the exact approved evidence and source. Do not preserve or add fabricated first-person experience, product-use experience, treatment experience, or testimonial language unless the user explicitly supplied it as verified source material. When the Quality report or diagnostics signals unsupportedClaimSignal, fabricatedExperienceRisk, an unsupported evidence claim, or a blocked usefulness finding, remove the offending sentence or rewrite it as accurate general guidance, observable criteria, conditional wording, or a statement that individual results may differ. Never solve this by inventing a citation, source, number, or personal story. Before returning JSON, scan the full manuscript and ensure no such claim remains; a manuscript containing even one is not complete and must not be returned.
-  Preserve the exact primary keyword naturally in the title, introduction, a relevant heading, distributed body prose, conclusion or summary, meta description, and a relevant image ALT; preserve every confirmed secondary keyword in the section that explains it. Preserve all verified links, tags, related posts, attached image assets and prompts, and longFormStructure metadata. Never create a URL that is not already verified and supplied. Preserve and fulfill the immutable Content Opportunity: ${JSON.stringify(opportunityContext ?? null)}.
+  Preserve the exact primary keyword naturally in the article title, SEO title, introduction, a relevant heading, distributed body prose, conclusion or summary, meta description, and a relevant image ALT; preserve every confirmed secondary keyword in the section that explains it. Preserve all verified links, tags, related posts, attached image assets and prompts, and longFormStructure metadata. Never create a URL that is not already verified and supplied. Preserve and fulfill the immutable Content Opportunity: ${JSON.stringify(opportunityContext ?? null)}.
   Current Rule Quality report: ${JSON.stringify(quality)}
   Priority corrections: ${JSON.stringify(priorities)}
   Manuscript diagnostics: ${JSON.stringify(diagnostics)}
@@ -302,17 +303,18 @@ function requirementCovered(text: string, requirement: string) { const terms = r
 function count(value: string, pattern: RegExp) { return [...value.matchAll(pattern)].length; }
 
 function preserveReviewMetadata(current: ContentDocument, candidate: ContentDocument): ContentDocument {
-  const baseMetadata = candidate.metadata ?? current.metadata;
-  if (!baseMetadata) return candidate;
+  const protectedCandidate = preserveCanonicalSeoMetadata(current, candidate);
+  const baseMetadata = protectedCandidate.metadata ?? current.metadata;
+  if (!baseMetadata) return protectedCandidate;
   const metadata = {
     ...baseMetadata,
-    qualityTarget: current.metadata?.qualityTarget ?? candidate.metadata?.qualityTarget,
-    longFormStructure: candidate.metadata?.longFormStructure ?? current.metadata?.longFormStructure,
-    ...(candidate.metadata?.tags?.length ? { tags: candidate.metadata.tags } : current.metadata?.tags?.length ? { tags: current.metadata.tags } : {}),
+    qualityTarget: current.metadata?.qualityTarget ?? protectedCandidate.metadata?.qualityTarget,
+    longFormStructure: protectedCandidate.metadata?.longFormStructure ?? current.metadata?.longFormStructure,
+    ...(protectedCandidate.metadata?.tags?.length ? { tags: protectedCandidate.metadata.tags } : current.metadata?.tags?.length ? { tags: current.metadata.tags } : {}),
     generationDiagnostic: current.metadata?.generationDiagnostic,
   };
-  const diagnostic = analyzeLongFormDocument({ ...candidate, metadata }, metadata.qualityTarget);
-  return Object.freeze({ ...candidate, metadata: Object.freeze({ ...metadata, reviewDiagnostic: diagnostic }) });
+  const diagnostic = analyzeLongFormDocument({ ...protectedCandidate, metadata }, metadata.qualityTarget);
+  return Object.freeze({ ...protectedCandidate, metadata: Object.freeze({ ...metadata, reviewDiagnostic: diagnostic }) });
 }
 
 export function detectEditorialReviewRegression(current: ContentDocument, candidate: ContentDocument): string | undefined {

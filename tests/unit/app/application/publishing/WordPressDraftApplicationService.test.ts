@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { WordPressDraftApplicationService } from "../../../../../app/application/publishing/WordPressDraftApplicationService";
+import { legacyWordPressContentRevisionId } from "../../../../../app/application/publishing/WordPressDraftProjection";
+import { InMemoryWordPressPublishingRecordRepository } from "../../../../../app/application/publishing/WordPressPublishingRecordRepository";
 import type { UserData } from "../../../../../app/user-flow/user-data";
 import {
   WordPressDraftCreateUncertainError,
@@ -14,7 +16,11 @@ import { safeDraftPermissions, type PlatformConnection } from "../../../../../co
 import type { ContentDocument } from "../../../../../core/content";
 import type { MediaAsset } from "../../../../../core/media";
 import { contentRevisionId, type QualityReport } from "../../../../../core/quality";
-import { PublishingPermissionGate } from "../../../../../core/publishing";
+import {
+  createDraftCreateIdempotencyKey,
+  PublishingPermissionGate,
+  type PublishingExecutionRecord,
+} from "../../../../../core/publishing";
 
 const NOW = "2026-07-29T00:00:00.000Z";
 const SECRET = "must-not-leak";
@@ -45,7 +51,7 @@ describe("WordPress Draft application service", () => {
     expect(harness.media.storeAlt).toHaveBeenCalledWith(expect.objectContaining({ externalMediaId: "91", alt: "Canonical ALT" }));
     expect(harness.media.readMedia).toHaveBeenCalledWith(expect.objectContaining({ externalMediaId: "91" }));
     const payload = harness.createdPayload();
-    expect(payload.content).toContain("https://example.com/uploads/asset-1.png");
+    expect(payload.content).not.toContain("https://example.com/uploads/asset-1.png");
     expect(payload.content).not.toContain("/api/media/");
     expect(payload.featuredMediaId).toBe("91");
     expect(payload.status).toBe("draft");
@@ -113,6 +119,39 @@ describe("WordPress Draft application service", () => {
     const result = await harness.service.execute(execution(harness.data, harness.connection));
     expect(result.status).toBe("verified");
     expect(harness.createdPayload()).not.toHaveProperty("featuredMediaId");
+    expect(harness.createdPayload().content).toContain("https://example.com/uploads/asset-1.png");
+  });
+
+  it("automatically assigns the single local Hero as Featured Image and excludes it from body HTML", async () => {
+    const harness = createHarness(heroImageDocument(), { mediaPermission: true });
+    const result = await harness.service.execute(execution(harness.data, harness.connection));
+
+    expect(result.status).toBe("verified");
+    expect(harness.createdPayload().featuredMediaId).toBe("91");
+    expect(harness.createdPayload().content).not.toContain("https://example.com/uploads/asset-1.png");
+  });
+
+  it("sends canonical focus keyphrase, SEO title, and meta description through the service boundary", async () => {
+    const document = seoDocument();
+    const harness = createHarness(document);
+    const data: UserData = {
+      ...harness.data,
+      contents: [{
+        ...harness.data.contents[0],
+        primaryKeyword: "고정지출 줄이는 방법",
+      }],
+    };
+
+    const result = await harness.service.execute(execution(data, harness.connection));
+
+    expect(result.status).toBe("verified");
+    expect(harness.drafts.capabilities).toHaveBeenCalledOnce();
+    expect(harness.createdPayload().seoMetadata).toEqual({
+      focusKeyphrase: "고정지출 줄이는 방법",
+      seoTitle: "고정지출 줄이는 방법 4단계",
+      metaDescription: "고정지출을 점검하고 줄이는 순서를 정리했습니다.",
+    });
+    expect(result.verification?.checks).toContainEqual({ key: "seo_metadata", passed: true });
   });
 
   it("requires final confirmation and fresh same-Connection Categories before creating a Post", async () => {
@@ -419,6 +458,86 @@ describe("WordPress Draft application service", () => {
     expect(audit).not.toContain("137,80,78,71");
   });
 
+  it("blocks a legacy v1 record before preparation or any external write", async () => {
+    const document: ContentDocument = {
+      ...textDocument(),
+      metadata: {
+        buttonCount: 0,
+        createdAt: NOW,
+        generator: "test",
+        imageCount: 0,
+        language: "ko",
+        readingTime: 1,
+        source: "test",
+        updatedAt: NOW,
+        version: 1,
+        videoCount: 0,
+        wordCount: 4,
+        seoTitle: "Approved WordPress Draft SEO",
+        metaDescription: "A canonical description added after the original v1 record.",
+      },
+    };
+    const harness = createHarness(document);
+    const records = new InMemoryWordPressPublishingRecordRepository();
+    const revisionId = legacyWordPressContentRevisionId(document);
+    expect(contentRevisionId(document)).not.toBe(revisionId);
+    const legacyIdempotencyKey = createDraftCreateIdempotencyKey({
+      workspaceId: "workspace-1",
+      projectId: "project-1",
+      contentId: "content-1",
+      contentRevisionId: revisionId,
+      platformConnectionId: harness.connection.id,
+    });
+    const legacyRecord: PublishingExecutionRecord = {
+      schemaVersion: 1,
+      id: legacyIdempotencyKey,
+      idempotencyKey: legacyIdempotencyKey,
+      workspaceId: "workspace-1",
+      projectId: "project-1",
+      contentId: "content-1",
+      contentRevisionId: revisionId,
+      platformConnectionId: harness.connection.id,
+      platform: "wordpress",
+      workflow: "draft.create",
+      status: "verified",
+      stage: "complete",
+      externalPostId: "60",
+      verified: true,
+      uploadedMedia: [],
+      cleanupRequired: false,
+      verificationChecks: [],
+      categoryIds: ["12"],
+      categoryNames: ["Household"],
+      localImageCount: 0,
+      featuredImageAssigned: false,
+      createdAt: NOW,
+      updatedAt: NOW,
+    };
+    await records.save(legacyRecord);
+    const service = new WordPressDraftApplicationService({
+      secrets: harness.secrets,
+      categories: harness.categories,
+      media: harness.media,
+      drafts: harness.drafts,
+      localMedia: harness.localMedia,
+      records,
+    });
+
+    const result = await service.execute(execution(harness.data, harness.connection));
+
+    expect(result).toMatchObject({
+      status: "failed",
+      stage: "readiness",
+      reused: false,
+      duplicateBlocked: true,
+    });
+    expect(result.idempotencyKey).toMatch(/^publishing:v2:/u);
+    expect(result.error).toContain("legacy WordPress Draft record");
+    expect(harness.secrets.readSecret).not.toHaveBeenCalled();
+    expect(harness.categories.listAllCategories).not.toHaveBeenCalled();
+    expect(harness.drafts.createDraft).not.toHaveBeenCalled();
+  });
+
   it("does not expose the secret or Authorization header in failures or logs", async () => {
     const authorization = `Basic ${Buffer.from(`editor:${SECRET}`).toString("base64")}`;
     const harness = createHarness(textDocument());
@@ -473,6 +592,14 @@ function createHarness(document: ContentDocument, options: Readonly<{
   let payload: WordPressDraftPayload | undefined;
   const verifier = new WordPressDraftPublishingAdapter(vi.fn<typeof fetch>());
   const drafts = {
+    capabilities: vi.fn(async () => ({
+      yoastSeoMetadata: true,
+      writableMetaKeys: [
+        "_yoast_wpseo_focuskw",
+        "_yoast_wpseo_title",
+        "_yoast_wpseo_metadesc",
+      ],
+    })),
     prepare: vi.fn((request) => verifier.prepare(request)),
     createDraft: vi.fn(async (input: Readonly<{ payload: WordPressDraftPayload }>) => {
       payload = input.payload;
@@ -486,6 +613,7 @@ function createHarness(document: ContentDocument, options: Readonly<{
       categoryIds: payload?.categories ?? [],
       tagIds: [],
       ...(payload?.featuredMediaId ? { featuredMediaId: payload.featuredMediaId } : {}),
+      ...(payload?.seoMetadata ? { seoMetadata: payload.seoMetadata } : {}),
     })),
     verifyDraft: vi.fn((draft, expected) => verifier.verifyDraft(draft, expected)),
   };
@@ -633,6 +761,38 @@ function imageDocument(): ContentDocument {
       ...textDocument().blocks,
       { id: "image-1", type: "image" as const, source: localSource(1), alt: "Canonical ALT", assetId: "asset-1" },
     ]),
+  });
+}
+
+function heroImageDocument(): ContentDocument {
+  return Object.freeze({
+    ...textDocument(),
+    blocks: Object.freeze([
+      ...textDocument().blocks,
+      { id: "image-1", type: "image" as const, source: localSource(1), alt: "Canonical ALT", assetId: "asset-1", purpose: "hero" as const },
+    ]),
+  });
+}
+
+function seoDocument(): ContentDocument {
+  return Object.freeze({
+    ...textDocument(),
+    title: "고정지출 줄이는 방법",
+    metadata: Object.freeze({
+      buttonCount: 0,
+      createdAt: NOW,
+      generator: "test",
+      imageCount: 0,
+      language: "ko",
+      readingTime: 1,
+      source: "test",
+      updatedAt: NOW,
+      version: 1,
+      videoCount: 0,
+      wordCount: 5,
+      seoTitle: "고정지출 줄이는 방법 4단계",
+      metaDescription: "고정지출을 점검하고 줄이는 순서를 정리했습니다.",
+    }),
   });
 }
 

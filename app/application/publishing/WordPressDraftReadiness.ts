@@ -24,6 +24,7 @@ export type WordPressDraftReadiness = Readonly<{
   checks: readonly WordPressDraftReadinessCheck[];
   localImageCount: number;
   categorySelection: WordPressCategorySelectionResolution;
+  featuredImageAssetId?: string;
 }>;
 
 export function calculateWordPressDraftReadiness(input: Readonly<{
@@ -35,6 +36,7 @@ export function calculateWordPressDraftReadiness(input: Readonly<{
   selectedTarget: boolean;
   finalConfirmation: boolean;
   mediaValidationPassed?: boolean;
+  featuredImageAssetId?: string;
 }>): WordPressDraftReadiness {
   const { data, project, content, connection } = input;
   const workspaceId = data.workspace?.id;
@@ -157,6 +159,7 @@ export function calculateWordPressDraftReadiness(input: Readonly<{
     checks,
     localImageCount,
     categorySelection,
+    ...(input.featuredImageAssetId ? { featuredImageAssetId: input.featuredImageAssetId } : {}),
   });
 }
 

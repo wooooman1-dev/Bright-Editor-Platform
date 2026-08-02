@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import type { PublishingExecutionRecord } from "../../core/publishing";
-import { contentRevisionId } from "../../core/quality";
+import { wordpressDraftExecutionRevisionId } from "../application/publishing/WordPressDraftProjection";
 import type { WordPressDraftReadiness } from "../application/publishing/WordPressDraftReadiness";
 import type { UserContent, UserData, UserProject } from "./user-data";
 import {
@@ -83,7 +83,12 @@ export function WordPressDraftOverlay({ connections, content, data, onPersist, p
     ?? "", [content.publishingAccountId, content.publishingPreparation?.wordpress?.publishingAccountId, content.selectedPublishingAccountIds, project.selectedPublishingAccountIds, wordpressConnections]);
   const connectionId = selectedConnectionId ?? preferredConnectionId;
   const connection = wordpressConnections.find((item) => item.id === connectionId);
-  const revisionId = content.document ? contentRevisionId(content.document) : "";
+  const revisionId = content.document && connection
+    ? wordpressDraftExecutionRevisionId(
+        { ...content, document: content.document },
+        connection.id,
+      )
+    : "";
   const identity: WordPressDraftExecutionIdentity | undefined = useMemo(() => (
     workspaceId && revisionId && connection
       ? Object.freeze({
@@ -358,7 +363,7 @@ export function WordPressDraftOverlay({ connections, content, data, onPersist, p
           <Info label="품질 승인" value={readiness?.checks.find((item) => item.key === "quality_revision")?.passed ? "현재 문서 버전 승인 완료" : "현재 문서 버전 승인 필요"} />
           <Info label="로컬 이미지" value={`${localImageCount}개`} />
           <Info label="이미지 업로드 권한" value={mediaAllowed ? localImageCount ? "명시적 허용" : "이미지 없음 · 불필요" : "권한 필요"} />
-          <Info label="대표 이미지" value={preparation?.featuredImageAssetId ? "선택됨" : "선택 안 함"} />
+          <Info label="대표 이미지" value={(readiness?.featuredImageAssetId ?? preparation?.featuredImageAssetId) ? "선택됨" : "선택 안 함"} />
         </dl>
 
         <div className="mt-5">

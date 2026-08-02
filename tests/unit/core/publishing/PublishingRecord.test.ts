@@ -23,4 +23,20 @@ describe("Draft Create Idempotency Key", () => {
     expect(createDraftCreateIdempotencyKey({ ...identity, platformConnectionId: "wordpress-2" })).not.toBe(original);
     expect(createDraftCreateIdempotencyKey({ ...identity, contentId: "content-2" })).not.toBe(original);
   });
+
+  it("keeps the legacy v1 key without an execution Revision and creates v2 with one", () => {
+    const legacy = createDraftCreateIdempotencyKey(identity);
+    const current = createDraftCreateIdempotencyKey({
+      ...identity,
+      executionRevisionId: "wordpress-draft-a1b2c3d4",
+    });
+
+    expect(legacy).toMatch(/^publishing:v1:/u);
+    expect(current).toMatch(/^publishing:v2:/u);
+    expect(current).not.toBe(legacy);
+    expect(createDraftCreateIdempotencyKey({
+      ...identity,
+      executionRevisionId: "wordpress-draft-b2c3d4e5",
+    })).not.toBe(current);
+  });
 });

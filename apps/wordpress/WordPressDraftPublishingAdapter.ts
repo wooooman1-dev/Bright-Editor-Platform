@@ -15,6 +15,17 @@ export type WordPressPreparedDraft = PreparedPublication & Readonly<{
   payload: Readonly<{ html: string; title: string; type: "save-draft" }>;
 }>;
 
+export type WordPressSeoMetadata = Readonly<{
+  focusKeyphrase: string;
+  seoTitle: string;
+  metaDescription: string;
+}>;
+
+export type WordPressDraftCapabilities = Readonly<{
+  yoastSeoMetadata: boolean;
+  writableMetaKeys: readonly string[];
+}>;
+
 export type WordPressDraftPayload = Readonly<{
   title: string;
   content: string;
@@ -23,6 +34,7 @@ export type WordPressDraftPayload = Readonly<{
   categories: readonly string[];
   slug?: string;
   featuredMediaId?: string;
+  seoMetadata?: WordPressSeoMetadata;
 }>;
 
 export type WordPressDraftCreateResult = Readonly<{
@@ -47,6 +59,7 @@ export type WordPressExternalDraft = Readonly<{
   categoryIds: readonly string[];
   tagIds: readonly string[];
   featuredMediaId?: string;
+  seoMetadata?: WordPressSeoMetadata;
 }>;
 
 export type WordPressDraftVerification = Readonly<{
@@ -62,7 +75,14 @@ type WordPressPostResponse = Readonly<{
   categories?: readonly (string | number)[];
   tags?: readonly (string | number)[];
   featured_media?: string | number;
+  meta?: Readonly<Record<string, unknown>>;
 }>;
+
+const yoastSeoMetaKeys = Object.freeze([
+  "_yoast_wpseo_focuskw",
+  "_yoast_wpseo_title",
+  "_yoast_wpseo_metadesc",
+] as const);
 
 export class WordPressDraftPublishingAdapter implements PublishingAdapter {
   readonly platform = "wordpress";
@@ -87,6 +107,31 @@ export class WordPressDraftPublishingAdapter implements PublishingAdapter {
   async publish(publication: PreparedPublication): Promise<PublicationResult> {
     void publication;
     throw new Error("Public publishing is outside the WordPress Draft scope.");
+  }
+
+  async capabilities(input: WordPressConnectionInput): Promise<WordPressDraftCapabilities> {
+    const response = await this.safeRequest(
+      `${normalizeSiteUrl(input.siteUrl)}/wp-json/wp/v2/posts`,
+      {
+        method: "OPTIONS",
+        headers: {
+          Accept: "application/json",
+          Authorization: createWordPressAuthorizationHeader(input.username, input.applicationPassword),
+        },
+      },
+      "WordPress Draft capabilities could not be verified.",
+    );
+    const value = await objectResponse(response, "WordPress returned an invalid Draft capability response.");
+    const schema = objectValue(value.schema);
+    const properties = objectValue(schema?.properties);
+    const meta = objectValue(properties?.meta);
+    const metaProperties = objectValue(meta?.properties);
+    const writableMetaKeys = yoastSeoMetaKeys.filter((key) =>
+      Object.prototype.hasOwnProperty.call(metaProperties ?? {}, key));
+    return Object.freeze({
+      yoastSeoMetadata: writableMetaKeys.length === yoastSeoMetaKeys.length,
+      writableMetaKeys: Object.freeze([...writableMetaKeys]),
+    });
   }
 
   async createDraft(
@@ -149,6 +194,7 @@ export class WordPressDraftPublishingAdapter implements PublishingAdapter {
       categoryIds: readonly string[];
       mediaUrls: readonly string[];
       featuredMediaId?: string;
+      seoMetadata?: WordPressSeoMetadata;
     }>,
   ): WordPressDraftVerification {
     const checks = Object.freeze([
@@ -162,6 +208,9 @@ export class WordPressDraftPublishingAdapter implements PublishingAdapter {
       check("featured_media", expected.featuredMediaId === undefined
         ? draft.featuredMediaId === undefined
         : draft.featuredMediaId === expected.featuredMediaId),
+      check("seo_metadata", expected.seoMetadata === undefined
+        ? draft.seoMetadata === undefined
+        : sameSeoMetadata(draft.seoMetadata, expected.seoMetadata)),
     ]);
     return Object.freeze({ verified: checks.every((item) => item.passed), checks });
   }
@@ -195,16 +244,28 @@ function createPayload(payload: WordPressDraftPayload): Readonly<Record<string, 
   if (payload.featuredMediaId !== undefined) {
     result.featured_media = Number(normalizedNumericIds([payload.featuredMediaId], "featured media")[0]);
   }
+  if (payload.seoMetadata) {
+    result.meta = {
+      _yoast_wpseo_focuskw: requiredSeoValue(payload.seoMetadata.focusKeyphrase, "focus keyphrase"),
+      _yoast_wpseo_title: requiredSeoValue(payload.seoMetadata.seoTitle, "SEO title"),
+      _yoast_wpseo_metadesc: requiredSeoValue(payload.seoMetadata.metaDescription, "meta description"),
+    };
+  }
   return result;
 }
 
 async function postResponse(response: Response): Promise<WordPressPostResponse> {
+  const value = await objectResponse(response, "WordPress returned an invalid draft response.");
+  return value as WordPressPostResponse;
+}
+
+async function objectResponse(response: Response, message: string): Promise<Record<string, unknown>> {
   try {
     const value = await response.json() as unknown;
-    if (!value || typeof value !== "object") throw new Error();
-    return value as WordPressPostResponse;
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error();
+    return value as Record<string, unknown>;
   } catch {
-    throw new Error("WordPress returned an invalid draft response.");
+    throw new Error(message);
   }
 }
 
@@ -213,6 +274,7 @@ function externalDraft(value: WordPressPostResponse): WordPressExternalDraft {
     throw new Error("WordPress returned an invalid draft response.");
   }
   const featuredMediaId = externalFeaturedMediaId(value.featured_media);
+  const seoMetadata = externalSeoMetadata(value.meta);
   return Object.freeze({
     externalId: String(value.id),
     status: typeof value.status === "string" ? value.status : "",
@@ -221,6 +283,7 @@ function externalDraft(value: WordPressPostResponse): WordPressExternalDraft {
     categoryIds: Object.freeze((value.categories ?? []).map(String)),
     tagIds: Object.freeze((value.tags ?? []).map(String)),
     ...(featuredMediaId ? { featuredMediaId } : {}),
+    ...(seoMetadata ? { seoMetadata } : {}),
   });
 }
 
@@ -307,6 +370,41 @@ function decodeEntities(value: string): string {
 function externalFeaturedMediaId(value: WordPressPostResponse["featured_media"]): string | undefined {
   if (value === undefined || String(value) === "0") return undefined;
   return String(value);
+}
+
+function externalSeoMetadata(meta: WordPressPostResponse["meta"]): WordPressSeoMetadata | undefined {
+  if (!meta) return undefined;
+  const focusKeyphrase = stringValue(meta._yoast_wpseo_focuskw);
+  const seoTitle = stringValue(meta._yoast_wpseo_title);
+  const metaDescription = stringValue(meta._yoast_wpseo_metadesc);
+  if (!focusKeyphrase && !seoTitle && !metaDescription) return undefined;
+  return Object.freeze({ focusKeyphrase, seoTitle, metaDescription });
+}
+
+function sameSeoMetadata(
+  actual: WordPressSeoMetadata | undefined,
+  expected: WordPressSeoMetadata,
+): boolean {
+  return Boolean(actual
+    && normalizedText(actual.focusKeyphrase) === normalizedText(expected.focusKeyphrase)
+    && normalizedText(actual.seoTitle) === normalizedText(expected.seoTitle)
+    && normalizedText(actual.metaDescription) === normalizedText(expected.metaDescription));
+}
+
+function requiredSeoValue(value: string, name: string): string {
+  const normalized = value.trim();
+  if (!normalized) throw new Error(`WordPress ${name} is required.`);
+  return normalized;
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function objectValue(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
 }
 
 function check(key: string, passed: boolean): Readonly<{ key: string; passed: boolean }> {

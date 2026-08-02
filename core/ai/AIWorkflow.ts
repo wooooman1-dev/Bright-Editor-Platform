@@ -207,6 +207,7 @@ function generatedEditorialValues(document: ContentDocument): readonly string[] 
   const metadata = document.metadata;
   return Object.freeze([
     document.title,
+    metadata?.seoTitle ?? "",
     metadata?.metaDescription ?? "",
     metadata?.primarySearchIntent ?? "",
     metadata?.secondaryIntent ?? "",

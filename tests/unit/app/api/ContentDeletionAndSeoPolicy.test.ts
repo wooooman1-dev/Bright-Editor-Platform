@@ -8,7 +8,7 @@ describe("Studio content deletion and SEO policy boundaries", () => {
   it("enforces the confirmed Opportunity before SEO placement across AI document paths", () => {
     expect(routeSource).toContain("const initialDocument = applyContentPolicy(await placeAvailablePublishingPosts(owned, existing, result.document), existing);");
     expect(routeSource).toContain("placeDocument: async (document) => applyContentPolicy(await placeAvailablePublishingPosts(owned, existing, document), existing)");
-    expect(routeSource).toContain("const document = applyContentPolicy(restoreProtectedImageAssets(current.document, parsed), current, true);");
+    expect(routeSource).toContain("const document = applyContentPolicy(preserveCanonicalSeoMetadata(current.document, restoreProtectedImageAssets(current.document, parsed)), current, true);");
     expect(routeSource.match(/document = applyContentPolicy\(await placeAvailablePublishingPosts\(data, content, document\), content\);/gu)?.length).toBeGreaterThanOrEqual(3);
     expect(routeSource).toContain("applyContentOpportunityPolicy(document, content.opportunity)");
   });

@@ -11,7 +11,8 @@ describe("structured generation schema", () => {
     expect(format.strict).toBe(true);
     expect(format.schema.properties.sections).toMatchObject({ minItems: 1, maxItems: 12 });
     expect(format.schema.properties.sections.items.required).toEqual(["heading", "sectionType", "paragraphs"]);
-    expect(format.schema.required).toEqual(expect.arrayContaining(["tags", "images", "cta"]));
+    expect(format.schema.required).toEqual(expect.arrayContaining(["seoTitle", "tags", "images", "cta"]));
+    expect(format.schema.properties.seoTitle).toEqual({ type: "string" });
     expect(paragraphItem).toEqual({ type: "string" });
     expect(JSON.stringify(format.schema)).not.toContain("minLength");
   });

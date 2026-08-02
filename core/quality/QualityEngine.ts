@@ -123,7 +123,12 @@ export class PublishingGate {
 }
 
 export function contentRevisionId(document: ContentDocument): string {
-  const source = JSON.stringify({ title: document.title, blocks: document.blocks });
+  const metadata = editorialRevisionMetadata(document);
+  const source = JSON.stringify({
+    title: document.title,
+    ...(metadata ? { metadata } : {}),
+    blocks: document.blocks,
+  });
   return revisionHash(source);
 }
 
@@ -132,11 +137,25 @@ export function contentRevisionId(document: ContentDocument): string {
  * and Evidence projections do not change the user's editorial manuscript.
  */
 export function editorialRevisionId(document: ContentDocument): string {
+  const metadata = editorialRevisionMetadata(document);
   const source = JSON.stringify({
     title: document.title,
+    ...(metadata ? { metadata } : {}),
     blocks: document.blocks.filter((block) => !isSystemProjectionBlock(block)),
   });
   return revisionHash(source);
+}
+
+function editorialRevisionMetadata(
+  document: ContentDocument,
+): Readonly<{ seoTitle?: string; metaDescription?: string }> | undefined {
+  const seoTitle = document.metadata?.seoTitle?.trim();
+  const metaDescription = document.metadata?.metaDescription?.trim();
+  if (!seoTitle && !metaDescription) return undefined;
+  return Object.freeze({
+    ...(seoTitle ? { seoTitle } : {}),
+    ...(metaDescription ? { metaDescription } : {}),
+  });
 }
 
 function revisionHash(source: string): string {

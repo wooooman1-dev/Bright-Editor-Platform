@@ -374,3 +374,53 @@ describe("QualityEngine dimension scoring", () => {
     expect(editorialRevisionId(manual)).not.toBe(editorialRevisionId(base));
   });
 });
+
+describe("Editorial SEO revision identity", () => {
+  it("changes both content and editorial revisions when only the SEO title changes", () => {
+    const base = structured();
+    const first: ContentDocument = {
+      ...base,
+      metadata: { ...base.metadata!, seoTitle: "건강 관리 실천 가이드" },
+    };
+    const second: ContentDocument = {
+      ...first,
+      metadata: { ...first.metadata!, seoTitle: "건강 관리 점검 가이드" },
+    };
+
+    expect(contentRevisionId(second)).not.toBe(contentRevisionId(first));
+    expect(editorialRevisionId(second)).not.toBe(editorialRevisionId(first));
+  });
+
+  it("changes both content and editorial revisions when only the meta description changes", () => {
+    const first = structured();
+    const second: ContentDocument = {
+      ...first,
+      metadata: {
+        ...first.metadata!,
+        metaDescription: `${first.metadata!.metaDescription} 적용 순서를 추가로 안내합니다.`,
+      },
+    };
+
+    expect(contentRevisionId(second)).not.toBe(contentRevisionId(first));
+    expect(editorialRevisionId(second)).not.toBe(editorialRevisionId(first));
+  });
+
+  it("ignores approval evidence timestamps and other system metadata", () => {
+    const first = structured();
+    const second: ContentDocument = {
+      ...first,
+      metadata: {
+        ...first.metadata!,
+        updatedAt: "2030-01-01T00:00:00.000Z",
+        approvalEvidence: {
+          version: "1.0",
+          status: "needs_review",
+          reviewedAt: "2030-01-01T00:00:00.000Z",
+          sources: [],
+        } as never,
+      },
+    };
+
+    expect(editorialRevisionId(second)).toBe(editorialRevisionId(first));
+  });
+});
