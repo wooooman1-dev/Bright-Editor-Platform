@@ -27,8 +27,25 @@ const completeClaim = [
 ].join(" ");
 
 describe("approval date-role and legal-scope policy", () => {
-  it("adds one unambiguous date ownership contract and the legal applicability contracts to the WordPress life-economy prompt", () => {
+  it("stores and emits one unambiguous date ownership contract for the WordPress life-economy profile", () => {
     const context = approvalPolicyPromptContext(snapshot);
+    const profileContract = [
+      ...snapshot.requiredPrinciples,
+      ...snapshot.sourceRequirements,
+      ...snapshot.qualityChecks,
+    ].join("\n");
+
+    expect(snapshot.requiredPrinciples).toContain(
+      "본문에는 정보 기준일과 공식 재확인 경로를 제공한다. 출처 확인일과 Claim 최종 검토일은 Bright Studio가 Evidence 검증 후 별도로 기록한다.",
+    );
+    expect(snapshot.sourceRequirements).toContain(
+      "본문 정보 기준일과 시스템 Evidence 검토일의 역할 분리",
+    );
+    expect(snapshot.qualityChecks).toContain(
+      "출처 URL과 기준일·검토일의 역할 명확성",
+    );
+    expect(profileContract).not.toContain("정보 기준일, 최종 검토일과 공식 확인 경로를 제공한다.");
+    expect(profileContract).not.toContain("정보 기준일과 최종 검토일");
     expect(context).toContain("본문에는 정보 기준일과 공식 재확인 경로를 제공한다.");
     expect(context).toContain("출처 확인일과 Claim 최종 검토일은 Bright Studio가 Evidence 검증 후 별도로 기록한다.");
     expect(context).not.toContain("정보 기준일, 최종 검토일과 공식 확인 경로를 제공한다.");
