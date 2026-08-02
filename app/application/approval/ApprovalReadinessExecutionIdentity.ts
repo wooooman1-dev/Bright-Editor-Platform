@@ -4,10 +4,13 @@ import { editorialRevisionId } from "../../../core/quality";
 import type { UserContent } from "../../user-flow/user-data";
 import { internalLinkCatalogContextKey } from "../publishing/InternalLinkCatalogPolicy";
 
+export const approvalReadinessInspectionVersion = "2.0" as const;
+
 export function approvalReadinessExecutionIdentity(
   content: UserContent,
   connectionId?: string,
 ): Readonly<{
+  version: typeof approvalReadinessInspectionVersion;
   key: string;
   editorialRevisionId: string;
   publishingContextKey: string;
@@ -18,7 +21,8 @@ export function approvalReadinessExecutionIdentity(
   const publishingContextKey = internalLinkCatalogContextKey(content, connectionId);
   const evidenceFingerprint = approvalEvidenceFingerprint(content.document);
   return Object.freeze({
-    key: [content.id, revisionId, publishingContextKey, evidenceFingerprint].join("::"),
+    version: approvalReadinessInspectionVersion,
+    key: [approvalReadinessInspectionVersion, content.id, revisionId, publishingContextKey, evidenceFingerprint].join("::"),
     editorialRevisionId: revisionId,
     publishingContextKey,
     evidenceFingerprint,

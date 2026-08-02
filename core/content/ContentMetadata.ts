@@ -1,3 +1,4 @@
+import type { AIUsageRecord } from "../ai/AIUsageCost";
 import type {
   ApprovalDuplicateCheckSnapshot,
   ApprovalEvidencePack,
@@ -26,6 +27,7 @@ export type ContentMetadata = Readonly<{
   secondaryKeywords?: readonly string[];
   relatedTerms?: readonly string[];
   tags?: readonly string[];
+  aiUsage?: readonly AIUsageRecord[];
   availableRelatedContentCandidates?: number;
   internalLinkCatalogStatus?: "evaluated" | "category_missing" | "catalog_unavailable";
   internalLinkCatalogContextKey?: string;
@@ -34,7 +36,7 @@ export type ContentMetadata = Readonly<{
   approvalDuplicateCheck?: ApprovalDuplicateCheckSnapshot;
   siteApprovalReadiness?: SiteApprovalReadinessSnapshot;
   approvalReadinessExecution?: Readonly<{
-    version: "1.0";
+    version: "1.0" | "2.0";
     key: string;
     editorialRevisionId: string;
     publishingContextKey: string;

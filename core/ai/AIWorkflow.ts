@@ -12,6 +12,7 @@ import {
   type ContentDocument,
 } from "../content";
 import type { AIProvider, AIResponse, AIWebSource } from "./AIProvider";
+import { appendAIUsageToDocument } from "./AIUsageCost";
 
 export type PlatformId = string & { readonly __platformId: unique symbol };
 export type ContentTypeId = string & { readonly __contentTypeId: unique symbol };
@@ -89,10 +90,14 @@ export class AIWorkflow {
       });
       const parsedDocument = this.strategy.parse(response.content, input);
       const policyDocument = withApprovalPolicyMetadata(parsedDocument, input.editorialContext);
-      const generatedDocument = withApprovalEvidenceMetadata(
+      const evidenceDocument = withApprovalEvidenceMetadata(
         policyDocument,
         input.editorialContext,
         response.diagnostics?.webSources ?? [],
+      );
+      const generatedDocument = appendAIUsageToDocument(
+        evidenceDocument,
+        response.diagnostics?.aiUsage,
       );
       assertGeneratedDocumentOwnedIdentityPolicy(generatedDocument, input);
       const result = Object.freeze({

@@ -43,6 +43,8 @@ export function extractProfileApprovalFactsFromText(
   if (retirementTopic) add("retirementTopic", "퇴직금");
   const depositProtectionTopic = /예금자\s*보호|예금\s*보호|예금보험|보호\s*한도|보호\s*대상\s*금융상품/i.test(text);
   if (depositProtectionTopic) add("depositProtectionTopic", "예금자보호");
+  const revolvingTopic = /리볼빙|일부결제금액이월약정|약정결제비율|이월잔액/i.test(text);
+  if (revolvingTopic) add("revolvingTopic", "신용카드 리볼빙");
 
   collect("eligibility", /(?:지원|신청|지급|적용)\s*대상\s*[:：]?\s*([^\n.]{2,200})/gi);
   collect("period", /(?:신청|적용|지급)\s*기간\s*[:：]?\s*([^\n.]{2,160})/gi);
@@ -82,7 +84,18 @@ export function extractProfileApprovalFactsFromText(
     collect("depositProtectionStatutoryBasis", /((?:예금자보호법|예금자보호법\s*시행령)[^\n.]{0,180})/gi);
   }
 
-  return Object.freeze([...found.values()].slice(0, 50));
+  if (revolvingTopic) {
+    collect("revolvingDefinition", /((?:리볼빙|일부결제금액이월약정)[^\n.]{0,220}(?:일부[^\n.]{0,80}결제|나머지[^\n.]{0,80}이월|이월잔액)[^\n.]{0,100})/gi);
+    collect("revolvingInstallmentDifference", /((?:리볼빙|일부결제금액이월약정)[^\n.]{0,220}할부[^\n.]{0,180}(?:다르|구분|아니)[^\n.]{0,100})/gi);
+    collect("revolvingPaymentStructure", /((?:약정결제비율|결제비율)[^\n.]{0,180}(?:이월|잔액|일부결제)[^\n.]{0,100})/gi);
+    collect("revolvingFeeRisk", /((?:리볼빙|이월잔액)[^\n.]{0,220}(?:수수료율|수수료|이자)[^\n.]{0,180}(?:높|부담|증가|발생)[^\n.]{0,100})/gi);
+    collect("revolvingDisclosureDuty", /((?:리볼빙|일부결제금액이월약정)[^\n.]{0,220}(?:설명서|설명의무|설명)[^\n.]{0,120})/gi);
+    collect("revolvingFeeDisclosure", /((?:리볼빙|일부결제금액이월약정)[^\n.]{0,220}(?:수수료율)[^\n.]{0,140}(?:비교|공시|고지|안내)[^\n.]{0,100})/gi);
+    collect("revolvingMinimumPaymentRatio", /((?:최소결제비율)[^\n.]{0,120}(?:10\s*%|10\s*퍼센트)[^\n.]{0,100})/gi);
+    collect("revolvingCancellationGuidance", /((?:리볼빙|일부결제금액이월약정)[^\n.]{0,220}(?:해지|전액결제|상환)[^\n.]{0,120})/gi);
+  }
+
+  return Object.freeze([...found.values()].slice(0, 60));
 }
 
 export function requiredApprovalFactFields(
@@ -122,26 +135,28 @@ export function requiredApprovalFactFields(
     ]);
   }
 
+  if (/리볼빙|일부결제금액이월약정|약정결제비율|이월잔액/i.test(text)) {
+    return Object.freeze([
+      "revolvingDefinition",
+      "revolvingPaymentStructure",
+      ...(/할부/i.test(text) ? ["revolvingInstallmentDifference"] : []),
+      ...(/수수료|수수료율|이자/i.test(text) ? ["revolvingFeeRisk"] : []),
+      ...(/설명서|설명의무|설명/i.test(text) ? ["revolvingDisclosureDuty"] : []),
+      ...(/비교|공시|고지|안내/i.test(text) ? ["revolvingFeeDisclosure"] : []),
+      ...(/최소결제비율/i.test(text) ? ["revolvingMinimumPaymentRatio"] : []),
+      ...(/해지|상환|전액결제/i.test(text) ? ["revolvingCancellationGuidance"] : []),
+    ]);
+  }
+
   if (/계속거래[^\n.]{0,260}(?:계약서|설명|위약금|환급|해지)|(?:계약서|위약금|환급)[^\n.]{0,260}계속거래/iu.test(text)) {
     const mentionsArticle30Duty = /(?:법\s*제?\s*30조|제30조|계약[^\n.]{0,100}설명|계약서[^\n.]{0,100}발급)/iu.test(text);
     return Object.freeze([
-      ...(available.has("continuingTransactionDefinition")
-        ? ["continuingTransactionDefinition"]
-        : []),
+      ...(available.has("continuingTransactionDefinition") ? ["continuingTransactionDefinition"] : []),
       ...(mentionsArticle30Duty
-        ? [
-          ...(available.has("continuingTransactionArticle30Threshold")
-            ? ["continuingTransactionArticle30Threshold"]
-            : []),
-          "continuingTransactionContractDocument",
-        ]
+        ? [...(available.has("continuingTransactionArticle30Threshold") ? ["continuingTransactionArticle30Threshold"] : []), "continuingTransactionContractDocument"]
         : []),
-      ...(/손실[^\n.]{0,100}현저히\s*초과[^\n.]{0,120}위약금/iu.test(text)
-        ? ["excessiveTerminationPenalty"]
-        : []),
-      ...(/실제\s*공급(?:분|된\s*재화등의\s*대가)[^\n.]{0,220}환급/iu.test(text)
-        ? ["excessPaymentRefund"]
-        : []),
+      ...(/손실[^\n.]{0,100}현저히\s*초과[^\n.]{0,120}위약금/iu.test(text) ? ["excessiveTerminationPenalty"] : []),
+      ...(/실제\s*공급(?:분|된\s*재화등의\s*대가)[^\n.]{0,220}환급/iu.test(text) ? ["excessPaymentRefund"] : []),
     ]);
   }
 
@@ -168,69 +183,42 @@ export function approvalEvidenceClaimFieldsForSourceUrl(urlValue: string): reado
   }
   const host = url.hostname.toLocaleLowerCase("en-US").replace(/^www\./, "");
   const path = url.pathname;
-  if (host === "law.go.kr"
-    && path.endsWith("/lsLinkCommonInfo.do")
-    && url.searchParams.get("lsJoLnkSeq") === "1031805825") {
+  if (host === "law.go.kr" && path.endsWith("/lsLinkCommonInfo.do") && url.searchParams.get("lsJoLnkSeq") === "1031805825") {
     return Object.freeze(["continuingTransactionDefinition"]);
   }
-  if (host === "law.go.kr"
-    && ((path.endsWith("/lsLawLinkInfo.do")
-      && url.searchParams.get("lsJoLnkSeq") === "1000070098")
-      || (path.endsWith("/lsLinkCommonInfo.do")
-        && url.searchParams.get("lspttninfSeq") === "58591"))) {
+  if (host === "law.go.kr" && ((path.endsWith("/lsLawLinkInfo.do") && url.searchParams.get("lsJoLnkSeq") === "1000070098") || (path.endsWith("/lsLinkCommonInfo.do") && url.searchParams.get("lspttninfSeq") === "58591"))) {
     return Object.freeze(["continuingTransactionArticle30Threshold"]);
   }
-  if (host === "law.go.kr"
-    && path.endsWith("/lsLinkCommonInfo.do")
-    && url.searchParams.get("lsJoLnkSeq") === "1025033501") {
-    return Object.freeze([
-      "continuingTransactionContractDocument",
-      "excessiveTerminationPenalty",
-      "excessPaymentRefund",
-    ]);
+  if (host === "law.go.kr" && path.endsWith("/lsLinkCommonInfo.do") && url.searchParams.get("lsJoLnkSeq") === "1025033501") {
+    return Object.freeze(["continuingTransactionContractDocument", "excessiveTerminationPenalty", "excessPaymentRefund"]);
   }
   if (host === "kdic.or.kr") {
-    if (path.includes("selectProtSystProtTrgtPrdctSumr.do")) {
-      return Object.freeze(["depositProtectedProducts", "depositProtectionExclusions"]);
-    }
-    if (path.includes("ProtSystProtLmts/selectScrn.do")) {
-      return Object.freeze(["depositProtectionLimit", "depositProtectionUnit"]);
-    }
-    if (path.includes("ProtSystProtGudn/selectScrn.do")) {
-      return Object.freeze(["depositProtectionCheckPath"]);
-    }
+    if (path.includes("selectProtSystProtTrgtPrdctSumr.do")) return Object.freeze(["depositProtectedProducts", "depositProtectionExclusions"]);
+    if (path.includes("ProtSystProtLmts/selectScrn.do")) return Object.freeze(["depositProtectionLimit", "depositProtectionUnit"]);
+    if (path.includes("ProtSystProtGudn/selectScrn.do")) return Object.freeze(["depositProtectionCheckPath"]);
   }
   if (host === "fsc.go.kr" && path.endsWith("/84975")) {
-    return Object.freeze([
-      "depositProtectedProducts",
-      "depositProtectionLimit",
-      "depositProtectionUnit",
-      "depositProtectionExclusions",
-      "depositProtectionCheckPath",
-    ]);
+    return Object.freeze(["depositProtectedProducts", "depositProtectionLimit", "depositProtectionUnit", "depositProtectionExclusions", "depositProtectionCheckPath"]);
   }
   if (host === "fsc.go.kr" && path.endsWith("/84974")) {
-    return Object.freeze([
-      "depositProtectionLimit",
-      "depositProtectionUnit",
-      "depositProtectionEffectiveDate",
-    ]);
+    return Object.freeze(["depositProtectionLimit", "depositProtectionUnit", "depositProtectionEffectiveDate"]);
+  }
+  if (host === "fsc.go.kr" && path.endsWith("/no040101") && url.searchParams.get("cnId") === "2396") {
+    return Object.freeze(["revolvingDefinition", "revolvingInstallmentDifference", "revolvingPaymentStructure", "revolvingFeeRisk", "revolvingCancellationGuidance"]);
+  }
+  if (host === "fsc.go.kr" && path.endsWith("/po020201/27315")) {
+    return Object.freeze(["revolvingDefinition", "revolvingFeeRisk"]);
+  }
+  if (host === "fsc.go.kr" && path.endsWith("/po010106/78357")) {
+    return Object.freeze(["revolvingDisclosureDuty", "revolvingFeeDisclosure", "revolvingMinimumPaymentRatio", "revolvingFeeRisk"]);
   }
   if (host === "law.go.kr" && path.endsWith("/lsInfoP.do")) {
-    return Object.freeze([
-      "depositProtectionLimit",
-      "depositProtectionUnit",
-      "depositProtectionEffectiveDate",
-      "depositProtectionStatutoryBasis",
-    ]);
+    return Object.freeze(["depositProtectionLimit", "depositProtectionUnit", "depositProtectionEffectiveDate", "depositProtectionStatutoryBasis"]);
   }
   return undefined;
 }
 
-export function approvalFactMatchesPage(
-  page: ApprovalFactPage,
-  fact: ApprovalEvidenceFact,
-): boolean {
+export function approvalFactMatchesPage(page: ApprovalFactPage, fact: ApprovalEvidenceFact): boolean {
   const haystack = normalize(`${page.title} ${page.publisher} ${page.text}`);
   const signalGroups: Readonly<Record<string, readonly string[]>> = {
     continuousServicePeriod: ["계속근로", "1년"],
@@ -253,11 +241,17 @@ export function approvalFactMatchesPage(
     depositProtectionCheckPath: ["확인"],
     depositProtectionEffectiveDate: ["2025", "9월", "1일"],
     depositProtectionStatutoryBasis: ["예금자보호법"],
+    revolvingDefinition: ["일부결제금액이월약정", "이월"],
+    revolvingInstallmentDifference: ["리볼빙", "할부"],
+    revolvingPaymentStructure: ["결제비율", "이월"],
+    revolvingFeeRisk: ["수수료율", "높"],
+    revolvingDisclosureDuty: ["설명", "설명서"],
+    revolvingFeeDisclosure: ["수수료율", "비교"],
+    revolvingMinimumPaymentRatio: ["최소결제비율", "10"],
+    revolvingCancellationGuidance: ["리볼빙", "해지"],
   };
   const fieldSignals = signalGroups[fact.field];
-  if (fieldSignals?.length) {
-    return fieldSignals.every((signal) => haystack.includes(normalize(signal)));
-  }
+  if (fieldSignals?.length) return fieldSignals.every((signal) => haystack.includes(normalize(signal)));
   return variants(fact.value).some((value) => value.length >= 3 && haystack.includes(value));
 }
 
@@ -272,21 +266,14 @@ function variants(value: string): readonly string[] {
 }
 
 function documentText(document: ContentDocument): string {
-  return [
-    document.title,
-    ...document.blocks.flatMap((block) => {
-      if (block.type === "heading" || block.type === "paragraph") return [block.text];
-      if (block.type === "list") return [serializeStructuredList(block)];
-      if (block.type === "table") return [block.caption ?? "", ...block.headers, ...block.rows.flat()];
-      return [];
-    }),
-  ].join("\n");
+  return [document.title, ...document.blocks.flatMap((block) => {
+    if (block.type === "heading" || block.type === "paragraph") return [block.text];
+    if (block.type === "list") return [serializeStructuredList(block)];
+    if (block.type === "table") return [block.caption ?? "", ...block.headers, ...block.rows.flat()];
+    return [];
+  })].join("\n");
 }
 
 function normalize(value: string): string {
-  return value
-    .normalize("NFKC")
-    .toLocaleLowerCase("ko-KR")
-    .replace(/&nbsp;|\u00a0/g, " ")
-    .replace(/[\s\p{P}\p{S}]+/gu, "");
+  return value.normalize("NFKC").toLocaleLowerCase("ko-KR").replace(/&nbsp;|\u00a0/g, " ").replace(/[\s\p{P}\p{S}]+/gu, "");
 }

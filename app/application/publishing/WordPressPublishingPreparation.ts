@@ -108,6 +108,63 @@ export function applyWordPressPublishingCategories(
   );
 }
 
+/**
+ * Materializes an inherited Project/Connection default onto the Content so the
+ * editor, internal-link catalog, approval identity, and WordPress Draft all
+ * read one canonical applied selection without requiring a repeated click.
+ */
+export function materializeWordPressCategorySelection(input: Readonly<{
+  data: UserData;
+  projectId: string;
+  contentId: string;
+  connection: PlatformConnection;
+  categoryResult: WordPressCategoryListResult;
+  updatedAt: string;
+}>): Readonly<{
+  data: UserData;
+  selection: WordPressCategorySelectionResolution;
+  applied: boolean;
+}> {
+  const project = input.data.projects.find((item) => item.id === input.projectId && item.workspaceId === input.data.workspace?.id);
+  const content = input.data.contents.find((item) => item.id === input.contentId
+    && item.projectId === input.projectId
+    && (item.workspaceId === undefined || item.workspaceId === input.data.workspace?.id));
+  if (!project || !content) throw new Error("WordPress publishing Project or Content could not be found.");
+
+  const selection = resolveWordPressCategorySelection({
+    project,
+    content,
+    connection: input.connection,
+    categoryResult: input.categoryResult,
+  });
+  if (!selection.valid || selection.source === "content") {
+    return Object.freeze({ data: input.data, selection, applied: false });
+  }
+
+  const data = applyWordPressPublishingCategories(
+    input.data,
+    input.projectId,
+    input.contentId,
+    input.connection.id,
+    selection.categoryIds,
+    input.categoryResult,
+    input.updatedAt,
+  );
+  const nextProject = data.projects.find((item) => item.id === input.projectId && item.workspaceId === data.workspace?.id);
+  const nextContent = data.contents.find((item) => item.id === input.contentId && item.projectId === input.projectId);
+  if (!nextProject || !nextContent) throw new Error("WordPress Category selection could not be restored.");
+  const appliedSelection = resolveWordPressCategorySelection({
+    project: nextProject,
+    content: nextContent,
+    connection: input.connection,
+    categoryResult: input.categoryResult,
+  });
+  if (!appliedSelection.valid || appliedSelection.source !== "content") {
+    throw new Error("Inherited WordPress Category could not be materialized onto Content.");
+  }
+  return Object.freeze({ data, selection: appliedSelection, applied: true });
+}
+
 export function resolveWordPressCategorySelection(input: Readonly<{
   project: UserProject;
   content: UserContent;

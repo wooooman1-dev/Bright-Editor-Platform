@@ -4,6 +4,7 @@ export * from "./ApprovalDuplicatePolicy";
 export * from "./ApprovalEvidenceVerification";
 export * from "./ApprovalEvidenceClaimPolicy";
 export * from "./ApprovalOfficialSourcePolicy";
+export * from "./ApprovalDateOwnership";
 export * from "./SiteApprovalReadinessAdapter";
 export {
   approvalPolicyPromptContext,

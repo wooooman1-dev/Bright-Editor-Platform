@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApprovalEvidenceSource, SiteApprovalReadinessSnapshot } from "../../core/approval";
 import type { ContentDocument } from "../../core/content";
 import { editorialRevisionId, isStandardQualityApproved, type QualityReport } from "../../core/quality";
+import { approvalReadinessInspectionVersion } from "../application/approval/ApprovalReadinessExecutionIdentity";
 import { contentOwnedIdentityContamination } from "../application/publishing/ContentOwnedIdentityPolicy";
 import {
   internalLinkCatalogContextIsCurrent,
@@ -40,83 +41,44 @@ const legacyWordPressSiteReadinessKeys = new Set([
   "adsense_external_approval",
 ]);
 
-export function isCurrentSiteReadinessSnapshot(
-  snapshot: SiteApprovalReadinessSnapshot | undefined,
-): boolean {
+export function isCurrentSiteReadinessSnapshot(snapshot: SiteApprovalReadinessSnapshot | undefined): boolean {
   if (!snapshot?.checkedAt) return false;
-  return snapshot.checks.every((check) =>
-    check.requirement !== "manual"
-    && !legacyWordPressSiteReadinessKeys.has(check.key));
+  return snapshot.checks.every((check) => check.requirement !== "manual" && !legacyWordPressSiteReadinessKeys.has(check.key));
 }
 
-export function approvalReadinessIdentityContamination(
-  data: UserData | undefined,
-  contentId: string,
-): readonly string[] {
+export function approvalReadinessIdentityContamination(data: UserData | undefined, contentId: string): readonly string[] {
   if (!data?.workspace) return Object.freeze([]);
-  const content = data.contents.find((item) =>
-    item.id === contentId
-    && item.workspaceId === data.workspace?.id);
+  const content = data.contents.find((item) => item.id === contentId && item.workspaceId === data.workspace?.id);
   if (!content) return Object.freeze([]);
-  const project = data.projects.find((item) =>
-    item.id === content.projectId
-    && item.workspaceId === data.workspace?.id);
-  if (!project) return Object.freeze([]);
-  return contentOwnedIdentityContamination(data, project, content);
+  const project = data.projects.find((item) => item.id === content.projectId && item.workspaceId === data.workspace?.id);
+  return project ? contentOwnedIdentityContamination(data, project, content) : Object.freeze([]);
 }
 
-export function approvalReadinessAutoRunDecision(
-  content: UserContent | undefined,
-): ApprovalReadinessAutoRunDecision {
-  if (!content?.document) {
-    return Object.freeze({
-      currentRevisionId: "",
-      publishingContextKey: "",
-      hasStoredResult: false,
-      shouldRun: false,
-      sources: Object.freeze([]),
-    });
-  }
-
+export function approvalReadinessAutoRunDecision(content: UserContent | undefined): ApprovalReadinessAutoRunDecision {
+  if (!content?.document) return Object.freeze({ currentRevisionId: "", publishingContextKey: "", hasStoredResult: false, shouldRun: false, sources: Object.freeze([]) });
   const approvalContent = content as UserContent & Readonly<{ contentPurpose?: string }>;
   const currentRevisionId = editorialRevisionId(content.document);
   const publishingContextKey = internalLinkCatalogContextKey(content);
   const evidence = content.document.metadata?.approvalEvidence;
   const siteReadiness = content.document.metadata?.siteApprovalReadiness;
-  const catalogContextIsCurrent = internalLinkCatalogContextIsCurrent(
-    content,
-    content.document,
-  );
   const execution = content.document.metadata?.approvalReadinessExecution;
-  const hasStoredResult = evidence?.reviewedRevisionId === currentRevisionId
+  const hasStoredResult = execution?.version === approvalReadinessInspectionVersion
+    && evidence?.reviewedRevisionId === currentRevisionId
     && isCurrentSiteReadinessSnapshot(siteReadiness)
-    && catalogContextIsCurrent
-    && execution?.status === "completed"
+    && internalLinkCatalogContextIsCurrent(content, content.document)
+    && execution.status === "completed"
     && execution.editorialRevisionId === currentRevisionId
     && execution.publishingContextKey === publishingContextKey;
   const qualityIsCurrent = content.quality !== undefined
     && isStandardQualityApproved(content.quality)
     && content.quality.reviewedRevisionId === currentRevisionId;
-  const publishingContextFinalized = publishingContextIsFinalized(content);
-
   return Object.freeze({
     currentRevisionId,
     publishingContextKey,
     hasStoredResult,
-    shouldRun: approvalContent.contentPurpose === "adsense_approval"
-      && !hasStoredResult
-      && qualityIsCurrent
-      && publishingContextFinalized,
+    shouldRun: approvalContent.contentPurpose === "adsense_approval" && !hasStoredResult && qualityIsCurrent && publishingContextIsFinalized(content),
     sources: Object.freeze([...(evidence?.sources ?? [])]),
-    ...(evidence ? {
-      evidenceSummary: Object.freeze({
-        status: evidence.status,
-        coverageStatus: evidence.coverageStatus,
-        reviewedAt: evidence.reviewedAt,
-        informationAsOf: evidence.informationAsOf,
-        presentationStatus: evidence.presentationStatus,
-      }),
-    } : {}),
+    ...(evidence ? { evidenceSummary: Object.freeze({ status: evidence.status, coverageStatus: evidence.coverageStatus, reviewedAt: evidence.reviewedAt, informationAsOf: evidence.informationAsOf, presentationStatus: evidence.presentationStatus }) } : {}),
   });
 }
 
@@ -125,201 +87,77 @@ export function ApprovalReadinessActions(props: Readonly<{
   contentId: string;
   disabled?: boolean;
   inspectionKey?: string;
-  onCompleted: (result: Readonly<{
-    data: UserData;
-    document: ContentDocument;
-    quality: QualityReport;
-  }>) => Promise<void> | void;
+  onCompleted: (result: Readonly<{ data: UserData; document: ContentDocument; quality: QualityReport }>) => Promise<void> | void;
 }>) {
   const [state, setState] = useState<"idle" | "running" | "success" | "error">("idle");
   const [message, setMessage] = useState("");
   const [sources, setSources] = useState<readonly ApprovalEvidenceSource[]>([]);
-  const [evidenceSummary, setEvidenceSummary] = useState<ApprovalEvidenceSummary>();
-  const [hasStoredResult, setHasStoredResult] = useState(false);
+  const [summary, setSummary] = useState<ApprovalEvidenceSummary>();
+  const [stored, setStored] = useState(false);
   const [identityContamination, setIdentityContamination] = useState<readonly string[]>([]);
-  const runningRef = useRef(false);
-  const inspectedKeyRef = useRef("");
-  const onCompletedRef = useRef(props.onCompleted);
-
-  useEffect(() => {
-    onCompletedRef.current = props.onCompleted;
-  }, [props.onCompleted]);
+  const running = useRef(false);
+  const inspected = useRef("");
+  const onCompleted = useRef(props.onCompleted);
+  useEffect(() => { onCompleted.current = props.onCompleted; }, [props.onCompleted]);
 
   const execute = useCallback(async (trigger: "automatic" | "manual") => {
-    if (runningRef.current) return;
-    runningRef.current = true;
+    if (running.current) return;
+    running.current = true;
     setState("running");
-    setMessage(trigger === "automatic"
-      ? "현재 문서 버전의 공식 출처와 공개 사이트를 자동 검사하고 있습니다."
-      : "공식 출처와 공개 사이트를 다시 검사하고 있습니다.");
+    setMessage(trigger === "automatic" ? "현재 문서 버전의 공식 출처와 공개 사이트를 자동 검사하고 있습니다." : "공식 출처와 공개 사이트를 다시 검사하고 있습니다.");
     try {
-      const response = await fetch("/api/approval/readiness", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          workspaceId: props.workspaceId,
-          contentId: props.contentId,
-        }),
-      });
-      const result = await response.json() as {
-        data?: UserData;
-        document?: ContentDocument;
-        quality?: QualityReport;
-        evidence?: Readonly<{
-          status: "verified" | "needs_review" | "missing";
-          coverageStatus?: "verified" | "needs_review" | "missing";
-          reviewedAt?: string;
-          informationAsOf?: string;
-          presentationStatus?: "ready" | "conflict" | "not_projected";
-          verifiedSourceCount: number;
-          rejectedSourceCount: number;
-          reasons: readonly string[];
-          sources: readonly ApprovalEvidenceSource[];
-        }>;
-        siteReadiness?: Readonly<{ status: "passed" | "needs_review" | "blocked" }>;
-        error?: string;
-      };
-      if (!response.ok || !result.data || !result.document || !result.quality) {
-        throw new Error(result.error ?? "승인 준비 검사를 완료하지 못했습니다.");
-      }
-
-      await onCompletedRef.current({
-        data: result.data,
-        document: result.document,
-        quality: result.quality,
-      });
+      const response = await fetch("/api/approval/readiness", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ workspaceId: props.workspaceId, contentId: props.contentId }) });
+      const result = await response.json() as { data?: UserData; document?: ContentDocument; quality?: QualityReport; evidence?: { status: ApprovalEvidenceSummary["status"]; coverageStatus?: ApprovalEvidenceSummary["coverageStatus"]; reviewedAt?: string; informationAsOf?: string; presentationStatus?: ApprovalEvidenceSummary["presentationStatus"]; verifiedSourceCount: number; rejectedSourceCount: number; sources: readonly ApprovalEvidenceSource[] }; siteReadiness?: { status: "passed" | "needs_review" | "blocked" }; error?: string };
+      if (!response.ok || !result.data || !result.document || !result.quality) throw new Error(result.error ?? "승인 준비 검사를 완료하지 못했습니다.");
+      await onCompleted.current({ data: result.data, document: result.document, quality: result.quality });
       setSources(result.evidence?.sources ?? []);
-      setEvidenceSummary(result.evidence ? {
-        status: result.evidence.status,
-        coverageStatus: result.evidence.coverageStatus,
-        reviewedAt: result.evidence.reviewedAt,
-        informationAsOf: result.evidence.informationAsOf,
-        presentationStatus: result.evidence.presentationStatus,
-      } : undefined);
-      setHasStoredResult(true);
-      const evidenceLabel = result.evidence?.status === "verified"
-        ? `공식 출처 ${result.evidence.verifiedSourceCount}개 검증 완료`
-        : result.evidence?.status === "missing"
-          ? "공식 출처 후보 없음"
-          : `공식 출처 확인 필요 ${result.evidence?.rejectedSourceCount ?? 0}개`;
-      const siteLabel = result.siteReadiness?.status === "passed"
-        ? "사이트 자동 검사 통과"
-        : result.siteReadiness?.status === "blocked"
-          ? "사이트 자동 검사 차단 항목 있음"
-          : "사이트 자동 검사 항목 확인 필요";
+      setSummary(result.evidence ? { status: result.evidence.status, coverageStatus: result.evidence.coverageStatus, reviewedAt: result.evidence.reviewedAt, informationAsOf: result.evidence.informationAsOf, presentationStatus: result.evidence.presentationStatus } : undefined);
+      setStored(true);
       setState("success");
-      setMessage(`${trigger === "automatic" ? "자동 검사 완료 · " : "저장 결과 확인 완료 · "}${evidenceLabel} · ${siteLabel}`);
+      const evidenceLabel = result.evidence?.status === "verified" ? `공식 출처 ${result.evidence.verifiedSourceCount}개 검증 완료` : result.evidence?.status === "missing" ? "공식 출처 없음" : `공식 출처 확인 필요 ${result.evidence?.rejectedSourceCount ?? 0}개`;
+      setMessage(`${trigger === "automatic" ? "자동 검사 완료" : "저장 결과 확인 완료"} · ${evidenceLabel}`);
     } catch (error) {
       setState("error");
       setMessage(error instanceof Error ? error.message : "승인 준비 검사를 완료하지 못했습니다.");
-    } finally {
-      runningRef.current = false;
-    }
+    } finally { running.current = false; }
   }, [props.contentId, props.workspaceId]);
 
   useEffect(() => {
-    if (props.disabled || runningRef.current) return;
+    if (props.disabled || running.current) return;
     let active = true;
     const timer = window.setTimeout(() => {
-      void fetch("/api/studio", { cache: "no-store" })
-        .then(async (response) => {
-          if (!response.ok) throw new Error(`응답 상태 ${response.status}`);
-          return response.json() as Promise<{ data?: UserData }>;
-        })
-        .then((result) => {
-          if (!active) return;
-          const content = result.data?.contents.find((item) => item.id === props.contentId);
-          const contamination = approvalReadinessIdentityContamination(result.data, props.contentId);
-          const decision = approvalReadinessAutoRunDecision(content);
-          const inspectedKey = [
-            props.contentId,
-            props.inspectionKey ?? "",
-            decision.currentRevisionId,
-            decision.publishingContextKey,
-            content?.document?.metadata?.internalLinkCatalogContextKey ?? "",
-            content?.document?.metadata?.approvalEvidence?.reviewedRevisionId ?? "",
-            content?.document?.metadata?.siteApprovalReadiness?.checkedAt ?? "",
-            contamination.join("|"),
-            decision.shouldRun ? "run" : "hold",
-          ].join(":");
-          if (inspectedKeyRef.current === inspectedKey) return;
-          inspectedKeyRef.current = inspectedKey;
-
-          setIdentityContamination(contamination);
-          setSources(decision.sources);
-          setEvidenceSummary(decision.evidenceSummary);
-          setHasStoredResult(decision.hasStoredResult);
-          if (contamination.length) {
-            setMessage("");
-          } else if (decision.hasStoredResult) {
-            setMessage((current) => current || "저장된 현재 문서 버전의 승인 준비 검사 결과를 표시하고 있습니다.");
-          }
-
-          if (decision.shouldRun && contamination.length === 0) void execute("automatic");
-        })
-        .catch((error) => {
-          if (!active) return;
-          setState("error");
-          setMessage(`자동 승인 준비 상태를 확인하지 못했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`);
-        });
+      void fetch("/api/studio", { cache: "no-store" }).then(async (response) => {
+        if (!response.ok) throw new Error(`응답 상태 ${response.status}`);
+        return response.json() as Promise<{ data?: UserData }>;
+      }).then((result) => {
+        if (!active) return;
+        const content = result.data?.contents.find((item) => item.id === props.contentId);
+        const contamination = approvalReadinessIdentityContamination(result.data, props.contentId);
+        const decision = approvalReadinessAutoRunDecision(content);
+        const key = [approvalReadinessInspectionVersion, props.contentId, props.inspectionKey ?? "", decision.currentRevisionId, decision.publishingContextKey, content?.document?.metadata?.approvalReadinessExecution?.version ?? "legacy", decision.shouldRun ? "run" : "hold"].join(":");
+        if (inspected.current === key) return;
+        inspected.current = key;
+        setIdentityContamination(contamination);
+        setSources(decision.sources);
+        setSummary(decision.evidenceSummary);
+        setStored(decision.hasStoredResult);
+        if (decision.hasStoredResult) setMessage((current) => current || "저장된 현재 문서 버전의 승인 준비 검사 결과를 표시하고 있습니다.");
+        if (decision.shouldRun && contamination.length === 0) void execute("automatic");
+      }).catch((error) => { if (active) { setState("error"); setMessage(`자동 승인 준비 상태를 확인하지 못했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`); } });
     }, 150);
-
-    return () => {
-      active = false;
-      window.clearTimeout(timer);
-    };
+    return () => { active = false; window.clearTimeout(timer); };
   }, [execute, props.contentId, props.disabled, props.inspectionKey]);
 
   const identityBlocked = identityContamination.length > 0;
-
   return <div className="flex w-full flex-col items-end gap-2">
-    {identityBlocked ? <p aria-live="polite" className="w-full rounded-xl bg-amber-50 px-4 py-3 text-left text-sm leading-6 text-amber-900">
-      기존 기획 또는 원고에 검색 주제가 아닌 프로젝트명·브랜드명이 포함되어 있습니다: {identityContamination.join(", ")}. 이 콘텐츠의 승인 준비 자동 검사를 중단했습니다. 새 콘텐츠에서 기획을 다시 실행해 주세요.
-    </p> : null}
-    <button
-      className="rounded-xl border border-[#ff6b6b] bg-white px-4 py-2.5 text-sm font-semibold text-[#d94f4f] disabled:opacity-50"
-      disabled={props.disabled || state === "running" || identityBlocked}
-      onClick={() => void execute("manual")}
-      type="button"
-    >
-      {identityBlocked ? "기획 재실행 필요" : state === "running" ? "승인 준비 검사 중…" : hasStoredResult ? "승인 준비 다시 검사" : "승인 준비 검사 실행"}
-    </button>
-    <p className="max-w-[640px] text-right text-xs leading-5 text-[#77777f]">
-      자동 검사는 공개 사이트의 승인 준비 상태를 진단하며 구글 애드센스 승인을 보장하지 않습니다.
-    </p>
+    {identityBlocked ? <p className="w-full rounded-xl bg-amber-50 px-4 py-3 text-left text-sm text-amber-900">기존 기획 또는 원고에 프로젝트명·브랜드명이 포함되어 자동 검사를 중단했습니다: {identityContamination.join(", ")}</p> : null}
+    <button className="rounded-xl border border-[#ff6b6b] bg-white px-4 py-2.5 text-sm font-semibold text-[#d94f4f] disabled:opacity-50" disabled={props.disabled || state === "running" || identityBlocked} onClick={() => void execute("manual")} type="button">{state === "running" ? "승인 준비 검사 중…" : stored ? "승인 준비 다시 검사" : "승인 준비 검사 실행"}</button>
+    <p className="max-w-[640px] text-right text-xs text-[#77777f]">자동 검사는 공개 사이트 상태를 진단하며 애드센스 승인을 보장하지 않습니다.</p>
     {message ? <p aria-live="polite" className={`max-w-[640px] text-right text-xs ${state === "error" ? "text-red-700" : state === "success" ? "text-emerald-700" : "text-[#77777f]"}`}>{message}</p> : null}
     {sources.length ? <details className="mt-2 w-full rounded-xl border border-black/6 bg-[#fafafa] p-4 text-left">
-      <summary className="cursor-pointer text-sm font-semibold">출처 후보 검증 결과 {sources.length}개</summary>
-      {evidenceSummary ? <dl className="mt-3 grid gap-1 rounded-lg bg-white p-3 text-xs text-[#66666f] sm:grid-cols-2">
-        <div><dt className="inline font-semibold">Pack 상태: </dt><dd className="inline">{packStatusLabel(evidenceSummary.status)}</dd></div>
-        <div><dt className="inline font-semibold">필수 Claim coverage: </dt><dd className="inline">{packStatusLabel(evidenceSummary.coverageStatus ?? evidenceSummary.status)}</dd></div>
-        <div><dt className="inline font-semibold">Claim 최종 검토일: </dt><dd className="inline">{evidenceSummary.reviewedAt ? evidenceSummary.reviewedAt.slice(0, 10) : "미완료 (검토 필요 상태에서는 정상)"}</dd></div>
-        <div><dt className="inline font-semibold">원고 정보 기준일: </dt><dd className="inline">{evidenceSummary.informationAsOf || "미기록"}</dd></div>
-        <div><dt className="inline font-semibold">출처 섹션 상태: </dt><dd className="inline">{evidenceSummary.presentationStatus ?? "미투영"}</dd></div>
-      </dl> : null}
-      <div className="mt-4 grid gap-3">
-        {sources.map((source, index) => <article className="rounded-xl border border-black/6 bg-white p-4" key={`${source.sourceId}-${index}`}>
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0">
-              <h4 className="break-words text-sm font-semibold">{source.title || source.publisher || `출처 후보 ${index + 1}`}</h4>
-              <p className="mt-1 text-xs text-[#77777f]">{source.publisher || "발행 기관 미확인"}</p>
-            </div>
-            <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${source.verified ? "bg-emerald-50 text-emerald-800" : source.verificationStatus === "duplicate_source" ? "bg-slate-100 text-slate-700" : "bg-amber-50 text-amber-900"}`}>{evidenceStatusLabel(source)}</span>
-          </div>
-          <a className="mt-3 block break-all text-xs text-blue-700 underline" href={source.url} rel="noreferrer" target="_blank">{source.url}</a>
-          <dl className="mt-3 grid gap-1 text-xs text-[#66666f] sm:grid-cols-2">
-            <div><dt className="inline font-semibold">URL 접근: </dt><dd className="inline">{stageStatusLabel(source.accessVerificationStatus)}{source.httpStatus ? ` · HTTP ${source.httpStatus}` : ""}</dd></div>
-            <div><dt className="inline font-semibold">공식 기관: </dt><dd className="inline">{stageStatusLabel(source.officialDomainVerificationStatus)}</dd></div>
-            <div><dt className="inline font-semibold">Claim 검증: </dt><dd className="inline">{stageStatusLabel(source.claimVerificationStatus)}</dd></div>
-            <div><dt className="inline font-semibold">자료 형식: </dt><dd className="inline break-all">{source.contentType || "미확인"}</dd></div>
-            <div><dt className="inline font-semibold">Provenance: </dt><dd className="inline">{source.provenance ?? "legacy_unknown"}</dd></div>
-            <div><dt className="inline font-semibold">본문 채택: </dt><dd className="inline">{source.provenance === "citation" || source.provenance === "user_selected" ? "예" : "아니요"}</dd></div>
-            <div><dt className="inline font-semibold">출처 확인일: </dt><dd className="inline">{source.checkedAt ? source.checkedAt.slice(0, 10) : "미확인"}</dd></div>
-          </dl>
-          {source.matchedFacts?.length ? <div className="mt-3 rounded-lg bg-emerald-50 p-3 text-xs text-emerald-900"><strong>일치 사실</strong><ul className="mt-1 space-y-1">{source.matchedFacts.map((fact, factIndex) => <li key={`${source.sourceId}-fact-${factIndex}`}>• {fact.field}: {fact.value}</li>)}</ul></div> : null}
-          {source.failureReason ? <p className="mt-3 rounded-lg bg-amber-50 p-3 text-xs text-amber-900">{source.failureReason}</p> : null}
-        </article>)}
-      </div>
+      <summary className="cursor-pointer text-sm font-semibold">공식 출처 검증 결과 {sources.length}개</summary>
+      {summary ? <p className="mt-2 text-xs text-[#66666f]">필수 Claim coverage: {summary.coverageStatus ?? summary.status} · Claim 최종 검토일: {summary.reviewedAt?.slice(0, 10) ?? "미완료"} · 원고 정보 기준일: {summary.informationAsOf ?? "미기록"}</p> : null}
+      <div className="mt-3 space-y-2">{sources.map((source, index) => <article className="rounded-xl bg-white p-3 text-xs" key={`${source.sourceId}-${index}`}><div className="flex justify-between gap-3"><strong>{source.title || source.publisher || `공식 출처 ${index + 1}`}</strong><span>{source.verified ? "검증 완료" : source.verificationStatus === "fact_mismatch" ? "Claim 불일치" : "검토 필요"}</span></div><a className="mt-2 block break-all text-blue-700 underline" href={source.url} rel="noreferrer" target="_blank">{source.url}</a>{source.failureReason ? <p className="mt-2 rounded-lg bg-amber-50 p-2 text-amber-900">{source.failureReason}</p> : null}</article>)}</div>
     </details> : null}
   </div>;
 }
@@ -329,38 +167,8 @@ function publishingContextIsFinalized(content: UserContent): boolean {
   if (!accountId) return false;
   if (content.platform === "wordpress") {
     const preparation = content.publishingPreparation?.wordpress;
-    return Boolean(preparation
-      && preparation.publishingAccountId === accountId
-      && publishingCategoryIdentities(content).length > 0);
+    return Boolean(preparation && preparation.publishingAccountId === accountId && publishingCategoryIdentities(content).length > 0);
   }
-  if (content.platform === "tistory") {
-    const preparation = content.publishingPreparation?.tistory;
-    return Boolean(preparation && preparation.publishingAccountId === accountId);
-  }
+  if (content.platform === "tistory") return content.publishingPreparation?.tistory?.publishingAccountId === accountId;
   return false;
-}
-
-function stageStatusLabel(status: ApprovalEvidenceSource["accessVerificationStatus"]): string {
-  if (status === "verified") return "확인";
-  if (status === "failed") return "실패";
-  return "판정 전";
-}
-
-function evidenceStatusLabel(source: ApprovalEvidenceSource): string {
-  switch (source.verificationStatus) {
-    case "verified": return "검증 완료";
-    case "duplicate_source": return "중복 출처";
-    case "unreachable": return "접근 실패";
-    case "unsupported_content_type": return "지원하지 않는 형식";
-    case "unofficial_source": return "공식 출처 미확인";
-    case "fact_mismatch": return "사실 불일치";
-    case "excluded": return "사용 제외";
-    default: return source.verified ? "검증 완료" : "검토 필요";
-  }
-}
-
-function packStatusLabel(status: ApprovalEvidenceSummary["status"]): string {
-  if (status === "verified") return "필수 Claim 검증 완료";
-  if (status === "missing") return "출처 없음";
-  return "검토 필요";
 }

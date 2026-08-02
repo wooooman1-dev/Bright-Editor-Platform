@@ -1,4 +1,7 @@
-import type { AIProvider } from "../../core/ai";
+import {
+  appendAIUsageToDocument,
+  type AIProvider,
+} from "../../core/ai";
 import { isApprovalPolicyProfileId, resolveApprovalPolicySnapshot, type ApprovalPolicySnapshot } from "../../core/approval";
 import { analyzeLongFormDocument, normalizeContentPlanQualityTarget, restoreProtectedImageAssets, restoreVerifiedEditorialLinks, type ContentDocument, type ContentPlanQualityTarget } from "../../core/content";
 import { editorialRevisionId, evaluateQualityReviewReadiness, QualityEngine, type QualityReviewContext } from "../../core/quality";
@@ -26,7 +29,7 @@ export type EditorialQualityPipelineResult = Readonly<{
 
 export function contentDocumentAIContext(document: ContentDocument): Readonly<Record<string, unknown>> {
   if (!document.metadata) return document;
-  const excluded = new Set(["qualityTarget", "generationDiagnostic", "reviewDiagnostic"]);
+  const excluded = new Set(["qualityTarget", "generationDiagnostic", "reviewDiagnostic", "aiUsage"]);
   const metadataEntries = Object.fromEntries(
     Object.entries(document.metadata).filter(([key]) => !excluded.has(key)),
   );
@@ -93,6 +96,7 @@ export class EditorialQualityPipeline {
     const best = accepted
       ? { document: finalCandidate.document, quality: finalReviewQuality }
       : { document: input.document, quality: generationQuality };
+    const document = appendAIUsageToDocument(best.document, finalResponse.diagnostics?.aiUsage);
 
     return Object.freeze({
       automaticImprovementCount: 0,
@@ -104,12 +108,12 @@ export class EditorialQualityPipeline {
           ? { rejectionReason: finalCandidate.rejectionReason ?? "quality_not_improved" }
           : {}),
       })]),
-      document: best.document,
+      document,
       finalReviewQuality,
       quality: best.quality,
       qualityHistory: Object.freeze([generationQuality, finalReviewQuality]),
       ...(finalResponse.diagnostics ? { providerDiagnostics: finalResponse.diagnostics } : {}),
-      reachedTarget: meetsStandardApprovalTarget(best.document, best.quality),
+      reachedTarget: meetsStandardApprovalTarget(document, best.quality),
     });
   }
 
@@ -311,6 +315,8 @@ function preserveReviewMetadata(current: ContentDocument, candidate: ContentDocu
     qualityTarget: current.metadata?.qualityTarget ?? protectedCandidate.metadata?.qualityTarget,
     longFormStructure: protectedCandidate.metadata?.longFormStructure ?? current.metadata?.longFormStructure,
     ...(protectedCandidate.metadata?.tags?.length ? { tags: protectedCandidate.metadata.tags } : current.metadata?.tags?.length ? { tags: current.metadata.tags } : {}),
+    ...(current.metadata?.approvalEvidence ? { approvalEvidence: current.metadata.approvalEvidence } : {}),
+    ...(current.metadata?.aiUsage ? { aiUsage: current.metadata.aiUsage } : {}),
     generationDiagnostic: current.metadata?.generationDiagnostic,
   };
   const diagnostic = analyzeLongFormDocument({ ...protectedCandidate, metadata }, metadata.qualityTarget);

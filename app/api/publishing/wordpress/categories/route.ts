@@ -10,6 +10,7 @@ import {
 } from "../../../../application/connections/connection-runtime";
 import {
   applyWordPressPublishingCategories,
+  materializeWordPressCategorySelection,
   resolveWordPressCategorySelection,
 } from "../../../../application/publishing/WordPressPublishingPreparation";
 import { assertWordPressCategoryLookupAllowed } from "../../../../application/publishing/WordPressDraftReadiness";
@@ -31,24 +32,56 @@ type OwnedContext = Readonly<{
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
-    const context = await ownedContext(
-      required(url.searchParams.get("workspaceId")),
-      required(url.searchParams.get("projectId")),
-      required(url.searchParams.get("contentId")),
-      required(url.searchParams.get("connectionId")),
-    );
+    const workspaceId = required(url.searchParams.get("workspaceId"));
+    const projectId = required(url.searchParams.get("projectId"));
+    const contentId = required(url.searchParams.get("contentId"));
+    const connectionId = required(url.searchParams.get("connectionId"));
+    const context = await ownedContext(workspaceId, projectId, contentId, connectionId);
     const catalog = await readCatalog(context);
-    const selection = resolveWordPressCategorySelection({
+    const initialSelection = resolveWordPressCategorySelection({
       project: context.project,
       content: context.content,
       connection: context.connection,
       categoryResult: catalog,
     });
 
+    let data = context.data;
+    let selection = initialSelection;
+    if (initialSelection.valid && initialSelection.source !== "content") {
+      const updatedAt = new Date().toISOString();
+      data = await studioStore.update<UserData>("application", "user-data", (current) => {
+        const fresh = currentData(current, workspaceId, projectId, contentId);
+        return materializeWordPressCategorySelection({
+          data: fresh,
+          projectId,
+          contentId,
+          connection: context.connection,
+          categoryResult: catalog,
+          updatedAt,
+        }).data;
+      });
+      const project = data.projects.find((item) => item.id === projectId && item.workspaceId === workspaceId);
+      const content = data.contents.find((item) => item.id === contentId
+        && item.projectId === projectId
+        && item.workspaceId === workspaceId);
+      if (!project || !content) throw new Error("WordPress Category selection could not be restored.");
+      selection = resolveWordPressCategorySelection({
+        project,
+        content,
+        connection: context.connection,
+        categoryResult: catalog,
+      });
+    }
+
+    const content = data.contents.find((item) => item.id === contentId
+      && item.projectId === projectId
+      && item.workspaceId === workspaceId);
+    if (!content) throw new Error("WordPress Category selection could not be restored.");
     return NextResponse.json({
       categories: catalog.categories,
       selection,
-      preparation: context.content.publishingPreparation?.wordpress ?? null,
+      preparation: content.publishingPreparation?.wordpress ?? null,
+      data,
     });
   } catch (error) {
     return failure(error);

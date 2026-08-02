@@ -1,4 +1,5 @@
 import { withCanonicalEditorialContext } from "../../../core/ai";
+import { normalizeApprovalDateOwnership } from "../../../core/approval";
 import type { ContentDocument } from "../../../core/content";
 import { projectStrategyAIContext } from "../ContentPlanningStrategy";
 import {
@@ -72,5 +73,6 @@ export function preserveContentApprovalPolicy(
       approvalPolicy,
     }),
   });
-  return withApprovalGenerationTrace(protectedDocument, content.document);
+  const normalizedDocument = normalizeApprovalDateOwnership(protectedDocument);
+  return withApprovalGenerationTrace(normalizedDocument, content.document);
 }

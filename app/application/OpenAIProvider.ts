@@ -1,4 +1,11 @@
-import type { AIProvider, AIRequest, AIResponse, AIWebSource } from "../../core/ai";
+import {
+  aiUsageStageForTask,
+  createAIUsageRecord,
+  type AIProvider,
+  type AIRequest,
+  type AIResponse,
+  type AIWebSource,
+} from "../../core/ai";
 import {
   approvalOfficialDomains,
   canonicalizeApprovalEvidenceUrl,
@@ -64,24 +71,49 @@ export class OpenAIProvider implements AIProvider {
     const responseBody = await response.json() as OpenAIResponseBody;
     const content = responseBody.output_text ?? responseBody.output?.flatMap((item) => item.content ?? []).map((item) => item.text ?? "").join("");
     const webSources = extractWebSources(responseBody.output ?? []);
+    const model = responseBody.model ?? this.model;
+    const usage = responseBody.usage;
+    const webSearchCalls = responseBody.tool_usage?.web_search?.num_requests
+      ?? (responseBody.output ?? []).filter((item) => item.type === "web_search_call").length;
+    const aiUsage = createAIUsageRecord({
+      stage: aiUsageStageForTask(request.metadata?.task),
+      task: request.metadata?.task ?? "unspecified",
+      model,
+      ...(responseBody.id ? { responseId: responseBody.id } : {}),
+      recordedAt: new Date().toISOString(),
+      inputTokens: usage?.input_tokens,
+      cachedInputTokens: usage?.input_tokens_details?.cached_tokens,
+      cacheWriteTokens: usage?.input_tokens_details?.cache_write_tokens,
+      outputTokens: usage?.output_tokens,
+      reasoningTokens: usage?.output_tokens_details?.reasoning_tokens,
+      totalTokens: usage?.total_tokens,
+      webSearchCalls,
+    });
     const diagnostics = Object.freeze({
       ...(responseBody.id ? { responseId: responseBody.id } : {}),
       ...(responseBody.status ? { status: responseBody.status } : {}),
       ...(responseBody.incomplete_details?.reason ? { incompleteReason: responseBody.incomplete_details.reason } : {}),
-      ...(typeof responseBody.usage?.output_tokens === "number" ? { outputTokens: responseBody.usage.output_tokens } : {}),
+      ...(typeof usage?.input_tokens === "number" ? { inputTokens: usage.input_tokens } : {}),
+      ...(typeof usage?.input_tokens_details?.cached_tokens === "number" ? { cachedInputTokens: usage.input_tokens_details.cached_tokens } : {}),
+      ...(typeof usage?.input_tokens_details?.cache_write_tokens === "number" ? { cacheWriteTokens: usage.input_tokens_details.cache_write_tokens } : {}),
+      ...(typeof usage?.output_tokens === "number" ? { outputTokens: usage.output_tokens } : {}),
+      ...(typeof usage?.output_tokens_details?.reasoning_tokens === "number" ? { reasoningTokens: usage.output_tokens_details.reasoning_tokens } : {}),
+      ...(typeof usage?.total_tokens === "number" ? { totalTokens: usage.total_tokens } : {}),
+      webSearchCalls,
       requestTimeoutMs: this.timeoutMs,
       elapsedMs: Date.now() - startedAt,
       ...(webSources.length ? { webSources } : {}),
+      aiUsage,
     });
     console.info("[openai-response]", {
       ...diagnostics,
-      model: responseBody.model ?? this.model,
+      model,
       webSourceCount: webSources.length,
     });
     if (responseBody.status === "incomplete") throw new Error(`OpenAI response was incomplete${responseBody.incomplete_details?.reason ? `: ${responseBody.incomplete_details.reason}` : "."}`);
     if (!content?.trim()) throw new Error("OpenAI returned an empty response.");
     assertOpenAIResponseOwnedIdentityPolicy(request.instruction, content);
-    return Object.freeze({ content, model: responseBody.model ?? this.model, diagnostics });
+    return Object.freeze({ content, model, diagnostics });
   }
 }
 
@@ -90,7 +122,19 @@ type OpenAIResponseBody = Readonly<{
   model?: string;
   status?: string;
   incomplete_details?: Readonly<{ reason?: string }>;
-  usage?: Readonly<{ output_tokens?: number }>;
+  usage?: Readonly<{
+    input_tokens?: number;
+    input_tokens_details?: Readonly<{
+      cached_tokens?: number;
+      cache_write_tokens?: number;
+    }>;
+    output_tokens?: number;
+    output_tokens_details?: Readonly<{ reasoning_tokens?: number }>;
+    total_tokens?: number;
+  }>;
+  tool_usage?: Readonly<{
+    web_search?: Readonly<{ num_requests?: number }>;
+  }>;
   output_text?: string;
   output?: readonly OpenAIOutputItem[];
 }>;
