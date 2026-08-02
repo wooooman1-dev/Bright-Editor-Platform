@@ -12,21 +12,58 @@ const snapshot = resolveApprovalPolicySnapshot("adsense_approval", "wordpress_li
 const dutiesUrl = "https://law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1025033501";
 const definitionUrl = "https://law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1031805825";
 const thresholdUrl = "https://law.go.kr/LSW/lsLawLinkInfo.do?chrClsCd=010202&lsJoLnkSeq=1000070098";
+const informationDate = "정보 기준일은 2026년 8월 1일입니다.";
 
-const incompleteClaim = "계속거래 등에 관한 계약에서는 사업자가 계약 내용을 적은 계약서를 소비자에게 발급해야 하며, 자동결제나 구독 계약을 해지할 때 과도한 위약금을 청구해서는 안 됩니다.";
+const incompleteClaim = [
+  "계속거래 등에 관한 계약에서는 사업자가 계약 내용을 적은 계약서를 소비자에게 발급해야 하며, 자동결제나 구독 계약을 해지할 때 과도한 위약금을 청구해서는 안 됩니다.",
+  informationDate,
+].join(" ");
 const completeClaim = [
   "방문판매법상 계속거래는 1개월 이상 계속적으로 재화나 서비스를 공급하고, 중도 해지 시 대금 환급 제한 또는 위약금 약정이 있는 거래를 말합니다.",
   "매달 결제된다는 이유만으로 모든 자동결제나 구독 서비스가 방문판매법상 계속거래에 해당하는 것은 아닙니다.",
   "방문판매법상 계속거래 가운데 법 제30조의 사전 설명과 계약서 발급 의무는 시행령에서 정한 금액 10만원 및 기간 3개월 이상의 계약에 적용됩니다.",
-  "적용 여부는 계약 기간, 환급·위약금 약정과 거래 형태를 확인해야 합니다.",
+  "적용 여부는 계약 기간, 환급·위약금 약정, 거래 형태와 다른 법률의 적용 여부를 확인해야 합니다.",
+  informationDate,
 ].join(" ");
 
-describe("approval legal scope policy", () => {
-  it("adds the legal applicability contract only to the WordPress life-economy prompt", () => {
+describe("approval date-role and legal-scope policy", () => {
+  it("adds the date ownership and legal applicability contracts only to the WordPress life-economy prompt", () => {
     const context = approvalPolicyPromptContext(snapshot);
+    expect(context).toContain("Date ownership contract");
+    expect(context).toContain("Never combine 정보 기준일 with 최종 검토일");
+    expect(context).toContain("Do not author or alter 출처 확인일 or Claim 최종 검토일");
     expect(context).toContain("Legal applicability contract");
     expect(context).toContain("never equate recurring payment with a continuing transaction");
     expect(context).toContain("not every automatic payment or subscription qualifies");
+  });
+
+  it("blocks a combined information-date and final-review-date sentence", () => {
+    const issues = evaluateApprovalPreparationText(
+      "공식 자료를 확인했습니다. 정보 기준일 및 최종 검토일은 2026년 8월 1일입니다.",
+      snapshot,
+      {
+        sourceUrls: [dutiesUrl],
+        reviewedAt: "2026-08-02T00:00:00.000Z",
+      },
+    );
+
+    expect(issues).toContainEqual(expect.objectContaining({
+      code: "PROFILE_REVIEW_DATE_MISSING",
+      message: expect.stringContaining("서로 다른 역할"),
+    }));
+  });
+
+  it("accepts a manuscript information date separately from the system Evidence review date", () => {
+    const issues = evaluateApprovalPreparationText(
+      `공식 자료를 확인했습니다. ${informationDate}`,
+      snapshot,
+      {
+        sourceUrls: [dutiesUrl],
+        reviewedAt: "2026-08-02T00:00:00.000Z",
+      },
+    );
+
+    expect(issues).not.toContainEqual(expect.objectContaining({ code: "PROFILE_REVIEW_DATE_MISSING" }));
   });
 
   it("blocks a continuing-transaction statement that omits definition, scope, thresholds, and their official sources", () => {
@@ -38,7 +75,7 @@ describe("approval legal scope policy", () => {
 
     expect(messages).toContain("법정 정의와 성립 요건");
     expect(messages).toContain("모든 자동결제·구독");
-    expect(messages).toContain("현재 금액·기간 기준");
+    expect(messages).toContain("금액·기간 요건");
     expect(messages).toContain("정의를 확인할 수 있는 국가법령정보센터");
     expect(messages).toContain("시행령 공식 출처");
   });
@@ -111,7 +148,7 @@ function approvalDocument(text: string, sourceUrls: readonly string[]): ContentD
     },
     blocks: [
       { id: "claim", type: "paragraph", text },
-      { id: "source", type: "paragraph", text: "정보 기준일 및 최종 검토일은 2026년 8월 1일입니다." },
+      { id: "source", type: "paragraph", text: informationDate },
     ],
   };
 }

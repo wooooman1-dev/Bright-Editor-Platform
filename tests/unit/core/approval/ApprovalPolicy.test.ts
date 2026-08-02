@@ -75,6 +75,8 @@ describe("ApprovalPolicy", () => {
     expect(context).toContain("Site and brand identity (metadata only): 밝은재테크");
     expect(context).toContain("Content domain: 생활경제, 생활금융, 정부지원, 세금, 주거 정보");
     expect(context).toContain("publishing Category labels are metadata, not default search keywords");
+    expect(context).toContain("Date ownership contract");
+    expect(context).toContain("Never combine 정보 기준일 with 최종 검토일");
     expect(context).not.toContain("wordpress_life_economy_v1");
     expect(context).not.toMatch(/Google\s*AI\s*봇|AI\s*봇에게\s*잘\s*보이/iu);
     expect(context).not.toMatch(/\b\d{3,}\s*(?:자|단어)\b/u);
@@ -156,24 +158,28 @@ describe("ApprovalPolicy", () => {
     )).toEqual([]);
   });
 
-  it("accepts a combined natural-language information and review date sentence", () => {
+  it("blocks a combined natural-language information and final-review date sentence", () => {
     const snapshot = resolveApprovalPolicySnapshot("adsense_approval", "wordpress_life_economy_v1")!;
     const issues = evaluateApprovalPreparationText(
       "공식 자료 https://www.gov.kr/portal/main 를 확인했습니다. 정보 기준일과 최종 검토일은 2026년 7월 30일이며 실제 신청 전 최신 공고를 다시 확인해야 합니다.",
       snapshot,
+      { reviewedAt: "2026-07-31T00:00:00.000Z" },
     );
 
-    expect(issues).not.toContainEqual(expect.objectContaining({ code: "PROFILE_REVIEW_DATE_MISSING" }));
+    expect(issues).toContainEqual(expect.objectContaining({
+      code: "PROFILE_REVIEW_DATE_MISSING",
+      message: expect.stringContaining("서로 다른 역할"),
+    }));
   });
 
-  it("uses canonical Evidence metadata for the official HTTPS URL and review date", () => {
+  it("uses canonical Evidence metadata for the official HTTPS URL and system-owned review date", () => {
     const snapshot = resolveApprovalPolicySnapshot("adsense_approval", "wordpress_life_economy_v1")!;
     const issues = evaluateApprovalPreparationText(
-      "예금자보호 대상과 보호 한도를 확인하는 순서를 설명합니다.",
+      "예금자보호 대상과 보호 한도를 확인하는 순서를 설명합니다. 정보 기준일은 2026년 8월 1일입니다.",
       snapshot,
       {
         sourceUrls: ["https://www.kdic.or.kr/deposit/selectProtectingProducts.do"],
-        reviewedAt: "2026-08-01T00:00:00.000Z",
+        reviewedAt: "2026-08-02T00:00:00.000Z",
       },
     );
 

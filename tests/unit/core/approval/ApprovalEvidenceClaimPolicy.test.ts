@@ -54,11 +54,28 @@ function continuingTransactionDocument(): ContentDocument {
     ...retirementDocument(),
     id: "continuing-transaction-1",
     title: "고정지출 줄이는 방법",
-    blocks: [{
-      id: "claim",
-      type: "paragraph",
-      text: "계속거래 등에 관한 계약에서는 사업자가 계약 내용을 적은 계약서를 소비자에게 발급해야 하며, 해지·해제로 생기는 손실을 현저히 초과하는 위약금을 청구하거나 실제 공급분을 초과해 받은 대금의 환급을 부당하게 거부해서는 안 된다는 기준이 규정되어 있습니다.",
-    }],
+    blocks: [
+      {
+        id: "definition",
+        type: "paragraph",
+        text: "방문판매법상 계속거래는 1개월 이상 계속적으로 재화나 서비스를 공급하고, 중도 해지 시 대금 환급 제한 또는 위약금 약정이 있는 거래를 말합니다.",
+      },
+      {
+        id: "scope",
+        type: "paragraph",
+        text: "매달 결제된다는 이유만으로 모든 자동결제나 구독 서비스가 방문판매법상 계속거래에 해당하는 것은 아닙니다.",
+      },
+      {
+        id: "article-30",
+        type: "paragraph",
+        text: "방문판매법상 계속거래 가운데 법 제30조의 사전 설명과 계약서 발급 의무는 시행령에서 정한 금액 10만원 및 기간 3개월 이상의 계약에 적용됩니다.",
+      },
+      {
+        id: "article-32",
+        type: "paragraph",
+        text: "계속거래 계약을 해지·해제할 때 손실을 현저히 초과하는 위약금을 청구하거나 실제 공급분을 초과해 받은 대금의 환급을 부당하게 거부해서는 안 됩니다.",
+      },
+    ],
   };
 }
 
@@ -128,20 +145,33 @@ describe("Approval Evidence Claim Policy", () => {
       .toEqual(expect.arrayContaining(["depositProtectionEffectiveDate", "depositProtectionStatutoryBasis"]));
   });
 
-  it("extracts only the three continuing-transaction Claims present in the manuscript and assigns the cited law article", () => {
+  it("extracts and requires the continuing-transaction definition, Article 30 threshold, and Article 32 Claims", () => {
     const document = continuingTransactionDocument();
     const facts = extractProfileApprovalFacts(document, "wordpress_life_economy_v1");
 
     expect(facts.map((fact) => fact.field)).toEqual(expect.arrayContaining([
+      "continuingTransactionDefinition",
+      "continuingTransactionArticle30Threshold",
       "continuingTransactionContractDocument",
       "excessiveTerminationPenalty",
       "excessPaymentRefund",
     ]));
     expect(requiredApprovalFactFields(document, "wordpress_life_economy_v1", facts)).toEqual([
+      "continuingTransactionDefinition",
+      "continuingTransactionArticle30Threshold",
       "continuingTransactionContractDocument",
       "excessiveTerminationPenalty",
       "excessPaymentRefund",
     ]);
+  });
+
+  it("assigns the definition, enforcement-decree threshold, and Article 30·32 pages to separate Claim roles", () => {
+    expect(approvalEvidenceClaimFieldsForSourceUrl(
+      "https://www.law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1031805825",
+    )).toEqual(["continuingTransactionDefinition"]);
+    expect(approvalEvidenceClaimFieldsForSourceUrl(
+      "https://www.law.go.kr/LSW/lsLawLinkInfo.do?chrClsCd=010202&lsJoLnkSeq=1000070098",
+    )).toEqual(["continuingTransactionArticle30Threshold"]);
     expect(approvalEvidenceClaimFieldsForSourceUrl(
       "https://www.law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1025033501",
     )).toEqual([

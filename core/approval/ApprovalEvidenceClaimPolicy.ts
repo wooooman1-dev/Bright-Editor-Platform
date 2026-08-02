@@ -59,6 +59,15 @@ export function extractProfileApprovalFactsFromText(
   collect("paymentDeadline", /((?:퇴직|지급)[^\n.]{0,120}14\s*일\s*이내[^\n.]{0,100})/gi);
   collect("statutoryBasis", /((?:근로자퇴직급여\s*보장법|근로기준법|소득세법)[^\n.]{0,160})/gi);
   collect("exceptions", /(?:예외|제외|주의(?:사항)?)\s*[:：]?\s*([^\n.]{2,220})/gi);
+
+  collect(
+    "continuingTransactionDefinition",
+    /((?:방문판매법상\s*)?계속거래[^\n.]{0,220}?1\s*개월\s*이상[^\n.]{0,220}?(?:(?:대금\s*)?환급[^\n.]{0,60}?제한|위약금[^\n.]{0,60}?(?:약정|조건))[^\n.]{0,100})/gi,
+  );
+  collect(
+    "continuingTransactionArticle30Threshold",
+    /((?:법\s*제?\s*30조|제30조|사전\s*설명|계약서\s*발급)[^\n.]{0,220}?(?:10\s*만\s*원[^\n.]{0,140}?3\s*개월|법령[^\n.]{0,60}?(?:금액|기간)[^\n.]{0,80}?요건)[^\n.]{0,100})/gi,
+  );
   collect("continuingTransactionContractDocument", /((?:계속거래|계속\s*이용)[^\n.]{0,180}?계약서[^\n.]{0,100}?(?:소비자[^\n.]{0,40}?)?발급[^\n.]{0,60})/gi);
   collect("excessiveTerminationPenalty", /((?:해지|해제)[^\n.]{0,140}?손실[^\n.]{0,40}?현저히\s*초과[^\n.]{0,80}?위약금[^\n.]{0,80})/gi);
   collect("excessPaymentRefund", /((?:실제\s*공급(?:분|된\s*재화등의\s*대가))[^\n.]{0,140}?(?:초과)[^\n.]{0,100}?환급[^\n.]{0,80}?(?:부당[^\n.]{0,40}?)?거부[^\n.]{0,60})/gi);
@@ -113,11 +122,26 @@ export function requiredApprovalFactFields(
     ]);
   }
 
-  if (/계속거래[^\n.]{0,220}계약서|손실[^\n.]{0,80}현저히\s*초과[^\n.]{0,100}위약금|실제\s*공급분[^\n.]{0,180}환급/iu.test(text)) {
+  if (/계속거래[^\n.]{0,260}(?:계약서|설명|위약금|환급|해지)|(?:계약서|위약금|환급)[^\n.]{0,260}계속거래/iu.test(text)) {
+    const mentionsArticle30Duty = /(?:법\s*제?\s*30조|제30조|계약[^\n.]{0,100}설명|계약서[^\n.]{0,100}발급)/iu.test(text);
     return Object.freeze([
-      "continuingTransactionContractDocument",
-      "excessiveTerminationPenalty",
-      "excessPaymentRefund",
+      ...(available.has("continuingTransactionDefinition")
+        ? ["continuingTransactionDefinition"]
+        : []),
+      ...(mentionsArticle30Duty
+        ? [
+          ...(available.has("continuingTransactionArticle30Threshold")
+            ? ["continuingTransactionArticle30Threshold"]
+            : []),
+          "continuingTransactionContractDocument",
+        ]
+        : []),
+      ...(/손실[^\n.]{0,100}현저히\s*초과[^\n.]{0,120}위약금/iu.test(text)
+        ? ["excessiveTerminationPenalty"]
+        : []),
+      ...(/실제\s*공급(?:분|된\s*재화등의\s*대가)[^\n.]{0,220}환급/iu.test(text)
+        ? ["excessPaymentRefund"]
+        : []),
     ]);
   }
 
@@ -134,7 +158,7 @@ export function requiredApprovalFactFields(
   return Object.freeze(preferred.length >= 2 ? preferred : ["eligibility", "statutoryBasis"]);
 }
 
-/** Claim roles for the canonical official pages used by the deposit profile. */
+/** Claim roles for canonical official pages used by approval profiles. */
 export function approvalEvidenceClaimFieldsForSourceUrl(urlValue: string): readonly string[] | undefined {
   let url: URL;
   try {
@@ -144,6 +168,18 @@ export function approvalEvidenceClaimFieldsForSourceUrl(urlValue: string): reado
   }
   const host = url.hostname.toLocaleLowerCase("en-US").replace(/^www\./, "");
   const path = url.pathname;
+  if (host === "law.go.kr"
+    && path.endsWith("/lsLinkCommonInfo.do")
+    && url.searchParams.get("lsJoLnkSeq") === "1031805825") {
+    return Object.freeze(["continuingTransactionDefinition"]);
+  }
+  if (host === "law.go.kr"
+    && ((path.endsWith("/lsLawLinkInfo.do")
+      && url.searchParams.get("lsJoLnkSeq") === "1000070098")
+      || (path.endsWith("/lsLinkCommonInfo.do")
+        && url.searchParams.get("lspttninfSeq") === "58591"))) {
+    return Object.freeze(["continuingTransactionArticle30Threshold"]);
+  }
   if (host === "law.go.kr"
     && path.endsWith("/lsLinkCommonInfo.do")
     && url.searchParams.get("lsJoLnkSeq") === "1025033501") {
@@ -205,6 +241,8 @@ export function approvalFactMatchesPage(
     interimSettlement: ["중간정산"],
     paymentDeadline: ["14일"],
     statutoryBasis: ["근로자퇴직급여보장법"],
+    continuingTransactionDefinition: ["계속거래", "1개월", "환급", "위약금"],
+    continuingTransactionArticle30Threshold: ["10만원", "3개월"],
     continuingTransactionContractDocument: ["계속거래", "계약서", "소비자", "발급"],
     excessiveTerminationPenalty: ["손실", "현저", "초과", "위약금"],
     excessPaymentRefund: ["실제공급", "대가", "초과", "환급", "부당", "거부"],
