@@ -150,7 +150,7 @@ export function ApprovalReadinessActions(props: Readonly<{
 
   const identityBlocked = identityContamination.length > 0;
   return <div className="flex w-full flex-col items-end gap-2">
-    {identityBlocked ? <p className="w-full rounded-xl bg-amber-50 px-4 py-3 text-left text-sm text-amber-900">기존 기획 또는 원고에 프로젝트명·브랜드명이 포함되어 자동 검사를 중단했습니다: {identityContamination.join(", ")}</p> : null}
+    {identityBlocked ? <p className="w-full rounded-xl bg-amber-50 px-4 py-3 text-left text-sm text-amber-900">기존 기획 또는 원고에 검색 주제가 아닌 프로젝트명·브랜드명이 포함되어 있습니다. 자동 검사를 중단했습니다: {identityContamination.join(", ")}</p> : null}
     <button className="rounded-xl border border-[#ff6b6b] bg-white px-4 py-2.5 text-sm font-semibold text-[#d94f4f] disabled:opacity-50" disabled={props.disabled || state === "running" || identityBlocked} onClick={() => void execute("manual")} type="button">{state === "running" ? "승인 준비 검사 중…" : stored ? "승인 준비 다시 검사" : "승인 준비 검사 실행"}</button>
     <p className="max-w-[640px] text-right text-xs text-[#77777f]">자동 검사는 공개 사이트 상태를 진단하며 애드센스 승인을 보장하지 않습니다.</p>
     {message ? <p aria-live="polite" className={`max-w-[640px] text-right text-xs ${state === "error" ? "text-red-700" : state === "success" ? "text-emerald-700" : "text-[#77777f]"}`}>{message}</p> : null}
