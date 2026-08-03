@@ -19,6 +19,7 @@ export {
   verifyApprovalEvidence,
 } from "./ApprovalEvidenceSelection";
 export * from "./ApprovalEvidenceClaimPolicy";
+export * from "./ApprovalRequiredEvidenceCandidates";
 export * from "./ApprovalOfficialSourcePolicy";
 export * from "./ApprovalDateOwnership";
 export * from "./SiteApprovalReadinessAdapter";
