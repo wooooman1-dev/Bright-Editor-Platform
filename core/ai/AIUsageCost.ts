@@ -2,6 +2,7 @@ import type { ContentDocument } from "../content";
 
 export const aiUsageStages = [
   "planning",
+  "source_preflight",
   "generation",
   "quality_review",
   "revision",
@@ -57,6 +58,7 @@ const LONG_CONTEXT_THRESHOLD = 272_000;
 export function aiUsageStageForTask(task: string | undefined): AIUsageStage {
   switch (task) {
     case "content-planning": return "planning";
+    case "approval-source-preflight": return "source_preflight";
     case "content-generation": return "generation";
     case "quality-final-edit": return "quality_review";
     case "content-revision": return "revision";
