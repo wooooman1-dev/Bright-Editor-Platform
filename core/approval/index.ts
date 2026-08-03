@@ -21,6 +21,7 @@ export {
   verifyApprovalEvidence,
 } from "./ApprovalEvidenceSelection";
 export * from "./ApprovalEvidenceClaimPolicy";
+export * from "./ApprovalSourcePreflightCoverage";
 export * from "./ApprovalRequiredEvidenceCandidates";
 export * from "./ApprovalOfficialSourcePolicy";
 export * from "./ApprovalDateOwnership";
