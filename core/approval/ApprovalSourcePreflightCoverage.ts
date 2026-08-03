@@ -224,12 +224,7 @@ function claimMatchesRequirement(
   if (!evidenceExcerptMatchesPage(claim.evidenceExcerpt, pageText)) {
     return false;
   }
-  if (!claimValueMatchesText(claim.value, claim.evidenceExcerpt)) {
-    return false;
-  }
-  if (!claimValueMatchesText(claim.value, pageText)) {
-    return false;
-  }
+  if (!claimValueMatchesText(claim.value, pageText)) return false;
   if (
     requirement.plannedValue
     && !plannedValueMatchesClaim(requirement.plannedValue, claim.value)
@@ -241,7 +236,9 @@ function claimMatchesRequirement(
     field: claim.field,
     value: claim.value,
   }));
-  return policyMatch || scalarPlanningField(claim.field);
+  return policyMatch
+    || scalarPlanningField(claim.field)
+    || canonicalQuantitiesMatch(claim.value, pageText);
 }
 
 function evidenceExcerptMatchesPage(excerpt: string, pageText: string): boolean {
@@ -257,13 +254,7 @@ function claimValueMatchesText(value: string, text: string): boolean {
     return true;
   }
 
-  const expectedQuantities = extractCanonicalQuantities(value);
-  if (!expectedQuantities.length) return false;
-  const observedQuantities = new Set(extractCanonicalQuantities(text));
-  if (!expectedQuantities.every((item) => observedQuantities.has(item))) {
-    return false;
-  }
-
+  if (!canonicalQuantitiesMatch(value, text)) return false;
   const keywords = significantValueTokens(value);
   if (!keywords.length) return true;
   const matched = keywords.filter((token) =>
@@ -286,12 +277,8 @@ function plannedValueMatchesClaim(
     return true;
   }
 
-  const plannedQuantities = extractCanonicalQuantities(plannedValue);
-  if (plannedQuantities.length) {
-    const submittedQuantities = new Set(
-      extractCanonicalQuantities(submittedValue),
-    );
-    return plannedQuantities.every((item) => submittedQuantities.has(item));
+  if (extractCanonicalQuantities(plannedValue).length) {
+    return canonicalQuantitiesMatch(plannedValue, submittedValue);
   }
 
   const plannedTokens = significantValueTokens(plannedValue);
@@ -300,6 +287,13 @@ function plannedValueMatchesClaim(
   const matched = plannedTokens.filter((token) => submittedTokens.has(token));
   return matched.length >= Math.min(2, plannedTokens.length)
     && matched.length / plannedTokens.length >= 0.6;
+}
+
+function canonicalQuantitiesMatch(expected: string, observed: string): boolean {
+  const expectedQuantities = extractCanonicalQuantities(expected);
+  if (!expectedQuantities.length) return false;
+  const observedQuantities = new Set(extractCanonicalQuantities(observed));
+  return expectedQuantities.every((item) => observedQuantities.has(item));
 }
 
 function extractCanonicalQuantities(value: string): readonly string[] {
@@ -333,7 +327,7 @@ function extractCanonicalQuantities(value: string): readonly string[] {
   }
 
   for (const match of normalized.matchAll(
-    /(?<![\d.])(\d+(?:\.\d+)?)\s*(조|억|만|천)?\s*원(?![가-힣])/gu,
+    /(?<![\d.,])(\d+(?:\.\d+)?)\s*(조|억|만|천)\s*원(?![가-힣])/gu,
   )) {
     const amount = Number(match[1]);
     if (!Number.isFinite(amount)) continue;
@@ -342,7 +336,7 @@ function extractCanonicalQuantities(value: string): readonly string[] {
   }
 
   for (const match of normalized.matchAll(
-    /(?<!\d)(\d{1,3}(?:,\d{3})+|\d+)\s*원(?![가-힣])/gu,
+    /(?<![\d.,])(\d{1,3}(?:,\d{3})+|\d+)\s*원(?![가-힣])/gu,
   )) {
     const amount = Number((match[1] ?? "").replaceAll(",", ""));
     if (Number.isFinite(amount)) found.add(`money:${amount}:KRW`);
@@ -354,7 +348,16 @@ function extractCanonicalQuantities(value: string): readonly string[] {
     found.add(`percent:${canonicalNumber(match[1] ?? "")}`);
   }
 
-  for (const match of normalized.matchAll(
+  const withoutDates = normalized
+    .replace(
+      /(?<!\d)20\d{2}\s*(?:년|[-./])\s*(?:0?[1-9]|1[0-2])\s*(?:월|[-./])\s*(?:0?[1-9]|[12]\d|3[01])\s*일?/gu,
+      " ",
+    )
+    .replace(
+      /(?<!\d)20\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])(?!\d)/gu,
+      " ",
+    );
+  for (const match of withoutDates.matchAll(
     /(?<![\d.])(\d+(?:\.\d+)?)\s*(년|개월|일|시간|분)(?![가-힣])/gu,
   )) {
     found.add(
@@ -500,7 +503,6 @@ const scalarPlanningFields = new Set([
 ]);
 
 const koreanMoneyMultipliers: Readonly<Record<string, number>> = Object.freeze({
-  "": 1,
   천: 1_000,
   만: 10_000,
   억: 100_000_000,
