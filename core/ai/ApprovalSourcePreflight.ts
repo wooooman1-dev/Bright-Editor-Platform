@@ -1,11 +1,17 @@
 import {
   approvalOfficialDomains,
+  approvalSourcePreflightClaimMatchesPage,
   canonicalizeApprovalEvidenceUrl,
+  evaluateApprovalSourcePreflightCoverage,
   evaluateApprovalSourceUrlSafety,
   normalizeApprovalSourceDocument,
   officialSourceAllowed,
+  requiredApprovalSourcePreflightClaims,
   type ApprovalPolicySnapshot,
   type ApprovalSourcePage,
+  type ApprovalSourcePreflightClaim,
+  type ApprovalSourcePreflightCoverageResult,
+  type ApprovalSourcePreflightRequirement,
   type SiteApprovalReadinessFetch,
 } from "../approval";
 import type { ConfirmedContentOpportunity } from "../content";
@@ -13,8 +19,15 @@ import type { AIProvider, AIResponse, AIWebSource } from "./AIProvider";
 
 export const approvalSourcePreflightTask = "approval-source-preflight";
 
+export type ApprovalSourcePreflightClaimSource = Readonly<{
+  url: string;
+  claims: readonly ApprovalSourcePreflightClaim[];
+}>;
+
 export type ApprovalSourcePreflightResult = Readonly<{
   sources: readonly AIWebSource[];
+  claimSources: readonly ApprovalSourcePreflightClaimSource[];
+  coverage: ApprovalSourcePreflightCoverageResult;
   diagnostics?: AIResponse["diagnostics"];
 }>;
 
@@ -35,8 +48,16 @@ export async function runApprovalSourcePreflight(input: Readonly<{
   contentType: string;
   fetcher?: SiteApprovalReadinessFetch;
 }>): Promise<ApprovalSourcePreflightResult> {
+  const requiredClaims = requiredApprovalSourcePreflightClaims(
+    input.opportunity,
+    input.snapshot.profileId,
+  );
   const response = await input.provider.generate({
-    instruction: approvalSourceDiscoveryInstruction(input.snapshot, input.opportunity),
+    instruction: approvalSourceDiscoveryInstruction(
+      input.snapshot,
+      input.opportunity,
+      requiredClaims,
+    ),
     metadata: {
       task: approvalSourcePreflightTask,
       approvalPurpose: input.snapshot.contentPurpose,
@@ -58,13 +79,16 @@ export async function runApprovalSourcePreflight(input: Readonly<{
   }
 
   const fetcher = input.fetcher ?? fetch;
-  const pages = await fetchPreflightPages(eligible.map((source) => source.url), fetcher);
+  const pages = await fetchPreflightPages(
+    eligible.map((source) => source.url),
+    fetcher,
+  );
   const pageByRequestedUrl = new Map(pages.map((page) => [
     canonicalizeApprovalEvidenceUrl(page.requestedUrl),
     page,
   ]));
   const rejected: string[] = [];
-  const sources: AIWebSource[] = [];
+  const accepted: AcceptedPreflightSource[] = [];
 
   for (const source of eligible) {
     const page = pageByRequestedUrl.get(source.url);
@@ -75,25 +99,70 @@ export async function runApprovalSourcePreflight(input: Readonly<{
       rejected.push(`${source.url}: ${rejection}`);
       continue;
     }
+
     const finalUrl = canonicalizeApprovalEvidenceUrl(page!.finalUrl || source.url);
-    sources.push(Object.freeze({
-      url: finalUrl,
-      title: page!.title.trim() || source.title || sourcePublisher(finalUrl),
-      excerpt: normalizeExcerpt(source.evidenceExcerpt),
-      provenance: "citation" as const,
+    accepted.push(Object.freeze({
+      source,
+      page: Object.freeze({ ...page!, finalUrl }),
+      finalUrl,
     }));
   }
 
-  const uniqueSources = [...new Map(sources.map((source) => [source.url, source])).values()];
-  if (!uniqueSources.length) {
+  const uniqueAccepted = [...new Map(
+    accepted.map((item) => [item.finalUrl, item]),
+  ).values()];
+  if (!uniqueAccepted.length) {
     const detail = rejected.slice(0, 4).join(" | ");
     throw new ApprovalSourcePreflightError(
       `사용 가능한 공식 출처를 확보하지 못해 원고 생성을 시작하지 않았습니다.${detail ? ` ${detail}` : ""}`,
     );
   }
 
+  const coverage = evaluateApprovalSourcePreflightCoverage({
+    profileId: input.snapshot.profileId,
+    opportunity: input.opportunity,
+    requiredClaims,
+    sources: uniqueAccepted.map((item) => Object.freeze({
+      page: item.page,
+      claims: item.source.claims,
+    })),
+  });
+  if (coverage.status === "incomplete") {
+    throw new ApprovalSourcePreflightError(
+      `필수 사실 근거가 완전히 검증되지 않아 원고 생성을 시작하지 않았습니다. 미확보 Claim: ${coverage.uncoveredClaimFields.join(", ")}`,
+    );
+  }
+
+  const requirementsByField = new Map(
+    requiredClaims.map((requirement) => [requirement.field, requirement]),
+  );
+  const claimSources = uniqueAccepted.map((item) => Object.freeze({
+    url: item.finalUrl,
+    claims: Object.freeze(uniqueClaims(item.source.claims.filter((claim) => {
+      const requirement = requirementsByField.get(claim.field);
+      return Boolean(
+        requirement
+        && approvalSourcePreflightClaimMatchesPage(
+          item.page,
+          requirement,
+          claim,
+        )
+      );
+    }))),
+  }));
+  const sources = uniqueAccepted.map((item) => Object.freeze({
+    url: item.finalUrl,
+    title: item.page.title.trim()
+      || item.source.title
+      || sourcePublisher(item.finalUrl),
+    excerpt: normalizeExcerpt(item.source.evidenceExcerpt),
+    provenance: "citation" as const,
+  }));
+
   return Object.freeze({
-    sources: Object.freeze(uniqueSources),
+    sources: Object.freeze(sources),
+    claimSources: Object.freeze(claimSources),
+    coverage,
     ...(response.diagnostics ? { diagnostics: response.diagnostics } : {}),
   });
 }
@@ -101,25 +170,44 @@ export async function runApprovalSourcePreflight(input: Readonly<{
 export function withApprovalSourcePreflightInstruction(
   instruction: string,
   sources: readonly AIWebSource[],
+  claimSources: readonly ApprovalSourcePreflightClaimSource[] = [],
 ): string {
   if (!sources.length) return instruction;
-  const evidence = sources.map((source, index) => [
-    `${index + 1}. ${source.title?.trim() || sourcePublisher(source.url)}`,
-    `URL: ${source.url}`,
-    `Verified extracted evidence: ${source.excerpt ?? ""}`,
-  ].join("\n")).join("\n\n");
+  const claimsByUrl = new Map(claimSources.map((source) => [
+    canonicalizeApprovalEvidenceUrl(source.url),
+    source.claims,
+  ]));
+  const evidence = sources.map((source, index) => {
+    const claims = claimsByUrl.get(canonicalizeApprovalEvidenceUrl(source.url))
+      ?? [];
+    const claimEvidence = claims.length
+      ? claims.map((claim) => [
+        `Claim field: ${claim.field}`,
+        `Verified value: ${claim.value}`,
+        `Verified Claim evidence: ${claim.evidenceExcerpt}`,
+      ].join("\n")).join("\n\n")
+      : "No factual Claim was required by confirmed Planning.";
+    return [
+      `${index + 1}. ${source.title?.trim() || sourcePublisher(source.url)}`,
+      `URL: ${source.url}`,
+      `Verified extracted source evidence: ${source.excerpt ?? ""}`,
+      claimEvidence,
+    ].join("\n");
+  }).join("\n\n");
   return `${instruction}\n\nApproval source preflight bundle (mandatory, server-verified before Generation):
 ${evidence}
 - The attached bundle is the complete factual source boundary for this manuscript.
 - Do not use web search during Generation and do not add, replace, or invent another source URL.
-- Write external facts only when supported by the verified extracted evidence above.
-- When the bundle does not support a precise amount, date, threshold, eligibility rule, statistic, quotation, artwork fact, or legal requirement, omit that assertion rather than guessing.
+- Write each external factual assertion only from the verified Claim value and Claim evidence attached above.
+- Do not change a verified date, amount, percentage, duration, unit, institution, artwork metadata value, eligibility rule, threshold, quotation, or legal requirement.
+- When the bundle does not support a factual assertion, omit it rather than guessing.
 - Do not create a reader-visible source section. Bright Studio projects verified sources after deterministic Claim review.`;
 }
 
 function approvalSourceDiscoveryInstruction(
   snapshot: ApprovalPolicySnapshot,
   opportunity: ConfirmedContentOpportunity,
+  requiredClaims: readonly ApprovalSourcePreflightRequirement[],
 ): string {
   const domains = approvalOfficialDomains(snapshot.profileId);
   const plannedScope = {
@@ -136,24 +224,43 @@ function approvalSourceDiscoveryInstruction(
     warningsOrExceptions: opportunity.qualityTarget.warningsOrExceptions,
     scopeBoundaries: opportunity.qualityTarget.scopeBoundaries,
   };
-  return `Perform source discovery only. Do not write, outline, or draft the article.
-Find 1-6 direct official primary-source pages that can support the factual parts of this confirmed Content Opportunity.
+  const requiredClaimContract = requiredClaims.map((claim) => ({
+    field: claim.field,
+    ...(claim.plannedValue ? { plannedValue: claim.plannedValue } : {}),
+  }));
+  return `Perform source discovery and Claim submission only. Do not write, outline, or draft the article.
+Find 1-6 direct official primary-source pages that can support every factual Claim required by this confirmed Content Opportunity.
 Content Opportunity: ${JSON.stringify(plannedScope)}
+Required factual Claims: ${JSON.stringify(requiredClaimContract)}
 Approval profile: ${snapshot.profileDisplayName}. Content domain: ${snapshot.contentDomain}.
 ${domains?.length ? `Allowed official domains: ${domains.join(", ")}.` : "Use only a clearly identifiable official museum, archive, government, public institution, or rights-holder page accepted by the active profile."}
 Rules:
 - Open or inspect each proposed page during this call.
 - Return a direct detail, guidance, law, notice, application, collection, or institutional record page; never return a search-result page, navigation page, copied article, community post, or secondary blog.
 - Every URL must be HTTPS and must appear in the web-search sources from this same response.
-- evidenceExcerpt must be one short factual passage from that exact page, sufficient to prove the page is relevant to the planned topic. Do not invent or combine text from another page.
+- Source evidenceExcerpt must be one short verbatim factual passage from that exact page proving that the page is relevant. Do not paraphrase, invent, or combine text from another page.
+- For every required Claim field, attach the Claim to at least one source in claims.
+- Every Claim must contain field, value, and evidenceExcerpt.
+- Claim value must be a concise exact factual value or sentence proved by that same page.
+- Claim evidenceExcerpt must be a short verbatim passage from that same page containing or directly proving the Claim value.
+- Do not attach a Claim field that the page does not support.
+- Several official sources may divide the Claims, but the complete sources array must cover every required Claim.
+- If a required Claim cannot be verified, return the usable sources and omit the unsupported Claim. The server will block Generation.
 - If no usable official page exists, return {"sources":[]}.
-Return JSON only as {"sources":[{"url":"https://...","title":"...","evidenceExcerpt":"..."}]}.`;
+Return JSON only as {"sources":[{"url":"https://...","title":"...","evidenceExcerpt":"verbatim source passage","claims":[{"field":"required field","value":"exact concise fact","evidenceExcerpt":"verbatim passage from this exact page"}]}]}.`;
 }
 
 type DiscoveredSource = Readonly<{
   url: string;
   title: string;
   evidenceExcerpt: string;
+  claims: readonly ApprovalSourcePreflightClaim[];
+}>;
+
+type AcceptedPreflightSource = Readonly<{
+  source: DiscoveredSource;
+  page: ApprovalSourcePage;
+  finalUrl: string;
 }>;
 
 function parseDiscoveredSources(raw: string): readonly DiscoveredSource[] {
@@ -161,13 +268,17 @@ function parseDiscoveredSources(raw: string): readonly DiscoveredSource[] {
   try {
     parsed = JSON.parse(stripFence(raw));
   } catch {
-    throw new ApprovalSourcePreflightError("공식 출처 탐색 응답을 구조화된 JSON으로 해석하지 못했습니다.");
+    throw new ApprovalSourcePreflightError(
+      "공식 출처 탐색 응답을 구조화된 JSON으로 해석하지 못했습니다.",
+    );
   }
   const values = parsed && typeof parsed === "object" && !Array.isArray(parsed)
     ? (parsed as Record<string, unknown>).sources
     : undefined;
   if (!Array.isArray(values)) {
-    throw new ApprovalSourcePreflightError("공식 출처 탐색 응답에 sources 배열이 없습니다.");
+    throw new ApprovalSourcePreflightError(
+      "공식 출처 탐색 응답에 sources 배열이 없습니다.",
+    );
   }
 
   const sources = new Map<string, DiscoveredSource>();
@@ -179,15 +290,46 @@ function parseDiscoveredSources(raw: string): readonly DiscoveredSource[] {
       ? normalizeExcerpt(value.evidenceExcerpt)
       : "";
     const safety = evaluateApprovalSourceUrlSafety(rawUrl);
-    if (!safety.safe || !safety.normalizedUrl || excerpt.length < minimumEvidenceExcerptLength) continue;
+    if (
+      !safety.safe
+      || !safety.normalizedUrl
+      || excerpt.length < minimumEvidenceExcerptLength
+    ) {
+      continue;
+    }
+    const claims = Array.isArray(value.claims)
+      ? value.claims.flatMap((claim) => parseClaim(claim))
+        .slice(0, maximumPreflightClaimsPerSource)
+      : [];
     const url = canonicalizeApprovalEvidenceUrl(safety.normalizedUrl);
     sources.set(url, Object.freeze({
       url,
-      title: typeof value.title === "string" ? value.title.trim().slice(0, 500) : "",
+      title: typeof value.title === "string"
+        ? value.title.trim().slice(0, 500)
+        : "",
       evidenceExcerpt: excerpt,
+      claims: Object.freeze(claims),
     }));
   }
   return Object.freeze([...sources.values()]);
+}
+
+function parseClaim(value: unknown): readonly ApprovalSourcePreflightClaim[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  const claim = value as Record<string, unknown>;
+  const field = typeof claim.field === "string"
+    ? claim.field.trim().slice(0, maximumClaimFieldLength)
+    : "";
+  const factValue = typeof claim.value === "string"
+    ? normalizeClaimText(claim.value).slice(0, maximumClaimValueLength)
+    : "";
+  const evidenceExcerpt = typeof claim.evidenceExcerpt === "string"
+    ? normalizeClaimText(claim.evidenceExcerpt)
+      .slice(0, maximumClaimEvidenceLength)
+    : "";
+  return field && factValue && evidenceExcerpt
+    ? [Object.freeze({ field, value: factValue, evidenceExcerpt })]
+    : [];
 }
 
 async function fetchPreflightPages(
@@ -205,15 +347,25 @@ async function fetchPreflightPage(
 ): Promise<ApprovalSourcePage> {
   const initial = evaluateApprovalSourceUrlSafety(requestedUrl);
   if (!initial.safe || !initial.normalizedUrl) {
-    return failedPage(requestedUrl, initial.reason ?? "안전한 공개 HTTPS URL이 아닙니다.");
+    return failedPage(
+      requestedUrl,
+      initial.reason ?? "안전한 공개 HTTPS URL이 아닙니다.",
+    );
   }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), sourcePreflightTimeoutMs);
   try {
-    const fetched = await fetchWithSafeRedirects(initial.normalizedUrl, fetcher, controller.signal);
+    const fetched = await fetchWithSafeRedirects(
+      initial.normalizedUrl,
+      fetcher,
+      controller.signal,
+    );
     const contentType = fetched.response.headers.get("content-type") ?? "";
-    const body = await readBoundedBody(fetched.response, sourcePreflightMaximumBytes);
+    const body = await readBoundedBody(
+      fetched.response,
+      sourcePreflightMaximumBytes,
+    );
     const extracted = normalizeApprovalSourceDocument({
       requestedUrl,
       finalUrl: fetched.finalUrl,
@@ -232,13 +384,17 @@ async function fetchPreflightPage(
       text: extracted.text,
       documentFormat: extracted.format,
       extractionStatus: extracted.extractionStatus,
-      ...(extracted.extractionReason ? { extractionReason: extracted.extractionReason } : {}),
+      ...(extracted.extractionReason
+        ? { extractionReason: extracted.extractionReason }
+        : {}),
       contentLength: body.contentLength,
     });
   } catch (error) {
     const reason = error instanceof DOMException && error.name === "AbortError"
       ? `요청 시간이 ${sourcePreflightTimeoutMs}ms를 초과했습니다.`
-      : error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+      : error instanceof Error
+        ? `${error.name}: ${error.message}`
+        : String(error);
     return failedPage(requestedUrl, reason);
   } finally {
     clearTimeout(timeout);
@@ -251,10 +407,16 @@ async function fetchWithSafeRedirects(
   signal: AbortSignal,
 ): Promise<Readonly<{ response: Response; finalUrl: string }>> {
   let currentUrl = requestedUrl;
-  for (let redirectCount = 0; redirectCount <= sourcePreflightMaximumRedirects; redirectCount += 1) {
+  for (
+    let redirectCount = 0;
+    redirectCount <= sourcePreflightMaximumRedirects;
+    redirectCount += 1
+  ) {
     const safety = evaluateApprovalSourceUrlSafety(currentUrl);
     if (!safety.safe || !safety.normalizedUrl) {
-      throw new Error(safety.reason ?? "리다이렉트 URL 안전성 검사에 실패했습니다.");
+      throw new Error(
+        safety.reason ?? "리다이렉트 URL 안전성 검사에 실패했습니다.",
+      );
     }
     currentUrl = safety.normalizedUrl;
     const response = await fetcher(currentUrl, {
@@ -269,17 +431,27 @@ async function fetchWithSafeRedirects(
       },
     });
     if (!redirectStatus(response.status)) {
-      return Object.freeze({ response, finalUrl: response.url || currentUrl });
+      return Object.freeze({
+        response,
+        finalUrl: response.url || currentUrl,
+      });
     }
     const location = response.headers.get("location");
-    if (!location) return Object.freeze({ response, finalUrl: response.url || currentUrl });
+    if (!location) {
+      return Object.freeze({
+        response,
+        finalUrl: response.url || currentUrl,
+      });
+    }
     try {
       await response.body?.cancel();
     } catch {
       // Redirect response bodies may already be closed.
     }
     if (redirectCount === sourcePreflightMaximumRedirects) {
-      throw new Error(`출처 리다이렉트가 ${sourcePreflightMaximumRedirects}회를 초과했습니다.`);
+      throw new Error(
+        `출처 리다이렉트가 ${sourcePreflightMaximumRedirects}회를 초과했습니다.`,
+      );
     }
     currentUrl = new URL(location, currentUrl).toString();
   }
@@ -289,7 +461,11 @@ async function fetchWithSafeRedirects(
 async function readBoundedBody(
   response: Response,
   maximumBytes: number,
-): Promise<Readonly<{ bytes: Uint8Array; contentLength: number; tooLarge: boolean }>> {
+): Promise<Readonly<{
+  bytes: Uint8Array;
+  contentLength: number;
+  tooLarge: boolean;
+}>> {
   const declaredLength = Number(response.headers.get("content-length"));
   if (Number.isFinite(declaredLength) && declaredLength > maximumBytes) {
     try {
@@ -297,12 +473,24 @@ async function readBoundedBody(
     } catch {
       // The response body may already be closed.
     }
-    return Object.freeze({ bytes: new Uint8Array(), contentLength: declaredLength, tooLarge: true });
+    return Object.freeze({
+      bytes: new Uint8Array(),
+      contentLength: declaredLength,
+      tooLarge: true,
+    });
   }
   const bytes = new Uint8Array(await response.arrayBuffer());
   return bytes.byteLength > maximumBytes
-    ? Object.freeze({ bytes: bytes.slice(0, maximumBytes), contentLength: bytes.byteLength, tooLarge: true })
-    : Object.freeze({ bytes, contentLength: bytes.byteLength, tooLarge: false });
+    ? Object.freeze({
+      bytes: bytes.slice(0, maximumBytes),
+      contentLength: bytes.byteLength,
+      tooLarge: true,
+    })
+    : Object.freeze({
+      bytes,
+      contentLength: bytes.byteLength,
+      tooLarge: false,
+    });
 }
 
 function preflightPageRejection(
@@ -311,41 +499,55 @@ function preflightPageRejection(
   evidenceExcerpt: string,
 ): string | undefined {
   if (page.fetchError) return `페이지 요청 실패: ${page.fetchError}`;
-  if (page.status < 200 || page.status >= 400) return `정상 HTTP 응답이 아닙니다 (${page.status}).`;
-  if (page.extractionStatus !== "extracted") {
-    return page.extractionReason || `본문 추출 상태가 ${page.extractionStatus ?? "unknown"}입니다.`;
+  if (page.status < 200 || page.status >= 400) {
+    return `정상 HTTP 응답이 아닙니다 (${page.status}).`;
   }
-  if (page.text.trim().length < minimumExtractedPageLength) return "추출된 본문이 사실 확인에 사용하기에는 너무 짧습니다.";
-  if (!officialSourceAllowed(snapshot.profileId, page)) return "활성 승인 프로필의 공식 출처로 확인되지 않았습니다.";
-  if (!evidenceExcerptMatches(page.text, evidenceExcerpt)) return "제시된 근거 문구를 실제 페이지 본문에서 확인하지 못했습니다.";
+  if (page.extractionStatus !== "extracted") {
+    return page.extractionReason
+      || `본문 추출 상태가 ${page.extractionStatus ?? "unknown"}입니다.`;
+  }
+  if (page.text.trim().length < minimumExtractedPageLength) {
+    return "추출된 본문이 사실 확인에 사용하기에는 너무 짧습니다.";
+  }
+  if (!officialSourceAllowed(snapshot.profileId, page)) {
+    return "활성 승인 프로필의 공식 출처로 확인되지 않았습니다.";
+  }
+  if (!evidenceExcerptMatches([
+    page.title,
+    page.publisher,
+    page.text,
+  ].join("\n"), evidenceExcerpt)) {
+    return "제시된 근거 문구를 실제 페이지 본문에서 확인하지 못했습니다.";
+  }
   return undefined;
 }
 
 function evidenceExcerptMatches(pageText: string, excerpt: string): boolean {
   const page = normalizeComparableText(pageText);
   const candidate = normalizeComparableText(excerpt);
-  if (candidate.length < minimumEvidenceExcerptLength) return false;
-  if (page.includes(candidate)) return true;
-
-  const tokens = [...new Set(candidate.split(" ").filter((token) => token.length >= 2))];
-  if (tokens.length < 3) return false;
-  const matched = tokens.filter((token) => page.includes(token)).length;
-  return matched >= Math.max(3, Math.ceil(tokens.length * 0.7));
+  return candidate.length >= minimumEvidenceExcerptLength
+    && page.includes(candidate);
 }
 
 function normalizeComparableText(value: string): string {
   return value.normalize("NFKC")
     .toLocaleLowerCase("ko-KR")
-    .replace(/[^0-9a-z가-힣]+/gu, " ")
-    .replace(/\s+/gu, " ")
+    .replace(/[^0-9a-z가-힣]+/gu, "")
     .trim();
 }
 
 function normalizeExcerpt(value: string): string {
-  return value.replace(/\s+/gu, " ").trim().slice(0, maximumEvidenceExcerptLength);
+  return normalizeClaimText(value).slice(0, maximumEvidenceExcerptLength);
 }
 
-function failedPage(requestedUrl: string, fetchError: string): ApprovalSourcePage {
+function normalizeClaimText(value: string): string {
+  return value.replace(/\s+/gu, " ").trim();
+}
+
+function failedPage(
+  requestedUrl: string,
+  fetchError: string,
+): ApprovalSourcePage {
   return Object.freeze({
     requestedUrl,
     finalUrl: requestedUrl,
@@ -371,14 +573,39 @@ function sourcePublisher(value: string): string {
 }
 
 function stripFence(value: string): string {
-  return value.trim().replace(/^```(?:json)?\s*/iu, "").replace(/\s*```$/u, "");
+  return value.trim()
+    .replace(/^```(?:json)?\s*/iu, "")
+    .replace(/\s*```$/u, "");
 }
 
 function redirectStatus(status: number): boolean {
-  return status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
+  return status === 301
+    || status === 302
+    || status === 303
+    || status === 307
+    || status === 308;
+}
+
+function uniqueClaims(
+  claims: readonly ApprovalSourcePreflightClaim[],
+): readonly ApprovalSourcePreflightClaim[] {
+  const found = new Map<string, ApprovalSourcePreflightClaim>();
+  for (const claim of claims) {
+    const key = [
+      claim.field,
+      claim.value.normalize("NFKC"),
+      claim.evidenceExcerpt.normalize("NFKC"),
+    ].join("\u0000");
+    if (!found.has(key)) found.set(key, claim);
+  }
+  return Object.freeze([...found.values()]);
 }
 
 const maximumPreflightSources = 6;
+const maximumPreflightClaimsPerSource = 40;
+const maximumClaimFieldLength = 200;
+const maximumClaimValueLength = 500;
+const maximumClaimEvidenceLength = 1_200;
 const minimumEvidenceExcerptLength = 20;
 const maximumEvidenceExcerptLength = 1_200;
 const minimumExtractedPageLength = 200;
