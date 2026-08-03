@@ -2,10 +2,17 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { ApprovalEvidenceSource, SiteApprovalReadinessSnapshot } from "../../core/approval";
+import {
+  isApprovalEvidenceSelectedSource,
+  type ApprovalEvidenceSource,
+  type SiteApprovalReadinessSnapshot,
+} from "../../core/approval";
 import type { ContentDocument } from "../../core/content";
 import { editorialRevisionId, isStandardQualityApproved, type QualityReport } from "../../core/quality";
-import { approvalReadinessInspectionVersion } from "../application/approval/ApprovalReadinessExecutionIdentity";
+import {
+  approvalEvidenceFingerprint,
+  approvalReadinessInspectionVersion,
+} from "../application/approval/ApprovalReadinessExecutionIdentity";
 import { contentOwnedIdentityContamination } from "../application/publishing/ContentOwnedIdentityPolicy";
 import {
   internalLinkCatalogContextIsCurrent,
@@ -62,13 +69,15 @@ export function approvalReadinessAutoRunDecision(content: UserContent | undefine
   const evidence = content.document.metadata?.approvalEvidence;
   const siteReadiness = content.document.metadata?.siteApprovalReadiness;
   const execution = content.document.metadata?.approvalReadinessExecution;
+  const evidenceFingerprint = approvalEvidenceFingerprint(content.document);
   const hasStoredResult = execution?.version === approvalReadinessInspectionVersion
     && evidence?.reviewedRevisionId === currentRevisionId
     && isCurrentSiteReadinessSnapshot(siteReadiness)
     && internalLinkCatalogContextIsCurrent(content, content.document)
     && execution.status === "completed"
     && execution.editorialRevisionId === currentRevisionId
-    && execution.publishingContextKey === publishingContextKey;
+    && execution.publishingContextKey === publishingContextKey
+    && execution.evidenceFingerprint === evidenceFingerprint;
   const qualityIsCurrent = content.quality !== undefined
     && isStandardQualityApproved(content.quality)
     && content.quality.reviewedRevisionId === currentRevisionId;
@@ -114,7 +123,11 @@ export function ApprovalReadinessActions(props: Readonly<{
       setSummary(result.evidence ? { status: result.evidence.status, coverageStatus: result.evidence.coverageStatus, reviewedAt: result.evidence.reviewedAt, informationAsOf: result.evidence.informationAsOf, presentationStatus: result.evidence.presentationStatus } : undefined);
       setStored(true);
       setState("success");
-      const evidenceLabel = result.evidence?.status === "verified" ? `공식 출처 ${result.evidence.verifiedSourceCount}개 검증 완료` : result.evidence?.status === "missing" ? "공식 출처 없음" : `공식 출처 확인 필요 ${result.evidence?.rejectedSourceCount ?? 0}개`;
+      const evidenceLabel = result.evidence?.status === "verified"
+        ? `채택된 공식 근거 ${result.evidence.verifiedSourceCount}개 검증 완료`
+        : result.evidence?.status === "missing"
+          ? "공식 출처 없음"
+          : `채택 근거 확인 필요 ${result.evidence?.rejectedSourceCount ?? 0}개`;
       setMessage(`${trigger === "automatic" ? "자동 검사 완료" : "저장 결과 확인 완료"} · ${evidenceLabel}`);
     } catch (error) {
       setState("error");
@@ -149,17 +162,32 @@ export function ApprovalReadinessActions(props: Readonly<{
   }, [execute, props.contentId, props.disabled, props.inspectionKey]);
 
   const identityBlocked = identityContamination.length > 0;
+  const selectedSources = sources.filter(isApprovalEvidenceSelectedSource);
+  const candidateSources = sources.filter((source) => !isApprovalEvidenceSelectedSource(source));
   return <div className="flex w-full flex-col items-end gap-2">
     {identityBlocked ? <p className="w-full rounded-xl bg-amber-50 px-4 py-3 text-left text-sm text-amber-900">기존 기획 또는 원고에 검색 주제가 아닌 프로젝트명·브랜드명이 포함되어 있습니다. 자동 검사를 중단했습니다: {identityContamination.join(", ")}</p> : null}
     <button className="rounded-xl border border-[#ff6b6b] bg-white px-4 py-2.5 text-sm font-semibold text-[#d94f4f] disabled:opacity-50" disabled={props.disabled || state === "running" || identityBlocked} onClick={() => void execute("manual")} type="button">{state === "running" ? "승인 준비 검사 중…" : stored ? "승인 준비 다시 검사" : "승인 준비 검사 실행"}</button>
     <p className="max-w-[640px] text-right text-xs text-[#77777f]">자동 검사는 공개 사이트 상태를 진단하며 애드센스 승인을 보장하지 않습니다.</p>
     {message ? <p aria-live="polite" className={`max-w-[640px] text-right text-xs ${state === "error" ? "text-red-700" : state === "success" ? "text-emerald-700" : "text-[#77777f]"}`}>{message}</p> : null}
     {sources.length ? <details className="mt-2 w-full rounded-xl border border-black/6 bg-[#fafafa] p-4 text-left">
-      <summary className="cursor-pointer text-sm font-semibold">공식 출처 검증 결과 {sources.length}개</summary>
+      <summary className="cursor-pointer text-sm font-semibold">공식 근거 {selectedSources.length}개 · 검색 후보 {candidateSources.length}개</summary>
       {summary ? <p className="mt-2 text-xs text-[#66666f]">필수 Claim coverage: {summary.coverageStatus ?? summary.status} · Claim 최종 검토일: {summary.reviewedAt?.slice(0, 10) ?? "미완료"} · 원고 정보 기준일: {summary.informationAsOf ?? "미기록"}</p> : null}
-      <div className="mt-3 space-y-2">{sources.map((source, index) => <article className="rounded-xl bg-white p-3 text-xs" key={`${source.sourceId}-${index}`}><div className="flex justify-between gap-3"><strong>{source.title || source.publisher || `공식 출처 ${index + 1}`}</strong><span>{source.verified ? "검증 완료" : source.verificationStatus === "fact_mismatch" ? "Claim 불일치" : "검토 필요"}</span></div><a className="mt-2 block break-all text-blue-700 underline" href={source.url} rel="noreferrer" target="_blank">{source.url}</a>{source.failureReason ? <p className="mt-2 rounded-lg bg-amber-50 p-2 text-amber-900">{source.failureReason}</p> : null}</article>)}</div>
+      {selectedSources.length ? <section className="mt-3"><h4 className="text-xs font-semibold">채택된 공식 근거</h4><div className="mt-2 space-y-2">{selectedSources.map((source, index) => <EvidenceSourceCard key={`${source.sourceId}-selected-${index}`} source={source} index={index} candidate={false} />)}</div></section> : <p className="mt-3 rounded-lg bg-amber-50 p-3 text-xs text-amber-900">현재 원고의 필수 Claim을 뒷받침하도록 채택된 공식 근거가 없습니다.</p>}
+      {candidateSources.length ? <details className="mt-3 rounded-lg border border-black/6 bg-white p-3"><summary className="cursor-pointer text-xs font-semibold">검색 후보 {candidateSources.length}개 · 승인 판정 제외</summary><p className="mt-2 text-xs text-[#66666f]">새 후보는 채택되기 전까지 Claim coverage와 승인 상태를 변경하지 않습니다.</p><div className="mt-2 space-y-2">{candidateSources.map((source, index) => <EvidenceSourceCard key={`${source.sourceId}-candidate-${index}`} source={source} index={index} candidate />)}</div></details> : null}
     </details> : null}
   </div>;
+}
+
+function EvidenceSourceCard(props: Readonly<{
+  source: ApprovalEvidenceSource;
+  index: number;
+  candidate: boolean;
+}>) {
+  const { source, index, candidate } = props;
+  const status = candidate
+    ? source.verificationStatus === "duplicate_source" ? "중복 후보" : "후보 · 판정 제외"
+    : source.verified ? "검증 완료" : source.verificationStatus === "fact_mismatch" ? "Claim 불일치" : "검토 필요";
+  return <article className="rounded-xl bg-white p-3 text-xs"><div className="flex justify-between gap-3"><strong>{source.title || source.publisher || `공식 출처 ${index + 1}`}</strong><span>{status}</span></div><a className="mt-2 block break-all text-blue-700 underline" href={source.canonicalUrl ?? source.url} rel="noreferrer" target="_blank">{source.canonicalUrl ?? source.url}</a>{source.failureReason ? <p className={`mt-2 rounded-lg p-2 ${candidate ? "bg-[#f4f4f5] text-[#66666f]" : "bg-amber-50 text-amber-900"}`}>{source.failureReason}</p> : null}</article>;
 }
 
 function publishingContextIsFinalized(content: UserContent): boolean {
