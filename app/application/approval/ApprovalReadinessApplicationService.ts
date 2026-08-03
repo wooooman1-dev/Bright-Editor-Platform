@@ -1,6 +1,6 @@
 import { normalizeApprovalDateOwnership } from "../../../core/approval";
 import type { ContentDocument } from "../../../core/content";
-import { editorialRevisionId, QualityEngine } from "../../../core/quality";
+import { editorialRevisionId } from "../../../core/quality";
 import type { UserContent, UserData } from "../../user-flow/user-data";
 import { approvalReadinessInspectionVersion } from "./ApprovalReadinessExecutionIdentity";
 import {
@@ -25,28 +25,26 @@ export class ApprovalReadinessApplicationService extends BaseApprovalReadinessAp
 }
 
 function withNormalizedDocument(data: UserData, content: UserContent, document: ContentDocument): UserData {
-  const reviewedAt = new Date().toISOString();
+  const normalizedAt = new Date().toISOString();
   const revisionId = editorialRevisionId(document);
-  const quality = new QualityEngine().review(document, {
-    contentType: content.contentType,
-    platform: content.platform ?? "canonical",
-    primaryKeyword: content.primaryKeyword,
-    searchIntent: content.searchIntent,
-    availableInternalLinkCandidates: document.metadata?.availableRelatedContentCandidates,
-    internalLinkCatalogStatus: document.metadata?.internalLinkCatalogStatus,
-    qualityTarget: content.qualityTarget ?? content.opportunity?.qualityTarget ?? document.metadata?.qualityTarget,
-    ...(content.opportunity ? { opportunity: content.opportunity } : {}),
-    revisionId,
-    reviewedAt,
-  });
-  const nextContent = { ...content, document, quality, updatedAt: reviewedAt };
+  const quality = content.quality
+    ? Object.freeze({ ...content.quality, reviewedRevisionId: revisionId })
+    : undefined;
+  const nextContent: UserContent = {
+    ...content,
+    document,
+    ...(quality ? { quality } : {}),
+    updatedAt: normalizedAt,
+  };
   return {
     ...data,
     contents: data.contents.map((item) => item.id === content.id ? nextContent : item),
-    qualityReports: [
-      ...(data.qualityReports ?? []).filter((item) => item.contentId !== content.id),
-      { contentId: content.id, report: quality },
-    ],
+    ...(quality ? {
+      qualityReports: [
+        ...(data.qualityReports ?? []).filter((item) => item.contentId !== content.id),
+        { contentId: content.id, report: quality },
+      ],
+    } : {}),
   };
 }
 
