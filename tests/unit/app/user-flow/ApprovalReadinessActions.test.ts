@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { approvalReadinessInspectionVersion } from "../../../../app/application/approval/ApprovalReadinessExecutionIdentity";
+import {
+  approvalEvidenceFingerprint,
+  approvalReadinessInspectionVersion,
+} from "../../../../app/application/approval/ApprovalReadinessExecutionIdentity";
 import { publishingInternalLinkContextKey } from "../../../../app/application/publishing/InternalLinkCatalogPolicy";
 import { approvalReadinessAutoRunDecision } from "../../../../app/user-flow/ApprovalReadinessActions";
 import type { ApprovalEvidencePack, SiteApprovalReadinessSnapshot } from "../../../../core/approval";
@@ -108,7 +111,7 @@ function checkedDocument(
   status: ApprovalEvidencePack["status"] = "verified",
   siteSnapshot: SiteApprovalReadinessSnapshot = site,
 ): ContentDocument {
-  return {
+  const checked: ContentDocument = {
     ...document,
     metadata: {
       ...document.metadata!,
@@ -117,12 +120,18 @@ function checkedDocument(
       availableRelatedContentCandidates: 0,
       internalLinkCatalogStatus: "evaluated",
       internalLinkCatalogContextKey: publishingInternalLinkContextKey(contextContent),
+    },
+  };
+  return {
+    ...checked,
+    metadata: {
+      ...checked.metadata!,
       approvalReadinessExecution: {
         version: approvalReadinessInspectionVersion,
         key: "stored-execution",
         editorialRevisionId: revisionId,
         publishingContextKey: publishingInternalLinkContextKey(contextContent),
-        evidenceFingerprint: "evidence-test",
+        evidenceFingerprint: approvalEvidenceFingerprint(checked),
         status: "completed",
         checkedAt: "2026-07-28T02:00:00.000Z",
       },
