@@ -1,6 +1,7 @@
 import {
   approvalPolicySnapshotFromEditorialContext,
   canonicalizeApprovalEvidenceUrl,
+  type ApprovalEvidenceFact,
   type ApprovalEvidenceSource,
   type ApprovalPolicySnapshot,
 } from "../approval";
@@ -15,6 +16,7 @@ import type { AIProvider, AIResponse, AIWebSource } from "./AIProvider";
 import {
   runApprovalSourcePreflight,
   withApprovalSourcePreflightInstruction,
+  type ApprovalSourcePreflightClaimSource,
 } from "./ApprovalSourcePreflight";
 import { appendAIUsageToDocument } from "./AIUsageCost";
 
@@ -73,8 +75,12 @@ export class AIWorkflow {
     assertOwnedIdentityKeywordPolicy(input);
     this.state = Object.freeze({ status: "generating" });
     try {
-      const approvalSnapshot = approvalPolicySnapshotFromEditorialContext(input.editorialContext);
-      const sourcePreflight = approvalSnapshot && input.structuredLongFormOutput && input.contentOpportunity
+      const approvalSnapshot = approvalPolicySnapshotFromEditorialContext(
+        input.editorialContext,
+      );
+      const sourcePreflight = approvalSnapshot
+        && input.structuredLongFormOutput
+        && input.contentOpportunity
         ? await runApprovalSourcePreflight({
             provider: this.provider,
             snapshot: approvalSnapshot,
@@ -84,34 +90,59 @@ export class AIWorkflow {
           })
         : undefined;
       const request = this.strategy.createRequest(input);
-      const canonicalInstruction = withCanonicalEditorialContext(request.instruction, input.editorialContext);
+      const canonicalInstruction = withCanonicalEditorialContext(
+        request.instruction,
+        input.editorialContext,
+      );
       const instruction = sourcePreflight
-        ? withApprovalSourcePreflightInstruction(canonicalInstruction, sourcePreflight.sources)
-        : withApprovalEvidenceSearchInstruction(canonicalInstruction, approvalSnapshot);
+        ? withApprovalSourcePreflightInstruction(
+            canonicalInstruction,
+            sourcePreflight.sources,
+            sourcePreflight.claimSources,
+          )
+        : withApprovalEvidenceSearchInstruction(
+            canonicalInstruction,
+            approvalSnapshot,
+          );
       const response = await this.provider.generate({
         ...request,
         instruction,
         metadata: {
           contentType: input.contentType,
           platform: input.platform,
-          ...(input.structuredLongFormOutput ? { task: "content-generation" } : {}),
-          ...(input.contentOpportunity?.qualityTarget
-            ? { qualityTarget: JSON.stringify(input.contentOpportunity.qualityTarget) }
+          ...(input.structuredLongFormOutput
+            ? { task: "content-generation" }
             : {}),
-          ...(approvalSnapshot ? {
-            approvalPurpose: approvalSnapshot.contentPurpose,
-            approvalProfileId: approvalSnapshot.profileId,
-            approvalPolicyVersion: approvalSnapshot.policyVersion,
-            approvalEvidenceMode: sourcePreflight ? "preflight_verified" : "inline_search",
-          } : {}),
+          ...(input.contentOpportunity?.qualityTarget
+            ? {
+                qualityTarget: JSON.stringify(
+                  input.contentOpportunity.qualityTarget,
+                ),
+              }
+            : {}),
+          ...(approvalSnapshot
+            ? {
+                approvalPurpose: approvalSnapshot.contentPurpose,
+                approvalProfileId: approvalSnapshot.profileId,
+                approvalPolicyVersion: approvalSnapshot.policyVersion,
+                approvalEvidenceMode: sourcePreflight
+                  ? "preflight_verified"
+                  : "inline_search",
+              }
+            : {}),
         },
       });
       const parsedDocument = this.strategy.parse(response.content, input);
-      const policyDocument = withApprovalPolicyMetadata(parsedDocument, input.editorialContext);
+      const policyDocument = withApprovalPolicyMetadata(
+        parsedDocument,
+        input.editorialContext,
+      );
       const evidenceDocument = withApprovalEvidenceMetadata(
         policyDocument,
         input.editorialContext,
         sourcePreflight?.sources ?? response.diagnostics?.webSources ?? [],
+        undefined,
+        sourcePreflight?.claimSources,
       );
       const preflightUsageDocument = appendAIUsageToDocument(
         evidenceDocument,
@@ -125,7 +156,9 @@ export class AIWorkflow {
       const result = Object.freeze({
         document: generatedDocument,
         rawResponse: response.content,
-        ...(response.diagnostics ? { providerDiagnostics: response.diagnostics } : {}),
+        ...(response.diagnostics
+          ? { providerDiagnostics: response.diagnostics }
+          : {}),
         ...(sourcePreflight?.diagnostics
           ? { sourcePreflightDiagnostics: sourcePreflight.diagnostics }
           : {}),
@@ -133,14 +166,19 @@ export class AIWorkflow {
       this.state = Object.freeze({ result, status: "generated" });
       return result;
     } catch (error) {
-      const message = error instanceof Error ? error.message : "AI generation failed.";
+      const message = error instanceof Error
+        ? error.message
+        : "AI generation failed.";
       this.state = Object.freeze({ error: message, status: "failed" });
       throw error;
     }
   }
 }
 
-export function withCanonicalEditorialContext(instruction: string, editorialContext?: string): string {
+export function withCanonicalEditorialContext(
+  instruction: string,
+  editorialContext?: string,
+): string {
   const context = editorialContext?.trim();
   if (!context || instruction.includes(context)) return instruction;
   return `${instruction}\n\nCanonical server editorial context (mandatory; do not ignore or override):\n${context}`;
@@ -153,7 +191,9 @@ export function withApprovalPolicyMetadata(
   const snapshot = approvalPolicySnapshotFromEditorialContext(editorialContext);
   if (!snapshot) return document;
   if (!document.metadata) {
-    throw new Error("Approval preparation generation requires canonical document metadata.");
+    throw new Error(
+      "Approval preparation generation requires canonical document metadata.",
+    );
   }
   return Object.freeze({
     ...document,
@@ -169,14 +209,22 @@ export function withApprovalEvidenceMetadata(
   editorialContext: string | undefined,
   webSources: readonly AIWebSource[],
   retrievedAt = new Date().toISOString(),
+  claimSources: readonly ApprovalSourcePreflightClaimSource[] = [],
 ): ContentDocument {
   const snapshot = approvalPolicySnapshotFromEditorialContext(editorialContext);
   if (!snapshot || !webSources.length) return document;
   if (!document.metadata) {
-    throw new Error("Approval preparation generation requires canonical document metadata.");
+    throw new Error(
+      "Approval preparation generation requires canonical document metadata.",
+    );
   }
 
-  const candidates = approvalEvidenceCandidates(webSources, snapshot, retrievedAt);
+  const candidates = approvalEvidenceCandidates(
+    webSources,
+    snapshot,
+    retrievedAt,
+    claimSources,
+  );
   if (!candidates.length) return document;
   return Object.freeze({
     ...document,
@@ -191,7 +239,9 @@ export function withApprovalEvidenceMetadata(
   });
 }
 
-export function assertOwnedIdentityKeywordPolicy(input: GenerationInput): void {
+export function assertOwnedIdentityKeywordPolicy(
+  input: GenerationInput,
+): void {
   const opportunity = input.contentOpportunity;
   if (!opportunity) return;
   const ownedTerms = editorialOwnedIdentityTerms(input.editorialContext);
@@ -233,7 +283,9 @@ export function assertGeneratedDocumentOwnedIdentityPolicy(
   );
 }
 
-function generatedEditorialValues(document: ContentDocument): readonly string[] {
+function generatedEditorialValues(
+  document: ContentDocument,
+): readonly string[] {
   const metadata = document.metadata;
   return Object.freeze([
     document.title,
@@ -245,10 +297,20 @@ function generatedEditorialValues(document: ContentDocument): readonly string[] 
     ...(metadata?.relatedTerms ?? []),
     ...(metadata?.tags ?? []),
     ...document.blocks.flatMap((block) => {
-      if (block.type === "heading" || block.type === "paragraph") return [block.text];
+      if (block.type === "heading" || block.type === "paragraph") {
+        return [block.text];
+      }
       if (block.type === "list") return [serializeStructuredList(block)];
-      if (block.type === "table") return [block.caption ?? "", ...block.headers, ...block.rows.flat()];
-      if (block.type === "image") return [block.alt, block.prompt ?? "", block.caption ?? ""];
+      if (block.type === "table") {
+        return [
+          block.caption ?? "",
+          ...block.headers,
+          ...block.rows.flat(),
+        ];
+      }
+      if (block.type === "image") {
+        return [block.alt, block.prompt ?? "", block.caption ?? ""];
+      }
       if (block.type === "button") return [block.label];
       return [];
     }),
@@ -259,13 +321,28 @@ function approvalEvidenceCandidates(
   webSources: readonly AIWebSource[],
   snapshot: ApprovalPolicySnapshot,
   retrievedAt: string,
+  claimSources: readonly ApprovalSourcePreflightClaimSource[],
 ): readonly ApprovalEvidenceSource[] {
+  const claimsByUrl = new Map(claimSources.map((source) => [
+    canonicalizeApprovalEvidenceUrl(source.url),
+    source.claims,
+  ]));
   const candidates = new Map<string, ApprovalEvidenceSource>();
   for (const source of webSources) {
     const url = canonicalizeApprovalEvidenceUrl(source.url);
     if (!url.startsWith("https://") || candidates.has(url)) continue;
     const publisher = sourcePublisher(url);
-    const provenance = source.provenance === "citation" ? "citation" : "search_candidate";
+    const provenance = source.provenance === "citation"
+      ? "citation"
+      : "search_candidate";
+    const verifiedClaims = claimsByUrl.get(url) ?? [];
+    const claimFacts: readonly ApprovalEvidenceFact[] = Object.freeze(
+      verifiedClaims.map((claim) => Object.freeze({
+        field: claim.field,
+        value: claim.value,
+        excerpt: claim.evidenceExcerpt,
+      })),
+    );
     candidates.set(url, Object.freeze({
       sourceId: approvalSourceId(url),
       url,
@@ -280,9 +357,16 @@ function approvalEvidenceCandidates(
       verified: false,
       provenance,
       ...(source.excerpt ? { citationExcerpt: source.excerpt } : {}),
-      facts: Object.freeze(provenance === "citation" && source.excerpt
-        ? [Object.freeze({ field: "citedContext", value: source.excerpt })]
-        : []),
+      facts: claimFacts.length
+        ? claimFacts
+        : Object.freeze(
+            provenance === "citation" && source.excerpt
+              ? [Object.freeze({
+                  field: "citedContext",
+                  value: source.excerpt,
+                })]
+              : [],
+          ),
       cited: provenance === "citation",
       selected: provenance === "citation",
     }));
@@ -325,15 +409,24 @@ function withApprovalEvidenceSearchInstruction(
 }
 
 function validateInput(input: GenerationInput): void {
-  if (!input.platform.trim() || !input.contentType.trim() || !input.projectId.trim()) {
+  if (
+    !input.platform.trim()
+    || !input.contentType.trim()
+    || !input.projectId.trim()
+  ) {
     throw new Error("Platform, content type, and project are required.");
   }
-  if (input.keywords.length === 0 || input.keywords.some((keyword) => !keyword.trim())) {
+  if (
+    input.keywords.length === 0
+    || input.keywords.some((keyword) => !keyword.trim())
+  ) {
     throw new Error("At least one non-empty keyword is required.");
   }
 }
 
-function editorialOwnedIdentityTerms(editorialContext?: string): readonly string[] {
+function editorialOwnedIdentityTerms(
+  editorialContext?: string,
+): readonly string[] {
   if (!editorialContext?.trim()) return Object.freeze([]);
   try {
     const parsed = JSON.parse(editorialContext) as Record<string, unknown>;
@@ -343,13 +436,18 @@ function editorialOwnedIdentityTerms(editorialContext?: string): readonly string
     return Object.freeze([
       identity.projectName,
       identity.brandName,
-    ].filter((value): value is string => typeof value === "string" && Boolean(value.trim())));
+    ].filter(
+      (value): value is string =>
+        typeof value === "string" && Boolean(value.trim()),
+    ));
   } catch {
     return Object.freeze([]);
   }
 }
 
-function objectValue(value: unknown): Record<string, unknown> | undefined {
+function objectValue(
+  value: unknown,
+): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : undefined;
