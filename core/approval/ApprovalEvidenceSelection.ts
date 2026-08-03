@@ -219,7 +219,9 @@ export function verifyApprovalEvidence(
     const explicitlyOwned = provenance === "user_selected"
       || provenance === "system_verified"
       || provenance === "document_link";
-    const selected = explicitlyOwned || (source.verified && matchedRequired.length > 0);
+    const selected = explicitlyOwned
+      || (provenance === "citation" && source.selected === true)
+      || (source.verified && matchedRequired.length > 0);
     if (selected && source.verified) {
       for (const fact of matchedRequired) verifiedFields.add(fact.field);
     }
@@ -492,8 +494,8 @@ function queryValue(url: URL, name: string): string | undefined {
 }
 
 const lawEndpointPaths: Readonly<Record<string, string>> = Object.freeze({
-  "lslinkcommoninfo.do": "/LSW/lsLinkCommonInfo.do",
-  "lslawlinkinfo.do": "/LSW/lsLawLinkInfo.do",
-  "expcinfop.do": "/LSW/expcInfoP.do",
-  "lsinfop.do": "/LSW/lsInfoP.do",
+  "lslinkcommoninfo.do": "/lsLinkCommonInfo.do",
+  "lslawlinkinfo.do": "/lsLawLinkInfo.do",
+  "expcinfop.do": "/expcInfoP.do",
+  "lsinfop.do": "/lsInfoP.do",
 });
