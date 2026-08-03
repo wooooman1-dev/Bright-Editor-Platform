@@ -1,6 +1,10 @@
 import type { ContentDocument } from "../content/ContentDocument";
 import { serializeStructuredList } from "../content/StructuredText";
 import { evaluateApprovalPreparationText, type ApprovalPreparationIssue } from "./ApprovalPolicy";
+import type {
+  ApprovalSourceDocumentFormat,
+  ApprovalSourceExtractionStatus,
+} from "./ApprovalSourceDocumentAdapter";
 
 export const approvalReadinessCheckKeys = [
   "standard_quality",
@@ -25,6 +29,10 @@ export type ApprovalEvidenceVerificationStatus =
   | "verified"
   | "unreachable"
   | "unsupported_content_type"
+  | "empty_content"
+  | "malformed_content"
+  | "content_too_large"
+  | "unsupported_claim"
   | "unofficial_source"
   | "fact_mismatch"
   | "duplicate_source"
@@ -63,6 +71,10 @@ export type ApprovalEvidenceSource = Readonly<{
   finalUrl?: string;
   httpStatus?: number;
   contentType?: string;
+  documentFormat?: ApprovalSourceDocumentFormat;
+  extractionStatus?: ApprovalSourceExtractionStatus;
+  extractionReason?: string;
+  contentLength?: number;
   official?: boolean;
   selected?: boolean;
   cited?: boolean;
