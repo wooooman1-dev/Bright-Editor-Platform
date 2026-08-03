@@ -148,12 +148,29 @@ describe("studio approval policy routes", () => {
   });
 
   it("uses the confirmed Content snapshot for Generation", async () => {
+    const officialUrl = "https://www.moma.org/collection/works/79802";
+    const evidenceExcerpt = "The Starry Night was painted by Vincent van Gogh in 1889 and is in the collection of The Museum of Modern Art.";
     const current = data(approvalContent({ status: "in_review" }));
     storeMocks.get.mockResolvedValue(current);
     storeMocks.update.mockImplementation(async (_collection: string, _id: string, updater: (value: UserData | undefined) => UserData) => updater(current));
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ output_text: "not-json" }), { status: 200 }),
-    );
+    const fetchSpy = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: "response-preflight",
+        model: "gpt-5.6-terra",
+        status: "completed",
+        output_text: JSON.stringify({
+          sources: [{ url: officialUrl, title: "The Starry Night | MoMA", evidenceExcerpt }],
+        }),
+        output: [{
+          type: "web_search_call",
+          action: { sources: [{ type: "url", url: officialUrl, title: "The Starry Night | MoMA" }] },
+        }],
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(
+        `<html><head><title>The Starry Night | MoMA</title><meta property="og:site_name" content="The Museum of Modern Art"></head><body>${`${evidenceExcerpt} Official collection record and artwork details. `.repeat(6)}</body></html>`,
+        { status: 200, headers: { "content-type": "text/html; charset=utf-8" } },
+      ))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ output_text: "not-json" }), { status: 200 }));
 
     await POST(new Request("http://localhost/api/studio", {
       method: "POST",
@@ -174,8 +191,11 @@ describe("studio approval policy routes", () => {
       } }),
     }));
 
-    expect(requestInput(fetchSpy)).toContain("Approval profile: Tistory · 비바레인 미술@1.0");
-    expect(requestInput(fetchSpy)).not.toContain("tistory_vivarain_art_v1");
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+    expect(requestInput(fetchSpy, 2)).toContain("Approval profile: Tistory · 비바레인 미술@1.0");
+    expect(requestInput(fetchSpy, 2)).not.toContain("tistory_vivarain_art_v1");
+    expect(requestInput(fetchSpy, 2)).toContain("Approval source preflight bundle");
+    expect(requestInput(fetchSpy, 2)).toContain(officialUrl);
   });
 
   it("keeps the stable profile ID out of a canonical revision prompt", async () => {
