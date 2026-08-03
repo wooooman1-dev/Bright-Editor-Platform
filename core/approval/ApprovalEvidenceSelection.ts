@@ -54,26 +54,26 @@ export function canonicalizeApprovalEvidenceUrl(value: string): string {
 export function approvalEvidenceSourceProvenance(
   source: ApprovalEvidenceSource,
 ): ApprovalEvidenceProvenance {
-  return source.provenance
-    ?? (source.cited === true
-      ? "citation"
-      : source.selected === true
-        ? "user_selected"
-        : "search_candidate");
+  if (source.provenance) return source.provenance;
+  if (source.cited === true) return "citation";
+  if (source.selected === true) return "user_selected";
+  if ((source.linkedBlockIds?.length ?? 0) > 0 || source.facts.length > 0) return "document_link";
+  return "search_candidate";
 }
 
 /**
  * A source affects readiness only after deterministic selection or an explicit
- * user choice. Mere search discovery and AI citation annotations stay in the
- * candidate pool.
+ * user/document choice. Mere search discovery and unverified AI citation
+ * annotations stay in the candidate pool.
  */
 export function isApprovalEvidenceSelectedSource(source: ApprovalEvidenceSource): boolean {
-  if (source.selected === false) return false;
-  if (source.selected === true && source.verified === true) return true;
   const provenance = approvalEvidenceSourceProvenance(source);
-  return provenance === "user_selected"
+  if (provenance === "user_selected"
     || provenance === "system_verified"
-    || provenance === "document_link";
+    || provenance === "document_link") {
+    return true;
+  }
+  return source.selected === true && source.verified === true;
 }
 
 export function isApprovalEvidenceCandidateSource(source: ApprovalEvidenceSource): boolean {
@@ -174,7 +174,10 @@ export function verifyApprovalEvidence(
       url: entry.canonicalUrl,
       canonicalUrl: entry.canonicalUrl,
       provenance,
-      selected: provenance === "user_selected" || provenance === "system_verified",
+      selected: provenance === "user_selected"
+        || provenance === "system_verified"
+        || provenance === "document_link"
+        || (provenance === "citation" && entry.source.selected === true),
       linkedBlockIds: Object.freeze([...new Set([
         ...(entry.source.linkedBlockIds ?? []),
         ...(references.get(entry.canonicalUrl) ?? []),
@@ -211,8 +214,10 @@ export function verifyApprovalEvidence(
   const evaluatedSources = base.pack.sources.map((source) => {
     const provenance = approvalEvidenceSourceProvenance(source);
     const matchedRequired = (source.matchedFacts ?? []).filter((fact) => required.has(fact.field));
-    const userSelected = provenance === "user_selected";
-    const selected = userSelected || (source.verified && matchedRequired.length > 0);
+    const explicitlyOwned = provenance === "user_selected"
+      || provenance === "system_verified"
+      || provenance === "document_link";
+    const selected = explicitlyOwned || (source.verified && matchedRequired.length > 0);
     if (selected && source.verified) {
       for (const fact of matchedRequired) verifiedFields.add(fact.field);
     }
@@ -239,12 +244,20 @@ export function verifyApprovalEvidence(
   ]);
 
   const unverifiedFields = requiredFields.filter((field) => !verifiedFields.has(field));
-  const selectedVerified = sources.filter((source) => source.selected === true && source.verified === true);
+  const selectedVerified = sources.filter((source) =>
+    isApprovalEvidenceSelectedSource(source) && source.verified === true);
   const verified = selectedVerified.length > 0 && unverifiedFields.length === 0;
   const informationAsOf = extractInformationAsOf(document) ?? existing.informationAsOf;
   const reasons = [
     ...sources
-      .filter((source) => source.selected === true && source.verified !== true && source.failureReason)
+      .filter((source) => {
+        const provenance = approvalEvidenceSourceProvenance(source);
+        return provenance !== "search_candidate"
+          && source.verified !== true
+          && source.verificationStatus !== "excluded"
+          && source.verificationStatus !== "duplicate_source"
+          && Boolean(source.failureReason);
+      })
       .map((source) => source.failureReason!),
     ...(unverifiedFields.length
       ? [`핵심 Claim 검증이 완료되지 않았습니다: ${unverifiedFields.join(", ")}`]
@@ -268,7 +281,7 @@ export function verifyApprovalEvidence(
     pack,
     verifiedSourceCount: selectedVerified.length,
     rejectedSourceCount: sources.filter((source) =>
-      source.selected === true
+      isApprovalEvidenceSelectedSource(source)
       && source.verified !== true
       && source.verificationStatus !== "excluded"
       && source.verificationStatus !== "duplicate_source").length,
@@ -349,7 +362,7 @@ function pageEligible(
     && page.status >= 200
     && page.status < 400
     && page.finalUrl.startsWith("https://")
-    && /(?:text\/html|application\/xhtml\+xml)/iu.test(page.contentType)
+    && /(?:text\/(?:html|plain|csv)|application\/xhtml\+xml)/iu.test(page.contentType)
     && page.text.trim().length >= 200
     && officialSourceAllowed(profileId, page),
   );
