@@ -355,7 +355,7 @@ function jsonTitle(value: unknown): string {
   return "";
 }
 
-function parseDelimitedText(text: string, delimiter: string): readonly string[][] {
+function parseDelimitedText(text: string, delimiter: string): readonly (readonly string[])[] {
   const rows: string[][] = [];
   let row: string[] = [];
   let field = "";
