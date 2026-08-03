@@ -22,7 +22,7 @@ import {
 import { requestWordPressDraftCreation, type WordPressDraftRequest } from "../../../../app/user-flow/wordpress-draft-request";
 import type { WordPressDraftReadiness } from "../../../../app/application/publishing/WordPressDraftReadiness";
 
-const editorSource = readFileSync(join(process.cwd(), "app/user-flow/EditorWorkspace.tsx"), "utf8");
+const editorSource = readFileSync(join(process.cwd(), "app/user-flow/EditorWorkspaceImplementation.tsx"), "utf8");
 const overlaySource = readFileSync(join(process.cwd(), "app/user-flow/WordPressDraftOverlay.tsx"), "utf8");
 const requestSource = readFileSync(join(process.cwd(), "app/user-flow/wordpress-draft-request.ts"), "utf8");
 
