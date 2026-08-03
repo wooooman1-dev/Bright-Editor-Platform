@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { approvalReadinessInspectionVersion } from "../../../../app/application/approval/ApprovalReadinessExecutionIdentity";
 import { publishingInternalLinkContextKey } from "../../../../app/application/publishing/InternalLinkCatalogPolicy";
 import { approvalReadinessAutoRunDecision } from "../../../../app/user-flow/ApprovalReadinessActions";
 import type { ApprovalEvidencePack, SiteApprovalReadinessSnapshot } from "../../../../core/approval";
@@ -117,7 +118,7 @@ function checkedDocument(
       internalLinkCatalogStatus: "evaluated",
       internalLinkCatalogContextKey: publishingInternalLinkContextKey(contextContent),
       approvalReadinessExecution: {
-        version: "1.0",
+        version: approvalReadinessInspectionVersion,
         key: "stored-execution",
         editorialRevisionId: revisionId,
         publishingContextKey: publishingInternalLinkContextKey(contextContent),
