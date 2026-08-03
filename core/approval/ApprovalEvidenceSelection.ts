@@ -40,7 +40,9 @@ export function canonicalizeApprovalEvidenceUrl(value: string): string {
 
     const identity = lawSourceIdentity(url, endpoint ?? "");
     if (identity) {
+      const classCode = queryValue(url, "chrClsCd");
       url.search = "";
+      if (classCode) url.searchParams.set("chrClsCd", classCode);
       url.searchParams.set(identity.key, identity.value);
     } else {
       url.searchParams.sort();
@@ -281,10 +283,10 @@ export function verifyApprovalEvidence(
     pack,
     verifiedSourceCount: selectedVerified.length,
     rejectedSourceCount: sources.filter((source) =>
-      isApprovalEvidenceSelectedSource(source)
-      && source.verified !== true
-      && source.verificationStatus !== "excluded"
-      && source.verificationStatus !== "duplicate_source").length,
+      source.verificationStatus === "duplicate_source"
+      || (isApprovalEvidenceSelectedSource(source)
+        && source.verified !== true
+        && source.verificationStatus !== "excluded")).length,
     reasons: Object.freeze(reasons),
   });
 }
