@@ -60,19 +60,83 @@ export function requiredApprovalFactFields(
   const available = new Set(facts.map((fact) => fact.field));
   return Object.freeze([...new Set([
     ...base,
-    ...(available.has("excessPaymentRefund") && !base.includes("excessPaymentRefund")
+    ...(available.has("excessPaymentRefund")
+      && !base.includes("excessPaymentRefund")
       ? ["excessPaymentRefund"]
       : []),
     ...generic,
   ])]);
 }
 
+type ApprovalClaimPage = Readonly<{
+  title: string;
+  publisher: string;
+  text: string;
+  requestedUrl?: string;
+  finalUrl?: string;
+}>;
+
 export function approvalFactMatchesPage(
-  page: Readonly<{ title: string; publisher: string; text: string }>,
+  page: ApprovalClaimPage,
   fact: ApprovalEvidenceFact,
 ): boolean {
-  if (!isGenericClaimField(fact.field)) return baseApprovalFactMatchesPage(page, fact);
+  if (fact.field === "depositProtectionEffectiveDate") {
+    return exactEffectiveDateMatchesPage(page, fact.value);
+  }
+  if (!isGenericClaimField(fact.field)) {
+    return baseApprovalFactMatchesPage(page, fact);
+  }
   return genericClaimMatchesPage(page, fact.value);
+}
+
+function exactEffectiveDateMatchesPage(
+  page: ApprovalClaimPage,
+  value: string,
+): boolean {
+  const expectedDates = extractCanonicalDates(value);
+  if (!expectedDates.length) return baseApprovalFactMatchesPage(page, {
+    field: "depositProtectionEffectiveDate",
+    value,
+  });
+  const observedDates = new Set(extractCanonicalDates([
+    page.title,
+    page.publisher,
+    page.text,
+    page.requestedUrl ?? "",
+    page.finalUrl ?? "",
+  ].join("\n")));
+  return expectedDates.every((date) => observedDates.has(date));
+}
+
+function extractCanonicalDates(value: string): readonly string[] {
+  const normalized = value.normalize("NFKC");
+  const found = new Set<string>();
+  const add = (year: string, month: string, day: string) => {
+    const monthNumber = Number(month);
+    const dayNumber = Number(day);
+    if (
+      monthNumber < 1
+      || monthNumber > 12
+      || dayNumber < 1
+      || dayNumber > 31
+    ) {
+      return;
+    }
+    found.add(
+      `${year}${String(monthNumber).padStart(2, "0")}${String(dayNumber).padStart(2, "0")}`,
+    );
+  };
+  for (const match of normalized.matchAll(
+    /(?<!\d)(20\d{2})\s*(?:년|[-./])\s*(0?[1-9]|1[0-2])\s*(?:월|[-./])\s*(0?[1-9]|[12]\d|3[01])\s*일?/gu,
+  )) {
+    add(match[1] ?? "", match[2] ?? "", match[3] ?? "");
+  }
+  for (const match of normalized.matchAll(
+    /(?<!\d)(20\d{2})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])(?!\d)/gu,
+  )) {
+    add(match[1] ?? "", match[2] ?? "", match[3] ?? "");
+  }
+  return Object.freeze([...found]);
 }
 
 function addConciseLegalFacts(
@@ -92,7 +156,8 @@ function addConciseLegalFacts(
       value: "방문판매법상 계속거래 해당 여부는 법정 정의와 성립 요건에 따라 판단",
     }));
   }
-  if (hasQualification && !existing.has("continuingTransactionArticle30Threshold")) {
+  if (hasQualification
+    && !existing.has("continuingTransactionArticle30Threshold")) {
     additions.push(Object.freeze({
       field: "continuingTransactionArticle30Threshold",
       value: "법령에서 정한 금액·기간 요건을 충족하는 계속거래 계약의 설명·계약서 발급 의무",
@@ -121,11 +186,15 @@ function addGenericVerifiableClaims(
 ): readonly ApprovalEvidenceFact[] {
   if (profileId !== "wordpress_life_economy_v1") return facts;
   const additions: ApprovalEvidenceFact[] = [];
-  const existingValues = new Set(facts.map((fact) => normalizeClaim(fact.value)));
+  const existingValues = new Set(
+    facts.map((fact) => normalizeClaim(fact.value)),
+  );
 
   for (const sentence of legalAssertionSentences(text)) {
     if (additions.length >= maximumGenericClaims) break;
-    if (baseExtractProfileApprovalFactsFromText(sentence, profileId).length > 0) continue;
+    if (baseExtractProfileApprovalFactsFromText(sentence, profileId).length > 0) {
+      continue;
+    }
     const normalized = normalizeClaim(sentence);
     if (normalized.length < 16 || existingValues.has(normalized)) continue;
     existingValues.add(normalized);
@@ -147,7 +216,9 @@ function legalAssertionSentences(text: string): readonly string[] {
     .filter((sentence) => sentence.length >= 20 && sentence.length <= 500);
 
   return Object.freeze(candidates.filter((sentence) => {
-    if (/(?:출처|참고|확인\s*경로|다시\s*확인|확인하세요|정보\s*기준일|최종\s*검토일)/u.test(sentence)) return false;
+    if (/(?:출처|참고|확인\s*경로|다시\s*확인|확인하세요|정보\s*기준일|최종\s*검토일)/u.test(sentence)) {
+      return false;
+    }
     const hasLegalAnchor = /(?:「[^」]{2,80}(?:법|시행령|시행규칙)」|[가-힣A-Za-z]{2,40}(?:법|시행령|시행규칙)|법\s*제?\s*\d+조|제\s*\d+조(?:의\d+)?|법률상|법령상)/u.test(sentence);
     const hasAssertion = /(?:적용|정의|의무|금지|제한|허용|가능|불가|해야|하여야|할\s*수\s*있|대상|제외|기준|요건|한도|기간|금액|환급|위약금|처벌|과태료|세율|공제)/u.test(sentence);
     return hasLegalAnchor && hasAssertion;
@@ -155,22 +226,30 @@ function legalAssertionSentences(text: string): readonly string[] {
 }
 
 function genericClaimMatchesPage(
-  page: Readonly<{ title: string; publisher: string; text: string }>,
+  page: ApprovalClaimPage,
   claim: string,
 ): boolean {
   const haystack = `${page.title} ${page.publisher} ${page.text}`;
   const normalizedHaystack = normalizeClaim(haystack);
   const normalizedClaim = normalizeClaim(claim);
-  if (normalizedClaim.length >= 16 && normalizedHaystack.includes(normalizedClaim)) return true;
+  if (normalizedClaim.length >= 16
+    && normalizedHaystack.includes(normalizedClaim)) {
+    return true;
+  }
 
   const claimAnchors = claim.match(/(?:제\s*\d+조(?:의\d+)?|\d+(?:[.,]\d+)?\s*(?:원|만원|억원|퍼센트|%|년|개월|일)|20\d{2}\s*년?)/gu) ?? [];
-  if (claimAnchors.some((anchor) => !normalizedHaystack.includes(normalizeClaim(anchor)))) return false;
+  if (claimAnchors.some((anchor) =>
+    !normalizedHaystack.includes(normalizeClaim(anchor)))) {
+    return false;
+  }
 
   const claimTokens = significantClaimTokens(claim);
   if (claimTokens.length < minimumGenericClaimTokens) return false;
-  const matched = claimTokens.filter((token) => normalizedHaystack.includes(normalizeClaim(token)));
+  const matched = claimTokens.filter((token) =>
+    normalizedHaystack.includes(normalizeClaim(token)));
   const ratio = matched.length / claimTokens.length;
-  return matched.length >= minimumGenericClaimTokens && ratio >= genericClaimMatchRatio;
+  return matched.length >= minimumGenericClaimTokens
+    && ratio >= genericClaimMatchRatio;
 }
 
 function significantClaimTokens(value: string): readonly string[] {
@@ -197,7 +276,9 @@ function stableClaimId(value: string): string {
 }
 
 function normalizeClaim(value: string): string {
-  return value.normalize("NFKC").toLocaleLowerCase("ko-KR").replace(/[\s\p{P}\p{S}]+/gu, "");
+  return value.normalize("NFKC")
+    .toLocaleLowerCase("ko-KR")
+    .replace(/[\s\p{P}\p{S}]+/gu, "");
 }
 
 const genericClaimStopWords = new Set([
