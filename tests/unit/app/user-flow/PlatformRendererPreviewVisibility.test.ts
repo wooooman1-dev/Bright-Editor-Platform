@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const editorSource = readFileSync(
-  join(process.cwd(), "app/user-flow/EditorWorkspace.tsx"),
+  join(process.cwd(), "app/user-flow/EditorWorkspaceImplementation.tsx"),
   "utf8",
 );
 const routeSource = readFileSync(
