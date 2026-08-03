@@ -5,7 +5,7 @@ import {
 } from "./ApprovalEvidenceClaimPolicy";
 import { canonicalizeApprovalEvidenceUrl } from "./ApprovalEvidenceSelection";
 import type { ApprovalPolicyProfileId } from "./ApprovalPolicy";
-import type { ApprovalEvidenceSource } from "./ApprovalReadiness";
+import type { ApprovalEvidenceFact, ApprovalEvidenceSource } from "./ApprovalReadiness";
 
 type RequiredOfficialSource = Readonly<{
   url: string;
@@ -49,7 +49,11 @@ export function ensureRequiredApprovalEvidenceCandidates(
     const required = requiredByIdentity.get(identity);
 
     if (required) {
-      const next = promoteRequiredSource(source, canonicalUrl);
+      const next = promoteRequiredSource(
+        source,
+        canonicalUrl,
+        requiredClaimFacts(required, requiredFields),
+      );
       if (next !== source) changed = true;
       return next;
     }
@@ -86,6 +90,7 @@ export function ensureRequiredApprovalEvidenceCandidates(
       required,
       canonicalUrl,
       document.metadata?.updatedAt ?? document.metadata?.createdAt ?? "1970-01-01T00:00:00.000Z",
+      requiredClaimFacts(required, requiredFields),
     ));
     seen.add(identity);
   }
@@ -109,11 +114,14 @@ export function ensureRequiredApprovalEvidenceCandidates(
 function promoteRequiredSource(
   source: ApprovalEvidenceSource,
   canonicalUrl: string,
+  requiredFacts: readonly ApprovalEvidenceFact[],
 ): ApprovalEvidenceSource {
+  const facts = mergeRequiredFacts(source.facts, requiredFacts);
   if (source.provenance === "system_verified"
     && source.selected === true
     && source.url === canonicalUrl
-    && source.canonicalUrl === canonicalUrl) {
+    && source.canonicalUrl === canonicalUrl
+    && facts === source.facts) {
     return source;
   }
 
@@ -121,6 +129,7 @@ function promoteRequiredSource(
     ...source,
     url: canonicalUrl,
     canonicalUrl,
+    facts,
     provenance: "system_verified" as const,
     selected: true,
   });
@@ -142,6 +151,7 @@ function requiredSourceCandidate(
   source: RequiredOfficialSource,
   canonicalUrl: string,
   retrievedAt: string,
+  facts: readonly ApprovalEvidenceFact[],
 ): ApprovalEvidenceSource {
   return Object.freeze({
     sourceId: `required-official-${stableSourceId(canonicalUrl)}`,
@@ -152,10 +162,32 @@ function requiredSourceCandidate(
     sourceType: "official_law" as const,
     retrievedAt,
     verified: false,
-    facts: Object.freeze([]),
+    facts,
     provenance: "system_verified" as const,
     selected: true,
   });
+}
+
+function requiredClaimFacts(
+  source: RequiredOfficialSource,
+  requiredFields: ReadonlySet<string>,
+): readonly ApprovalEvidenceFact[] {
+  return Object.freeze(source.fields
+    .filter((field) => requiredFields.has(field))
+    .map((field) => Object.freeze({
+      field,
+      value: requiredClaimLabels[field] ?? field,
+    })));
+}
+
+function mergeRequiredFacts(
+  existing: readonly ApprovalEvidenceFact[],
+  required: readonly ApprovalEvidenceFact[],
+): readonly ApprovalEvidenceFact[] {
+  const fields = new Set(existing.map((fact) => fact.field));
+  const missing = required.filter((fact) => !fields.has(fact.field));
+  if (!missing.length) return existing;
+  return Object.freeze([...existing, ...missing]);
 }
 
 function officialSourceIdentity(value: string): string {
@@ -194,6 +226,14 @@ function stableSourceId(value: string): string {
   }
   return (hash >>> 0).toString(36);
 }
+
+const requiredClaimLabels: Readonly<Record<string, string>> = Object.freeze({
+  continuingTransactionDefinition: "방문판매법상 계속거래의 법정 정의",
+  continuingTransactionArticle30Threshold: "법 제30조 적용 금액·기간 기준",
+  continuingTransactionContractDocument: "계속거래 계약서 발급 의무",
+  excessiveTerminationPenalty: "손실을 현저히 초과하는 위약금 제한",
+  excessPaymentRefund: "실제 공급 대가 초과분의 부당한 환급 거부 제한",
+});
 
 const requiredOfficialSources: readonly RequiredOfficialSource[] = Object.freeze([
   Object.freeze({
