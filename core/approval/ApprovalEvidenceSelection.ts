@@ -4,6 +4,7 @@ import type {
   ApprovalEvidencePack,
   ApprovalEvidenceProvenance,
   ApprovalEvidenceSource,
+  ApprovalEvidenceVerificationStatus,
 } from "./ApprovalReadiness";
 import {
   approvalFactMatchesPage,
@@ -235,7 +236,7 @@ export function verifyApprovalEvidence(
   const evaluatedIds = new Set(evaluatedSources.map((source) => source.sourceId));
   const candidateSources = entries
     .filter((entry) => !evaluatedIds.has(entry.source.sourceId))
-    .map((entry) => excludedCandidate(entry.source, entry.canonicalUrl, reviewedAt));
+    .map((entry) => candidateDiagnostic(entry.source, entry.canonicalUrl, entry.page, profileId, reviewedAt));
   const duplicateSources = normalized.duplicates.map((source) => duplicateCandidate(
     source,
     canonicalizeApprovalEvidenceUrl(source.canonicalUrl ?? source.url),
@@ -365,11 +366,24 @@ function pageEligible(
     && !page.fetchError
     && page.status >= 200
     && page.status < 400
-    && page.finalUrl.startsWith("https://")
-    && /(?:text\/(?:html|plain|csv)|application\/xhtml\+xml)/iu.test(page.contentType)
+    && securePage(page)
+    && extractedPage(page)
     && page.text.trim().length >= 200
     && officialSourceAllowed(profileId, page),
   );
+}
+
+function securePage(page: ApprovalSourcePage): boolean {
+  try {
+    return new URL(page.finalUrl).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function extractedPage(page: ApprovalSourcePage): boolean {
+  if (page.extractionStatus) return page.extractionStatus === "extracted";
+  return /(?:text\/(?:html|plain|csv|xml)|application\/(?:xhtml\+xml|json|xml)|\+json|\+xml)/iu.test(page.contentType);
 }
 
 function normalizePage(page: ApprovalSourcePage): ApprovalSourcePage {
@@ -398,10 +412,74 @@ function mergeFacts(...collections: readonly (readonly ApprovalEvidenceFact[])[]
   return Object.freeze([...found.values()]);
 }
 
+function candidateDiagnostic(
+  source: ApprovalEvidenceSource,
+  canonicalUrl: string,
+  page: ApprovalSourcePage | undefined,
+  profileId: ApprovalPolicyProfileId,
+  checkedAt: string,
+): ApprovalEvidenceSource {
+  if (!page || page.fetchError || page.extractionStatus === "unavailable") {
+    return candidateWithStatus(source, canonicalUrl, checkedAt, "unreachable", page?.fetchError || page?.extractionReason || "출처 페이지를 불러오지 못했습니다.", page);
+  }
+  if (page.status < 200 || page.status >= 400 || !securePage(page)) {
+    return candidateWithStatus(source, canonicalUrl, checkedAt, "unreachable", `HTTPS 공개 페이지로 정상 응답하지 않았습니다 (HTTP ${page.status}).`, page);
+  }
+  if (page.extractionStatus === "too_large") {
+    return candidateWithStatus(source, canonicalUrl, checkedAt, "content_too_large", page.extractionReason || "출처 응답이 검증 허용 크기를 초과했습니다.", page);
+  }
+  if (page.extractionStatus === "malformed") {
+    return candidateWithStatus(source, canonicalUrl, checkedAt, "malformed_content", page.extractionReason || "출처 문서가 손상되었거나 형식 규칙에 맞지 않습니다.", page);
+  }
+  if (page.extractionStatus === "empty") {
+    return candidateWithStatus(source, canonicalUrl, checkedAt, "empty_content", page.extractionReason || "출처 본문이 비어 있습니다.", page);
+  }
+  if (page.extractionStatus === "unsupported" || !extractedPage(page)) {
+    return candidateWithStatus(source, canonicalUrl, checkedAt, "unsupported_content_type", page.extractionReason || "출처 문서 형식을 지원하지 않습니다.", page);
+  }
+  if (!officialSourceAllowed(profileId, page)) {
+    return candidateWithStatus(source, canonicalUrl, checkedAt, "unofficial_source", "적용 프로필의 공식 출처로 확인되지 않았습니다.", page);
+  }
+  return excludedCandidate(source, canonicalUrl, checkedAt, page);
+}
+
+function candidateWithStatus(
+  source: ApprovalEvidenceSource,
+  canonicalUrl: string,
+  checkedAt: string,
+  verificationStatus: ApprovalEvidenceVerificationStatus,
+  failureReason: string,
+  page?: ApprovalSourcePage,
+): ApprovalEvidenceSource {
+  const accessVerificationStatus = verificationStatus === "unreachable" ? "failed" as const : "verified" as const;
+  const officialDomainVerificationStatus = verificationStatus === "unofficial_source" ? "failed" as const : "not_evaluated" as const;
+  return Object.freeze({
+    ...source,
+    url: canonicalUrl,
+    canonicalUrl,
+    verified: false,
+    selected: false,
+    ...(page?.finalUrl ? { finalUrl: page.finalUrl } : {}),
+    ...(page?.status !== undefined ? { httpStatus: page.status } : {}),
+    ...(page?.contentType ? { contentType: page.contentType } : {}),
+    ...(page?.documentFormat ? { documentFormat: page.documentFormat } : {}),
+    ...(page?.extractionStatus ? { extractionStatus: page.extractionStatus } : {}),
+    ...(page?.extractionReason ? { extractionReason: page.extractionReason } : {}),
+    ...(page?.contentLength !== undefined ? { contentLength: page.contentLength } : {}),
+    verificationStatus,
+    accessVerificationStatus,
+    officialDomainVerificationStatus,
+    claimVerificationStatus: "not_evaluated",
+    failureReason,
+    checkedAt,
+  });
+}
+
 function excludedCandidate(
   source: ApprovalEvidenceSource,
   canonicalUrl: string,
   checkedAt: string,
+  page?: ApprovalSourcePage,
 ): ApprovalEvidenceSource {
   return Object.freeze({
     ...source,
@@ -409,9 +487,16 @@ function excludedCandidate(
     canonicalUrl,
     verified: false,
     selected: false,
+    ...(page?.finalUrl ? { finalUrl: page.finalUrl } : {}),
+    ...(page?.status !== undefined ? { httpStatus: page.status } : {}),
+    ...(page?.contentType ? { contentType: page.contentType } : {}),
+    ...(page?.documentFormat ? { documentFormat: page.documentFormat } : {}),
+    ...(page?.extractionStatus ? { extractionStatus: page.extractionStatus } : {}),
+    ...(page?.extractionReason ? { extractionReason: page.extractionReason } : {}),
+    ...(page?.contentLength !== undefined ? { contentLength: page.contentLength } : {}),
     verificationStatus: "excluded",
-    accessVerificationStatus: "not_evaluated",
-    officialDomainVerificationStatus: "not_evaluated",
+    accessVerificationStatus: "verified",
+    officialDomainVerificationStatus: "verified",
     claimVerificationStatus: "not_evaluated",
     failureReason: "검색 후보이며 이번 원고의 필수 Claim을 뒷받침하는 최종 근거로 선택되지 않아 승인 판정에서 제외했습니다.",
     checkedAt,
