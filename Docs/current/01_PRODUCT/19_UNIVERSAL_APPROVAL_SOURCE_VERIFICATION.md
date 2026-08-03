@@ -27,8 +27,10 @@ For every submitted source URL and response body:
 11. Search candidates never change Claim coverage or an existing verified Snapshot until selected.
 12. Unknown legal Claims are assigned deterministic dynamic Claim IDs and either verified from official Evidence or left unverified.
 13. A source is marked verified only after access, extraction, official-domain, selection, and Claim-match checks pass.
-14. No additional AI request is introduced by source verification.
-15. The same Core contract is reused by WordPress, Tistory, and future platform Apps.
+14. Source Preflight derives the required factual Claim set from the confirmed Planning state and blocks manuscript Generation until every required Claim has verified official-source coverage.
+15. Partial official-source coverage is reported as incomplete and cannot spend the manuscript Generation call.
+16. No additional AI request is introduced by source verification.
+17. The same Core contract is reused by WordPress, Tistory, and future platform Apps.
 
 ## 3. Processing pipeline
 
@@ -49,6 +51,8 @@ Source URL
 → Verified Claim Snapshot
 → readiness projection
 ```
+
+Before manuscript Generation, Source Preflight applies the same URL safety, extraction, official-source, and Claim-match rules to every required factual Claim derived from the confirmed Planning state. Generation remains blocked when that preflight coverage is incomplete.
 
 ## 4. URL safety contract
 

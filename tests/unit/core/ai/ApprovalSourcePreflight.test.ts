@@ -99,6 +99,10 @@ function preflightResponse(): AIResponse {
         url: sourceUrl,
         title: "정부24 공식 안내",
         evidenceExcerpt,
+        claims: [{
+          field: "eligibility",
+          value: evidenceExcerpt,
+        }],
       }],
     }),
     model: "gpt-5.6-terra",

@@ -6,6 +6,8 @@ type ApprovalFactPage = Readonly<{
   title: string;
   publisher: string;
   text: string;
+  requestedUrl?: string;
+  finalUrl?: string;
 }>;
 
 export function extractProfileApprovalFacts(
@@ -219,6 +221,9 @@ export function approvalEvidenceClaimFieldsForSourceUrl(urlValue: string): reado
 }
 
 export function approvalFactMatchesPage(page: ApprovalFactPage, fact: ApprovalEvidenceFact): boolean {
+  if (fact.field === "depositProtectionEffectiveDate") {
+    return approvalEffectiveDateMatchesPage(page, fact.value);
+  }
   const haystack = normalize(`${page.title} ${page.publisher} ${page.text}`);
   const signalGroups: Readonly<Record<string, readonly string[]>> = {
     continuousServicePeriod: ["계속근로", "1년"],
@@ -239,7 +244,6 @@ export function approvalFactMatchesPage(page: ApprovalFactPage, fact: ApprovalEv
     depositProtectionUnit: ["금융회사", "별", "1인"],
     depositProtectionExclusions: ["보호", "대상", "아니"],
     depositProtectionCheckPath: ["확인"],
-    depositProtectionEffectiveDate: ["2025", "9월", "1일"],
     depositProtectionStatutoryBasis: ["예금자보호법"],
     revolvingDefinition: ["일부결제금액이월약정", "이월"],
     revolvingInstallmentDifference: ["리볼빙", "할부"],
@@ -253,6 +257,45 @@ export function approvalFactMatchesPage(page: ApprovalFactPage, fact: ApprovalEv
   const fieldSignals = signalGroups[fact.field];
   if (fieldSignals?.length) return fieldSignals.every((signal) => haystack.includes(normalize(signal)));
   return variants(fact.value).some((value) => value.length >= 3 && haystack.includes(value));
+}
+
+function approvalEffectiveDateMatchesPage(
+  page: ApprovalFactPage,
+  expectedValue: string,
+): boolean {
+  const expectedDates = extractCanonicalDates(expectedValue);
+  if (!expectedDates.size) return false;
+  const observedDates = extractCanonicalDates([
+    page.title,
+    page.publisher,
+    page.text,
+    page.requestedUrl ?? "",
+    page.finalUrl ?? "",
+  ].join(" "));
+  return [...expectedDates].some((date) => observedDates.has(date));
+}
+
+function extractCanonicalDates(value: string): ReadonlySet<string> {
+  const normalized = value.normalize("NFKC");
+  const found = new Set<string>();
+  const add = (year: string, month: string, day: string) => {
+    const numericMonth = Number(month);
+    const numericDay = Number(day);
+    if (numericMonth < 1 || numericMonth > 12 || numericDay < 1 || numericDay > 31) return;
+    found.add(`${year}${numericMonth.toString().padStart(2, "0")}${numericDay.toString().padStart(2, "0")}`);
+  };
+
+  for (const match of normalized.matchAll(
+    /(?<!\d)(20\d{2})\s*(?:년|[-./])\s*(0?[1-9]|1[0-2])\s*(?:월|[-./])\s*(0?[1-9]|[12]\d|3[01])\s*일?/gu,
+  )) {
+    add(match[1] ?? "", match[2] ?? "", match[3] ?? "");
+  }
+  for (const match of normalized.matchAll(
+    /(?<!\d)(20\d{2})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])(?!\d)/gu,
+  )) {
+    add(match[1] ?? "", match[2] ?? "", match[3] ?? "");
+  }
+  return found;
 }
 
 function variants(value: string): readonly string[] {

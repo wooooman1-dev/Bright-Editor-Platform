@@ -1,11 +1,14 @@
 import {
   approvalOfficialDomains,
   canonicalizeApprovalEvidenceUrl,
+  evaluateApprovalSourcePreflightCoverage,
   evaluateApprovalSourceUrlSafety,
   normalizeApprovalSourceDocument,
   officialSourceAllowed,
+  requiredApprovalSourcePreflightClaims,
   type ApprovalPolicySnapshot,
   type ApprovalSourcePage,
+  type ApprovalSourcePreflightCoverageResult,
   type SiteApprovalReadinessFetch,
 } from "../approval";
 import type { ConfirmedContentOpportunity } from "../content";
@@ -15,6 +18,7 @@ export const approvalSourcePreflightTask = "approval-source-preflight";
 
 export type ApprovalSourcePreflightResult = Readonly<{
   sources: readonly AIWebSource[];
+  coverage: ApprovalSourcePreflightCoverageResult;
   diagnostics?: AIResponse["diagnostics"];
 }>;
 
@@ -35,8 +39,16 @@ export async function runApprovalSourcePreflight(input: Readonly<{
   contentType: string;
   fetcher?: SiteApprovalReadinessFetch;
 }>): Promise<ApprovalSourcePreflightResult> {
+  const requiredClaims = requiredApprovalSourcePreflightClaims(
+    input.opportunity,
+    input.snapshot.profileId,
+  );
   const response = await input.provider.generate({
-    instruction: approvalSourceDiscoveryInstruction(input.snapshot, input.opportunity),
+    instruction: approvalSourceDiscoveryInstruction(
+      input.snapshot,
+      input.opportunity,
+      requiredClaims,
+    ),
     metadata: {
       task: approvalSourcePreflightTask,
       approvalPurpose: input.snapshot.contentPurpose,
@@ -65,6 +77,10 @@ export async function runApprovalSourcePreflight(input: Readonly<{
   ]));
   const rejected: string[] = [];
   const sources: AIWebSource[] = [];
+  const coverageSources: Array<Readonly<{
+    page: ApprovalSourcePage;
+    claims: readonly Readonly<{ field: string; value: string }>[];
+  }>> = [];
 
   for (const source of eligible) {
     const page = pageByRequestedUrl.get(source.url);
@@ -76,6 +92,10 @@ export async function runApprovalSourcePreflight(input: Readonly<{
       continue;
     }
     const finalUrl = canonicalizeApprovalEvidenceUrl(page!.finalUrl || source.url);
+    coverageSources.push(Object.freeze({
+      page: page!,
+      claims: source.claims,
+    }));
     sources.push(Object.freeze({
       url: finalUrl,
       title: page!.title.trim() || source.title || sourcePublisher(finalUrl),
@@ -92,8 +112,32 @@ export async function runApprovalSourcePreflight(input: Readonly<{
     );
   }
 
+  const coverage = evaluateApprovalSourcePreflightCoverage({
+    profileId: input.snapshot.profileId,
+    opportunity: input.opportunity,
+    requiredClaims,
+    sources: coverageSources,
+  });
+  if (coverage.status === "incomplete") {
+    throw new ApprovalSourcePreflightError(
+      `필수 Claim 출처 사전검증이 완료되지 않아 원고 생성을 시작하지 않았습니다. 미확보 Claim: ${coverage.uncoveredClaimFields.join(", ")}.`,
+    );
+  }
+  const coveredUrls = new Set(coverage.sources
+    .filter((source) => source.coveredClaimFields.length > 0)
+    .map((source) => canonicalizeApprovalEvidenceUrl(source.url)));
+  const generationSources = requiredClaims.length
+    ? uniqueSources.filter((source) => coveredUrls.has(canonicalizeApprovalEvidenceUrl(source.url)))
+    : uniqueSources;
+  if (!generationSources.length) {
+    throw new ApprovalSourcePreflightError(
+      "필수 Claim에 연결된 공식 출처가 없어 원고 생성을 시작하지 않았습니다.",
+    );
+  }
+
   return Object.freeze({
-    sources: Object.freeze(uniqueSources),
+    sources: Object.freeze(generationSources),
+    coverage,
     ...(response.diagnostics ? { diagnostics: response.diagnostics } : {}),
   });
 }
@@ -120,6 +164,7 @@ ${evidence}
 function approvalSourceDiscoveryInstruction(
   snapshot: ApprovalPolicySnapshot,
   opportunity: ConfirmedContentOpportunity,
+  requiredClaims: readonly Readonly<{ field: string; plannedValue?: string }>[],
 ): string {
   const domains = approvalOfficialDomains(snapshot.profileId);
   const plannedScope = {
@@ -140,20 +185,25 @@ function approvalSourceDiscoveryInstruction(
 Find 1-6 direct official primary-source pages that can support the factual parts of this confirmed Content Opportunity.
 Content Opportunity: ${JSON.stringify(plannedScope)}
 Approval profile: ${snapshot.profileDisplayName}. Content domain: ${snapshot.contentDomain}.
+Required Claim coverage contract: ${JSON.stringify(requiredClaims)}.
 ${domains?.length ? `Allowed official domains: ${domains.join(", ")}.` : "Use only a clearly identifiable official museum, archive, government, public institution, or rights-holder page accepted by the active profile."}
 Rules:
 - Open or inspect each proposed page during this call.
 - Return a direct detail, guidance, law, notice, application, collection, or institutional record page; never return a search-result page, navigation page, copied article, community post, or secondary blog.
 - Every URL must be HTTPS and must appear in the web-search sources from this same response.
 - evidenceExcerpt must be one short factual passage from that exact page, sufficient to prove the page is relevant to the planned topic. Do not invent or combine text from another page.
+- For every required Claim field, attach it to at least one source in claims. Each claims value must be a concise factual value or sentence found on that exact page.
+- Do not attach a Claim field that the page does not support.
+- If any required Claim cannot be covered by an opened official page, return the best sources found; the server will block Generation and report the uncovered Claim fields.
 - If no usable official page exists, return {"sources":[]}.
-Return JSON only as {"sources":[{"url":"https://...","title":"...","evidenceExcerpt":"..."}]}.`;
+Return JSON only as {"sources":[{"url":"https://...","title":"...","evidenceExcerpt":"...","claims":[{"field":"required field","value":"exact concise fact from this page"}]}]}.`;
 }
 
 type DiscoveredSource = Readonly<{
   url: string;
   title: string;
   evidenceExcerpt: string;
+  claims: readonly Readonly<{ field: string; value: string }>[];
 }>;
 
 function parseDiscoveredSources(raw: string): readonly DiscoveredSource[] {
@@ -180,11 +230,25 @@ function parseDiscoveredSources(raw: string): readonly DiscoveredSource[] {
       : "";
     const safety = evaluateApprovalSourceUrlSafety(rawUrl);
     if (!safety.safe || !safety.normalizedUrl || excerpt.length < minimumEvidenceExcerptLength) continue;
+    const claims = Array.isArray(value.claims)
+      ? value.claims.flatMap((claim) => {
+          if (!claim || typeof claim !== "object" || Array.isArray(claim)) return [];
+          const claimValue = claim as Record<string, unknown>;
+          const field = typeof claimValue.field === "string" ? claimValue.field.trim() : "";
+          const factValue = typeof claimValue.value === "string"
+            ? claimValue.value.replace(/\s+/gu, " ").trim().slice(0, 500)
+            : "";
+          return field && factValue.length >= 2
+            ? [Object.freeze({ field, value: factValue })]
+            : [];
+        }).slice(0, maximumPreflightClaimsPerSource)
+      : [];
     const url = canonicalizeApprovalEvidenceUrl(safety.normalizedUrl);
     sources.set(url, Object.freeze({
       url,
       title: typeof value.title === "string" ? value.title.trim().slice(0, 500) : "",
       evidenceExcerpt: excerpt,
+      claims: Object.freeze(claims),
     }));
   }
   return Object.freeze([...sources.values()]);
@@ -379,6 +443,7 @@ function redirectStatus(status: number): boolean {
 }
 
 const maximumPreflightSources = 6;
+const maximumPreflightClaimsPerSource = 20;
 const minimumEvidenceExcerptLength = 20;
 const maximumEvidenceExcerptLength = 1_200;
 const minimumExtractedPageLength = 200;

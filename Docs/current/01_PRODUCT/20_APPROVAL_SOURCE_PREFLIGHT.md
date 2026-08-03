@@ -2,9 +2,9 @@
 
 ## Purpose
 
-Approval-preparation content must not begin manuscript Generation until Bright Studio has at least one usable official source for the confirmed Content Opportunity.
+Approval-preparation content must not begin manuscript Generation until Bright Studio has usable official-source coverage for every required factual Claim derived from the confirmed Content Opportunity.
 
-This policy prevents the system from spending a full Generation call on a manuscript whose factual basis cannot be accessed, extracted, or accepted by the active approval profile.
+This policy prevents the system from spending a full Generation call on a manuscript whose factual basis is missing, only partially covered, inaccessible, unextractable, or outside the active approval profile.
 
 ## Scope
 
@@ -25,6 +25,8 @@ Confirmed Content Opportunity
 → direct page fetch
 → supported text extraction
 → evidence excerpt match
+→ required Claim-to-source matching
+→ complete Claim coverage gate
 → usable source bundle
 → manuscript Generation 1 call
 → deterministic Claim verification
@@ -44,12 +46,15 @@ A source may enter the Generation bundle only when all checks pass:
 5. Bright Studio can extract supported text from the response within the bounded size limit.
 6. The page is accepted as an official source by the active approval profile.
 7. The proposed evidence excerpt is found in the extracted page text.
+8. Every required Planning Claim is linked to at least one accepted official page.
+9. The linked Claim value or sentence is deterministically found in that page.
+10. No required Claim remains uncovered.
 
 Search-result pages, navigation pages, secondary blogs, copied articles, community posts, inaccessible pages, unsupported binary documents, empty pages, malformed documents, and unofficial pages are excluded.
 
 ## Failure Contract
 
-When no candidate passes the Source Readiness Gate:
+When no candidate passes the Source Readiness Gate, or when accepted candidates cover only part of the required Claim set:
 
 - manuscript Generation is not called;
 - Quality Review is not called;
@@ -81,4 +86,4 @@ Platform-specific source profiles may define their own official institutions, bu
 
 ## Non-goals
 
-Preflight does not replace final deterministic Claim verification. It proves that the Generation source boundary is usable and official before writing; final verification still confirms that every factual Claim in the completed manuscript is supported by the adopted source pages.
+Preflight does not replace final deterministic Claim verification. It proves that the confirmed Planning Claim boundary has complete usable official-source coverage before writing; final verification still re-extracts the completed manuscript Claims and confirms that every factual Claim actually written is supported by the adopted source pages.

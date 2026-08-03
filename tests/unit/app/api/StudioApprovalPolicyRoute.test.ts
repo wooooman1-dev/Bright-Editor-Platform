@@ -159,7 +159,18 @@ describe("studio approval policy routes", () => {
         model: "gpt-5.6-terra",
         status: "completed",
         output_text: JSON.stringify({
-          sources: [{ url: officialUrl, title: "The Starry Night | MoMA", evidenceExcerpt }],
+          sources: [{
+            url: officialUrl,
+            title: "The Starry Night | MoMA",
+            evidenceExcerpt,
+            claims: [
+              { field: "artworkTitle", value: "The Starry Night" },
+              { field: "creationYear", value: "1889" },
+              { field: "medium", value: "Oil on canvas" },
+              { field: "dimensions", value: "73.7 x 92.1 cm" },
+              { field: "holdingInstitution", value: "The Museum of Modern Art" },
+            ],
+          }],
         }),
         output: [{
           type: "web_search_call",
@@ -167,7 +178,7 @@ describe("studio approval policy routes", () => {
         }],
       }), { status: 200 }))
       .mockResolvedValueOnce(new Response(
-        `<html><head><title>The Starry Night | MoMA</title><meta property="og:site_name" content="The Museum of Modern Art"></head><body>${`${evidenceExcerpt} Official collection record and artwork details. `.repeat(6)}</body></html>`,
+        `<html><head><title>The Starry Night | MoMA</title><meta property="og:site_name" content="The Museum of Modern Art"></head><body>${`${evidenceExcerpt} Artwork title: The Starry Night. Creation year: 1889. Medium: Oil on canvas. Dimensions: 73.7 x 92.1 cm. Holding institution: The Museum of Modern Art. Official collection record and artwork details. `.repeat(6)}</body></html>`,
         { status: 200, headers: { "content-type": "text/html; charset=utf-8" } },
       ))
       .mockResolvedValueOnce(new Response(JSON.stringify({ output_text: "not-json" }), { status: 200 }));
