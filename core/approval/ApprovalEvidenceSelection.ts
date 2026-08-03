@@ -1,0 +1,484 @@
+import { serializeStructuredList, type ContentDocument } from "../content";
+import type {
+  ApprovalEvidenceFact,
+  ApprovalEvidencePack,
+  ApprovalEvidenceProvenance,
+  ApprovalEvidenceSource,
+} from "./ApprovalReadiness";
+import {
+  approvalFactMatchesPage,
+  extractProfileApprovalFacts,
+  extractProfileApprovalFactsFromText,
+  requiredApprovalFactFields,
+} from "./ApprovalEvidenceClaimPolicy";
+import type { ApprovalPolicyProfileId } from "./ApprovalPolicy";
+import {
+  canonicalizeApprovalEvidenceUrl as canonicalizeBaseApprovalEvidenceUrl,
+  officialSourceAllowed,
+  verifyApprovalEvidence as verifyBaseApprovalEvidence,
+  type ApprovalEvidenceVerificationResult,
+  type ApprovalSourcePage,
+} from "./ApprovalEvidenceVerification";
+
+/**
+ * Canonicalizes Evidence identity without treating harmless law.go.kr host,
+ * path-case, or display parameters as different official sources.
+ */
+export function canonicalizeApprovalEvidenceUrl(value: string): string {
+  const base = canonicalizeBaseApprovalEvidenceUrl(value);
+  try {
+    const url = new URL(base);
+    const host = url.hostname.toLocaleLowerCase("en-US").replace(/^www\./u, "");
+    if (host !== "law.go.kr") return base;
+
+    url.protocol = "https:";
+    url.hostname = "law.go.kr";
+    const endpoint = url.pathname.split("/").filter(Boolean).at(-1)?.toLocaleLowerCase("en-US");
+    const endpointPath = lawEndpointPaths[endpoint ?? ""];
+    if (!endpointPath) return canonicalizeBaseApprovalEvidenceUrl(url.toString());
+    url.pathname = endpointPath;
+
+    const identity = lawSourceIdentity(url, endpoint ?? "");
+    if (identity) {
+      url.search = "";
+      url.searchParams.set(identity.key, identity.value);
+    } else {
+      url.searchParams.sort();
+    }
+    return canonicalizeBaseApprovalEvidenceUrl(url.toString());
+  } catch {
+    return base;
+  }
+}
+
+export function approvalEvidenceSourceProvenance(
+  source: ApprovalEvidenceSource,
+): ApprovalEvidenceProvenance {
+  return source.provenance
+    ?? (source.cited === true
+      ? "citation"
+      : source.selected === true
+        ? "user_selected"
+        : "search_candidate");
+}
+
+/**
+ * A source affects readiness only after deterministic selection or an explicit
+ * user choice. Mere search discovery and AI citation annotations stay in the
+ * candidate pool.
+ */
+export function isApprovalEvidenceSelectedSource(source: ApprovalEvidenceSource): boolean {
+  if (source.selected === false) return false;
+  if (source.selected === true && source.verified === true) return true;
+  const provenance = approvalEvidenceSourceProvenance(source);
+  return provenance === "user_selected"
+    || provenance === "system_verified"
+    || provenance === "document_link";
+}
+
+export function isApprovalEvidenceCandidateSource(source: ApprovalEvidenceSource): boolean {
+  return !isApprovalEvidenceSelectedSource(source);
+}
+
+export function approvalEvidenceDocumentReferences(
+  document: ContentDocument,
+): ReadonlyMap<string, readonly string[]> {
+  const references = new Map<string, Set<string>>();
+  for (const block of document.blocks) {
+    for (const match of blockText(block).matchAll(/https:\/\/[^\s<>)"'\]}]+/giu)) {
+      const url = canonicalizeApprovalEvidenceUrl(trimSourceUrl(match[0]));
+      if (!url.startsWith("https://")) continue;
+      const blockIds = references.get(url) ?? new Set<string>();
+      blockIds.add(block.id);
+      references.set(url, blockIds);
+    }
+  }
+  return new Map([...references.entries()].map(([url, blockIds]) => [
+    url,
+    Object.freeze([...blockIds]),
+  ]));
+}
+
+/**
+ * Candidate Pool -> Selected Evidence -> Verified Claim Snapshot.
+ *
+ * Search candidates are fetched and inspected, but only the smallest
+ * deterministic set that covers the current manuscript's required Claims is
+ * promoted to system Evidence. Unselected candidates remain visible for
+ * diagnostics and never lower the readiness result.
+ */
+export function verifyApprovalEvidence(
+  document: ContentDocument,
+  profileId: ApprovalPolicyProfileId,
+  pages: readonly ApprovalSourcePage[],
+  reviewedAt: string,
+): ApprovalEvidenceVerificationResult {
+  const existing = document.metadata?.approvalEvidence;
+  if (!existing?.sources.length) {
+    return verifyBaseApprovalEvidence(document, profileId, pages, reviewedAt);
+  }
+
+  const normalized = normalizeEvidenceSources(existing.sources);
+  const pageByUrl = new Map<string, ApprovalSourcePage>();
+  for (const page of pages) {
+    pageByUrl.set(canonicalizeApprovalEvidenceUrl(page.requestedUrl), normalizePage(page));
+    pageByUrl.set(canonicalizeApprovalEvidenceUrl(page.finalUrl), normalizePage(page));
+  }
+
+  const baseFacts = extractProfileApprovalFacts(document, profileId);
+  const requiredFields = requiredApprovalFactFields(document, profileId, baseFacts);
+  const required = new Set(requiredFields);
+  const factOccurrences = documentFactOccurrences(document, profileId, baseFacts)
+    .filter((fact) => required.has(fact.field));
+  const references = approvalEvidenceDocumentReferences(document);
+
+  const entries = normalized.primary.map((source) => {
+    const canonicalUrl = canonicalizeApprovalEvidenceUrl(source.canonicalUrl ?? source.url);
+    const page = pageByUrl.get(canonicalUrl);
+    const matchedFacts = page && pageEligible(profileId, page)
+      ? factOccurrences.filter((fact) => approvalFactMatchesPage(page, fact))
+      : Object.freeze([] as ApprovalEvidenceFact[]);
+    return Object.freeze({ source, canonicalUrl, page, matchedFacts });
+  });
+
+  const verificationEntries = entries.filter((entry) =>
+    approvalEvidenceSourceProvenance(entry.source) !== "search_candidate");
+  const covered = new Set(verificationEntries
+    .filter((entry) => pageEligible(profileId, entry.page))
+    .flatMap((entry) => entry.matchedFacts.map((fact) => fact.field)));
+
+  const searchCandidates = entries
+    .filter((entry) => approvalEvidenceSourceProvenance(entry.source) === "search_candidate")
+    .filter((entry) => pageEligible(profileId, entry.page))
+    .sort((left, right) => {
+      const leftScore = uncoveredScore(left.matchedFacts, required, covered);
+      const rightScore = uncoveredScore(right.matchedFacts, required, covered);
+      return rightScore - leftScore || left.canonicalUrl.localeCompare(right.canonicalUrl);
+    });
+
+  const autoSelected: typeof entries = [];
+  for (const entry of searchCandidates) {
+    const fields = [...new Set(entry.matchedFacts.map((fact) => fact.field))]
+      .filter((field) => required.has(field) && !covered.has(field));
+    if (!fields.length) continue;
+    autoSelected.push(entry);
+    for (const field of fields) covered.add(field);
+  }
+
+  const preparedSources = [...verificationEntries, ...autoSelected].map((entry) => {
+    const provenance = approvalEvidenceSourceProvenance(entry.source) === "search_candidate"
+      ? "system_verified" as const
+      : approvalEvidenceSourceProvenance(entry.source);
+    return Object.freeze({
+      ...entry.source,
+      url: entry.canonicalUrl,
+      canonicalUrl: entry.canonicalUrl,
+      provenance,
+      selected: provenance === "user_selected" || provenance === "system_verified",
+      linkedBlockIds: Object.freeze([...new Set([
+        ...(entry.source.linkedBlockIds ?? []),
+        ...(references.get(entry.canonicalUrl) ?? []),
+        ...entry.matchedFacts.flatMap((fact) => fact.blockId ? [fact.blockId] : []),
+      ])]),
+      facts: mergeFacts(entry.source.facts, entry.matchedFacts),
+    } satisfies ApprovalEvidenceSource);
+  });
+
+  const preparedDocument: ContentDocument = Object.freeze({
+    ...document,
+    metadata: Object.freeze({
+      ...document.metadata!,
+      approvalEvidence: Object.freeze({
+        ...existing,
+        status: "needs_review" as const,
+        sources: Object.freeze(preparedSources),
+      }),
+    }),
+  });
+  const selectedUrls = new Set(preparedSources.map((source) =>
+    canonicalizeApprovalEvidenceUrl(source.canonicalUrl ?? source.url)));
+  const selectedPages = [...new Map(pages
+    .map((page) => [canonicalizeApprovalEvidenceUrl(page.requestedUrl), normalizePage(page)] as const)
+    .filter(([url]) => selectedUrls.has(url))).values()];
+  const base = verifyBaseApprovalEvidence(
+    preparedDocument,
+    profileId,
+    Object.freeze(selectedPages),
+    reviewedAt,
+  );
+
+  const verifiedFields = new Set<string>();
+  const evaluatedSources = base.pack.sources.map((source) => {
+    const provenance = approvalEvidenceSourceProvenance(source);
+    const matchedRequired = (source.matchedFacts ?? []).filter((fact) => required.has(fact.field));
+    const userSelected = provenance === "user_selected";
+    const selected = userSelected || (source.verified && matchedRequired.length > 0);
+    if (selected && source.verified) {
+      for (const fact of matchedRequired) verifiedFields.add(fact.field);
+    }
+    return Object.freeze({
+      ...source,
+      selected,
+      ...(provenance === "citation" ? { cited: true } : {}),
+    } satisfies ApprovalEvidenceSource);
+  });
+
+  const evaluatedIds = new Set(evaluatedSources.map((source) => source.sourceId));
+  const candidateSources = entries
+    .filter((entry) => !evaluatedIds.has(entry.source.sourceId))
+    .map((entry) => excludedCandidate(entry.source, entry.canonicalUrl, reviewedAt));
+  const duplicateSources = normalized.duplicates.map((source) => duplicateCandidate(
+    source,
+    canonicalizeApprovalEvidenceUrl(source.canonicalUrl ?? source.url),
+    reviewedAt,
+  ));
+  const sources = Object.freeze([
+    ...evaluatedSources,
+    ...candidateSources,
+    ...duplicateSources,
+  ]);
+
+  const unverifiedFields = requiredFields.filter((field) => !verifiedFields.has(field));
+  const selectedVerified = sources.filter((source) => source.selected === true && source.verified === true);
+  const verified = selectedVerified.length > 0 && unverifiedFields.length === 0;
+  const informationAsOf = extractInformationAsOf(document) ?? existing.informationAsOf;
+  const reasons = [
+    ...sources
+      .filter((source) => source.selected === true && source.verified !== true && source.failureReason)
+      .map((source) => source.failureReason!),
+    ...(unverifiedFields.length
+      ? [`핵심 Claim 검증이 완료되지 않았습니다: ${unverifiedFields.join(", ")}`]
+      : []),
+    ...(!selectedVerified.length ? ["현재 원고의 필수 Claim을 뒷받침하도록 선택·검증된 공식 출처가 없습니다."] : []),
+  ];
+
+  const pack: ApprovalEvidencePack = Object.freeze({
+    version: "1.0",
+    status: verified ? "verified" : "needs_review",
+    coverageStatus: verified ? "verified" : "needs_review",
+    ...(verified ? { reviewedAt } : {}),
+    ...(informationAsOf ? { informationAsOf } : {}),
+    requiredFactFields: Object.freeze([...requiredFields]),
+    verifiedFactFields: Object.freeze([...verifiedFields]),
+    unverifiedFactFields: Object.freeze(unverifiedFields),
+    sources,
+  });
+
+  return Object.freeze({
+    pack,
+    verifiedSourceCount: selectedVerified.length,
+    rejectedSourceCount: sources.filter((source) =>
+      source.selected === true
+      && source.verified !== true
+      && source.verificationStatus !== "excluded"
+      && source.verificationStatus !== "duplicate_source").length,
+    reasons: Object.freeze(reasons),
+  });
+}
+
+function normalizeEvidenceSources(sources: readonly ApprovalEvidenceSource[]): Readonly<{
+  primary: readonly ApprovalEvidenceSource[];
+  duplicates: readonly ApprovalEvidenceSource[];
+}> {
+  const groups = new Map<string, ApprovalEvidenceSource[]>();
+  for (const source of sources) {
+    const canonicalUrl = canonicalizeApprovalEvidenceUrl(source.canonicalUrl ?? source.url);
+    const group = groups.get(canonicalUrl) ?? [];
+    group.push(source);
+    groups.set(canonicalUrl, group);
+  }
+
+  const primary: ApprovalEvidenceSource[] = [];
+  const duplicates: ApprovalEvidenceSource[] = [];
+  for (const [canonicalUrl, group] of groups) {
+    const ordered = [...group].sort((left, right) =>
+      sourcePriority(right) - sourcePriority(left) || left.sourceId.localeCompare(right.sourceId));
+    const winner = ordered[0]!;
+    primary.push(Object.freeze({
+      ...winner,
+      url: canonicalUrl,
+      canonicalUrl,
+      linkedBlockIds: Object.freeze([...new Set(ordered.flatMap((source) => source.linkedBlockIds ?? []))]),
+      facts: mergeFacts(...ordered.map((source) => source.facts)),
+      citationExcerpt: ordered.find((source) => source.citationExcerpt)?.citationExcerpt,
+    }));
+    duplicates.push(...ordered.slice(1));
+  }
+  return Object.freeze({
+    primary: Object.freeze(primary.sort((left, right) => left.url.localeCompare(right.url))),
+    duplicates: Object.freeze(duplicates),
+  });
+}
+
+function sourcePriority(source: ApprovalEvidenceSource): number {
+  const provenance = approvalEvidenceSourceProvenance(source);
+  if (provenance === "user_selected") return 50;
+  if (provenance === "system_verified") return 40;
+  if (provenance === "document_link") return 30;
+  if (provenance === "citation") return 20;
+  return 10;
+}
+
+function documentFactOccurrences(
+  document: ContentDocument,
+  profileId: ApprovalPolicyProfileId,
+  fallback: readonly ApprovalEvidenceFact[],
+): readonly ApprovalEvidenceFact[] {
+  const found = new Map<string, ApprovalEvidenceFact>();
+  for (const block of document.blocks) {
+    const text = blockText(block);
+    for (const fact of extractProfileApprovalFactsFromText(text, profileId)) {
+      const withLocation = Object.freeze({ ...fact, blockId: block.id, excerpt: text });
+      found.set(`${fact.field}:${normalizeFact(fact.value)}:${block.id}`, withLocation);
+    }
+  }
+  for (const fact of fallback) {
+    const key = `${fact.field}:${normalizeFact(fact.value)}:${fact.blockId ?? ""}`;
+    if (!found.has(key)) found.set(key, fact);
+  }
+  return Object.freeze([...found.values()]);
+}
+
+function pageEligible(
+  profileId: ApprovalPolicyProfileId,
+  page: ApprovalSourcePage | undefined,
+): page is ApprovalSourcePage {
+  return Boolean(
+    page
+    && !page.fetchError
+    && page.status >= 200
+    && page.status < 400
+    && page.finalUrl.startsWith("https://")
+    && /(?:text\/html|application\/xhtml\+xml)/iu.test(page.contentType)
+    && page.text.trim().length >= 200
+    && officialSourceAllowed(profileId, page),
+  );
+}
+
+function normalizePage(page: ApprovalSourcePage): ApprovalSourcePage {
+  return Object.freeze({
+    ...page,
+    requestedUrl: canonicalizeApprovalEvidenceUrl(page.requestedUrl),
+    finalUrl: canonicalizeApprovalEvidenceUrl(page.finalUrl),
+  });
+}
+
+function uncoveredScore(
+  facts: readonly ApprovalEvidenceFact[],
+  required: ReadonlySet<string>,
+  covered: ReadonlySet<string>,
+): number {
+  return new Set(facts.map((fact) => fact.field)
+    .filter((field) => required.has(field) && !covered.has(field))).size;
+}
+
+function mergeFacts(...collections: readonly (readonly ApprovalEvidenceFact[])[]): readonly ApprovalEvidenceFact[] {
+  const found = new Map<string, ApprovalEvidenceFact>();
+  for (const fact of collections.flat()) {
+    const key = `${fact.field}:${normalizeFact(fact.value)}:${fact.blockId ?? ""}`;
+    if (!found.has(key)) found.set(key, fact);
+  }
+  return Object.freeze([...found.values()]);
+}
+
+function excludedCandidate(
+  source: ApprovalEvidenceSource,
+  canonicalUrl: string,
+  checkedAt: string,
+): ApprovalEvidenceSource {
+  return Object.freeze({
+    ...source,
+    url: canonicalUrl,
+    canonicalUrl,
+    verified: false,
+    selected: false,
+    verificationStatus: "excluded",
+    accessVerificationStatus: "not_evaluated",
+    officialDomainVerificationStatus: "not_evaluated",
+    claimVerificationStatus: "not_evaluated",
+    failureReason: "검색 후보이며 이번 원고의 필수 Claim을 뒷받침하는 최종 근거로 선택되지 않아 승인 판정에서 제외했습니다.",
+    checkedAt,
+  });
+}
+
+function duplicateCandidate(
+  source: ApprovalEvidenceSource,
+  canonicalUrl: string,
+  checkedAt: string,
+): ApprovalEvidenceSource {
+  return Object.freeze({
+    ...source,
+    url: canonicalUrl,
+    canonicalUrl,
+    verified: false,
+    selected: false,
+    verificationStatus: "duplicate_source",
+    accessVerificationStatus: "not_evaluated",
+    officialDomainVerificationStatus: "not_evaluated",
+    claimVerificationStatus: "not_evaluated",
+    failureReason: "동일한 canonical 공식 출처가 이미 후보 풀에 있어 중복 후보로 제외했습니다.",
+    checkedAt,
+  });
+}
+
+function extractInformationAsOf(document: ContentDocument): string | undefined {
+  const text = document.blocks.map(blockText).join("\n");
+  const match = /정보\s*기준일\s*(?:은|는|이|가)?\s*[:：]?\s*(20\d{2})\s*(?:년|[-./])\s*(\d{1,2})(?:\s*(?:월|[-./])\s*(\d{1,2})\s*(?:일)?)?/iu.exec(text);
+  if (!match) return undefined;
+  const year = match[1];
+  const month = Number(match[2]);
+  const day = match[3] ? Number(match[3]) : undefined;
+  if (!year || month < 1 || month > 12 || (day !== undefined && (day < 1 || day > 31))) return undefined;
+  return day === undefined
+    ? `${year}-${String(month).padStart(2, "0")}`
+    : `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function blockText(block: ContentDocument["blocks"][number]): string {
+  if (block.type === "heading" || block.type === "paragraph") return block.text;
+  if (block.type === "list") return serializeStructuredList(block);
+  if (block.type === "table") return [block.caption ?? "", ...block.headers, ...block.rows.flat()].join("\n");
+  if (block.type === "button") return `${block.label}\n${block.targetUrl}`;
+  if (block.type === "image") return `${block.alt}\n${block.prompt ?? ""}`;
+  return block.source;
+}
+
+function normalizeFact(value: string): string {
+  return value.normalize("NFKC").toLocaleLowerCase("ko-KR").replace(/[\s\p{P}\p{S}]+/gu, "");
+}
+
+function trimSourceUrl(value: string): string {
+  return value.replace(/[.,;:!?]+$/gu, "");
+}
+
+function lawSourceIdentity(
+  url: URL,
+  endpoint: string,
+): Readonly<{ key: string; value: string }> | undefined {
+  if (endpoint === "lslinkcommoninfo.do" || endpoint === "lslawlinkinfo.do") {
+    const article = queryValue(url, "lsJoLnkSeq");
+    if (article) return Object.freeze({ key: "lsJoLnkSeq", value: article });
+    const pattern = queryValue(url, "lspttninfSeq");
+    if (pattern) return Object.freeze({ key: "lspttninfSeq", value: pattern });
+  }
+  if (endpoint === "expcinfop.do") {
+    const interpretation = queryValue(url, "expcSeq");
+    if (interpretation) return Object.freeze({ key: "expcSeq", value: interpretation });
+  }
+  return undefined;
+}
+
+function queryValue(url: URL, name: string): string | undefined {
+  const expected = name.toLocaleLowerCase("en-US");
+  for (const [key, value] of url.searchParams) {
+    if (key.toLocaleLowerCase("en-US") === expected && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+const lawEndpointPaths: Readonly<Record<string, string>> = Object.freeze({
+  "lslinkcommoninfo.do": "/LSW/lsLinkCommonInfo.do",
+  "lslawlinkinfo.do": "/LSW/lsLawLinkInfo.do",
+  "expcinfop.do": "/LSW/expcInfoP.do",
+  "lsinfop.do": "/LSW/lsInfoP.do",
+});
