@@ -91,11 +91,11 @@ describe("approval Evidence candidate selection", () => {
       "https://www.law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1025033501&utm_source=test",
     );
     const second = canonicalizeApprovalEvidenceUrl(
-      "https://law.go.kr/LSW/lsLinkCommonInfo.do?lsJoLnkSeq=1025033501",
+      "https://law.go.kr/LSW/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1025033501",
     );
 
     expect(first).toBe(second);
-    expect(first).toBe("https://law.go.kr/LSW/lsLinkCommonInfo.do?lsJoLnkSeq=1025033501");
+    expect(first).toBe("https://law.go.kr/LSW/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1025033501");
   });
 
   it("selects only the official candidate needed for required Claim coverage", () => {
