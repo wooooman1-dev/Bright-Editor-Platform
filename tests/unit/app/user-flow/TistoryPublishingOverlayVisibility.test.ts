@@ -11,7 +11,7 @@ import { editorPublishingPlatformVisibility } from "../../../../app/user-flow/ed
 import { createContent, createProject, createWorkspace, emptyUserData, resolveProjectStrategy, type UserContent, type UserProject, type WorkspacePlatform } from "../../../../app/user-flow/user-data";
 
 const layoutSource = readFileSync(join(process.cwd(), "app/layout.tsx"), "utf8");
-const editorSource = readFileSync(join(process.cwd(), "app/user-flow/EditorWorkspace.tsx"), "utf8");
+const editorSource = readFileSync(join(process.cwd(), "app/user-flow/EditorWorkspaceImplementation.tsx"), "utf8");
 
 describe("Tistory publishing overlay visibility", () => {
   it("keeps the global Draft outcome observer at the root and editor controls in the editor", () => {
