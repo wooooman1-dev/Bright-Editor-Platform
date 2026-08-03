@@ -5,7 +5,10 @@ export {
   runApprovalSourcePreflight,
   withApprovalSourcePreflightInstruction,
 } from "./ApprovalSourcePreflight";
-export type { ApprovalSourcePreflightResult } from "./ApprovalSourcePreflight";
+export type {
+  ApprovalSourcePreflightClaimSource,
+  ApprovalSourcePreflightResult,
+} from "./ApprovalSourcePreflight";
 export {
   aiUsageStageForTask,
   aiUsageStages,
