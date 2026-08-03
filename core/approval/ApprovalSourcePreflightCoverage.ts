@@ -44,8 +44,7 @@ export function requiredApprovalSourcePreflightClaims(
 ): readonly ApprovalSourcePreflightRequirement[] {
   const text = planningText(opportunity);
   const facts = extractProfileApprovalFactsFromText(text, profileId);
-  const factsByField = explicitPlanningFactValues(opportunity, profileId);
-
+  const factualValues = explicitPlanningFactValues(opportunity, profileId);
   const required = new Map<string, ApprovalSourcePreflightRequirement>();
   const add = (field: string, plannedValue?: string) => {
     const normalizedField = field.trim();
@@ -56,22 +55,22 @@ export function requiredApprovalSourcePreflightClaims(
       ...(normalizedValue ? { plannedValue: normalizedValue } : {}),
     }));
   };
-  const addKnown = (field: string) => add(field, factsByField.get(field));
+  const addKnown = (field: string) => add(field, factualValues.get(field));
 
   if (profileId === "tistory_vivarain_art_v1") {
-    for (const field of artRequiredFields) addKnown(field);
+    artRequiredFields.forEach(addKnown);
     return Object.freeze([...required.values()]);
   }
 
   if (retirementTopicPattern.test(text)) {
-    for (const field of retirementRequiredFields) addKnown(field);
+    retirementRequiredFields.forEach(addKnown);
     if (leaveTreatmentPattern.test(text)) addKnown("leaveTreatment");
     if (interimSettlementPattern.test(text)) addKnown("interimSettlement");
     if (statutoryBasisPattern.test(text)) addKnown("statutoryBasis");
   }
 
   if (depositProtectionTopicPattern.test(text)) {
-    for (const field of depositProtectionRequiredFields) addKnown(field);
+    depositProtectionRequiredFields.forEach(addKnown);
   }
 
   if (revolvingTopicPattern.test(text)) {
@@ -96,8 +95,12 @@ export function requiredApprovalSourcePreflightClaims(
   }
 
   for (const fact of facts) {
-    if (topicMarkerFields.has(fact.field)) continue;
-    if (fact.field.startsWith("genericClaim:")) add(fact.field, fact.value);
+    if (
+      !topicMarkerFields.has(fact.field)
+      && fact.field.startsWith("genericClaim:")
+    ) {
+      add(fact.field, fact.value);
+    }
   }
 
   for (const [field, pattern] of genericPlanningSignals) {
@@ -133,24 +136,19 @@ export function evaluateApprovalSourcePreflightCoverage(input: Readonly<{
     const candidatesByField = new Map<string, ApprovalSourcePreflightClaim[]>();
 
     for (const claim of claims) {
-      const field = claim.field.trim();
-      const value = claim.value.replace(/\s+/gu, " ").trim();
-      const evidenceExcerpt = claim.evidenceExcerpt
-        .replace(/\s+/gu, " ")
-        .trim();
-      if (!requiredByField.has(field)) continue;
-      const candidates = candidatesByField.get(field) ?? [];
-      candidates.push(Object.freeze({ field, value, evidenceExcerpt }));
-      candidatesByField.set(field, candidates);
+      const normalized = normalizeSubmittedClaim(claim);
+      if (!requiredByField.has(normalized.field)) continue;
+      const candidates = candidatesByField.get(normalized.field) ?? [];
+      candidates.push(normalized);
+      candidatesByField.set(normalized.field, candidates);
     }
 
     const accepted: string[] = [];
     const rejected: string[] = [];
     for (const requirement of requiredClaims) {
-      const candidates = candidatesByField.get(requirement.field) ?? [];
-      const verified = candidates.some((claim) =>
-        claimMatchesRequirement(page, requirement, claim));
-      if (verified) {
+      const matches = (candidatesByField.get(requirement.field) ?? [])
+        .some((claim) => claimMatchesRequirement(page, requirement, claim));
+      if (matches) {
         accepted.push(requirement.field);
         covered.add(requirement.field);
       } else {
@@ -172,14 +170,13 @@ export function evaluateApprovalSourcePreflightCoverage(input: Readonly<{
   const uncoveredClaimFields = requiredClaims
     .map((claim) => claim.field)
     .filter((field) => !covered.has(field));
-  const status = requiredClaims.length === 0
-    ? "not_required" as const
-    : uncoveredClaimFields.length === 0
-      ? "covered" as const
-      : "incomplete" as const;
 
   return Object.freeze({
-    status,
+    status: requiredClaims.length === 0
+      ? "not_required"
+      : uncoveredClaimFields.length === 0
+        ? "covered"
+        : "incomplete",
     requiredClaims,
     coveredClaimFields: Object.freeze(coveredClaimFields),
     uncoveredClaimFields: Object.freeze(uncoveredClaimFields),
@@ -201,13 +198,10 @@ function claimMatchesRequirement(
   claim: ApprovalSourcePreflightClaim,
 ): boolean {
   if (claim.field !== requirement.field) return false;
-  if (!claim.value.trim() || !claim.evidenceExcerpt.trim()) return false;
+  if (!claim.value || !claim.evidenceExcerpt) return false;
   if (page.status < 200 || page.status >= 400) return false;
   if (page.extractionStatus !== "extracted") return false;
-  if (
-    page.documentFormat === "binary"
-    || page.documentFormat === "unknown"
-  ) {
+  if (page.documentFormat === "binary" || page.documentFormat === "unknown") {
     return false;
   }
 
@@ -218,9 +212,7 @@ function claimMatchesRequirement(
     page.requestedUrl,
     page.finalUrl,
   ].join("\n");
-  if (!evidenceExcerptMatchesPage(claim.evidenceExcerpt, pageText)) {
-    return false;
-  }
+  if (!containsNormalized(pageText, claim.evidenceExcerpt)) return false;
   if (!claimValueMatchesText(claim.value, pageText)) return false;
   if (
     requirement.plannedValue
@@ -229,31 +221,37 @@ function claimMatchesRequirement(
     return false;
   }
 
-  const policyMatch = approvalFactMatchesPage(page, Object.freeze({
+  return approvalFactMatchesPage(page, Object.freeze({
     field: claim.field,
     value: claim.value,
-  }));
-  return policyMatch
+  }))
     || scalarPlanningField(claim.field)
     || canonicalQuantitiesMatch(claim.value, pageText);
 }
 
-function evidenceExcerptMatchesPage(excerpt: string, pageText: string): boolean {
-  const normalizedExcerpt = normalizeComparable(excerpt);
-  if (normalizedExcerpt.length < 2) return false;
-  return normalizeComparable(pageText).includes(normalizedExcerpt);
+function normalizeSubmittedClaim(
+  claim: ApprovalSourcePreflightClaim,
+): ApprovalSourcePreflightClaim {
+  return Object.freeze({
+    field: claim.field.trim(),
+    value: claim.value.replace(/\s+/gu, " ").trim(),
+    evidenceExcerpt: claim.evidenceExcerpt.replace(/\s+/gu, " ").trim(),
+  });
+}
+
+function containsNormalized(haystack: string, needle: string): boolean {
+  const normalizedNeedle = normalizeComparable(needle);
+  return normalizedNeedle.length >= 2
+    && normalizeComparable(haystack).includes(normalizedNeedle);
 }
 
 function claimValueMatchesText(value: string, text: string): boolean {
-  const normalizedValue = normalizeComparable(value);
-  const normalizedText = normalizeComparable(text);
-  if (normalizedValue.length >= 2 && normalizedText.includes(normalizedValue)) {
-    return true;
-  }
-
+  if (containsNormalized(text, value)) return true;
   if (!canonicalQuantitiesMatch(value, text)) return false;
+
   const keywords = significantNonQuantityTokens(value);
   if (!keywords.length) return true;
+  const normalizedText = normalizeComparable(text);
   const matched = keywords.filter((token) =>
     normalizedText.includes(normalizeComparable(token)));
   return matched.length >= 1 && matched.length / keywords.length >= 0.5;
@@ -272,7 +270,6 @@ function plannedValueMatchesClaim(
   ) {
     return true;
   }
-
   if (extractCanonicalQuantities(plannedValue).length) {
     return canonicalQuantitiesMatch(plannedValue, submittedValue);
   }
@@ -289,7 +286,7 @@ function canonicalQuantitiesMatch(expected: string, observed: string): boolean {
   const expectedQuantities = extractCanonicalQuantities(expected);
   if (!expectedQuantities.length) return false;
   const observedQuantities = new Set(extractCanonicalQuantities(observed));
-  return expectedQuantities.every((item) => observedQuantities.has(item));
+  return expectedQuantities.every((quantity) => observedQuantities.has(quantity));
 }
 
 function explicitPlanningFactValues(
@@ -324,13 +321,8 @@ function concretePlanningFact(
   if (/[:：]/u.test(line)) return true;
   if (extractCanonicalQuantities(value).length) return true;
   if (artRequiredFields.includes(field)) return true;
-  if (
-    /(?:법|시행령|시행규칙|제\s*\d+조|의무|금지|제한|환급|위약금)/u.test(line)
-    && value.replace(/\s+/gu, " ").trim().length >= 16
-  ) {
-    return true;
-  }
-  return false;
+  return /(?:법|시행령|시행규칙|제\s*\d+조|의무|금지|제한|환급|위약금)/u.test(line)
+    && value.replace(/\s+/gu, " ").trim().length >= 16;
 }
 
 function extractCanonicalQuantities(value: string): readonly string[] {
@@ -364,16 +356,17 @@ function extractCanonicalQuantities(value: string): readonly string[] {
   }
 
   for (const match of normalized.matchAll(
-    /(?<![\d.,])(\d+(?:\.\d+)?)\s*(조|억|만|천)\s*원(?![가-힣])/gu,
+    /(?<![\d.,])(\d+(?:\.\d+)?)\s*(조|억|만|천)\s*원/gu,
   )) {
     const amount = Number(match[1]);
     if (!Number.isFinite(amount)) continue;
-    const multiplier = koreanMoneyMultipliers[match[2] ?? ""] ?? 1;
-    found.add(`money:${Math.round(amount * multiplier)}:KRW`);
+    const multiplier = koreanMoneyMultipliers[match[2] ?? ""];
+    if (multiplier) {
+      found.add(`money:${Math.round(amount * multiplier)}:KRW`);
+    }
   }
-
   for (const match of normalized.matchAll(
-    /(?<![\d.,])(\d{1,3}(?:,\d{3})+|\d+)\s*원(?![가-힣])/gu,
+    /(?<![\d.,])(\d{1,3}(?:,\d{3})+|\d+)\s*원/gu,
   )) {
     const amount = Number((match[1] ?? "").replaceAll(",", ""));
     if (Number.isFinite(amount)) found.add(`money:${amount}:KRW`);
@@ -395,7 +388,7 @@ function extractCanonicalQuantities(value: string): readonly string[] {
       " ",
     );
   for (const match of withoutDates.matchAll(
-    /(?<![\d.])(\d+(?:\.\d+)?)\s*(년|개월|일|시간|분)(?![가-힣])/gu,
+    /(?<![\d.])(\d+(?:\.\d+)?)\s*(년|개월|일|시간|분)/gu,
   )) {
     found.add(
       `duration:${canonicalNumber(match[1] ?? "")}:${match[2] ?? ""}`,
@@ -406,7 +399,7 @@ function extractCanonicalQuantities(value: string): readonly string[] {
     .replace(/센티미터|㎝/gu, "cm")
     .replace(/밀리미터/gu, "mm")
     .matchAll(
-      /(?<![\d.])(\d+(?:\.\d+)?)\s*(cm|mm|kg|g|m²|㎡|m)(?![A-Za-z가-힣])/giu,
+      /(?<![\d.])(\d+(?:\.\d+)?)\s*(cm|mm|kg|g|m²|㎡|m)(?![A-Za-z])/giu,
     )) {
     found.add(
       `unit:${canonicalNumber(match[1] ?? "")}:${(match[2] ?? "").toLocaleLowerCase("en-US")}`,
@@ -423,11 +416,11 @@ function significantNonQuantityTokens(value: string): readonly string[] {
       " ",
     )
     .replace(/(?<!\d)20\d{6}(?!\d)/gu, " ")
-    .replace(/(?<![\d.,])\d+(?:\.\d+)?\s*(?:조|억|만|천)\s*원(?![가-힣])/gu, " ")
-    .replace(/(?<![\d.,])(?:\d{1,3}(?:,\d{3})+|\d+)\s*원(?![가-힣])/gu, " ")
+    .replace(/(?<![\d.,])\d+(?:\.\d+)?\s*(?:조|억|만|천)\s*원/gu, " ")
+    .replace(/(?<![\d.,])(?:\d{1,3}(?:,\d{3})+|\d+)\s*원/gu, " ")
     .replace(/(?<![\d.])\d+(?:\.\d+)?\s*(?:%|퍼센트)/gu, " ")
-    .replace(/(?<![\d.])\d+(?:\.\d+)?\s*(?:년|개월|일|시간|분)(?![가-힣])/gu, " ")
-    .replace(/(?<![\d.])\d+(?:\.\d+)?\s*(?:cm|mm|kg|g|m²|㎡|m)(?![A-Za-z가-힣])/giu, " ");
+    .replace(/(?<![\d.])\d+(?:\.\d+)?\s*(?:년|개월|일|시간|분)/gu, " ")
+    .replace(/(?<![\d.])\d+(?:\.\d+)?\s*(?:cm|mm|kg|g|m²|㎡|m)(?![A-Za-z])/giu, " ");
   return significantValueTokens(withoutQuantities);
 }
 
@@ -440,8 +433,7 @@ function significantValueTokens(value: string): readonly string[] {
   const found = new Set<string>();
   for (const match of value.normalize("NFKC").matchAll(/[가-힣A-Za-z]{2,}/gu)) {
     const token = match[0].toLocaleLowerCase("ko-KR");
-    if (claimStopWords.has(token)) continue;
-    found.add(token);
+    if (!claimStopWords.has(token)) found.add(token);
   }
   return Object.freeze([...found].slice(0, 30));
 }
@@ -502,14 +494,12 @@ const artRequiredFields = Object.freeze([
   "dimensions",
   "holdingInstitution",
 ]);
-
 const retirementRequiredFields = Object.freeze([
   "continuousServicePeriod",
   "averageWage",
   "retirementPayFormula",
   "paymentDeadline",
 ]);
-
 const depositProtectionRequiredFields = Object.freeze([
   "depositProtectedProducts",
   "depositProtectionLimit",
@@ -553,7 +543,6 @@ const topicMarkerFields = new Set([
   "depositProtectionTopic",
   "revolvingTopic",
 ]);
-
 const scalarPlanningFields = new Set([
   "artworkTitle",
   "creationYear",
@@ -568,14 +557,12 @@ const scalarPlanningFields = new Set([
   "taxRate",
   "exceptions",
 ]);
-
 const koreanMoneyMultipliers: Readonly<Record<string, number>> = Object.freeze({
   천: 1_000,
   만: 10_000,
   억: 100_000_000,
   조: 1_000_000_000_000,
 });
-
 const claimStopWords = new Set([
   "그리고",
   "그러나",
@@ -592,7 +579,6 @@ const claimStopWords = new Set([
   "내용",
   "경우",
 ]);
-
 const genericQualityBoilerplate = new Set([
   "독자의 질문에 대한 직접 답변",
   "필요한 배경 설명",
