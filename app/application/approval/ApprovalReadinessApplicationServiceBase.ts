@@ -2,6 +2,7 @@ import {
   canonicalizeApprovalEvidenceUrl,
   evaluateApprovalPreparationText,
   evaluateApprovalReadiness,
+  normalizeApprovalSourceDocument,
   normalizeContentPurpose,
   verifyApprovalEvidence,
   type ApprovalEvidenceVerificationResult,
@@ -284,7 +285,7 @@ async function fetchApprovalSourcePages(
   // Fetch candidates sequentially so one readiness check cannot create a burst.
   for (const requestedUrl of requestedUrls) {
     const page = await fetchApprovalSourcePage(requestedUrl, fetcher);
-    if (page) pages.push(page);
+    pages.push(page);
   }
 
   return Object.freeze(pages);
@@ -294,7 +295,7 @@ async function fetchApprovalSourcePage(
   requestedUrl: string,
   fetcher: ApprovalReadinessFetch,
   timeoutMs = 12_000,
-): Promise<ApprovalSourcePage | undefined> {
+): Promise<ApprovalSourcePage> {
   let lastError: string | undefined;
   for (let attempt = 0; attempt < sourceFetchMaxAttempts; attempt += 1) {
     const controller = new AbortController();
@@ -306,21 +307,31 @@ async function fetchApprovalSourcePage(
         method: "GET",
         redirect: "follow",
         signal: controller.signal,
-        headers: sourceRequestHeaders("text/html,application/xhtml+xml,application/pdf;q=0.9,*/*;q=0.8"),
+        headers: sourceRequestHeaders("text/html,application/xhtml+xml,text/plain,text/csv,text/xml,application/json,application/xml,application/pdf;q=0.9,*/*;q=0.5"),
       });
       const contentType = response.headers.get("content-type") ?? "";
-      const html = /(?:text\/html|application\/xhtml\+xml)/i.test(contentType)
-        ? (await response.text()).slice(0, 1_500_000)
-        : "";
       const finalUrl = response.url || requestedUrl;
-      const page = Object.freeze({
+      const body = await readBoundedResponseBody(response, sourceResponseMaxBytes);
+      const extraction = normalizeApprovalSourceDocument({
         requestedUrl,
         finalUrl,
         status: response.status,
         contentType,
-        title: extractFirst(html, /<title[^>]*>([\s\S]*?)<\/title>/i),
-        publisher: extractPublisher(html, finalUrl),
-        text: htmlToText(html),
+        bytes: body.bytes,
+        tooLarge: body.tooLarge,
+      });
+      const page: ApprovalSourcePage = Object.freeze({
+        requestedUrl,
+        finalUrl,
+        status: response.status,
+        contentType,
+        title: extraction.title,
+        publisher: extraction.publisher,
+        text: extraction.text,
+        documentFormat: extraction.format,
+        extractionStatus: extraction.extractionStatus,
+        ...(extraction.extractionReason ? { extractionReason: extraction.extractionReason } : {}),
+        contentLength: body.contentLength,
       });
 
       if (!retryableSourceStatus(response.status) || attempt === sourceFetchMaxAttempts - 1) {
@@ -347,6 +358,74 @@ async function fetchApprovalSourcePage(
 
   const fallback = await fetchOfficialSourceFallback(requestedUrl, fetcher, timeoutMs);
   return fallback ?? sourceFailurePage(requestedUrl, lastError ?? "알 수 없는 네트워크 오류");
+}
+
+async function readBoundedResponseBody(
+  response: Response,
+  maximumBytes: number,
+): Promise<Readonly<{ bytes: Uint8Array; contentLength: number; tooLarge: boolean }>> {
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > maximumBytes) {
+    try {
+      await response.body?.cancel();
+    } catch {
+      // The response body may already be locked or closed.
+    }
+    return Object.freeze({ bytes: new Uint8Array(), contentLength: declaredLength, tooLarge: true });
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    return bytes.byteLength > maximumBytes
+      ? Object.freeze({ bytes: bytes.slice(0, maximumBytes), contentLength: bytes.byteLength, tooLarge: true })
+      : Object.freeze({ bytes, contentLength: bytes.byteLength, tooLarge: false });
+  }
+
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value?.byteLength) continue;
+      if (total + value.byteLength > maximumBytes) {
+        const remaining = Math.max(0, maximumBytes - total);
+        if (remaining) chunks.push(value.slice(0, remaining));
+        total += value.byteLength;
+        await reader.cancel();
+        return Object.freeze({
+          bytes: combineChunks(chunks, Math.min(maximumBytes, chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0))),
+          contentLength: Math.max(total, declaredLength || 0),
+          tooLarge: true,
+        });
+      }
+      chunks.push(value);
+      total += value.byteLength;
+    }
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      // The stream may already be released.
+    }
+  }
+
+  return Object.freeze({
+    bytes: combineChunks(chunks, total),
+    contentLength: Math.max(total, declaredLength || 0),
+    tooLarge: false,
+  });
+}
+
+function combineChunks(chunks: readonly Uint8Array[], total: number): Uint8Array {
+  const result = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return result;
 }
 
 async function fetchOfficialSourceFallback(
@@ -389,15 +468,25 @@ function sourceFailurePage(
   requestedUrl: string,
   fetchError: string,
 ): ApprovalSourcePage {
+  let publisher = requestedUrl;
+  try {
+    publisher = new URL(requestedUrl).hostname;
+  } catch {
+    // Keep the original malformed value as the diagnostic publisher.
+  }
   return Object.freeze({
     requestedUrl,
     finalUrl: requestedUrl,
     status: 0,
     contentType: "",
     title: "",
-    publisher: extractPublisher("", requestedUrl),
+    publisher,
     text: "",
     fetchError,
+    documentFormat: "unknown",
+    extractionStatus: "unavailable",
+    extractionReason: fetchError,
+    contentLength: 0,
   });
 }
 
@@ -530,41 +619,6 @@ function siteIdentityTerms(
   return Object.freeze(identity ? [identity] : []);
 }
 
-function extractPublisher(html: string, fallbackUrl: string): string {
-  const siteName = extractFirst(html, /<meta[^>]+property=["']og:site_name["'][^>]+content=["']([^"']+)["'][^>]*>/i)
-    || extractFirst(html, /<meta[^>]+name=["']application-name["'][^>]+content=["']([^"']+)["'][^>]*>/i);
-  if (siteName) return siteName;
-  try {
-    return new URL(fallbackUrl).hostname;
-  } catch {
-    return fallbackUrl;
-  }
-}
-
-function extractFirst(html: string, pattern: RegExp): string {
-  return decodeEntities(pattern.exec(html)?.[1]?.replace(/\s+/g, " ").trim() ?? "");
-}
-
-function htmlToText(html: string): string {
-  return decodeEntities(html
-    .replace(/<script\b[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style\b[\s\S]*?<\/style>/gi, " ")
-    .replace(/<noscript\b[\s\S]*?<\/noscript>/gi, " ")
-    .replace(/<!--([\s\S]*?)-->/g, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim());
-}
-
-function decodeEntities(value: string): string {
-  return value
-    .replace(/&nbsp;|&#160;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;|&apos;/gi, "'");
-}
-
 const sourceFetchMaxAttempts = 3;
 const sourceFetchMaxDelayMs = 2_000;
+const sourceResponseMaxBytes = 1_500_000;
