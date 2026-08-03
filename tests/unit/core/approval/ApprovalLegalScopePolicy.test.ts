@@ -13,6 +13,11 @@ const dutiesUrl = "https://law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnk
 const definitionUrl = "https://law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1031805825";
 const thresholdUrl = "https://law.go.kr/LSW/lsLawLinkInfo.do?chrClsCd=010202&lsJoLnkSeq=1000070098";
 const informationDate = "정보 기준일은 2026년 8월 1일입니다.";
+const verifiedFactFields = [
+  "continuingTransactionContractDocument",
+  "continuingTransactionDefinition",
+  "continuingTransactionThreshold",
+] as const;
 
 const incompleteClaim = [
   "계속거래 등에 관한 계약에서는 사업자가 계약 내용을 적은 계약서를 소비자에게 발급해야 하며, 자동결제나 구독 계약을 해지할 때 과도한 위약금을 청구해서는 안 됩니다.",
@@ -145,18 +150,26 @@ function approvalDocument(text: string, sourceUrls: readonly string[]): ContentD
         status: "verified",
         coverageStatus: "verified",
         reviewedAt: "2026-08-02T00:00:00.000Z",
-        sources: sourceUrls.map((url, index) => ({
-          sourceId: `source-${index}`,
-          url,
-          canonicalUrl: url,
-          title: "국가법령정보센터",
-          publisher: "국가법령정보센터",
-          sourceType: "official_law" as const,
-          retrievedAt: "2026-08-02T00:00:00.000Z",
-          verified: true,
-          provenance: "citation" as const,
-          facts: [],
-        })),
+        sources: sourceUrls.map((url, index) => {
+          const fact = {
+            field: verifiedFactFields[index] ?? "verifiedClaim",
+            value: "공식 조문과 원고 Claim의 일치를 확인했습니다.",
+          };
+          return {
+            sourceId: `source-${index}`,
+            url,
+            canonicalUrl: url,
+            title: "국가법령정보센터",
+            publisher: "국가법령정보센터",
+            sourceType: "official_law" as const,
+            retrievedAt: "2026-08-02T00:00:00.000Z",
+            verified: true,
+            provenance: "citation" as const,
+            claimVerificationStatus: "verified" as const,
+            facts: [fact],
+            matchedFacts: [fact],
+          };
+        }),
       },
       approvalDuplicateCheck: {
         version: "1.0",
