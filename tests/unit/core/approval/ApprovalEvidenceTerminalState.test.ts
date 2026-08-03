@@ -30,9 +30,22 @@ function source(
 }
 
 function document(sources: readonly ApprovalEvidenceSource[]): ContentDocument {
+  return contentDocument(sources, [
+    {
+      id: "definition",
+      type: "paragraph",
+      text: "방문판매법상 계속거래는 1개월 이상 계속적으로 재화 등을 공급하고 중도 해지할 때 대금 환급 제한 또는 위약금 약정이 있는 거래입니다.",
+    },
+  ]);
+}
+
+function contentDocument(
+  sources: readonly ApprovalEvidenceSource[],
+  blocks: ContentDocument["blocks"],
+): ContentDocument {
   return {
     id: "terminal-source-content",
-    title: "정기결제와 계속거래 구분",
+    title: "공식 근거 검증",
     metadata: {
       buttonCount: 0,
       createdAt: "2026-08-03T00:00:00.000Z",
@@ -52,11 +65,7 @@ function document(sources: readonly ApprovalEvidenceSource[]): ContentDocument {
       },
     },
     blocks: [
-      {
-        id: "definition",
-        type: "paragraph",
-        text: "방문판매법상 계속거래는 1개월 이상 계속적으로 재화 등을 공급하고 중도 해지할 때 대금 환급 제한 또는 위약금 약정이 있는 거래입니다.",
-      },
+      ...blocks,
       {
         id: "date",
         type: "paragraph",
@@ -145,7 +154,33 @@ describe("Approval Evidence terminal states", () => {
     ]));
   });
 
-  it("classifies a selected source with an unknown Claim role as unsupported_claim instead of throwing or falsely verifying", () => {
+  it("creates and verifies a deterministic generic Claim role for a previously unknown legal assertion", () => {
+    const url = "https://law.go.kr/new-privacy-claim";
+    const claim = "개인정보보호법 제28조의2에 따라 가명정보는 통계작성, 과학적 연구, 공익적 기록보존을 위하여 정보주체 동의 없이 처리할 수 있습니다.";
+    const result = verifyApprovalEvidence(
+      contentDocument(
+        [source("new-privacy-law", url, "search_candidate")],
+        [{ id: "new-claim", type: "paragraph", text: claim }],
+      ),
+      "wordpress_life_economy_v1",
+      [page(url, { text: `${claim} 관련 적용 범위와 제한 사항을 규정합니다. `.repeat(8) })],
+      "2026-08-03T05:05:00.000Z",
+    );
+
+    expect(result.pack.status).toBe("verified");
+    expect(result.pack.requiredFactFields).toHaveLength(1);
+    expect(result.pack.requiredFactFields?.[0]).toMatch(/^genericClaim:/u);
+    expect(result.pack.verifiedFactFields).toEqual(result.pack.requiredFactFields);
+    expect(result.pack.sources[0]).toMatchObject({
+      sourceId: "new-privacy-law",
+      provenance: "system_verified",
+      selected: true,
+      verified: true,
+      verificationStatus: "verified",
+    });
+  });
+
+  it("classifies a selected source without any supported or generic Claim role as unsupported_claim", () => {
     const unknown = source(
       "unknown-claim",
       "https://law.go.kr/new-claim",
@@ -153,9 +188,12 @@ describe("Approval Evidence terminal states", () => {
       [],
     );
     const result = verifyApprovalEvidence(
-      document([unknown]),
+      contentDocument(
+        [unknown],
+        [{ id: "neutral", type: "paragraph", text: "이 문서는 일상적인 정리 방법을 설명합니다." }],
+      ),
       "wordpress_life_economy_v1",
-      [page(unknown.url)],
+      [page(unknown.url, { text: "공식 페이지의 일반적인 안내 내용입니다. ".repeat(20) })],
       "2026-08-03T05:10:00.000Z",
     );
 
