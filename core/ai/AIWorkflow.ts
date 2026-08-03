@@ -12,6 +12,10 @@ import {
   type ContentDocument,
 } from "../content";
 import type { AIProvider, AIResponse, AIWebSource } from "./AIProvider";
+import {
+  runApprovalSourcePreflight,
+  withApprovalSourcePreflightInstruction,
+} from "./ApprovalSourcePreflight";
 import { appendAIUsageToDocument } from "./AIUsageCost";
 
 export type PlatformId = string & { readonly __platformId: unique symbol };
@@ -32,6 +36,7 @@ export type GenerationResult = Readonly<{
   document: ContentDocument;
   rawResponse: string;
   providerDiagnostics?: AIResponse["diagnostics"];
+  sourcePreflightDiagnostics?: AIResponse["diagnostics"];
 }>;
 
 export interface ContentGenerationStrategy {
@@ -68,12 +73,24 @@ export class AIWorkflow {
     assertOwnedIdentityKeywordPolicy(input);
     this.state = Object.freeze({ status: "generating" });
     try {
-      const request = this.strategy.createRequest(input);
       const approvalSnapshot = approvalPolicySnapshotFromEditorialContext(input.editorialContext);
+      const sourcePreflight = approvalSnapshot && input.structuredLongFormOutput && input.contentOpportunity
+        ? await runApprovalSourcePreflight({
+            provider: this.provider,
+            snapshot: approvalSnapshot,
+            opportunity: input.contentOpportunity,
+            platform: input.platform,
+            contentType: input.contentType,
+          })
+        : undefined;
+      const request = this.strategy.createRequest(input);
       const canonicalInstruction = withCanonicalEditorialContext(request.instruction, input.editorialContext);
+      const instruction = sourcePreflight
+        ? withApprovalSourcePreflightInstruction(canonicalInstruction, sourcePreflight.sources)
+        : withApprovalEvidenceSearchInstruction(canonicalInstruction, approvalSnapshot);
       const response = await this.provider.generate({
         ...request,
-        instruction: withApprovalEvidenceSearchInstruction(canonicalInstruction, approvalSnapshot),
+        instruction,
         metadata: {
           contentType: input.contentType,
           platform: input.platform,
@@ -85,6 +102,7 @@ export class AIWorkflow {
             approvalPurpose: approvalSnapshot.contentPurpose,
             approvalProfileId: approvalSnapshot.profileId,
             approvalPolicyVersion: approvalSnapshot.policyVersion,
+            approvalEvidenceMode: sourcePreflight ? "preflight_verified" : "inline_search",
           } : {}),
         },
       });
@@ -93,10 +111,14 @@ export class AIWorkflow {
       const evidenceDocument = withApprovalEvidenceMetadata(
         policyDocument,
         input.editorialContext,
-        response.diagnostics?.webSources ?? [],
+        sourcePreflight?.sources ?? response.diagnostics?.webSources ?? [],
+      );
+      const preflightUsageDocument = appendAIUsageToDocument(
+        evidenceDocument,
+        sourcePreflight?.diagnostics?.aiUsage,
       );
       const generatedDocument = appendAIUsageToDocument(
-        evidenceDocument,
+        preflightUsageDocument,
         response.diagnostics?.aiUsage,
       );
       assertGeneratedDocumentOwnedIdentityPolicy(generatedDocument, input);
@@ -104,6 +126,9 @@ export class AIWorkflow {
         document: generatedDocument,
         rawResponse: response.content,
         ...(response.diagnostics ? { providerDiagnostics: response.diagnostics } : {}),
+        ...(sourcePreflight?.diagnostics
+          ? { sourcePreflightDiagnostics: sourcePreflight.diagnostics }
+          : {}),
       });
       this.state = Object.freeze({ result, status: "generated" });
       return result;
