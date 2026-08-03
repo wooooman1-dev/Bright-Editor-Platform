@@ -1,7 +1,23 @@
 export * from "./ApprovalPolicy";
 export * from "./ApprovalReadiness";
 export * from "./ApprovalDuplicatePolicy";
-export * from "./ApprovalEvidenceVerification";
+export type {
+  ApprovalEvidenceVerificationResult,
+  ApprovalSourcePage,
+} from "./ApprovalEvidenceVerification";
+export {
+  extractApprovalCitationFacts,
+  extractApprovalFacts,
+  officialSourceAllowed,
+} from "./ApprovalEvidenceVerification";
+export {
+  approvalEvidenceDocumentReferences,
+  approvalEvidenceSourceProvenance,
+  canonicalizeApprovalEvidenceUrl,
+  isApprovalEvidenceCandidateSource,
+  isApprovalEvidenceSelectedSource,
+  verifyApprovalEvidence,
+} from "./ApprovalEvidenceSelection";
 export * from "./ApprovalEvidenceClaimPolicy";
 export * from "./ApprovalOfficialSourcePolicy";
 export * from "./ApprovalDateOwnership";
