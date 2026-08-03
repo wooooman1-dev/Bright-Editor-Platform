@@ -2,6 +2,7 @@ import {
   canonicalizeApprovalEvidenceUrl,
   evaluateApprovalPreparationText,
   evaluateApprovalReadiness,
+  evaluateApprovalSourceUrlSafety,
   normalizeApprovalSourceDocument,
   normalizeContentPurpose,
   verifyApprovalEvidence,
@@ -296,6 +297,11 @@ async function fetchApprovalSourcePage(
   fetcher: ApprovalReadinessFetch,
   timeoutMs = 12_000,
 ): Promise<ApprovalSourcePage> {
+  const initialSafety = evaluateApprovalSourceUrlSafety(requestedUrl);
+  if (!initialSafety.safe || !initialSafety.normalizedUrl) {
+    return sourceFailurePage(requestedUrl, `URL 안전성 검사 차단: ${initialSafety.reason ?? "안전한 공개 HTTPS URL이 아닙니다."}`);
+  }
+
   let lastError: string | undefined;
   for (let attempt = 0; attempt < sourceFetchMaxAttempts; attempt += 1) {
     const controller = new AbortController();
@@ -303,14 +309,15 @@ async function fetchApprovalSourcePage(
     let retryDelay: number | undefined;
 
     try {
-      const response = await fetcher(requestedUrl, {
-        method: "GET",
-        redirect: "follow",
-        signal: controller.signal,
-        headers: sourceRequestHeaders("text/html,application/xhtml+xml,text/plain,text/csv,text/xml,application/json,application/xml,application/pdf;q=0.9,*/*;q=0.5"),
-      });
+      const fetched = await fetchSourceResponse(
+        initialSafety.normalizedUrl,
+        fetcher,
+        controller.signal,
+        "text/html,application/xhtml+xml,text/plain,text/csv,text/xml,application/json,application/xml,application/pdf;q=0.9,*/*;q=0.5",
+      );
+      const response = fetched.response;
       const contentType = response.headers.get("content-type") ?? "";
-      const finalUrl = response.url || requestedUrl;
+      const finalUrl = fetched.finalUrl;
       const body = await readBoundedResponseBody(response, sourceResponseMaxBytes);
       const extraction = normalizeApprovalSourceDocument({
         requestedUrl,
@@ -344,6 +351,9 @@ async function fetchApprovalSourcePage(
       retryDelay = sourceRetryDelayMs(response.headers.get("retry-after"), attempt);
     } catch (error) {
       lastError = sourceFetchErrorMessage(error, timeoutMs);
+      if (error instanceof UnsafeApprovalSourceUrlError) {
+        return sourceFailurePage(requestedUrl, lastError);
+      }
       if (attempt === sourceFetchMaxAttempts - 1) {
         const fallback = await fetchOfficialSourceFallback(requestedUrl, fetcher, timeoutMs);
         return fallback ?? sourceFailurePage(requestedUrl, lastError);
@@ -358,6 +368,48 @@ async function fetchApprovalSourcePage(
 
   const fallback = await fetchOfficialSourceFallback(requestedUrl, fetcher, timeoutMs);
   return fallback ?? sourceFailurePage(requestedUrl, lastError ?? "알 수 없는 네트워크 오류");
+}
+
+async function fetchSourceResponse(
+  requestedUrl: string,
+  fetcher: ApprovalReadinessFetch,
+  signal: AbortSignal,
+  accept: string,
+): Promise<Readonly<{ response: Response; finalUrl: string }>> {
+  let currentUrl = requestedUrl;
+  for (let redirectCount = 0; redirectCount <= sourceFetchMaxRedirects; redirectCount += 1) {
+    const safety = evaluateApprovalSourceUrlSafety(currentUrl);
+    if (!safety.safe || !safety.normalizedUrl) {
+      throw new UnsafeApprovalSourceUrlError(safety.reason ?? "안전한 공개 HTTPS URL이 아닙니다.");
+    }
+    currentUrl = safety.normalizedUrl;
+    const response = await fetcher(currentUrl, {
+      method: "GET",
+      redirect: "manual",
+      signal,
+      headers: sourceRequestHeaders(accept),
+    });
+    if (!redirectSourceStatus(response.status)) {
+      return Object.freeze({ response, finalUrl: response.url || currentUrl });
+    }
+
+    const location = response.headers.get("location");
+    if (!location) return Object.freeze({ response, finalUrl: response.url || currentUrl });
+    try {
+      await response.body?.cancel();
+    } catch {
+      // Redirect response bodies may already be closed.
+    }
+    if (redirectCount === sourceFetchMaxRedirects) {
+      throw new UnsafeApprovalSourceUrlError(`출처 리다이렉트가 ${sourceFetchMaxRedirects}회를 초과했습니다.`);
+    }
+    try {
+      currentUrl = new URL(location, currentUrl).toString();
+    } catch {
+      throw new UnsafeApprovalSourceUrlError("출처 리다이렉트 주소가 올바르지 않습니다.");
+    }
+  }
+  throw new UnsafeApprovalSourceUrlError("출처 리다이렉트 검사를 완료하지 못했습니다.");
 }
 
 async function readBoundedResponseBody(
@@ -442,17 +494,18 @@ async function fetchOfficialSourceFallback(
     let retryDelay: number | undefined;
 
     try {
-      const response = await fetcher(fallback.requestUrl, {
-        method: "GET",
-        redirect: "follow",
-        signal: controller.signal,
-        headers: sourceRequestHeaders(fallback.accept),
-      });
+      const fetched = await fetchSourceResponse(
+        fallback.requestUrl,
+        fetcher,
+        controller.signal,
+        fallback.accept,
+      );
+      const response = fetched.response;
       if (response.ok) return fallback.normalize(response, requestedUrl);
       if (!retryableSourceStatus(response.status) || attempt === sourceFetchMaxAttempts - 1) return undefined;
       retryDelay = sourceRetryDelayMs(response.headers.get("retry-after"), attempt);
-    } catch {
-      if (attempt === sourceFetchMaxAttempts - 1) return undefined;
+    } catch (error) {
+      if (error instanceof UnsafeApprovalSourceUrlError || attempt === sourceFetchMaxAttempts - 1) return undefined;
       retryDelay = sourceRetryDelayMs(undefined, attempt);
     } finally {
       clearTimeout(timeout);
@@ -491,6 +544,7 @@ function sourceFailurePage(
 }
 
 function sourceFetchErrorMessage(error: unknown, timeoutMs: number): string {
+  if (error instanceof UnsafeApprovalSourceUrlError) return `URL 안전성 검사 차단: ${error.message}`;
   if (error instanceof DOMException && error.name === "AbortError") {
     return `요청 시간이 ${timeoutMs}ms를 초과했습니다.`;
   }
@@ -512,6 +566,10 @@ function sourceRequestHeaders(accept: string): HeadersInit {
 function sourcePageRequiresOfficialFallback(page: ApprovalSourcePage): boolean {
   if (page.status >= 400) return true;
   return /(?:just a moment|security checkpoint|attention required|access denied|temporarily blocked)/i.test(page.title);
+}
+
+function redirectSourceStatus(status: number): boolean {
+  return status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
 }
 
 function retryableSourceStatus(status: number): boolean {
@@ -619,6 +677,14 @@ function siteIdentityTerms(
   return Object.freeze(identity ? [identity] : []);
 }
 
+class UnsafeApprovalSourceUrlError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UnsafeApprovalSourceUrlError";
+  }
+}
+
 const sourceFetchMaxAttempts = 3;
 const sourceFetchMaxDelayMs = 2_000;
+const sourceFetchMaxRedirects = 5;
 const sourceResponseMaxBytes = 1_500_000;
