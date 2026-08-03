@@ -184,10 +184,25 @@ function EvidenceSourceCard(props: Readonly<{
   candidate: boolean;
 }>) {
   const { source, index, candidate } = props;
-  const status = candidate
-    ? source.verificationStatus === "duplicate_source" ? "중복 후보" : "후보 · 판정 제외"
-    : source.verified ? "검증 완료" : source.verificationStatus === "fact_mismatch" ? "Claim 불일치" : "검토 필요";
+  const status = evidenceStatusLabel(source, candidate);
   return <article className="rounded-xl bg-white p-3 text-xs"><div className="flex justify-between gap-3"><strong>{source.title || source.publisher || `공식 출처 ${index + 1}`}</strong><span>{status}</span></div><a className="mt-2 block break-all text-blue-700 underline" href={source.canonicalUrl ?? source.url} rel="noreferrer" target="_blank">{source.canonicalUrl ?? source.url}</a>{source.failureReason ? <p className={`mt-2 rounded-lg p-2 ${candidate ? "bg-[#f4f4f5] text-[#66666f]" : "bg-amber-50 text-amber-900"}`}>{source.failureReason}</p> : null}</article>;
+}
+
+export function evidenceStatusLabel(source: ApprovalEvidenceSource, candidate: boolean): string {
+  if (source.verified) return "검증 완료";
+  switch (source.verificationStatus) {
+    case "unreachable": return "접근 불가";
+    case "unsupported_content_type": return "문서 형식 미지원";
+    case "empty_content": return "본문 없음";
+    case "malformed_content": return "문서 형식 오류";
+    case "content_too_large": return "문서 크기 초과";
+    case "unsupported_claim": return "지원되지 않는 Claim";
+    case "unofficial_source": return "공식 출처 아님";
+    case "fact_mismatch": return "Claim 불일치";
+    case "duplicate_source": return "중복 후보";
+    case "excluded": return "후보 · 판정 제외";
+    default: return candidate ? "후보 · 판정 제외" : "검토 필요";
+  }
 }
 
 function publishingContextIsFinalized(content: UserContent): boolean {
