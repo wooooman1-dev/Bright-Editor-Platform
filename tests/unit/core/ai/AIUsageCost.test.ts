@@ -15,11 +15,11 @@ describe("AI usage cost ledger", () => {
       model: "gpt-5.6-terra",
       responseId: "resp-terra",
       recordedAt: "2026-08-02T00:00:00.000Z",
-      inputTokens: 1_000_000,
-      outputTokens: 1_000_000,
-      totalTokens: 2_000_000,
+      inputTokens: 100_000,
+      outputTokens: 100_000,
+      totalTokens: 200_000,
     });
-    expect(record.estimatedCostUsd).toBe(17.5);
+    expect(record.estimatedCostUsd).toBe(1.75);
     expect(record.pricingStatus).toBe("estimated_standard");
   });
 
@@ -30,13 +30,13 @@ describe("AI usage cost ledger", () => {
       model: "gpt-5.6-sol",
       responseId: "resp-sol",
       recordedAt: "2026-08-02T00:00:00.000Z",
-      inputTokens: 1_000_000,
-      cachedInputTokens: 400_000,
-      cacheWriteTokens: 100_000,
-      outputTokens: 100_000,
-      totalTokens: 1_100_000,
+      inputTokens: 100_000,
+      cachedInputTokens: 40_000,
+      cacheWriteTokens: 10_000,
+      outputTokens: 10_000,
+      totalTokens: 110_000,
     });
-    expect(record.estimatedCostUsd).toBe(6.325);
+    expect(record.estimatedCostUsd).toBe(0.6325);
   });
 
   it("applies long-context pricing above 272K input tokens", () => {
