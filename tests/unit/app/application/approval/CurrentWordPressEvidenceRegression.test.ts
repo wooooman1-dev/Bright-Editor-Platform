@@ -177,7 +177,7 @@ describe("current WordPress source regression", () => {
     expect(result.evidence.pack).toMatchObject({ status: "verified", coverageStatus: "verified", reviewedAt: "2026-08-01T02:00:00.000Z" });
     expect(source).toMatchObject({
       canonicalUrl,
-      provenance: "citation",
+      provenance: "system_verified",
       selected: true,
       verified: true,
       linkedBlockIds: expect.arrayContaining(["claim", "source"]),
