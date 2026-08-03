@@ -7,6 +7,10 @@ import type {
   ApprovalEvidenceVerificationStatus,
 } from "./ApprovalReadiness";
 import type { ApprovalPolicyProfileId } from "./ApprovalPolicy";
+import type {
+  ApprovalSourceDocumentFormat,
+  ApprovalSourceExtractionStatus,
+} from "./ApprovalSourceDocumentAdapter";
 import {
   approvalFactMatchesPage,
   approvalEvidenceClaimFieldsForSourceUrl,
@@ -25,6 +29,10 @@ export type ApprovalSourcePage = Readonly<{
   publisher: string;
   text: string;
   fetchError?: string;
+  documentFormat?: ApprovalSourceDocumentFormat;
+  extractionStatus?: ApprovalSourceExtractionStatus;
+  extractionReason?: string;
+  contentLength?: number;
 }>;
 
 export type ApprovalEvidenceVerificationResult = Readonly<{
@@ -37,11 +45,10 @@ export type ApprovalEvidenceVerificationResult = Readonly<{
 /**
  * Verifies approval Evidence without another AI call.
  *
- * A source is marked verified only when it is reachable over HTTPS, matches the
- * active profile's official-source trust policy, and the source-linked Claim
- * values are also present on the source page.
- * Duplicate, unreachable, unsupported, unofficial, and mismatched candidates
- * remain in the Evidence Pack with deterministic diagnostics.
+ * Every source reaches one deterministic terminal state. A source is marked
+ * verified only when access, extraction, official-domain, and linked-Claim
+ * checks all pass. One failed source never throws or hides another source's
+ * result.
  */
 export function verifyApprovalEvidence(
   document: ContentDocument,
@@ -101,6 +108,10 @@ export function verifyApprovalEvidence(
       finalUrl: page.finalUrl,
       httpStatus: page.status,
       contentType: page.contentType,
+      ...(page.documentFormat ? { documentFormat: page.documentFormat } : {}),
+      ...(page.extractionStatus ? { extractionStatus: page.extractionStatus } : {}),
+      ...(page.extractionReason ? { extractionReason: page.extractionReason } : {}),
+      ...(page.contentLength !== undefined ? { contentLength: page.contentLength } : {}),
     } as const;
 
     if (page.fetchError) {
@@ -123,7 +134,18 @@ export function verifyApprovalEvidence(
     }
 
     const official = officialSourceAllowed(profileId, page);
-    if (!isSupportedHtmlPage(page)) {
+    const extractionFailure = sourceExtractionFailure(page);
+    if (extractionFailure) {
+      const reason = `${source.url}: ${extractionFailure.message}`;
+      reasons.push(reason);
+      return diagnosticSource(source, reviewedAt, extractionFailure.status, reason, {
+        ...pageDetails,
+        official,
+        selected: false,
+      }, page);
+    }
+
+    if (!isSupportedExtractedPage(page)) {
       const reason = `${source.url}: 현재 Evidence 검증에서 지원하지 않는 콘텐츠 형식입니다 (${page.contentType || "content-type 없음"}).`;
       reasons.push(reason);
       return diagnosticSource(source, reviewedAt, "unsupported_content_type", reason, {
@@ -134,9 +156,9 @@ export function verifyApprovalEvidence(
     }
 
     if (page.text.trim().length < 200) {
-      const reason = `${source.url}: 공개 페이지 본문이 너무 짧아 사실 대조를 수행하지 못했습니다.`;
+      const reason = `${source.url}: 추출된 본문이 너무 짧아 사실 대조를 수행하지 못했습니다.`;
       reasons.push(reason);
-      return diagnosticSource(source, reviewedAt, "unreachable", reason, {
+      return diagnosticSource(source, reviewedAt, "empty_content", reason, {
         ...pageDetails,
         official,
         selected: false,
@@ -169,6 +191,17 @@ export function verifyApprovalEvidence(
       sourceLinkedClaimFacts(document, source, canonicalUrl, profileId),
       extractApprovalCitationFacts(document, canonicalUrl),
     ).filter((fact) => !roleFields || roleFields.includes(fact.field));
+    if (!sourceFacts.length) {
+      const reason = `${source.url}: 이 출처에 연결된 지원 가능한 Claim 역할을 식별하지 못했습니다.`;
+      reasons.push(reason);
+      return diagnosticSource(source, reviewedAt, "unsupported_claim", reason, {
+        ...pageDetails,
+        official: true,
+        selected: false,
+        matchedFacts: Object.freeze([]),
+      }, page);
+    }
+
     const matchedFacts = sourceFacts.filter((fact) => approvalFactMatchesPage(page, fact));
     if (!matchedFacts.length) {
       const reason = `${source.url}: 이 출처에 명시적으로 연결된 Claim과 공식 페이지의 일치를 확인하지 못했습니다.`;
@@ -194,6 +227,10 @@ export function verifyApprovalEvidence(
       finalUrl: page.finalUrl,
       httpStatus: page.status,
       contentType: page.contentType,
+      ...(page.documentFormat ? { documentFormat: page.documentFormat } : {}),
+      ...(page.extractionStatus ? { extractionStatus: page.extractionStatus } : {}),
+      ...(page.extractionReason ? { extractionReason: page.extractionReason } : {}),
+      ...(page.contentLength !== undefined ? { contentLength: page.contentLength } : {}),
       official: true,
       selected: provenance === "citation" || provenance === "user_selected",
       verificationStatus: "verified" as const,
@@ -355,6 +392,10 @@ function diagnosticSource(
     finalUrl?: string;
     httpStatus?: number;
     contentType?: string;
+    documentFormat?: ApprovalSourceDocumentFormat;
+    extractionStatus?: ApprovalSourceExtractionStatus;
+    extractionReason?: string;
+    contentLength?: number;
     official?: boolean;
     selected?: boolean;
     matchedFacts?: readonly ApprovalEvidenceFact[];
@@ -372,6 +413,7 @@ function diagnosticSource(
       ? "failed" as const
       : "not_evaluated" as const;
   const claimVerificationStatus = verificationStatus === "fact_mismatch"
+    || verificationStatus === "unsupported_claim"
     ? "failed" as const
     : "not_evaluated" as const;
   return Object.freeze({
@@ -391,13 +433,39 @@ function diagnosticSource(
 }
 
 function sourcePageProtocolAndStatusValid(page: ApprovalSourcePage): boolean {
-  return page.status >= 200
-    && page.status < 400
-    && page.finalUrl.startsWith("https://");
+  try {
+    return page.status >= 200
+      && page.status < 400
+      && new URL(page.finalUrl).protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
-function isSupportedHtmlPage(page: ApprovalSourcePage): boolean {
-  return /(?:text\/html|application\/xhtml\+xml)/i.test(page.contentType);
+function sourceExtractionFailure(page: ApprovalSourcePage): Readonly<{
+  status: ApprovalEvidenceVerificationStatus;
+  message: string;
+}> | undefined {
+  const reason = page.extractionReason?.trim();
+  switch (page.extractionStatus) {
+    case "unavailable":
+      return Object.freeze({ status: "unreachable", message: reason || "출처 응답을 가져오지 못했습니다." });
+    case "empty":
+      return Object.freeze({ status: "empty_content", message: reason || "출처 응답 본문이 비어 있습니다." });
+    case "too_large":
+      return Object.freeze({ status: "content_too_large", message: reason || "출처 응답이 검증 허용 크기를 초과했습니다." });
+    case "malformed":
+      return Object.freeze({ status: "malformed_content", message: reason || "출처 문서가 손상되었거나 형식 규칙에 맞지 않습니다." });
+    case "unsupported":
+      return Object.freeze({ status: "unsupported_content_type", message: reason || "출처 문서 형식을 지원하지 않습니다." });
+    default:
+      return undefined;
+  }
+}
+
+function isSupportedExtractedPage(page: ApprovalSourcePage): boolean {
+  if (page.extractionStatus) return page.extractionStatus === "extracted";
+  return /(?:text\/(?:html|plain|csv|xml)|application\/(?:xhtml\+xml|json|xml)|\+json|\+xml)/iu.test(page.contentType);
 }
 
 function mergeApprovalFacts(
