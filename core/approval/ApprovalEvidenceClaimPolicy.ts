@@ -47,8 +47,13 @@ export function requiredApprovalFactFields(
   profileId: ApprovalPolicyProfileId,
   facts: readonly ApprovalEvidenceFact[],
 ): readonly string[] {
-  const base = baseRequiredApprovalFactFields(document, profileId, facts);
   const generic = facts.map((fact) => fact.field).filter(isGenericClaimField);
+  const nonGeneric = facts.filter((fact) => !isGenericClaimField(fact.field));
+  if (generic.length > 0 && nonGeneric.length === 0) {
+    return Object.freeze([...new Set(generic)]);
+  }
+
+  const base = baseRequiredApprovalFactFields(document, profileId, facts);
   if (profileId !== "wordpress_life_economy_v1") {
     return Object.freeze([...new Set([...base, ...generic])]);
   }
