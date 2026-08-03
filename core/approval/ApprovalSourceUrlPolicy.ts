@@ -35,9 +35,13 @@ export function evaluateApprovalSourceUrlSafety(value: string): ApprovalSourceUr
     return blocked("공개 도메인으로 확인할 수 없는 단일 호스트명입니다.");
   }
 
-  url.hostname = hostname;
-  url.hash = "";
-  return Object.freeze({ safe: true, normalizedUrl: url.toString() });
+  try {
+    url.hostname = hostname.includes(":") ? `[${hostname}]` : hostname;
+    url.hash = "";
+    return Object.freeze({ safe: true, normalizedUrl: url.toString() });
+  } catch {
+    return blocked("출처 호스트를 안전한 표준 URL로 정규화하지 못했습니다.");
+  }
 }
 
 function blocked(reason: string): ApprovalSourceUrlSafety {
