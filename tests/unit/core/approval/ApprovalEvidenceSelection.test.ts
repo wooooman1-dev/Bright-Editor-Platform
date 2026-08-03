@@ -12,8 +12,8 @@ import {
 } from "../../../../core/approval";
 import type { ContentDocument } from "../../../../core/content";
 
-const definitionUrl = "https://law.go.kr/LSW/lsLinkCommonInfo.do?lsJoLnkSeq=1031805825";
-const unrelatedUrl = "https://law.go.kr/LSW/expcInfoP.do?expcSeq=314441";
+const definitionUrl = "https://law.go.kr/lsLinkCommonInfo.do?lsJoLnkSeq=1031805825";
+const unrelatedUrl = "https://law.go.kr/expcInfoP.do?expcSeq=314441";
 
 function source(
   sourceId: string,
@@ -95,7 +95,7 @@ describe("approval Evidence candidate selection", () => {
     );
 
     expect(first).toBe(second);
-    expect(first).toBe("https://law.go.kr/LSW/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1025033501");
+    expect(first).toBe("https://law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1025033501");
   });
 
   it("selects only the official candidate needed for required Claim coverage", () => {
@@ -148,7 +148,7 @@ describe("approval Evidence candidate selection", () => {
     const before = approvalEvidenceFingerprint(document([selected]));
     const after = approvalEvidenceFingerprint(document([
       selected,
-      source("new-candidate", "https://law.go.kr/LSW/lsInfoP.do?lsiSeq=999999"),
+      source("new-candidate", "https://law.go.kr/lsInfoP.do?lsiSeq=999999"),
     ]));
 
     expect(after).toBe(before);
