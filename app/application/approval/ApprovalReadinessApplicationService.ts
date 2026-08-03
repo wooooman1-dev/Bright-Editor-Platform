@@ -2,7 +2,10 @@ import { normalizeApprovalDateOwnership } from "../../../core/approval";
 import type { ContentDocument } from "../../../core/content";
 import { editorialRevisionId } from "../../../core/quality";
 import type { UserContent, UserData } from "../../user-flow/user-data";
-import { approvalReadinessInspectionVersion } from "./ApprovalReadinessExecutionIdentity";
+import {
+  approvalReadinessExecutionIdentity,
+  approvalReadinessInspectionVersion,
+} from "./ApprovalReadinessExecutionIdentity";
 import {
   ApprovalReadinessApplicationService as BaseApprovalReadinessApplicationService,
   type ApprovalReadinessExecutionResult,
@@ -20,7 +23,7 @@ export class ApprovalReadinessApplicationService extends BaseApprovalReadinessAp
       if (document !== source) effectiveInput = { ...input, data: withNormalizedDocument(input.data, content, document) };
     }
     const result = await super.execute(effectiveInput);
-    return withCurrentInspectionVersion(result);
+    return withCurrentInspectionIdentity(result, input.connection?.id);
   }
 }
 
@@ -48,21 +51,47 @@ function withNormalizedDocument(data: UserData, content: UserContent, document: 
   };
 }
 
-function withCurrentInspectionVersion(result: ApprovalReadinessExecutionResult): ApprovalReadinessExecutionResult {
+function withCurrentInspectionIdentity(
+  result: ApprovalReadinessExecutionResult,
+  connectionId?: string,
+): ApprovalReadinessExecutionResult {
+  const content = result.data.contents.find((item) => item.document?.id === result.document.id)
+    ?? result.data.contents.find((item) => item.id === result.document.id);
+  if (!content) return result;
+
+  const identity = approvalReadinessExecutionIdentity(
+    { ...content, document: result.document },
+    connectionId,
+  );
   const execution = result.document.metadata?.approvalReadinessExecution;
-  if (!execution || execution.version === approvalReadinessInspectionVersion) return result;
+  if (execution
+    && execution.version === approvalReadinessInspectionVersion
+    && execution.key === identity.key
+    && execution.editorialRevisionId === identity.editorialRevisionId
+    && execution.publishingContextKey === identity.publishingContextKey
+    && execution.evidenceFingerprint === identity.evidenceFingerprint) {
+    return result;
+  }
+
+  const checkedAt = execution?.checkedAt ?? new Date().toISOString();
   const document: ContentDocument = Object.freeze({
     ...result.document,
     metadata: Object.freeze({
       ...result.document.metadata!,
-      approvalReadinessExecution: Object.freeze({ ...execution, version: approvalReadinessInspectionVersion }),
+      approvalReadinessExecution: Object.freeze({
+        version: approvalReadinessInspectionVersion,
+        key: identity.key,
+        editorialRevisionId: identity.editorialRevisionId,
+        publishingContextKey: identity.publishingContextKey,
+        evidenceFingerprint: identity.evidenceFingerprint,
+        status: "completed" as const,
+        checkedAt,
+      }),
     }),
   });
-  const content = result.data.contents.find((item) => item.id === result.document.id)
-    ?? result.data.contents.find((item) => item.document?.id === result.document.id);
-  const data: UserData = content ? {
+  const data: UserData = {
     ...result.data,
     contents: result.data.contents.map((item) => item.id === content.id ? { ...item, document } : item),
-  } : result.data;
+  };
   return Object.freeze({ ...result, document, data });
 }
