@@ -36,7 +36,7 @@ export type ContentMetadata = Readonly<{
   approvalDuplicateCheck?: ApprovalDuplicateCheckSnapshot;
   siteApprovalReadiness?: SiteApprovalReadinessSnapshot;
   approvalReadinessExecution?: Readonly<{
-    version: "1.0" | "2.0";
+    version: "1.0" | "2.0" | "3.0";
     key: string;
     editorialRevisionId: string;
     publishingContextKey: string;
