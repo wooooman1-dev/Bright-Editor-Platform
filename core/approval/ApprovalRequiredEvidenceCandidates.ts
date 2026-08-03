@@ -33,9 +33,10 @@ export function ensureRequiredApprovalEvidenceCandidates(
   const requiredFields = new Set(requiredApprovalFactFields(document, profileId, facts));
   const requiredSources = requiredOfficialSources.filter((source) =>
     source.fields.some((field) => requiredFields.has(field)));
+  if (!requiredSources.length) return document;
 
-  const requiredByUrl = new Map(requiredSources.map((source) => [
-    canonicalizeApprovalEvidenceUrl(source.url),
+  const requiredByIdentity = new Map(requiredSources.map((source) => [
+    officialSourceIdentity(source.url),
     source,
   ]));
   const seen = new Set<string>();
@@ -43,8 +44,9 @@ export function ensureRequiredApprovalEvidenceCandidates(
 
   const sources = pack.sources.map((source) => {
     const canonicalUrl = canonicalizeApprovalEvidenceUrl(source.canonicalUrl ?? source.url);
-    seen.add(canonicalUrl);
-    const required = requiredByUrl.get(canonicalUrl);
+    const identity = officialSourceIdentity(canonicalUrl);
+    seen.add(identity);
+    const required = requiredByIdentity.get(identity);
 
     if (required) {
       const next = promoteRequiredSource(source, canonicalUrl);
@@ -52,7 +54,7 @@ export function ensureRequiredApprovalEvidenceCandidates(
       return next;
     }
 
-    if (source.provenance === "citation") {
+    if (shouldDemoteLegalCitation(source, canonicalUrl)) {
       changed = true;
       return Object.freeze({
         ...source,
@@ -77,13 +79,15 @@ export function ensureRequiredApprovalEvidenceCandidates(
 
   for (const required of requiredSources) {
     const canonicalUrl = canonicalizeApprovalEvidenceUrl(required.url);
-    if (seen.has(canonicalUrl)) continue;
+    const identity = officialSourceIdentity(canonicalUrl);
+    if (seen.has(identity)) continue;
     changed = true;
     sources.push(requiredSourceCandidate(
       required,
       canonicalUrl,
       document.metadata?.updatedAt ?? document.metadata?.createdAt ?? "1970-01-01T00:00:00.000Z",
     ));
+    seen.add(identity);
   }
 
   if (!changed) return document;
@@ -122,6 +126,18 @@ function promoteRequiredSource(
   });
 }
 
+function shouldDemoteLegalCitation(
+  source: ApprovalEvidenceSource,
+  canonicalUrl: string,
+): boolean {
+  if (source.provenance !== "citation") return false;
+  try {
+    return new URL(canonicalUrl).hostname.toLocaleLowerCase("en-US").replace(/^www\./u, "") === "law.go.kr";
+  } catch {
+    return false;
+  }
+}
+
 function requiredSourceCandidate(
   source: RequiredOfficialSource,
   canonicalUrl: string,
@@ -140,6 +156,34 @@ function requiredSourceCandidate(
     provenance: "system_verified" as const,
     selected: true,
   });
+}
+
+function officialSourceIdentity(value: string): string {
+  const canonicalUrl = canonicalizeApprovalEvidenceUrl(value);
+  try {
+    const url = new URL(canonicalUrl);
+    const host = url.hostname.toLocaleLowerCase("en-US").replace(/^www\./u, "");
+    if (host !== "law.go.kr") return canonicalUrl;
+
+    const endpoint = url.pathname.split("/").filter(Boolean).at(-1)?.toLocaleLowerCase("en-US") ?? "";
+    const article = queryValue(url, "lsJoLnkSeq");
+    if (article) return `${host}:${endpoint}:lsJoLnkSeq=${article}`;
+    const pattern = queryValue(url, "lspttninfSeq");
+    if (pattern) return `${host}:${endpoint}:lspttninfSeq=${pattern}`;
+    const interpretation = queryValue(url, "expcSeq");
+    if (interpretation) return `${host}:${endpoint}:expcSeq=${interpretation}`;
+    return canonicalUrl;
+  } catch {
+    return canonicalUrl;
+  }
+}
+
+function queryValue(url: URL, name: string): string | undefined {
+  const expected = name.toLocaleLowerCase("en-US");
+  for (const [key, value] of url.searchParams) {
+    if (key.toLocaleLowerCase("en-US") === expected && value.trim()) return value.trim();
+  }
+  return undefined;
 }
 
 function stableSourceId(value: string): string {
