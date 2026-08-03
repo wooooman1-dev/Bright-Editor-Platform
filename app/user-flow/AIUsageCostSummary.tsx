@@ -58,6 +58,7 @@ export function usageRecords(content: UserContent, document?: ContentDocument): 
 function stageLabel(stage: AIUsageRecord["stage"]): string {
   return ({
     planning: "Planning",
+    source_preflight: "출처 사전검증",
     generation: "Generation",
     quality_review: "Quality Review",
     revision: "문서 수정",
