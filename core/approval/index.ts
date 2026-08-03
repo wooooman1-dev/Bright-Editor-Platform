@@ -2,6 +2,7 @@ export * from "./ApprovalPolicy";
 export * from "./ApprovalReadiness";
 export * from "./ApprovalDuplicatePolicy";
 export * from "./ApprovalSourceDocumentAdapter";
+export * from "./ApprovalSourceUrlPolicy";
 export type {
   ApprovalEvidenceVerificationResult,
   ApprovalSourcePage,
