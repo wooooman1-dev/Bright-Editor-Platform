@@ -9,8 +9,9 @@ import type { ContentDocument } from "../../../../core/content";
 
 const unknownOfficialUrl =
   "https://new-policy.city.go.kr/not-registered-in-source-map/2026";
+const mappedOfficialUrl = "https://www.fsc.go.kr/no010101/84974";
 
-function document(): ContentDocument {
+function document(url = unknownOfficialUrl): ContentDocument {
   return {
     id: "content-unknown-source",
     title: "새 지원정책 신청 기준",
@@ -42,11 +43,11 @@ function document(): ContentDocument {
         version: "1.0",
         status: "needs_review",
         sources: [{
-          sourceId: "unknown-official-source",
-          url: unknownOfficialUrl,
-          canonicalUrl: unknownOfficialUrl,
+          sourceId: "official-source",
+          url,
+          canonicalUrl: url,
           title: "새 공식 지원정책 안내",
-          publisher: "new-policy.city.go.kr",
+          publisher: new URL(url).hostname,
           sourceType: "official_institution",
           retrievedAt: "2026-08-03T00:00:00.000Z",
           verified: false,
@@ -71,46 +72,61 @@ function document(): ContentDocument {
   };
 }
 
-const officialPage: ApprovalSourcePage = {
-  requestedUrl: unknownOfficialUrl,
-  finalUrl: unknownOfficialUrl,
-  status: 200,
-  contentType: "text/html; charset=utf-8",
-  title: "새 공식 지원정책 안내",
-  publisher: "new-policy.city.go.kr",
-  text: "지원 대상은 만 19세 이상 거주자입니다. 지원 금액은 100만원입니다. 신청 전 최신 공고와 제출 서류를 공식 누리집에서 확인해야 합니다. ".repeat(8),
-  documentFormat: "html",
-  extractionStatus: "extracted",
-};
+function officialPage(url = unknownOfficialUrl): ApprovalSourcePage {
+  return {
+    requestedUrl: url,
+    finalUrl: url,
+    status: 200,
+    contentType: "text/html; charset=utf-8",
+    title: "새 공식 지원정책 안내",
+    publisher: new URL(url).hostname,
+    text: "지원 대상은 만 19세 이상 거주자입니다. 지원 금액은 100만원입니다. 신청 전 최신 공고와 제출 서류를 공식 누리집에서 확인해야 합니다. ".repeat(8),
+    documentFormat: "html",
+    extractionStatus: "extracted",
+  };
+}
 
-describe("Approval Evidence unknown official source", () => {
+function expectVerified(url: string): void {
+  const result = verifyApprovalEvidence(
+    document(url),
+    "wordpress_life_economy_v1",
+    [officialPage(url)],
+    "2026-08-03T01:00:00.000Z",
+  );
+
+  expect(result.pack.status).toBe("verified");
+  expect(result.pack.requiredFactFields).toEqual([
+    "eligibility",
+    "amount",
+  ]);
+  expect(result.pack.verifiedFactFields).toEqual([
+    "eligibility",
+    "amount",
+  ]);
+  expect(result.pack.unverifiedFactFields).toEqual([]);
+  expect(result.pack.sources[0]).toMatchObject({
+    url,
+    finalUrl: url,
+    verified: true,
+    verificationStatus: "verified",
+    claimVerificationStatus: "verified",
+  });
+}
+
+describe("Approval Evidence universal official sources", () => {
   it("verifies an unmapped official URL from its linked Claims and fetched body", () => {
     expect(approvalEvidenceClaimFieldsForSourceUrl(unknownOfficialUrl))
       .toBeUndefined();
+    expectVerified(unknownOfficialUrl);
+  });
 
-    const result = verifyApprovalEvidence(
-      document(),
-      "wordpress_life_economy_v1",
-      [officialPage],
-      "2026-08-03T01:00:00.000Z",
-    );
-
-    expect(result.pack.status).toBe("verified");
-    expect(result.pack.requiredFactFields).toEqual([
-      "eligibility",
-      "amount",
-    ]);
-    expect(result.pack.verifiedFactFields).toEqual([
-      "eligibility",
-      "amount",
-    ]);
-    expect(result.pack.unverifiedFactFields).toEqual([]);
-    expect(result.pack.sources[0]).toMatchObject({
-      url: unknownOfficialUrl,
-      finalUrl: unknownOfficialUrl,
-      verified: true,
-      verificationStatus: "verified",
-      claimVerificationStatus: "verified",
-    });
+  it("treats a known URL role map as a hint instead of a Claim whitelist", () => {
+    expect(approvalEvidenceClaimFieldsForSourceUrl(mappedOfficialUrl))
+      .toEqual([
+        "depositProtectionLimit",
+        "depositProtectionUnit",
+        "depositProtectionEffectiveDate",
+      ]);
+    expectVerified(mappedOfficialUrl);
   });
 });
