@@ -1,4 +1,8 @@
-import { normalizeApprovalDateOwnership } from "../../../core/approval";
+import {
+  ensureRequiredApprovalEvidenceCandidates,
+  normalizeApprovalDateOwnership,
+  type ApprovalPolicyProfileId,
+} from "../../../core/approval";
 import type { ContentDocument } from "../../../core/content";
 import { editorialRevisionId } from "../../../core/quality";
 import type { UserContent, UserData } from "../../user-flow/user-data";
@@ -19,7 +23,13 @@ export class ApprovalReadinessApplicationService extends BaseApprovalReadinessAp
     const source = content?.document;
     let effectiveInput = input;
     if (content && source) {
-      const document = normalizeApprovalDateOwnership(source);
+      const approvalProfileId = (content as UserContent & {
+        approvalProfileId?: ApprovalPolicyProfileId;
+      }).approvalProfileId;
+      let document = normalizeApprovalDateOwnership(source);
+      if (approvalProfileId) {
+        document = ensureRequiredApprovalEvidenceCandidates(document, approvalProfileId);
+      }
       if (document !== source) effectiveInput = { ...input, data: withNormalizedDocument(input.data, content, document) };
     }
     const result = await super.execute(effectiveInput);
