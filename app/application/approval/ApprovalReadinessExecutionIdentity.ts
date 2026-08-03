@@ -1,10 +1,13 @@
-import { canonicalizeApprovalEvidenceUrl } from "../../../core/approval";
+import {
+  canonicalizeApprovalEvidenceUrl,
+  isApprovalEvidenceSelectedSource,
+} from "../../../core/approval";
 import type { ContentDocument } from "../../../core/content";
 import { editorialRevisionId } from "../../../core/quality";
 import type { UserContent } from "../../user-flow/user-data";
 import { internalLinkCatalogContextKey } from "../publishing/InternalLinkCatalogPolicy";
 
-export const approvalReadinessInspectionVersion = "2.0" as const;
+export const approvalReadinessInspectionVersion = "3.0" as const;
 
 export function approvalReadinessExecutionIdentity(
   content: UserContent,
@@ -29,8 +32,14 @@ export function approvalReadinessExecutionIdentity(
   });
 }
 
+/**
+ * Search-candidate discovery is deliberately excluded from execution identity.
+ * A new candidate alone must not invalidate a verified Claim snapshot. Only a
+ * selected or explicitly user-owned Evidence source changes readiness identity.
+ */
 export function approvalEvidenceFingerprint(document: ContentDocument): string {
   const sources = (document.metadata?.approvalEvidence?.sources ?? [])
+    .filter(isApprovalEvidenceSelectedSource)
     .map((source) => ({
       canonicalUrl: canonicalizeApprovalEvidenceUrl(source.canonicalUrl ?? source.url),
       provenance: source.provenance
