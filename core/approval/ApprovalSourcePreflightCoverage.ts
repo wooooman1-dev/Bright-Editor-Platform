@@ -44,10 +44,7 @@ export function requiredApprovalSourcePreflightClaims(
 ): readonly ApprovalSourcePreflightRequirement[] {
   const text = planningText(opportunity);
   const facts = extractProfileApprovalFactsFromText(text, profileId);
-  const factsByField = new Map<string, string>();
-  for (const fact of facts) {
-    if (!factsByField.has(fact.field)) factsByField.set(fact.field, fact.value);
-  }
+  const factsByField = explicitPlanningFactValues(opportunity, profileId);
 
   const required = new Map<string, ApprovalSourcePreflightRequirement>();
   const add = (field: string, plannedValue?: string) => {
@@ -255,12 +252,11 @@ function claimValueMatchesText(value: string, text: string): boolean {
   }
 
   if (!canonicalQuantitiesMatch(value, text)) return false;
-  const keywords = significantValueTokens(value);
+  const keywords = significantNonQuantityTokens(value);
   if (!keywords.length) return true;
   const matched = keywords.filter((token) =>
     normalizedText.includes(normalizeComparable(token)));
-  return matched.length >= Math.min(2, keywords.length)
-    && matched.length / keywords.length >= 0.5;
+  return matched.length >= 1 && matched.length / keywords.length >= 0.5;
 }
 
 function plannedValueMatchesClaim(
@@ -294,6 +290,47 @@ function canonicalQuantitiesMatch(expected: string, observed: string): boolean {
   if (!expectedQuantities.length) return false;
   const observedQuantities = new Set(extractCanonicalQuantities(observed));
   return expectedQuantities.every((item) => observedQuantities.has(item));
+}
+
+function explicitPlanningFactValues(
+  opportunity: ConfirmedContentOpportunity,
+  profileId: ApprovalPolicyProfileId,
+): ReadonlyMap<string, string> {
+  const found = new Map<string, string>();
+  for (const line of explicitPlanningLines(opportunity)) {
+    for (const fact of extractProfileApprovalFactsFromText(line, profileId)) {
+      if (!concretePlanningFact(line, fact.field, fact.value)) continue;
+      if (!found.has(fact.field)) found.set(fact.field, fact.value);
+    }
+  }
+  return found;
+}
+
+function explicitPlanningLines(
+  opportunity: ConfirmedContentOpportunity,
+): readonly string[] {
+  return Object.freeze([
+    ...opportunity.expectedCoverage,
+    ...opportunity.cautions,
+    ...qualityTargetLines(opportunity).filter(looksLikeFactualPlanningLine),
+  ].map((line) => line.replace(/\s+/gu, " ").trim()).filter(Boolean));
+}
+
+function concretePlanningFact(
+  line: string,
+  field: string,
+  value: string,
+): boolean {
+  if (/[:：]/u.test(line)) return true;
+  if (extractCanonicalQuantities(value).length) return true;
+  if (artRequiredFields.includes(field)) return true;
+  if (
+    /(?:법|시행령|시행규칙|제\s*\d+조|의무|금지|제한|환급|위약금)/u.test(line)
+    && value.replace(/\s+/gu, " ").trim().length >= 16
+  ) {
+    return true;
+  }
+  return false;
 }
 
 function extractCanonicalQuantities(value: string): readonly string[] {
@@ -379,6 +416,21 @@ function extractCanonicalQuantities(value: string): readonly string[] {
   return Object.freeze([...found]);
 }
 
+function significantNonQuantityTokens(value: string): readonly string[] {
+  const withoutQuantities = value.normalize("NFKC")
+    .replace(
+      /(?<!\d)20\d{2}\s*(?:년|[-./])\s*(?:0?[1-9]|1[0-2])\s*(?:월|[-./])\s*(?:0?[1-9]|[12]\d|3[01])\s*일?/gu,
+      " ",
+    )
+    .replace(/(?<!\d)20\d{6}(?!\d)/gu, " ")
+    .replace(/(?<![\d.,])\d+(?:\.\d+)?\s*(?:조|억|만|천)\s*원(?![가-힣])/gu, " ")
+    .replace(/(?<![\d.,])(?:\d{1,3}(?:,\d{3})+|\d+)\s*원(?![가-힣])/gu, " ")
+    .replace(/(?<![\d.])\d+(?:\.\d+)?\s*(?:%|퍼센트)/gu, " ")
+    .replace(/(?<![\d.])\d+(?:\.\d+)?\s*(?:년|개월|일|시간|분)(?![가-힣])/gu, " ")
+    .replace(/(?<![\d.])\d+(?:\.\d+)?\s*(?:cm|mm|kg|g|m²|㎡|m)(?![A-Za-z가-힣])/giu, " ");
+  return significantValueTokens(withoutQuantities);
+}
+
 function canonicalNumber(value: string): string {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? String(parsed) : value;
@@ -409,12 +461,27 @@ function planningText(opportunity: ConfirmedContentOpportunity): string {
     opportunity.contentAngle,
     opportunity.readerProblem,
     ...opportunity.expectedCoverage,
+    ...opportunity.cautions,
+    ...qualityTargetLines(opportunity).filter(looksLikeFactualPlanningLine),
+  ].join("\n");
+}
+
+function qualityTargetLines(
+  opportunity: ConfirmedContentOpportunity,
+): readonly string[] {
+  return Object.freeze([
     ...opportunity.qualityTarget.requiredContentElements,
     ...opportunity.qualityTarget.coreQuestions,
     ...opportunity.qualityTarget.decisionCriteria,
     ...opportunity.qualityTarget.warningsOrExceptions,
     ...opportunity.qualityTarget.scopeBoundaries,
-  ].join("\n");
+  ]);
+}
+
+function looksLikeFactualPlanningLine(value: string): boolean {
+  const normalized = value.normalize("NFKC").trim();
+  if (!normalized || genericQualityBoilerplate.has(normalized)) return false;
+  return /[:：]|(?:\d|%|퍼센트|원|금리|세율|기간|대상|자격|요건|한도|지원금|법|시행령|시행규칙|제\s*\d+조|의무|금지|제한|환급|위약금|작품명|제작\s*연도|재료|기법|크기|규격|소장처|기관)/u.test(normalized);
 }
 
 function normalizeComparable(value: string): string {
@@ -524,4 +591,26 @@ const claimStopWords = new Set([
   "기준",
   "내용",
   "경우",
+]);
+
+const genericQualityBoilerplate = new Set([
+  "독자의 질문에 대한 직접 답변",
+  "필요한 배경 설명",
+  "실행 또는 적용 방법",
+  "주의사항과 다음 행동",
+  "복잡한 원인과 관계",
+  "여러 판단 기준",
+  "구체적인 사례와 예외",
+  "오해하기 쉬운 부분",
+  "위험과 주의사항",
+  "실행 가능한 다음 행동",
+  "명확한 비교 기준",
+  "차이와 장단점",
+  "상황별 선택 조건",
+  "최종 판단과 추천 기준",
+  "일반화하면 안 되는 예외와 주의사항",
+  "확인되지 않은 수치·사실·URL을 만들지 않음",
+  "주제 밖의 일반론으로 범위를 확장하지 않음",
+  "독자가 상황을 구분하고 다음 행동을 선택할 판단 기준",
+  "독자가 적용 여부를 결정할 핵심 기준",
 ]);
