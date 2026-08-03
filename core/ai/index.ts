@@ -1,5 +1,12 @@
 export type { AIProvider, AIRequest, AIResponse, AIWebSource } from "./AIProvider";
 export {
+  approvalSourcePreflightTask,
+  ApprovalSourcePreflightError,
+  runApprovalSourcePreflight,
+  withApprovalSourcePreflightInstruction,
+} from "./ApprovalSourcePreflight";
+export type { ApprovalSourcePreflightResult } from "./ApprovalSourcePreflight";
+export {
   aiUsageStageForTask,
   aiUsageStages,
   appendAIUsageRecord,
