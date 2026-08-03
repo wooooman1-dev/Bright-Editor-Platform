@@ -18,7 +18,10 @@ import {
   extractProfileApprovalFactsFromText,
   requiredApprovalFactFields,
 } from "./ApprovalEvidenceClaimPolicy";
-import { approvalOfficialDomains, officialDomainAllowed } from "./ApprovalOfficialSourcePolicy";
+import {
+  approvalOfficialDomains,
+  officialDomainAllowed,
+} from "./ApprovalOfficialSourcePolicy";
 
 export type ApprovalSourcePage = Readonly<{
   requestedUrl: string;
@@ -59,7 +62,11 @@ export function verifyApprovalEvidence(
   const existing = document.metadata?.approvalEvidence;
   if (!existing?.sources.length) {
     return Object.freeze({
-      pack: Object.freeze({ version: "1.0", status: "missing", sources: Object.freeze([]) }),
+      pack: Object.freeze({
+        version: "1.0",
+        status: "missing",
+        sources: Object.freeze([]),
+      }),
       verifiedSourceCount: 0,
       rejectedSourceCount: 0,
       reasons: Object.freeze(["검증할 공식 출처 후보가 없습니다."]),
@@ -67,14 +74,22 @@ export function verifyApprovalEvidence(
   }
 
   const baseFacts = extractProfileApprovalFacts(document, profileId);
-  const requiredFactFields = requiredApprovalFactFields(document, profileId, baseFacts);
+  const requiredFactFields = requiredApprovalFactFields(
+    document,
+    profileId,
+    baseFacts,
+  );
   const verifiedFactFields = new Set<string>();
   const pagesByCanonicalUrl = new Map<string, ApprovalSourcePage>();
   for (const page of pages) {
     const requested = canonicalizeApprovalEvidenceUrl(page.requestedUrl);
     const final = canonicalizeApprovalEvidenceUrl(page.finalUrl);
-    if (!pagesByCanonicalUrl.has(requested)) pagesByCanonicalUrl.set(requested, page);
-    if (!pagesByCanonicalUrl.has(final)) pagesByCanonicalUrl.set(final, page);
+    if (!pagesByCanonicalUrl.has(requested)) {
+      pagesByCanonicalUrl.set(requested, page);
+    }
+    if (!pagesByCanonicalUrl.has(final)) {
+      pagesByCanonicalUrl.set(final, page);
+    }
   }
 
   const reasons: string[] = [];
@@ -86,10 +101,16 @@ export function verifyApprovalEvidence(
     if (seenCanonicalUrls.has(canonicalUrl)) {
       const reason = `${source.url}: 동일한 canonical 출처가 이미 검사되어 중복 후보에서 제외했습니다.`;
       reasons.push(reason);
-      return diagnosticSource(source, reviewedAt, "duplicate_source", reason, {
-        canonicalUrl,
-        selected: false,
-      });
+      return diagnosticSource(
+        source,
+        reviewedAt,
+        "duplicate_source",
+        reason,
+        {
+          canonicalUrl,
+          selected: false,
+        },
+      );
     }
     seenCanonicalUrls.add(canonicalUrl);
 
@@ -109,9 +130,15 @@ export function verifyApprovalEvidence(
       httpStatus: page.status,
       contentType: page.contentType,
       ...(page.documentFormat ? { documentFormat: page.documentFormat } : {}),
-      ...(page.extractionStatus ? { extractionStatus: page.extractionStatus } : {}),
-      ...(page.extractionReason ? { extractionReason: page.extractionReason } : {}),
-      ...(page.contentLength !== undefined ? { contentLength: page.contentLength } : {}),
+      ...(page.extractionStatus
+        ? { extractionStatus: page.extractionStatus }
+        : {}),
+      ...(page.extractionReason
+        ? { extractionReason: page.extractionReason }
+        : {}),
+      ...(page.contentLength !== undefined
+        ? { contentLength: page.contentLength }
+        : {}),
     } as const;
 
     if (page.fetchError) {
@@ -138,80 +165,138 @@ export function verifyApprovalEvidence(
     if (extractionFailure) {
       const reason = `${source.url}: ${extractionFailure.message}`;
       reasons.push(reason);
-      return diagnosticSource(source, reviewedAt, extractionFailure.status, reason, {
-        ...pageDetails,
-        official,
-        selected: false,
-      }, page);
+      return diagnosticSource(
+        source,
+        reviewedAt,
+        extractionFailure.status,
+        reason,
+        {
+          ...pageDetails,
+          official,
+          selected: false,
+        },
+        page,
+      );
     }
 
     if (!isSupportedExtractedPage(page)) {
       const reason = `${source.url}: 현재 Evidence 검증에서 지원하지 않는 콘텐츠 형식입니다 (${page.contentType || "content-type 없음"}).`;
       reasons.push(reason);
-      return diagnosticSource(source, reviewedAt, "unsupported_content_type", reason, {
-        ...pageDetails,
-        official,
-        selected: false,
-      }, page);
+      return diagnosticSource(
+        source,
+        reviewedAt,
+        "unsupported_content_type",
+        reason,
+        {
+          ...pageDetails,
+          official,
+          selected: false,
+        },
+        page,
+      );
     }
 
     if (page.text.trim().length < 200) {
       const reason = `${source.url}: 추출된 본문이 너무 짧아 사실 대조를 수행하지 못했습니다.`;
       reasons.push(reason);
-      return diagnosticSource(source, reviewedAt, "empty_content", reason, {
-        ...pageDetails,
-        official,
-        selected: false,
-      }, page);
+      return diagnosticSource(
+        source,
+        reviewedAt,
+        "empty_content",
+        reason,
+        {
+          ...pageDetails,
+          official,
+          selected: false,
+        },
+        page,
+      );
     }
 
     if (!official) {
       const reason = `${source.url}: 적용 프로필의 공식 출처로 확인되지 않았습니다.`;
       reasons.push(reason);
-      return diagnosticSource(source, reviewedAt, "unofficial_source", reason, {
-        ...pageDetails,
-        official: false,
-        selected: false,
-      }, page);
+      return diagnosticSource(
+        source,
+        reviewedAt,
+        "unofficial_source",
+        reason,
+        {
+          ...pageDetails,
+          official: false,
+          selected: false,
+        },
+        page,
+      );
     }
 
     const provenance = sourceProvenance(source);
     if (provenance === "search_candidate") {
       const reason = `${source.url}: 검색 후보는 본문 인용 또는 사용자 선택 출처로 채택되기 전에는 Claim 검증에 사용할 수 없습니다.`;
       reasons.push(reason);
-      return diagnosticSource(source, reviewedAt, "excluded", reason, {
-        ...pageDetails,
-        official: true,
-        selected: false,
-      }, page);
+      return diagnosticSource(
+        source,
+        reviewedAt,
+        "excluded",
+        reason,
+        {
+          ...pageDetails,
+          official: true,
+          selected: false,
+        },
+        page,
+      );
     }
 
-    const roleFields = approvalEvidenceClaimFieldsForSourceUrl(canonicalUrl);
-    const sourceFacts = mergeApprovalFacts(
-      sourceLinkedClaimFacts(document, source, canonicalUrl, profileId),
-      extractApprovalCitationFacts(document, canonicalUrl),
-    ).filter((fact) => !roleFields || roleFields.includes(fact.field));
+    const roleHints = approvalEvidenceClaimFieldsForSourceUrl(canonicalUrl);
+    const sourceFacts = prioritizeApprovalFactsByHints(
+      mergeApprovalFacts(
+        sourceLinkedClaimFacts(
+          document,
+          source,
+          canonicalUrl,
+          profileId,
+        ),
+        extractApprovalCitationFacts(document, canonicalUrl),
+      ),
+      roleHints,
+    );
     if (!sourceFacts.length) {
       const reason = `${source.url}: 이 출처에 연결된 지원 가능한 Claim 역할을 식별하지 못했습니다.`;
       reasons.push(reason);
-      return diagnosticSource(source, reviewedAt, "unsupported_claim", reason, {
-        ...pageDetails,
-        official: true,
-        selected: false,
-        matchedFacts: Object.freeze([]),
-      }, page);
+      return diagnosticSource(
+        source,
+        reviewedAt,
+        "unsupported_claim",
+        reason,
+        {
+          ...pageDetails,
+          official: true,
+          selected: false,
+          matchedFacts: Object.freeze([]),
+        },
+        page,
+      );
     }
 
-    const matchedFacts = sourceFacts.filter((fact) => approvalFactMatchesPage(page, fact));
+    const matchedFacts = sourceFacts.filter((fact) =>
+      approvalFactMatchesPage(page, fact));
     if (!matchedFacts.length) {
       const reason = `${source.url}: 이 출처에 명시적으로 연결된 Claim과 공식 페이지의 일치를 확인하지 못했습니다.`;
       reasons.push(reason);
-      return diagnosticSource(source, reviewedAt, "fact_mismatch", reason, {
-        ...pageDetails,
-        official: true,
-        selected: false,
-        matchedFacts: Object.freeze(matchedFacts),
-      }, page);
+      return diagnosticSource(
+        source,
+        reviewedAt,
+        "fact_mismatch",
+        reason,
+        {
+          ...pageDetails,
+          official: true,
+          selected: false,
+          matchedFacts: Object.freeze(matchedFacts),
+        },
+        page,
+      );
     }
 
     verifiedSourceCount += 1;
@@ -228,9 +313,15 @@ export function verifyApprovalEvidence(
       httpStatus: page.status,
       contentType: page.contentType,
       ...(page.documentFormat ? { documentFormat: page.documentFormat } : {}),
-      ...(page.extractionStatus ? { extractionStatus: page.extractionStatus } : {}),
-      ...(page.extractionReason ? { extractionReason: page.extractionReason } : {}),
-      ...(page.contentLength !== undefined ? { contentLength: page.contentLength } : {}),
+      ...(page.extractionStatus
+        ? { extractionStatus: page.extractionStatus }
+        : {}),
+      ...(page.extractionReason
+        ? { extractionReason: page.extractionReason }
+        : {}),
+      ...(page.contentLength !== undefined
+        ? { contentLength: page.contentLength }
+        : {}),
       official: true,
       selected: provenance === "citation" || provenance === "user_selected",
       verificationStatus: "verified" as const,
@@ -240,21 +331,32 @@ export function verifyApprovalEvidence(
       matchedFacts: Object.freeze(matchedFacts),
       linkedBlockIds: Object.freeze([...new Set([
         ...(source.linkedBlockIds ?? []),
-        ...matchedFacts.flatMap((fact) => fact.blockId ? [fact.blockId] : []),
+        ...matchedFacts.flatMap((fact) =>
+          fact.blockId ? [fact.blockId] : []),
       ])]),
       checkedAt: reviewedAt,
     } satisfies ApprovalEvidenceSource);
   });
 
-  const unverifiedFactFields = requiredFactFields.filter((field) => !verifiedFactFields.has(field));
+  const unverifiedFactFields = requiredFactFields.filter((field) =>
+    !verifiedFactFields.has(field));
   if (unverifiedFactFields.length) {
-    reasons.push(`핵심 Claim 검증이 완료되지 않았습니다: ${unverifiedFactFields.join(", ")}`);
+    reasons.push(
+      `핵심 Claim 검증이 완료되지 않았습니다: ${unverifiedFactFields.join(", ")}`,
+    );
   }
   const hasAdoptedSource = sources.some((source) =>
     source.claimVerificationStatus === "verified"
-    && (sourceProvenance(source) === "citation" || sourceProvenance(source) === "user_selected"));
-  if (!hasAdoptedSource) reasons.push("본문 인용 또는 사용자 선택으로 채택된 공식 출처가 없습니다.");
-  const verified = verifiedSourceCount > 0 && unverifiedFactFields.length === 0 && hasAdoptedSource;
+    && (
+      sourceProvenance(source) === "citation"
+      || sourceProvenance(source) === "user_selected"
+    ));
+  if (!hasAdoptedSource) {
+    reasons.push("본문 인용 또는 사용자 선택으로 채택된 공식 출처가 없습니다.");
+  }
+  const verified = verifiedSourceCount > 0
+    && unverifiedFactFields.length === 0
+    && hasAdoptedSource;
   const pack: ApprovalEvidencePack = Object.freeze({
     version: "1.0",
     status: verified ? "verified" : "needs_review",
@@ -276,18 +378,47 @@ export function verifyApprovalEvidence(
   });
 }
 
-export function extractApprovalFacts(document: ContentDocument): readonly ApprovalEvidenceFact[] {
+export function extractApprovalFacts(
+  document: ContentDocument,
+): readonly ApprovalEvidenceFact[] {
   const text = documentText(document);
   const found = new Map<string, ApprovalEvidenceFact>();
-  const patterns: readonly Readonly<{ field: string; pattern: RegExp }>[] = [
-    { field: "artworkTitle", pattern: /(?:작품명|작품 제목)\s*[:：]\s*([^\n|]{2,120})/gi },
-    { field: "creationYear", pattern: /(?:제작\s*(?:연도|년도)|연도)\s*[:：]\s*((?:1[3-9]\d{2}|20\d{2})(?:년)?)/gi },
-    { field: "medium", pattern: /(?:재료|기법)\s*[:：]\s*([^\n|]{2,120})/gi },
-    { field: "dimensions", pattern: /(?:크기|규격)\s*[:：]\s*([^\n|]{2,120})/gi },
-    { field: "holdingInstitution", pattern: /(?:소장처|소장\s*기관)\s*[:：]\s*([^\n|]{2,160})/gi },
-    { field: "eligibility", pattern: /(?:지원\s*대상|신청\s*대상|적용\s*대상)\s*[:：]\s*([^\n|]{2,200})/gi },
-    { field: "amount", pattern: /(?:지원\s*금액|금액|한도)\s*[:：]\s*([^\n|]{2,120})/gi },
-    { field: "period", pattern: /(?:신청\s*기간|적용\s*기간|기간)\s*[:：]\s*([^\n|]{2,160})/gi },
+  const patterns: readonly Readonly<{
+    field: string;
+    pattern: RegExp;
+  }>[] = [
+    {
+      field: "artworkTitle",
+      pattern: /(?:작품명|작품 제목)\s*[:：]\s*([^\n|]{2,120})/gi,
+    },
+    {
+      field: "creationYear",
+      pattern: /(?:제작\s*(?:연도|년도)|연도)\s*[:：]\s*((?:1[3-9]\d{2}|20\d{2})(?:년)?)/gi,
+    },
+    {
+      field: "medium",
+      pattern: /(?:재료|기법)\s*[:：]\s*([^\n|]{2,120})/gi,
+    },
+    {
+      field: "dimensions",
+      pattern: /(?:크기|규격)\s*[:：]\s*([^\n|]{2,120})/gi,
+    },
+    {
+      field: "holdingInstitution",
+      pattern: /(?:소장처|소장\s*기관)\s*[:：]\s*([^\n|]{2,160})/gi,
+    },
+    {
+      field: "eligibility",
+      pattern: /(?:지원\s*대상|신청\s*대상|적용\s*대상)\s*[:：]\s*([^\n|]{2,200})/gi,
+    },
+    {
+      field: "amount",
+      pattern: /(?:지원\s*금액|금액|한도)\s*[:：]\s*([^\n|]{2,120})/gi,
+    },
+    {
+      field: "period",
+      pattern: /(?:신청\s*기간|적용\s*기간|기간)\s*[:：]\s*([^\n|]{2,160})/gi,
+    },
   ];
 
   for (const { field, pattern } of patterns) {
@@ -299,7 +430,9 @@ export function extractApprovalFacts(document: ContentDocument): readonly Approv
   for (const year of text.matchAll(/\b(?:1[3-9]\d{2}|20\d{2})\b/g)) {
     addApprovalFact(found, "yearSignal", year[0]);
   }
-  for (const dimensions of text.matchAll(/\b\d+(?:[.,]\d+)?\s*(?:×|x|X)\s*\d+(?:[.,]\d+)?(?:\s*(?:cm|㎝|mm|m))?/g)) {
+  for (const dimensions of text.matchAll(
+    /\b\d+(?:[.,]\d+)?\s*(?:×|x|X)\s*\d+(?:[.,]\d+)?(?:\s*(?:cm|㎝|mm|m))?/g,
+  )) {
     addApprovalFact(found, "dimensionSignal", dimensions[0]);
   }
 
@@ -318,14 +451,16 @@ export function extractApprovalCitationFacts(
   const canonicalSourceUrl = canonicalizeApprovalEvidenceUrl(sourceUrl);
   const found = new Map<string, ApprovalEvidenceFact>();
 
-  for (const blockText of documentBlockTexts(document)) {
-    for (const line of blockText.split(/\r?\n/g)) {
+  for (const blockTextValue of documentBlockTexts(document)) {
+    for (const line of blockTextValue.split(/\r?\n/g)) {
       const trimmed = line.trim();
       if (!/^(?:[-*•]|\d+[.)])\s+/.test(trimmed)) continue;
 
       for (const match of trimmed.matchAll(/https:\/\/[^\s)\]]+/gi)) {
         const rawUrl = trimCitationUrl(match[0]);
-        if (canonicalizeApprovalEvidenceUrl(rawUrl) !== canonicalSourceUrl) continue;
+        if (canonicalizeApprovalEvidenceUrl(rawUrl) !== canonicalSourceUrl) {
+          continue;
+        }
 
         const prefix = trimmed.slice(0, match.index ?? 0);
         const label = cleanCitationLabel(prefix);
@@ -354,14 +489,35 @@ export function officialSourceAllowed(
     return Boolean(domains && officialDomainAllowed(host, domains));
   }
 
-  if (vivaRainDeniedDomains.some((domain) => host === domain || host.endsWith(`.${domain}`))) return false;
-  if (host.endsWith(".museum") || host.endsWith(".gov") || host.endsWith(".go.kr")) return true;
-  if (vivaRainOfficialDomains.some((domain) => host === domain || host.endsWith(`.${domain}`))) return true;
+  if (vivaRainDeniedDomains.some((domain) =>
+    host === domain || host.endsWith(`.${domain}`))) {
+    return false;
+  }
+  if (
+    host.endsWith(".museum")
+    || host.endsWith(".gov")
+    || host.endsWith(".go.kr")
+  ) {
+    return true;
+  }
+  if (vivaRainOfficialDomains.some((domain) =>
+    host === domain || host.endsWith(`.${domain}`))) {
+    return true;
+  }
 
-  const institutionalText = normalizeFact(`${host} ${page.title} ${page.publisher} ${page.text.slice(0, 5000)}`);
-  const hasInstitutionSignal = vivaRainInstitutionSignals.some((signal) => institutionalText.includes(normalizeFact(signal)));
+  const institutionalText = normalizeFact(
+    `${host} ${page.title} ${page.publisher} ${page.text.slice(0, 5000)}`,
+  );
+  const hasInstitutionSignal = vivaRainInstitutionSignals.some((signal) =>
+    institutionalText.includes(normalizeFact(signal)));
   const hasInstitutionalDomain = /(?:museum|musee|gallery|gallerie|kunst|archive|foundation|collection|artinstitut|nga|moma|metmuseum|tate|rijksmuseum|getty)/i.test(host);
-  return hasInstitutionSignal && (hasInstitutionalDomain || host.endsWith(".org") || host.endsWith(".edu") || host.endsWith(".ac.kr"));
+  return hasInstitutionSignal
+    && (
+      hasInstitutionalDomain
+      || host.endsWith(".org")
+      || host.endsWith(".edu")
+      || host.endsWith(".ac.kr")
+    );
 }
 
 export function canonicalizeApprovalEvidenceUrl(value: string): string {
@@ -375,7 +531,9 @@ export function canonicalizeApprovalEvidenceUrl(value: string): string {
       if (trackingParameter(key)) url.searchParams.delete(key);
     }
     url.searchParams.sort();
-    if (url.pathname.length > 1) url.pathname = url.pathname.replace(/\/+$/g, "");
+    if (url.pathname.length > 1) {
+      url.pathname = url.pathname.replace(/\/+$/g, "");
+    }
     return url.toString();
   } catch {
     return value.trim();
@@ -404,7 +562,8 @@ function diagnosticSource(
 ): ApprovalEvidenceSource {
   const accessVerificationStatus = verificationStatus === "unreachable"
     ? "failed" as const
-    : verificationStatus === "duplicate_source" || verificationStatus === "excluded"
+    : verificationStatus === "duplicate_source"
+      || verificationStatus === "excluded"
       ? "not_evaluated" as const
       : "verified" as const;
   const officialDomainVerificationStatus = details.official === true
@@ -449,15 +608,30 @@ function sourceExtractionFailure(page: ApprovalSourcePage): Readonly<{
   const reason = page.extractionReason?.trim();
   switch (page.extractionStatus) {
     case "unavailable":
-      return Object.freeze({ status: "unreachable", message: reason || "출처 응답을 가져오지 못했습니다." });
+      return Object.freeze({
+        status: "unreachable",
+        message: reason || "출처 응답을 가져오지 못했습니다.",
+      });
     case "empty":
-      return Object.freeze({ status: "empty_content", message: reason || "출처 응답 본문이 비어 있습니다." });
+      return Object.freeze({
+        status: "empty_content",
+        message: reason || "출처 응답 본문이 비어 있습니다.",
+      });
     case "too_large":
-      return Object.freeze({ status: "content_too_large", message: reason || "출처 응답이 검증 허용 크기를 초과했습니다." });
+      return Object.freeze({
+        status: "content_too_large",
+        message: reason || "출처 응답이 검증 허용 크기를 초과했습니다.",
+      });
     case "malformed":
-      return Object.freeze({ status: "malformed_content", message: reason || "출처 문서가 손상되었거나 형식 규칙에 맞지 않습니다." });
+      return Object.freeze({
+        status: "malformed_content",
+        message: reason || "출처 문서가 손상되었거나 형식 규칙에 맞지 않습니다.",
+      });
     case "unsupported":
-      return Object.freeze({ status: "unsupported_content_type", message: reason || "출처 문서 형식을 지원하지 않습니다." });
+      return Object.freeze({
+        status: "unsupported_content_type",
+        message: reason || "출처 문서 형식을 지원하지 않습니다.",
+      });
     default:
       return undefined;
   }
@@ -480,9 +654,27 @@ function mergeApprovalFacts(
   return Object.freeze([...found.values()]);
 }
 
-function sourceProvenance(source: ApprovalEvidenceSource): ApprovalEvidenceProvenance {
+function prioritizeApprovalFactsByHints(
+  facts: readonly ApprovalEvidenceFact[],
+  hintedFields: readonly string[] | undefined,
+): readonly ApprovalEvidenceFact[] {
+  if (!hintedFields?.length) return facts;
+  const hints = new Set(hintedFields);
+  return Object.freeze([...facts].sort((left, right) =>
+    Number(hints.has(right.field)) - Number(hints.has(left.field))));
+}
+
+function sourceProvenance(
+  source: ApprovalEvidenceSource,
+): ApprovalEvidenceProvenance {
   return source.provenance
-    ?? (source.cited === true ? "citation" : source.selected === true ? "user_selected" : "search_candidate");
+    ?? (
+      source.cited === true
+        ? "citation"
+        : source.selected === true
+          ? "user_selected"
+          : "search_candidate"
+    );
 }
 
 function sourceLinkedClaimFacts(
@@ -499,15 +691,24 @@ function sourceLinkedClaimFacts(
   };
 
   if (source.citationExcerpt) {
-    for (const fact of extractProfileApprovalFactsFromText(source.citationExcerpt, profileId)) add(fact);
+    for (const fact of extractProfileApprovalFactsFromText(
+      source.citationExcerpt,
+      profileId,
+    )) {
+      add(fact);
+    }
   }
-  for (const fact of source.facts.filter((fact) => fact.field !== "citedContext")) add(fact);
+  for (const fact of source.facts.filter((item) =>
+    item.field !== "citedContext")) {
+    add(fact);
+  }
 
   for (const [blockIndex, block] of document.blocks.entries()) {
     const text = blockText(block);
     const explicitlyLinked = linkedIds.has(block.id)
       || [...text.matchAll(/https:\/\/[^\s<>)"'\]}]+/gi)].some((match) =>
-        canonicalizeApprovalEvidenceUrl(trimCitationUrl(match[0])) === canonicalUrl);
+        canonicalizeApprovalEvidenceUrl(trimCitationUrl(match[0]))
+        === canonicalUrl);
     if (!explicitlyLinked) continue;
     for (const fact of extractProfileApprovalFactsFromText(text, profileId)) {
       add(Object.freeze({ ...fact, blockId: block.id, excerpt: text }));
@@ -515,8 +716,15 @@ function sourceLinkedClaimFacts(
     if (/(?:^|\n)\s*(?:출처|공식\s*(?:출처|확인처))\s*:/u.test(text)) {
       const previous = document.blocks[blockIndex - 1];
       if (previous?.type === "paragraph") {
-        for (const fact of extractProfileApprovalFactsFromText(previous.text, profileId)) {
-          add(Object.freeze({ ...fact, blockId: previous.id, excerpt: previous.text }));
+        for (const fact of extractProfileApprovalFactsFromText(
+          previous.text,
+          profileId,
+        )) {
+          add(Object.freeze({
+            ...fact,
+            blockId: previous.id,
+            excerpt: previous.text,
+          }));
         }
       }
     }
@@ -531,10 +739,12 @@ function verifiedSourceTitle(
   matchedFacts: readonly ApprovalEvidenceFact[],
 ): string {
   const fields = new Set(matchedFacts.map((fact) => fact.field));
-  if (fields.has("continuingTransactionContractDocument")
+  if (
+    fields.has("continuingTransactionContractDocument")
     && fields.has("excessiveTerminationPenalty")
     && fields.has("excessPaymentRefund")
-    && /방문판매\s*등에\s*관한\s*법률/u.test(page.text)) {
+    && /방문판매\s*등에\s*관한\s*법률/u.test(page.text)
+  ) {
     return "방문판매 등에 관한 법률 제30조·제32조";
   }
   return page.title || source.title;
@@ -546,7 +756,9 @@ function verifiedSourcePublisher(
   source: ApprovalEvidenceSource,
 ): string {
   try {
-    if (new URL(canonicalUrl).hostname === "law.go.kr") return "국가법령정보센터";
+    if (new URL(canonicalUrl).hostname === "law.go.kr") {
+      return "국가법령정보센터";
+    }
   } catch {
     // Fall through to the observed publisher.
   }
@@ -554,9 +766,17 @@ function verifiedSourcePublisher(
 }
 
 function blockText(block: ContentDocument["blocks"][number]): string {
-  if (block.type === "heading" || block.type === "paragraph") return block.text;
+  if (block.type === "heading" || block.type === "paragraph") {
+    return block.text;
+  }
   if (block.type === "list") return serializeStructuredList(block);
-  if (block.type === "table") return [block.caption ?? "", ...block.headers, ...block.rows.flat()].join("\n");
+  if (block.type === "table") {
+    return [
+      block.caption ?? "",
+      ...block.headers,
+      ...block.rows.flat(),
+    ].join("\n");
+  }
   if (block.type === "button") return `${block.label}\n${block.targetUrl}`;
   if (block.type === "image") return `${block.alt}\n${block.prompt ?? ""}`;
   return block.source;
@@ -618,11 +838,21 @@ function documentText(document: ContentDocument): string {
   return [document.title, ...documentBlockTexts(document)].join("\n");
 }
 
-function documentBlockTexts(document: ContentDocument): readonly string[] {
+function documentBlockTexts(
+  document: ContentDocument,
+): readonly string[] {
   return Object.freeze(document.blocks.flatMap((block) => {
-    if (block.type === "heading" || block.type === "paragraph") return [block.text];
+    if (block.type === "heading" || block.type === "paragraph") {
+      return [block.text];
+    }
     if (block.type === "list") return [serializeStructuredList(block)];
-    if (block.type === "table") return [block.caption ?? "", ...block.headers, ...block.rows.flat()];
+    if (block.type === "table") {
+      return [
+        block.caption ?? "",
+        ...block.headers,
+        ...block.rows.flat(),
+      ];
+    }
     if (block.type === "button") return [block.label, block.targetUrl];
     if (block.type === "image") return [block.alt, block.prompt ?? ""];
     return [];
@@ -630,7 +860,10 @@ function documentBlockTexts(document: ContentDocument): readonly string[] {
 }
 
 function cleanFactValue(value: string): string {
-  return value.replace(/https:\/\/\S+/gi, "").replace(/\s+/g, " ").replace(/[.;,]+$/g, "").trim();
+  return value.replace(/https:\/\/\S+/gi, "")
+    .replace(/\s+/g, " ")
+    .replace(/[.;,]+$/g, "")
+    .trim();
 }
 
 function normalizeFact(value: string): string {
@@ -642,7 +875,8 @@ function normalizeFact(value: string): string {
 }
 
 function trackingParameter(value: string): boolean {
-  return /^utm_/i.test(value) || trackingParameters.has(value.toLocaleLowerCase("en-US"));
+  return /^utm_/i.test(value)
+    || trackingParameters.has(value.toLocaleLowerCase("en-US"));
 }
 
 const trackingParameters = new Set([
