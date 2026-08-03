@@ -245,7 +245,12 @@ function objectValue(value: unknown): Record<string, unknown> | undefined {
 }
 
 function approvalWebSearchPolicy(metadata?: Readonly<Record<string, string>>) {
-  if (metadata?.task !== "content-generation" || metadata.approvalPurpose !== "adsense_approval") return undefined;
+  if (metadata?.approvalPurpose !== "adsense_approval") return undefined;
+  const task = metadata.task;
+  const preflight = task === "approval-source-preflight";
+  const legacyInlineSearch = task === "content-generation"
+    && metadata.approvalEvidenceMode !== "preflight_verified";
+  if (!preflight && !legacyInlineSearch) return undefined;
   const domains = approvalOfficialDomains(metadata.approvalProfileId as ApprovalPolicyProfileId);
   return {
     type: "web_search" as const,
@@ -315,6 +320,13 @@ function readTimeout(value: string | undefined, fallback: number): number {
 }
 
 function editorialOutputPolicy(metadata?: Readonly<Record<string, string>>) {
+  if (metadata?.task === "approval-source-preflight") {
+    return {
+      maxOutputTokens: 2_500,
+      verbosity: "low" as const,
+      format: approvalSourcePreflightFormat,
+    };
+  }
   if (metadata?.task === "content-generation") {
     const target = parseQualityTarget(metadata.qualityTarget);
     return { maxOutputTokens: outputTokenBudget(target), verbosity: "medium" as const, format: structuredGenerationFormat(target) };
@@ -323,6 +335,33 @@ function editorialOutputPolicy(metadata?: Readonly<Record<string, string>>) {
   if (/tistory|blog|article|long-form|guide|아티클|장문/i.test(`${metadata?.platform ?? ""} ${metadata?.contentType ?? ""}`)) return { maxOutputTokens: 12_000, verbosity: "medium" as const, format: editorialDocumentFormat };
   return undefined;
 }
+
+export const approvalSourcePreflightFormat = {
+  type: "json_schema",
+  name: "approval_source_preflight",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    required: ["sources"],
+    properties: {
+      sources: {
+        type: "array",
+        maxItems: 6,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["url", "title", "evidenceExcerpt"],
+          properties: {
+            url: { type: "string" },
+            title: { type: "string" },
+            evidenceExcerpt: { type: "string" },
+          },
+        },
+      },
+    },
+  },
+} as const;
 
 export function structuredGenerationFormat(target: ContentPlanQualityTarget = determineContentPlanQualityTarget({ contentType: "article" })) {
   return {
