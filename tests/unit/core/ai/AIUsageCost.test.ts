@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  aiUsageStageForTask,
   appendAIUsageRecord,
   createAIUsageRecord,
   totalAIUsageCostUsd,
@@ -8,6 +9,10 @@ import {
 } from "../../../../core/ai";
 
 describe("AI usage cost ledger", () => {
+  it("classifies approval source discovery as source preflight", () => {
+    expect(aiUsageStageForTask("approval-source-preflight")).toBe("source_preflight");
+  });
+
   it("calculates GPT-5.6 Terra standard token cost", () => {
     const record = createAIUsageRecord({
       stage: "generation",
@@ -55,8 +60,8 @@ describe("AI usage cost ledger", () => {
 
   it("adds web-search request cost and de-duplicates the same response", () => {
     const record = createAIUsageRecord({
-      stage: "generation",
-      task: "content-generation",
+      stage: "source_preflight",
+      task: "approval-source-preflight",
       model: "gpt-5.6-terra",
       responseId: "resp-web",
       recordedAt: "2026-08-02T00:00:00.000Z",
