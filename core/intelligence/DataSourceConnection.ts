@@ -50,6 +50,7 @@ export type DataSourceConnectionErrorCode =
   | "GOOGLE_OAUTH_REFRESH_FAILED"
   | "GOOGLE_OAUTH_SCOPE_MISSING"
   | "GOOGLE_SEARCH_CONSOLE_RESOURCE_NOT_FOUND"
+  | "GOOGLE_SEARCH_CONSOLE_NO_PROPERTIES"
   | "DATA_SOURCE_WORKSPACE_FORBIDDEN";
 
 export type DataSourceResourceConfiguration = Readonly<{
