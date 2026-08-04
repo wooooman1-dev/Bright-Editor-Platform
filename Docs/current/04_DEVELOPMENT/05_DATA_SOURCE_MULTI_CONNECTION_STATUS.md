@@ -98,14 +98,15 @@ Independent Project area implementation commits:
 2887985  test: cover independent project data source areas
 f6795cd  fix: avoid synchronizing project sections in an effect
 89efa4f  docs: record independent project areas and evidence matching
+02eb2e8  docs: record independent project area CI success
 ```
 
-Final verified head before this verification-note update:
+Final verified HEAD:
 
 ```text
-Commit: 89efa4f4cc4b8198296ecaa9a68867f3fc504cd0
-Run: 30881416179
-Job: 91903424472
+Commit: 02eb2e8c60a3612b3b33493142df299aa6c02d3e
+Run: 30881688318
+Job: 91904229360
 Conclusion: success
 ```
 
