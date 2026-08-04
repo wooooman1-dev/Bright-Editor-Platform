@@ -39,7 +39,7 @@ export function ProjectApprovalSettingsCard({
   );
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const profileOptions = useMemo(() => compatibleApprovalProfiles(project, persisted.approvalProfileId), [project, persisted.approvalProfileId]);
-  const subtopics = strategy.subtopics.map((value) => value.trim()).filter(Boolean);
+  const subtopics = (strategy.subtopics ?? []).map((value) => value.trim()).filter(Boolean);
 
   const save = async () => {
     setSaveState("saving");
