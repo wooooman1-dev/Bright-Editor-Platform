@@ -27,6 +27,7 @@ import { DELETE, GET, POST } from "../../../../app/api/data-sources/route";
 
 function request(body: unknown) { return new Request("http://localhost/api/data-sources", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); }
 function saveBody(provider: string, resourceConfiguration: Record<string, unknown>, credentials: Record<string, string> = { accessToken: "secret-token-value" }) { return { action: "save-connection", workspaceId: "workspace-1", provider, displayName: "Connection", resourceConfiguration, credentials }; }
+function project(id: string, name = id) { return { id, workspaceId: "workspace-1", name, description: "", createdAt: "now", updatedAt: "now" }; }
 
 describe("Data Source API safety", () => {
   beforeEach(() => {
@@ -34,6 +35,8 @@ describe("Data Source API safety", () => {
     mocks.studioGet.mockResolvedValue({ workspace: { id: "workspace-1" }, projects: [] });
     mocks.storeSecret.mockResolvedValue("secret-reference");
     mocks.connectionSave.mockResolvedValue(undefined);
+    mocks.referenceSave.mockResolvedValue(undefined);
+    mocks.referenceDelete.mockResolvedValue(undefined);
     mocks.deleteSecret.mockResolvedValue(undefined);
     mocks.oauthConfigured.mockReturnValue(false);
     mocks.oauthInvalidate.mockResolvedValue(undefined);
@@ -65,7 +68,7 @@ describe("Data Source API safety", () => {
     expect(JSON.stringify(result)).not.toContain("client-id-secret");
   });
 
-  it("rejects an invented Search Console property and accepts a server-listed property", async () => {
+  it("rejects an invented Search Console property and accepts a server-listed property for initial configuration", async () => {
     mocks.connectionFind.mockResolvedValue({ id: "connection-1", workspaceId: "workspace-1", provider: "googleSearchConsole", displayName: "GSC", status: "configurationRequired", secretReference: "secret-reference", credentialMode: "googleOAuth", resourceConfiguration: {}, availableResources: [{ resourceId: "sc-domain:allowed.example", siteUrl: "sc-domain:allowed.example", displayName: "Allowed", permissionLevel: "siteOwner" }], enabled: true, createdAt: "now", updatedAt: "now", version: 1 });
     const invented = await POST(request({ ...saveBody("googleSearchConsole", { siteProperty: "sc-domain:invented.example" }, {}), connectionId: "connection-1", connectionVersion: 1 }));
     expect(invented.status).toBe(400);
@@ -83,6 +86,27 @@ describe("Data Source API safety", () => {
     const allowed = await POST(request({ ...saveBody("youtubeAnalytics", { channelId: "channel-1", channelTitle: "spoofed" }, {}), connectionId: "youtube-1", connectionVersion: 1 }));
     expect(allowed.status).toBe(200);
     expect(mocks.connectionSave).toHaveBeenCalledWith(expect.objectContaining({ id: "youtube-1", resourceConfiguration: { channelId: "channel-1", channelTitle: "밝은건강TV" } }));
+  });
+
+  it("blocks an established Search Console connection from being changed to another property", async () => {
+    mocks.connectionFind.mockResolvedValue({ id: "gsc-health", workspaceId: "workspace-1", provider: "googleSearchConsole", displayName: "Health", status: "ready", secretReference: "secret-reference", credentialMode: "googleOAuth", resourceConfiguration: { siteProperty: "sc-domain:health.example" }, availableResources: [{ resourceId: "sc-domain:health.example", siteUrl: "sc-domain:health.example" }, { resourceId: "sc-domain:finance.example", siteUrl: "sc-domain:finance.example" }], enabled: true, createdAt: "now", updatedAt: "now", version: 3 });
+    const response = await POST(request({ ...saveBody("googleSearchConsole", { siteProperty: "sc-domain:finance.example" }, {}), connectionId: "gsc-health", connectionVersion: 3 }));
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({ code: "DATA_SOURCE_CONFLICT", field: "siteProperty" });
+    expect(mocks.connectionSave).not.toHaveBeenCalled();
+  });
+
+  it("treats a NAVER keyword set as immutable while allowing order-only normalization", async () => {
+    const existing = { id: "naver-health", workspaceId: "workspace-1", provider: "naverSearchTrend", displayName: "Health", status: "ready", secretReference: "secret-reference", credentialMode: "providerCredential", resourceConfiguration: { keywords: ["건강", "운동"] }, enabled: true, createdAt: "now", updatedAt: "now", version: 2 };
+    mocks.connectionFind.mockResolvedValue(existing);
+    const reordered = await POST(request({ ...saveBody("naverSearchTrend", { keywords: ["운동", "건강"] }, {}), connectionId: existing.id, connectionVersion: 2 }));
+    expect(reordered.status).toBe(200);
+
+    mocks.connectionSave.mockClear();
+    const changed = await POST(request({ ...saveBody("naverSearchTrend", { keywords: ["예금", "적금"] }, {}), connectionId: existing.id, connectionVersion: 2 }));
+    expect(changed.status).toBe(409);
+    await expect(changed.json()).resolves.toMatchObject({ code: "DATA_SOURCE_CONFLICT", field: "keywords" });
+    expect(mocks.connectionSave).not.toHaveBeenCalled();
   });
 
   it("creates a second same-provider resource connection without overwriting the source", async () => {
@@ -137,11 +161,30 @@ describe("Data Source API safety", () => {
     expect(JSON.stringify(result)).not.toContain("dpapi-secret-reference");
   });
 
-  it("returns Workspace-wide Project reference counts without exposing credentials", async () => {
+  it("returns only normalized single-owner Project references and counts", async () => {
+    mocks.studioGet.mockResolvedValue({ workspace: { id: "workspace-1" }, projects: [project("project-health", "건강정보"), project("project-finance", "밝은재테크")] });
     mocks.connectionList.mockResolvedValue([{ id: "connection-1", workspaceId: "workspace-1", provider: "googleSearchConsole", displayName: "GSC", status: "ready", secretReference: "secret-reference", credentialMode: "googleOAuth", resourceConfiguration: { siteProperty: "sc-domain:example.com" }, enabled: true, createdAt: "now", updatedAt: "now", version: 1 }]);
-    mocks.referenceListWorkspace.mockResolvedValue([{ workspaceId: "workspace-1", projectId: "project-1", connectionId: "connection-1", enabled: true }, { workspaceId: "workspace-1", projectId: "project-2", connectionId: "connection-1", enabled: true }]);
+    mocks.referenceList.mockImplementation(async (projectId: string) => projectId === "project-health"
+      ? [{ workspaceId: "workspace-1", projectId: "project-health", connectionId: "connection-1", enabled: true }]
+      : []);
     const response = await GET(new Request("http://localhost/api/data-sources?workspaceId=workspace-1"));
-    await expect(response.json()).resolves.toMatchObject({ connections: [{ id: "connection-1", projectReferenceCount: 2, hasCredentials: true }] });
+    await expect(response.json()).resolves.toMatchObject({
+      connections: [{ id: "connection-1", projectReferenceCount: 1, hasCredentials: true }],
+      workspaceProjectReferences: [{ projectId: "project-health", connectionId: "connection-1", enabled: true }],
+    });
+    expect(mocks.referenceListWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("returns a Project-specific 409 before assigning another Project owner's connection", async () => {
+    mocks.studioGet.mockResolvedValue({ workspace: { id: "workspace-1" }, projects: [project("project-health", "건강정보"), project("project-finance", "밝은재테크")] });
+    mocks.connectionFind.mockResolvedValue({ id: "connection-1", workspaceId: "workspace-1", provider: "googleSearchConsole", displayName: "GSC", status: "ready", resourceConfiguration: { siteProperty: "health" }, enabled: true, createdAt: "now", updatedAt: "now", version: 1 });
+    mocks.referenceList.mockImplementation(async (projectId: string) => projectId === "project-health"
+      ? [{ workspaceId: "workspace-1", projectId: "project-health", connectionId: "connection-1", enabled: true }]
+      : []);
+    const response = await POST(request({ action: "set-project-reference", workspaceId: "workspace-1", projectId: "project-finance", connectionId: "connection-1", enabled: true }));
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({ code: "DATA_SOURCE_PROJECT_SCOPE_CONFLICT", field: "connectionId", error: expect.stringContaining("건강정보 Project에서 사용 중") });
+    expect(mocks.referenceSave).not.toHaveBeenCalled();
   });
 
   it("uses the dedicated DELETE contract and returns only safe deletion metadata", async () => {
@@ -167,6 +210,7 @@ describe("Data Source API safety", () => {
     expect(value).toContain("ownedProject(data, projectId)");
     expect(value).toContain("ownedConnection(project.workspaceId, connectionId)");
     expect(value).toContain("DATA_SOURCE_PERMISSION_ERROR");
+    expect(value).toContain("DATA_SOURCE_PROJECT_SCOPE_CONFLICT");
     expect(value).toContain("connectionVersion");
   });
 
