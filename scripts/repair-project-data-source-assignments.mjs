@@ -1,4 +1,5 @@
-import { copyFile, readFile, rename, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { copyFile, mkdir, open, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -6,6 +7,8 @@ import { fileURLToPath } from "node:url";
 const projectRoot = process.cwd();
 const defaultStudioPath = path.join(projectRoot, ".bright-studio", "studio-data.json");
 const defaultMetadataPath = path.join(projectRoot, ".bright-studio", "intelligence", "metadata.json");
+const defaultNextDevLockPath = path.join(projectRoot, ".next", "dev", "lock");
+const repairLockSuffix = ".project-assignment-repair.lock";
 const ignoredTerms = new Set(["관리", "방법", "가이드", "정보", "콘텐츠", "글", "프로젝트", "위한", "대한"]);
 
 export function repairProjectDataSourceAssignments(studioSnapshot, metadataSnapshot) {
@@ -57,43 +60,130 @@ export function repairProjectDataSourceAssignments(studioSnapshot, metadataSnaps
   };
 }
 
+export function verifyPersistedProjectDataSourceAssignments(studioSnapshot, expectedResult, persistedMetadata) {
+  if (JSON.stringify(persistedMetadata) !== JSON.stringify(expectedResult.metadata)) {
+    throw new Error("metadata.json 재읽기 결과가 기록하려던 정리 결과와 일치하지 않습니다. 다른 프로세스의 동시 쓰기 가능성이 있습니다.");
+  }
+
+  const remaining = repairProjectDataSourceAssignments(studioSnapshot, persistedMetadata);
+  if (remaining.removedReferences.length) {
+    const details = remaining.removedReferences.map((value) => `${value.projectName}:${value.connectionId}`).join(", ");
+    throw new Error(`metadata.json 재검증에서 잘못된 건강용 Project 배정이 다시 발견됐습니다: ${details}`);
+  }
+
+  if (remaining.preservedHealthReferenceCount !== expectedResult.preservedHealthReferenceCount) {
+    throw new Error("건강 정보 Project의 정상 Reference 수가 기록 전후에 달라졌습니다.");
+  }
+
+  return Object.freeze({
+    activeReferenceCount: Object.values(persistedMetadata.data["project-data-source-references"])
+      .filter((reference) => reference?.enabled === true).length,
+  });
+}
+
 export async function runProjectDataSourceAssignmentRepair({
   studioPath = defaultStudioPath,
   metadataPath = defaultMetadataPath,
+  nextDevLockPath = defaultNextDevLockPath,
+  repairLockPath = `${metadataPath}${repairLockSuffix}`,
 } = {}) {
   if (!existsSync(studioPath)) throw new Error(`파일을 찾을 수 없습니다: ${studioPath}`);
   if (!existsSync(metadataPath)) throw new Error(`파일을 찾을 수 없습니다: ${metadataPath}`);
-
-  const [studioRaw, metadataRaw] = await Promise.all([
-    readFile(studioPath, "utf8"),
-    readFile(metadataPath, "utf8"),
-  ]);
-  const studio = JSON.parse(studioRaw.replace(/^\uFEFF/, ""));
-  const metadata = JSON.parse(metadataRaw.replace(/^\uFEFF/, ""));
-  const result = repairProjectDataSourceAssignments(studio, metadata);
-
-  if (!result.removedReferences.length) {
-    console.log("정리할 잘못된 건강용 Data Source Project 배정이 없습니다.");
-    return { ...result, backupPath: null };
+  if (nextDevLockPath && existsSync(nextDevLockPath)) {
+    throw new Error("Next.js 개발 서버가 실행 중입니다. metadata.json 동시 쓰기를 막기 위해 npm run dev를 종료한 뒤 다시 실행해 주세요.");
   }
 
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const backupPath = `${metadataPath}.project-assignment-backup-${stamp}.json`;
-  const temporaryPath = `${metadataPath}.project-assignment-${process.pid}.tmp`;
+  const repairLock = await acquireRepairLock(repairLockPath);
+  let temporaryPath;
+  try {
+    const [studioRaw, metadataRaw] = await Promise.all([
+      readFile(studioPath, "utf8"),
+      readFile(metadataPath, "utf8"),
+    ]);
+    const studio = parseJson(studioRaw, studioPath);
+    const metadata = parseJson(metadataRaw, metadataPath);
+    const result = repairProjectDataSourceAssignments(studio, metadata);
 
-  await copyFile(metadataPath, backupPath);
-  await writeFile(temporaryPath, `${JSON.stringify(result.metadata, null, 2)}\n`, "utf8");
-  await rename(temporaryPath, metadataPath);
+    if (!result.removedReferences.length) {
+      verifyPersistedProjectDataSourceAssignments(studio, result, metadata);
+      console.log("정리할 잘못된 건강용 Data Source Project 배정이 없습니다.");
+      console.log("metadata.json 읽기 검증을 통과했습니다.");
+      return { ...result, backupPath: null, verified: true };
+    }
 
-  console.log(`건강용 Data Source의 잘못된 Project 배정 ${result.removedReferences.length}개를 제거했습니다.`);
-  for (const removed of result.removedReferences) {
-    console.log(`- ${removed.projectName} · ${removed.provider} · ${removed.displayName} · ${removed.resource}`);
-    console.log(`  사유: ${removed.reason}`);
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const backupPath = `${metadataPath}.project-assignment-backup-${stamp}.json`;
+    temporaryPath = `${metadataPath}.project-assignment-${process.pid}.tmp`;
+    const initialFingerprint = fingerprint(metadataRaw);
+
+    await assertMetadataUnchanged(metadataPath, initialFingerprint);
+    await copyFile(metadataPath, backupPath);
+    await writeFile(temporaryPath, `${JSON.stringify(result.metadata, null, 2)}\n`, "utf8");
+    await assertMetadataUnchanged(metadataPath, initialFingerprint);
+    await rename(temporaryPath, metadataPath);
+    temporaryPath = undefined;
+
+    const persistedMetadata = parseJson(await readFile(metadataPath, "utf8"), metadataPath);
+    const verification = verifyPersistedProjectDataSourceAssignments(studio, result, persistedMetadata);
+
+    console.log(`건강용 Data Source의 잘못된 Project 배정 ${result.removedReferences.length}개를 제거했습니다.`);
+    for (const removed of result.removedReferences) {
+      console.log(`- ${removed.projectName} · ${removed.provider} · ${removed.displayName} · ${removed.resource}`);
+      console.log(`  사유: ${removed.reason}`);
+    }
+    console.log(`건강 정보 Project의 활성 배정 ${result.preservedHealthReferenceCount}개는 유지했습니다.`);
+    console.log(`현재 활성 Project Reference: ${verification.activeReferenceCount}개`);
+    console.log(`백업: ${backupPath}`);
+    console.log("metadata.json 재읽기 검증을 통과했습니다.");
+    console.log("Connection, Snapshot, Evidence, Credential은 삭제하지 않았습니다.");
+    return { ...result, backupPath, verified: true, activeReferenceCount: verification.activeReferenceCount };
+  } finally {
+    if (temporaryPath) await rm(temporaryPath, { force: true }).catch(() => undefined);
+    await releaseRepairLock(repairLock, repairLockPath);
   }
-  console.log(`건강 정보 Project의 활성 배정 ${result.preservedHealthReferenceCount}개는 유지했습니다.`);
-  console.log(`백업: ${backupPath}`);
-  console.log("Connection, Snapshot, Evidence, Credential은 삭제하지 않았습니다.");
-  return { ...result, backupPath };
+}
+
+async function assertMetadataUnchanged(metadataPath, expectedFingerprint) {
+  const currentRaw = await readFile(metadataPath, "utf8");
+  if (fingerprint(currentRaw) !== expectedFingerprint) {
+    throw new Error("metadata.json이 정리 도중 변경됐습니다. 다른 프로세스의 쓰기 작업을 종료한 뒤 다시 실행해 주세요.");
+  }
+}
+
+async function acquireRepairLock(lockPath) {
+  await mkdir(path.dirname(lockPath), { recursive: true });
+  try {
+    const handle = await open(lockPath, "wx", 0o600);
+    await handle.writeFile(`${JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() })}\n`, "utf8");
+    await handle.sync();
+    return handle;
+  } catch (error) {
+    if (code(error) === "EEXIST") {
+      throw new Error(`다른 Data Source 배정 정리 작업이 진행 중이거나 비정상 종료됐습니다: ${lockPath}`);
+    }
+    throw error;
+  }
+}
+
+async function releaseRepairLock(handle, lockPath) {
+  await handle.close().catch(() => undefined);
+  try {
+    await unlink(lockPath);
+  } catch (error) {
+    if (code(error) !== "ENOENT") throw error;
+  }
+}
+
+function parseJson(raw, filePath) {
+  try {
+    return JSON.parse(raw.replace(/^\uFEFF/, ""));
+  } catch (error) {
+    throw new Error(`${filePath} JSON을 읽을 수 없습니다: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function fingerprint(raw) {
+  return createHash("sha256").update(raw, "utf8").digest("hex");
 }
 
 function wrongHealthAssignmentReason(connection, healthTerms, targetTerms, targetProjectName) {
@@ -157,6 +247,10 @@ function connectionResource(connection) {
     ?? connection.resourceConfiguration?.channelId
     ?? connection.resourceConfiguration?.keywords?.join(", ")
     ?? "resource 없음";
+}
+
+function code(error) {
+  return typeof error === "object" && error !== null && "code" in error ? String(error.code) : "UNKNOWN";
 }
 
 const isDirectExecution = process.argv[1]
