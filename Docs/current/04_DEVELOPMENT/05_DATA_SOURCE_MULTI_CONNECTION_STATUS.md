@@ -176,19 +176,23 @@ Coverage includes:
 
 ## CI status
 
-The first correction run on commit `5b8e9f19fccb102be5af6dd74fd90d35cff7c264` failed only at TypeScript module declaration resolution for the new `.mjs` migration command:
+The complete correction implementation was automated-verified at commit `3362c5b94c9c777a5140d73028f846f371d571fd`:
 
 ```text
-Run: 30909239529
-Job: 91991562849
-Typecheck error: TS7016 for scripts/merge-duplicate-project.mjs
+GitHub Actions run: 30910479057
+Job: 91995702312
+TypeScript typecheck: passed
+ESLint zero-warning gate: passed
+complete non-E2E Vitest suite: passed
+Next.js production build: passed
+Job conclusion: success
 ```
 
-A matching `.d.mts` declaration was added afterward. The current correction HEAD requires a fresh complete CI result. No implementation should be described as automated-verified until Typecheck, zero-warning Lint, complete non-E2E Vitest and production Build all pass on the same current HEAD.
+Earlier intermediate runs exposed and corrected three concrete validation issues: missing TypeScript declaration for the `.mjs` migration module, explicit `any` declarations rejected by ESLint, and one test that inspected the migration result metadata instead of only the persisted snapshots. The final run above passed all four gates on the same implementation commit.
 
 ## Remaining local external verification
 
-After a green current CI result:
+Automated verification does not modify or prove the local `.bright-studio` files. Local verification still requires:
 
 1. pull the feature branch;
 2. stop the Next.js development server;
