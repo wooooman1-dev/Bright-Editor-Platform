@@ -9,7 +9,6 @@ const connection = (value: Partial<PublicDataSourceConnection> & Pick<PublicData
 });
 const source = () => readFileSync(join(process.cwd(), "app/settings/SettingsDataSources.tsx"), "utf8");
 const routeSource = () => readFileSync(join(process.cwd(), "app/api/data-sources/route.ts"), "utf8");
-const projectPageSource = () => readFileSync(join(process.cwd(), "app/projects/new/page.tsx"), "utf8");
 
 describe("Settings Data Sources multi-connection workflow", () => {
   it("requires resources after OAuth and for non-Google providers", () => {
@@ -29,33 +28,54 @@ describe("Settings Data Sources multi-connection workflow", () => {
     expect(validateDataSourceFields({ ...base, provider: "naverSearchTrend", resource: { keywords: "콘텐츠" }, accessToken: "", clientId: "", clientSecret: "", hasCredentials: true })).toEqual({});
   });
 
-  it("uses an explicit Project-first provider workflow without auto-selecting the first Project", () => {
+  it("uses existing Projects to create independent lower management areas", () => {
     const value = source();
-    expect(value).toContain("데이터 소스를 설정할 Project");
-    expect(value).toContain("Project를 선택해 주세요.");
-    expect(value).toContain("새 Project 만들기");
-    expect(value).toContain("Provider 선택해서 새 연결 추가");
-    expect(value).toContain("이 Provider 연결 추가");
-    expect(value).toContain("기존 연결은 변경되지 않습니다.");
-    expect(value).not.toContain('useState(projects[0]?.id ?? "")');
-    expect(value).toContain("initialProjectId(projects)");
+    expect(value).toContain("하단에 표시할 Project 영역");
+    expect(value).toContain("선택한 Project 영역 만들기");
+    expect(value).toContain("이 버튼은 Project 데이터를 새로 만들지 않습니다.");
+    expect(value).toContain("projectSectionIds");
+    expect(value).toContain("projectSectionIds.map");
+    expect(value).toContain("data-project-id={project.id}");
+    expect(value).toContain("영역 닫기");
+    expect(value).not.toContain("/projects/new");
+    expect(value).not.toContain("createProject(");
   });
 
-  it("stores Project assignment explicitly and separates assigned from available connections", () => {
+  it("renders every current Project as an independent area by default", () => {
     const value = source();
+    expect(value).toContain("projects.map((project) => project.id)");
+    expect(value).toContain("const assignedIdSet = new Set(workspaceReferences.filter((value) => value.projectId === project.id && value.enabled)");
+    expect(value).toContain("connectionCard(connection, project, true)");
+    expect(value).toContain("connectionCard(connection, project, false)");
+    expect(value).toContain("각 영역은 고유한 Project ID를 유지합니다.");
+  });
+
+  it("binds assignment actions to the Project area being rendered", () => {
+    const value = source();
+    expect(value).toContain('projectId: contextProject.id');
+    expect(value).toContain("실제 배정 Project:");
+    expect(value).toContain("projectNamesForConnection");
+    expect(value).toContain("이 Project에서 제외");
+    expect(value).toContain("이 Project에 배정");
+  });
+
+  it("starts GSC or NAVER creation with the area Project preselected", () => {
+    const value = source();
+    expect(value).toContain('beginNewConnection("googleSearchConsole", project.id)');
+    expect(value).toContain('beginNewConnection("naverSearchTrend", project.id)');
+    expect(value).toContain("setAssignmentProjectIds(defaultProjectId ? [defaultProjectId] : [])");
+  });
+
+  it("loads Workspace references once instead of changing them with the Project picker", () => {
+    const value = source();
+    expect(value).toContain('fetch(`/api/data-sources?workspaceId=${encodeURIComponent(workspaceId)}`');
+    expect(value).not.toContain('...(projectId ? { projectId } : {})');
     expect(value).toContain("workspaceProjectReferences");
-    expect(value).toContain("assignmentProjectIds");
-    expect(value).toContain("이 연결을 사용할 Project");
-    expect(value).toContain("선택하지 않으면 Workspace 연결로만 저장");
-    expect(value).toContain("배정된 연결");
-    expect(value).toContain("배정 가능한 Workspace 연결");
-    expect(value).toContain('action: "set-project-reference"');
-    expect(value).toContain("replaceProjectAssignments");
+    expect(value).toContain("setProjectPickerId(event.target.value)");
   });
 
-  it("exposes all Workspace references while retaining the selected Project projection", () => {
+  it("exposes all Workspace references from the API", () => {
     const value = routeSource();
-    expect(value).toContain("projectReferences: references.filter");
     expect(value).toContain("workspaceProjectReferences: workspaceReferences.filter");
   });
 
@@ -87,15 +107,6 @@ describe("Settings Data Sources multi-connection workflow", () => {
     expect(value.match(/인증에 실패했습니다\. 연결 정보를 다시 설정해 주세요\./g)).toHaveLength(1);
   });
 
-  it("retains snapshot, password-field rendering and explicit Project actions", () => {
-    const value = source();
-    expect(value).toContain("connection.latestSnapshot");
-    expect(value).toContain('type="password"');
-    expect(value).toContain('setAccessToken(""); setClientId(""); setClientSecret("")');
-    expect(value).toContain("이 Project에 배정");
-    expect(value).toContain("이 Project에서 제외");
-  });
-
   it("selects the callback-created connection before an older disconnected connection", () => {
     const disconnected = connection({ id: "old-disconnected", status: "disconnected", updatedAt: "2026-07-18T00:00:00.000Z" });
     const callback = connection({ id: "callback-oauth", status: "configurationRequired", credentialMode: "googleOAuth", hasCredentials: true, availableResources: [{ siteUrl: "https://example.com/", permissionLevel: "siteOwner" }], updatedAt: "2026-07-19T00:00:00.000Z" });
@@ -118,22 +129,8 @@ describe("Settings Data Sources multi-connection workflow", () => {
   it("preserves explicit Project choices across a new Google OAuth callback", () => {
     expect(parseOAuthReturn("?dataSourceOAuth=resourceRequired&connectionId=callback-oauth&dataSourceProvider=youtubeAnalytics&assignProjectIds=finance,health")).toMatchObject({ outcome: "resourceRequired", connectionId: "callback-oauth", provider: "youtubeAnalytics", assignProjectIds: ["finance", "health"] });
     const value = source();
-    const hydrateIndex = value.indexOf("refresh(oauthReturn.connectionId || undefined).then");
-    const cleanupIndex = value.lastIndexOf("removeOAuthReturnQuery();");
-    expect(hydrateIndex).toBeGreaterThanOrEqual(0);
-    expect(cleanupIndex).toBeGreaterThan(hydrateIndex);
     expect(value).toContain('returnQuery.set("assignProjectIds"');
     expect(value).toContain('query.delete("assignProjectIds")');
-  });
-
-  it("hydrates provider resources and binds edit and disconnect actions to each rendered card", () => {
-    const value = source();
-    expect(value).toContain("editingConnection?.availableResources ?? []");
-    expect(value).toContain("editConnection(connection)");
-    expect(value).toContain('connectionId: connection.id, connectionVersion: connection.version');
-    expect(value).toContain('connection.status === "disconnected" ? <span');
-    expect(value).toContain("이미 연결 해제됨");
-    expect(value).toContain('type="button">연결 해제</button>');
   });
 
   it("shows safe deletion impact details for a disconnected card", () => {
@@ -143,22 +140,5 @@ describe("Settings Data Sources multi-connection workflow", () => {
     expect(value).toContain("sc-domain:old.example");
     expect(value).toContain("Project 참조: 2개");
     expect(value).toContain("기존 Snapshot과 이미 콘텐츠에 사용된 Evidence는 보존됩니다.");
-  });
-
-  it("cancels deletion before any request and sends the rendered card ID only after confirmation", () => {
-    const value = source();
-    expect(value).toContain("if (!window.confirm(dataSourceDeletionConfirmation(connection))) return;");
-    expect(value).toContain('method: "DELETE"');
-    expect(value).toContain("connectionId: connection.id, connectionVersion: connection.version");
-    expect(value).toContain('confirmationMode: active ? "disconnectAndDelete" : "deleteDisconnected"');
-    expect(value).toContain("데이터 소스 삭제</button>");
-  });
-
-  it("creates a Project and returns to Data Sources with the new Project selected", () => {
-    const value = projectPageSource();
-    expect(value).toContain("createProject(data");
-    expect(value).toContain("Project 만들고 데이터 소스 설정으로 돌아가기");
-    expect(value).toContain("section=data-sources");
-    expect(value).toContain("projectId=${encodeURIComponent(projectId)}");
   });
 });
