@@ -20,7 +20,7 @@ function setup() {
 
 async function seedRetained(value: ReturnType<typeof setup>, connection: DataSourceConnection = disconnected) {
   await value.connections.save(connection);
-  await value.connections.save({ ...active, id: "keep-me", displayName: "Current GSC", activeOperationId: undefined, version: 1 });
+  await value.connections.save({ ...active, id: "keep-me", displayName: "Current GSC", secretReference: "keep-secret-reference", activeOperationId: undefined, version: 1 });
   await value.references.save({ workspaceId: "workspace-1", projectId: "project-1", connectionId: connection.id, enabled: true, updatedAt: "now" });
   await value.references.save({ workspaceId: "workspace-1", projectId: "project-2", connectionId: connection.id, enabled: true, updatedAt: "now" });
   await value.references.save({ workspaceId: "workspace-1", projectId: "project-1", connectionId: "keep-me", enabled: true, updatedAt: "now" });
@@ -64,6 +64,15 @@ describe("Data Source safe deletion", () => {
     expect(value.sync.invalidate).toHaveBeenCalledWith("workspace-1", active.id, "operation-1");
     expect(value.secrets.deleteSecret).toHaveBeenCalledWith("secret-reference");
     expect(await value.connections.findById(active.id)).toBeUndefined();
+  });
+
+  it("does not revoke or delete a Google credential still referenced by another active Connection", async () => {
+    await seedRetained(value, active);
+    await value.connections.save({ ...active, id: "keep-me", displayName: "Second property", secretReference: active.secretReference, activeOperationId: undefined, version: 2 });
+    await expect(value.service.delete({ workspaceId: "workspace-1", connectionId: active.id, connectionVersion: active.version, confirmationMode: "disconnectAndDelete" })).resolves.toMatchObject({ deleted: true });
+    expect(value.oauthCredentials.revoke).not.toHaveBeenCalled();
+    expect(value.secrets.deleteSecret).not.toHaveBeenCalledWith("secret-reference");
+    expect(await value.connections.findById("keep-me")).toMatchObject({ secretReference: "secret-reference", status: "ready" });
   });
 
   it("keeps Connection metadata and Project references when SecretStore deletion fails", async () => {
