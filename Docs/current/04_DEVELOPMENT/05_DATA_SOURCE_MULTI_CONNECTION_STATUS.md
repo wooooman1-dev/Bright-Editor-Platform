@@ -105,7 +105,7 @@ The following remain real-environment gates:
 - unassigned Connections appear only under `배정 가능한 Workspace 연결`
 - Project creation returns to Data Sources with the new Project selected
 - existing health GSC and NAVER Connections remain unchanged
-- the accidentally created unconfigured GSC Connection remains unassigned until explicitly assigned or deleted
+- the accidentally created unconfigured second GSC Connection remains unassigned until explicitly assigned or deleted
 - new `brightjaetech.kr` Search Console Connection creation
 - finance NAVER keyword-set Connection creation
 - assignment of only finance Connections to the brightjaetech Project
@@ -123,11 +123,11 @@ Automated success does not make these externally verified.
 ```text
 1. Pull the latest feature branch and reload Settings > Data Sources
 2. Confirm no Project is silently selected unless projectId is present in the URL
-3. Select 건강 정보 and confirm only its two existing Connections appear under 배정된 연결
-4. Confirm the unconfigured third GSC appears under 배정 가능한 Workspace 연결
+3. Select 건강 정보 and confirm its existing GSC and NAVER Connections appear under 배정된 연결
+4. Confirm the unconfigured second GSC appears under 배정 가능한 Workspace 연결
 5. Confirm every enabled Provider, including NAVER Search Trend, has 이 Provider 연결 추가
-6. Select or create 밝은재테크
-7. Add or complete GSC · 밝은재테크 and select brightjaetech.kr
+6. Select the existing 밝은재테크 Project
+7. Complete GSC · 밝은재테크 and select brightjaetech.kr
 8. Add NAVER · 밝은재테크 with finance keywords
 9. Confirm both finance Connections are assigned only to 밝은재테크
 10. Sync both finance Connections
