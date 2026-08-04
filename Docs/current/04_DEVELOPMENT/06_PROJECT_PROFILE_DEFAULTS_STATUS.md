@@ -66,17 +66,33 @@ The Project screen displays a `Project 기본 프로필` card with:
 
 This makes the exact context used for Content Opportunity and automatic Planning visible before new content is created.
 
-## Verification gates
+## Automated verification
 
-Automated:
+Final verified implementation HEAD before this documentation-only update:
+
+```text
+Commit: 5e5dd2377cd396175a67a53e89b2784bcd2ac1ee
+Run: 30885230770
+Job: 91914855621
+Conclusion: success
+```
+
+The successful job passed:
+
+- TypeScript typecheck
+- ESLint zero-warning gate
+- complete non-E2E Vitest suite
+- Next.js production build
+
+The migration-specific tests verify:
 
 - all three approved profiles are applied
 - unrelated Project strategy fields are preserved
 - Contents and unrelated snapshot collections are preserved
 - unknown Projects remain unchanged
-- TypeScript, lint, complete non-E2E tests and production build pass
+- legacy Project strategies without `subtopics` render safely
 
-Local:
+## Local verification gates
 
 - backup file is created
 - three Project records are updated
