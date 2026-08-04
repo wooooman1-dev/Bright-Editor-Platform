@@ -49,6 +49,7 @@ describe("Data Source API safety", () => {
     ["googleSearchConsole", {}, "siteProperty", "Search Console 사이트 속성을 입력해 주세요."],
     ["googleAnalytics4", {}, "propertyId", "GA4 property ID를 입력해 주세요."],
     ["googleAdSense", {}, "accountReference", "AdSense 계정 리소스를 입력해 주세요."],
+    ["youtubeAnalytics", {}, "channelId", "YouTube 채널을 선택해 주세요."],
   ])("returns a structured 400 for missing %s resource", async (provider, resourceConfiguration, field, error) => {
     const response = await POST(request(saveBody(provider, resourceConfiguration)));
     expect(response.status).toBe(400);
@@ -65,13 +66,44 @@ describe("Data Source API safety", () => {
   });
 
   it("rejects an invented Search Console property and accepts a server-listed property", async () => {
-    mocks.connectionFind.mockResolvedValue({ id: "connection-1", workspaceId: "workspace-1", provider: "googleSearchConsole", displayName: "GSC", status: "configurationRequired", secretReference: "secret-reference", credentialMode: "googleOAuth", resourceConfiguration: {}, availableResources: [{ siteUrl: "sc-domain:allowed.example", permissionLevel: "siteOwner" }], enabled: true, createdAt: "now", updatedAt: "now", version: 1 });
+    mocks.connectionFind.mockResolvedValue({ id: "connection-1", workspaceId: "workspace-1", provider: "googleSearchConsole", displayName: "GSC", status: "configurationRequired", secretReference: "secret-reference", credentialMode: "googleOAuth", resourceConfiguration: {}, availableResources: [{ resourceId: "sc-domain:allowed.example", siteUrl: "sc-domain:allowed.example", displayName: "Allowed", permissionLevel: "siteOwner" }], enabled: true, createdAt: "now", updatedAt: "now", version: 1 });
     const invented = await POST(request({ ...saveBody("googleSearchConsole", { siteProperty: "sc-domain:invented.example" }, {}), connectionId: "connection-1", connectionVersion: 1 }));
     expect(invented.status).toBe(400);
     await expect(invented.json()).resolves.toMatchObject({ code: "GOOGLE_SEARCH_CONSOLE_RESOURCE_NOT_FOUND", field: "siteProperty" });
     const allowed = await POST(request({ ...saveBody("googleSearchConsole", { siteProperty: "sc-domain:allowed.example" }, {}), connectionId: "connection-1", connectionVersion: 1 }));
     expect(allowed.status).toBe(200);
     expect(mocks.connectionSave).toHaveBeenCalledWith(expect.objectContaining({ id: "connection-1", status: "connected", resourceConfiguration: { siteProperty: "sc-domain:allowed.example" }, credentialMode: "googleOAuth" }));
+  });
+
+  it("rejects an invented YouTube channel and persists the server-listed channel title", async () => {
+    mocks.connectionFind.mockResolvedValue({ id: "youtube-1", workspaceId: "workspace-1", provider: "youtubeAnalytics", displayName: "YouTube", status: "configurationRequired", secretReference: "secret-reference", credentialMode: "googleOAuth", resourceConfiguration: {}, availableResources: [{ resourceId: "channel-1", siteUrl: "channel-1", displayName: "밝은건강TV", permissionLevel: "owner" }], enabled: true, createdAt: "now", updatedAt: "now", version: 1 });
+    const invented = await POST(request({ ...saveBody("youtubeAnalytics", { channelId: "invented" }, {}), connectionId: "youtube-1", connectionVersion: 1 }));
+    expect(invented.status).toBe(400);
+    await expect(invented.json()).resolves.toMatchObject({ code: "DATA_SOURCE_RESOURCE_NOT_FOUND", field: "channelId" });
+    const allowed = await POST(request({ ...saveBody("youtubeAnalytics", { channelId: "channel-1", channelTitle: "spoofed" }, {}), connectionId: "youtube-1", connectionVersion: 1 }));
+    expect(allowed.status).toBe(200);
+    expect(mocks.connectionSave).toHaveBeenCalledWith(expect.objectContaining({ id: "youtube-1", resourceConfiguration: { channelId: "channel-1", channelTitle: "밝은건강TV" } }));
+  });
+
+  it("creates a second same-provider resource connection without overwriting the source", async () => {
+    const source = { id: "gsc-health", workspaceId: "workspace-1", provider: "googleSearchConsole", displayName: "GSC · 밝은건강", status: "ready", secretReference: "shared-google-secret", credentialMode: "googleOAuth", resourceConfiguration: { siteProperty: "sc-domain:health.example" }, availableResources: [{ resourceId: "sc-domain:health.example", siteUrl: "sc-domain:health.example" }, { resourceId: "sc-domain:finance.example", siteUrl: "sc-domain:finance.example" }], enabled: true, createdAt: "now", updatedAt: "now", version: 3 };
+    mocks.connectionFind.mockResolvedValue(source);
+    const response = await POST(request({ action: "create-google-resource-connection", workspaceId: "workspace-1", sourceConnectionId: source.id, displayName: "GSC · 밝은재테크" }));
+    expect(response.status).toBe(200);
+    expect(mocks.connectionSave).toHaveBeenCalledWith(expect.objectContaining({ id: expect.not.stringMatching(/^gsc-health$/), provider: "googleSearchConsole", displayName: "GSC · 밝은재테크", status: "configurationRequired", secretReference: "shared-google-secret", resourceConfiguration: {}, availableResources: source.availableResources }));
+    expect(mocks.storeSecret).not.toHaveBeenCalled();
+  });
+
+  it("disconnects one shared Google resource without revoking the credential used by another connection", async () => {
+    const selected = { id: "gsc-health", workspaceId: "workspace-1", provider: "googleSearchConsole", displayName: "Health", status: "ready", secretReference: "shared-secret", credentialMode: "googleOAuth", resourceConfiguration: { siteProperty: "health" }, enabled: true, createdAt: "now", updatedAt: "now", version: 3 };
+    mocks.connectionFind.mockResolvedValue(selected);
+    mocks.connectionList.mockResolvedValue([selected, { ...selected, id: "gsc-finance", displayName: "Finance", resourceConfiguration: { siteProperty: "finance" } }]);
+    const response = await POST(request({ action: "disconnect", workspaceId: "workspace-1", connectionId: selected.id, connectionVersion: 3 }));
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ disconnected: true, sharedCredentialRetained: true });
+    expect(mocks.oauthRevoke).not.toHaveBeenCalled();
+    expect(mocks.deleteSecret).not.toHaveBeenCalledWith("shared-secret");
+    expect(mocks.connectionSave).toHaveBeenCalledWith(expect.objectContaining({ id: selected.id, status: "disconnected", secretReference: undefined }));
   });
 
   it("uses 500 only for an unexpected failure without reflecting credentials", async () => {
@@ -131,16 +163,16 @@ describe("Data Source API safety", () => {
   });
 
   it("keeps Project and Connection Workspace ownership checks on every reference mutation", () => {
-    const source = readFileSync(join(process.cwd(), "app/api/data-sources/route.ts"), "utf8");
-    expect(source).toContain("ownedProject(data, projectId)");
-    expect(source).toContain("ownedConnection(project.workspaceId, connectionId)");
-    expect(source).toContain("DATA_SOURCE_PERMISSION_ERROR");
-    expect(source).toContain("connectionVersion");
+    const value = readFileSync(join(process.cwd(), "app/api/data-sources/route.ts"), "utf8");
+    expect(value).toContain("ownedProject(data, projectId)");
+    expect(value).toContain("ownedConnection(project.workspaceId, connectionId)");
+    expect(value).toContain("DATA_SOURCE_PERMISSION_ERROR");
+    expect(value).toContain("connectionVersion");
   });
 
   it("keeps conditional providers disabled until official access is verified", () => {
-    const source = readFileSync(join(process.cwd(), "app/api/data-sources/route.ts"), "utf8");
-    expect(source).toContain("공식 API 접근이 확인되기 전에는 이 Provider를 활성화할 수 없습니다");
-    expect(source).not.toContain("pytrends");
+    const value = readFileSync(join(process.cwd(), "app/api/data-sources/route.ts"), "utf8");
+    expect(value).toContain("공식 API 접근이 확인되기 전에는 이 Provider를 활성화할 수 없습니다");
+    expect(value).not.toContain("pytrends");
   });
 });
