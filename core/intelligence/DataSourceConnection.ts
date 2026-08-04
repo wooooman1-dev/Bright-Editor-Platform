@@ -2,6 +2,7 @@ export const dataSourceProviders = [
   "googleSearchConsole",
   "googleAnalytics4",
   "googleAdSense",
+  "youtubeAnalytics",
   "naverSearchTrend",
   "googleAdsKeywordPlanning",
   "googleTrendsOfficial",
@@ -20,6 +21,11 @@ export type DataSourceConnectionStatus =
 export type DataSourceCredentialMode = "googleOAuth" | "legacyManualToken" | "providerCredential";
 
 export type DataSourceResourceOption = Readonly<{
+  /** Stable provider resource identifier. Kept optional for legacy Search Console snapshots. */
+  resourceId?: string;
+  /** Human-readable label shown in Settings. */
+  displayName?: string;
+  /** Search Console compatibility field. */
   siteUrl: string;
   permissionLevel?: string;
 }>;
@@ -44,7 +50,6 @@ export type DataSourceConnectionErrorCode =
   | "GOOGLE_OAUTH_REFRESH_FAILED"
   | "GOOGLE_OAUTH_SCOPE_MISSING"
   | "GOOGLE_SEARCH_CONSOLE_RESOURCE_NOT_FOUND"
-  | "GOOGLE_SEARCH_CONSOLE_NO_PROPERTIES"
   | "DATA_SOURCE_WORKSPACE_FORBIDDEN";
 
 export type DataSourceResourceConfiguration = Readonly<{
@@ -56,6 +61,8 @@ export type DataSourceResourceConfiguration = Readonly<{
   streamReference?: string;
   accountReference?: string;
   siteReference?: string;
+  channelId?: string;
+  channelTitle?: string;
   region?: string;
   gender?: string;
   ages?: readonly string[];
