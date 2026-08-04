@@ -17,6 +17,7 @@ export function normalizeProviderEvidence(
   if (connection.provider === "googleSearchConsole") return normalizeSearchConsole(connection, snapshot, raw);
   if (connection.provider === "googleAnalytics4") return normalizeGa4(connection, snapshot, raw);
   if (connection.provider === "googleAdSense") return normalizeAdSense(connection, snapshot, raw);
+  if (connection.provider === "youtubeAnalytics") return normalizeYouTube(connection, snapshot, raw);
   if (connection.provider === "naverSearchTrend") return normalizeNaver(connection, snapshot, raw);
   throw new Error("This provider does not have an enabled official Evidence normalizer.");
 }
@@ -64,6 +65,19 @@ function normalizeAdSense(connection: DataSourceConnection, snapshot: DataSource
   return Object.freeze(result);
 }
 
+function normalizeYouTube(connection: DataSourceConnection, snapshot: DataSourceSnapshot, raw: unknown) {
+  const value = record(raw), headers = records(value.columnHeaders).map((item) => String(item.name ?? "")), rows = Array.isArray(value.rows) ? value.rows : [];
+  const first = Array.isArray(rows[0]) ? rows[0] as unknown[] : [];
+  const topic = connection.resourceConfiguration.channelTitle?.trim() || connection.displayName;
+  const result: OpportunityEvidenceRecord[] = [];
+  headers.forEach((name, index) => {
+    const amount = number(first[index]);
+    if (amount === undefined) return;
+    metric(result, base(connection, snapshot, index, { topic, resourceScope: "site" }), "videoPerformance", name, amount, youtubeUnit(name), ["YouTube channel performance is observed first-party performance, not external search demand."]);
+  });
+  return Object.freeze(result);
+}
+
 function normalizeNaver(connection: DataSourceConnection, snapshot: DataSourceSnapshot, raw: unknown) {
   const result: OpportunityEvidenceRecord[] = [];
   records(record(raw).results).forEach((group, index) => {
@@ -79,10 +93,10 @@ function normalizeNaver(connection: DataSourceConnection, snapshot: DataSourceSn
   return Object.freeze(result);
 }
 
-function base(connection: DataSourceConnection, snapshot: DataSourceSnapshot, index: number, extra: Readonly<{ keyword?: string; pageUrl?: string; resourceScope: "account" | "site" | "page" | "query"; observedAt?: string }>) {
+function base(connection: DataSourceConnection, snapshot: DataSourceSnapshot, index: number, extra: Readonly<{ keyword?: string; topic?: string; pageUrl?: string; resourceScope: "account" | "site" | "page" | "query"; observedAt?: string }>) {
   return {
     workspaceId: connection.workspaceId, connectionId: connection.id, projectId: null, provider: connection.provider,
-    keyword: extra.keyword, pageUrl: extra.pageUrl, region: connection.resourceConfiguration.country ?? connection.resourceConfiguration.region,
+    keyword: extra.keyword, topic: extra.topic, pageUrl: extra.pageUrl, region: connection.resourceConfiguration.country ?? connection.resourceConfiguration.region,
     device: connection.resourceConfiguration.device, periodStart: snapshot.periodStart, periodEnd: snapshot.periodEnd,
     observedAt: extra.observedAt ?? snapshot.observedAt, syncedAt: snapshot.syncedAt,
     freshness: calculateFreshness(connection.provider, snapshot.syncedAt), verified: true, confidence: 1,
@@ -91,12 +105,13 @@ function base(connection: DataSourceConnection, snapshot: DataSourceSnapshot, in
   } as const;
 }
 
-function metric(result: OpportunityEvidenceRecord[], common: ReturnType<typeof base>, evidenceType: "searchPerformance" | "pageEngagement" | "revenuePerformance", name: string, value: number | undefined, unit: string, limitations: readonly string[] = []) {
+function metric(result: OpportunityEvidenceRecord[], common: ReturnType<typeof base>, evidenceType: "searchPerformance" | "pageEngagement" | "revenuePerformance" | "videoPerformance", name: string, value: number | undefined, unit: string, limitations: readonly string[] = []) {
   if (value === undefined) return;
   result.push(createOpportunityEvidence({ ...common, sourceReference: `${common.sourceReference}:${name}`, evidenceType, metric: name, value, unit, limitations: [...common.limitations, ...limitations] }));
 }
 function ga4Unit(name: string) { return name === "userEngagementDuration" ? "seconds" : "count"; }
 function adsenseUnit(name: string) { return name.includes("CTR") ? "ratio" : name.includes("RPM") || name.includes("EARNINGS") ? "providerCurrency" : "count"; }
+function youtubeUnit(name: string) { return name === "estimatedMinutesWatched" ? "minutes" : "count"; }
 function record(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 function records(value: unknown): Record<string, unknown>[] { return Array.isArray(value) ? value.map(record) : []; }
 function strings(value: unknown): string[] { return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []; }
