@@ -3,7 +3,6 @@ export type DataSourceProjectReference = Readonly<{ projectId: string; connectio
 
 export type DataSourceProjectBuckets<T extends Readonly<{ id: string }>> = Readonly<{
   assigned: readonly T[];
-  available: readonly T[];
 }>;
 
 export function singleProjectIds(values: readonly string[], allowedProjectIds?: ReadonlySet<string>): readonly string[] {
@@ -23,18 +22,27 @@ export function projectConnectionBuckets<T extends Readonly<{ id: string }>>(
   references: readonly DataSourceProjectReference[],
   projectId: string,
 ): DataSourceProjectBuckets<T> {
-  const activeReferences = references.filter((reference) => reference.enabled);
-  const ownedConnectionIds = new Set(activeReferences.map((reference) => reference.connectionId));
   const assignedConnectionIds = new Set(
-    activeReferences
-      .filter((reference) => reference.projectId === projectId)
+    references
+      .filter((reference) => reference.enabled && reference.projectId === projectId)
       .map((reference) => reference.connectionId),
   );
 
   return Object.freeze({
     assigned: Object.freeze(connections.filter((connection) => assignedConnectionIds.has(connection.id))),
-    available: Object.freeze(connections.filter((connection) => !ownedConnectionIds.has(connection.id))),
   });
+}
+
+export function workspaceUnassignedConnections<T extends Readonly<{ id: string }>>(
+  connections: readonly T[],
+  references: readonly DataSourceProjectReference[],
+): readonly T[] {
+  const ownedConnectionIds = new Set(
+    references
+      .filter((reference) => reference.enabled)
+      .map((reference) => reference.connectionId),
+  );
+  return Object.freeze(connections.filter((connection) => !ownedConnectionIds.has(connection.id)));
 }
 
 export function duplicateNormalizedProjectNames(projects: readonly DataSourceProjectSummary[]): readonly string[] {
