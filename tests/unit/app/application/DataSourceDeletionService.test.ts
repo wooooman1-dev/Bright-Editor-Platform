@@ -21,8 +21,10 @@ function setup() {
 async function seedRetained(value: ReturnType<typeof setup>, connection: DataSourceConnection = disconnected) {
   await value.connections.save(connection);
   await value.connections.save({ ...active, id: "keep-me", displayName: "Current GSC", secretReference: "keep-secret-reference", activeOperationId: undefined, version: 1 });
-  await value.references.save({ workspaceId: "workspace-1", projectId: "project-1", connectionId: connection.id, enabled: true, updatedAt: "now" });
-  await value.references.save({ workspaceId: "workspace-1", projectId: "project-2", connectionId: connection.id, enabled: true, updatedAt: "now" });
+  const primaryReference = { workspaceId: "workspace-1", projectId: "project-1", connectionId: connection.id, enabled: true, updatedAt: "now" } as const;
+  const legacyDuplicateReference = { workspaceId: "workspace-1", projectId: "project-2", connectionId: connection.id, enabled: true, updatedAt: "now" } as const;
+  await value.references.save(primaryReference);
+  await value.store.set("project-data-source-references", `${legacyDuplicateReference.projectId}:${legacyDuplicateReference.connectionId}`, legacyDuplicateReference);
   await value.references.save({ workspaceId: "workspace-1", projectId: "project-1", connectionId: "keep-me", enabled: true, updatedAt: "now" });
   await value.snapshots.save({ snapshotId: "snapshot-old", connectionId: connection.id, workspaceId: "workspace-1", provider: "googleSearchConsole", resourceReference: "sc-domain:old.example", periodStart: "2026-06-01", periodEnd: "2026-06-30", observedAt: "2026-06-30", syncedAt: "2026-07-01", status: "ready", schemaVersion: 1, rawSnapshotReference: "raw.json", fingerprint: "fingerprint", limitations: [], createdAt: "now", operationId: "old-operation" });
   await value.evidence.saveMany([evidenceRecord(connection.id)]);
