@@ -6,6 +6,8 @@ type ApprovalFactPage = Readonly<{
   title: string;
   publisher: string;
   text: string;
+  requestedUrl?: string;
+  finalUrl?: string;
 }>;
 
 export function extractProfileApprovalFacts(
@@ -219,6 +221,9 @@ export function approvalEvidenceClaimFieldsForSourceUrl(urlValue: string): reado
 }
 
 export function approvalFactMatchesPage(page: ApprovalFactPage, fact: ApprovalEvidenceFact): boolean {
+  if (fact.field === "depositProtectionEffectiveDate") {
+    return approvalEffectiveDateMatchesPage(page, fact.value);
+  }
   const haystack = normalize(`${page.title} ${page.publisher} ${page.text}`);
   const signalGroups: Readonly<Record<string, readonly string[]>> = {
     continuousServicePeriod: ["계속근로", "1년"],
@@ -253,6 +258,44 @@ export function approvalFactMatchesPage(page: ApprovalFactPage, fact: ApprovalEv
   const fieldSignals = signalGroups[fact.field];
   if (fieldSignals?.length) return fieldSignals.every((signal) => haystack.includes(normalize(signal)));
   return variants(fact.value).some((value) => value.length >= 3 && haystack.includes(value));
+}
+
+function approvalEffectiveDateMatchesPage(
+  page: ApprovalFactPage,
+  factValue: string,
+): boolean {
+  const expectedDates = extractCanonicalDates(factValue);
+  if (!expectedDates.length) return false;
+
+  const pageDates = new Set(extractCanonicalDates([
+    page.title,
+    page.publisher,
+    page.text,
+    page.requestedUrl ?? "",
+    page.finalUrl ?? "",
+  ].join(" ")));
+  return expectedDates.some((date) => pageDates.has(date));
+}
+
+function extractCanonicalDates(value: string): readonly string[] {
+  const found = new Set<string>();
+  const normalized = value.normalize("NFKC");
+
+  const separatedDate = /(^|[^\d])(20\d{2})\s*(?:년\s*|[-./]\s*)(0?[1-9]|1[0-2])\s*(?:월\s*|[-./]\s*)(0?[1-9]|[12]\d|3[01])\s*일?/gu;
+  for (const match of normalized.matchAll(separatedDate)) {
+    found.add(canonicalDate(match[2]!, match[3]!, match[4]!));
+  }
+
+  const compactDate = /(^|[^\d])(20\d{2})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])(?=$|[^\d])/gu;
+  for (const match of normalized.matchAll(compactDate)) {
+    found.add(canonicalDate(match[2]!, match[3]!, match[4]!));
+  }
+
+  return Object.freeze([...found]);
+}
+
+function canonicalDate(year: string, month: string, day: string): string {
+  return `${year}${Number.parseInt(month, 10).toString().padStart(2, "0")}${Number.parseInt(day, 10).toString().padStart(2, "0")}`;
 }
 
 function variants(value: string): readonly string[] {
