@@ -41,13 +41,13 @@ describe("Settings Data Sources multi-connection workflow", () => {
     expect(value).not.toContain("createProject(");
   });
 
-  it("renders every current Project as an independent area by default", () => {
+  it("renders every current Project as an independent area while deduplicating identical IDs", () => {
     const value = source();
-    expect(value).toContain("projects.map((project) => project.id)");
-    expect(value).toContain("const assignedIdSet = new Set(workspaceReferences.filter((value) => value.projectId === project.id && value.enabled)");
-    expect(value).toContain("connectionCard(connection, project, true)");
-    expect(value).toContain("connectionCard(connection, project, false)");
-    expect(value).toContain("각 영역은 고유한 Project ID를 유지합니다.");
+    expect(value).toContain("[...new Set(projects.map((project) => project.id))]");
+    expect(value).toContain("projectConnectionBuckets(connections, workspaceReferences, project.id)");
+    expect(value).toContain("buckets.assigned.map((connection) => connectionCard(connection, project, true))");
+    expect(value).toContain("buckets.available.map((connection) => connectionCard(connection, project, false))");
+    expect(value).toContain("다른 Project가 이미 소유한 연결은 이 영역의 배정 후보로 표시하지 않습니다.");
   });
 
   it("binds assignment actions to the Project area being rendered", () => {
@@ -66,7 +66,22 @@ describe("Settings Data Sources multi-connection workflow", () => {
     expect(value).toContain("setAssignmentProjectIds(defaultProjectId ? [defaultProjectId] : [])");
   });
 
-  it("loads Workspace references once instead of changing them with the Project picker", () => {
+  it("uses a single Project selector instead of multi-Project checkboxes", () => {
+    const value = source();
+    expect(value).toContain("한 연결은 최대 한 Project에서만 사용합니다.");
+    expect(value).toContain('setAssignmentProjectIds(event.target.value ? [event.target.value] : [])');
+    expect(value).not.toContain('type="checkbox"');
+    expect(value).toContain("singleProjectIds");
+  });
+
+  it("warns when normalized duplicate Project names already exist", () => {
+    const value = source();
+    expect(value).toContain("duplicateNormalizedProjectNames(projects)");
+    expect(value).toContain("같은 이름의 Project가 중복 저장되어 있습니다.");
+    expect(value).toContain("데이터 병합 전에는 어느 Project도 삭제하지 마세요.");
+  });
+
+  it("loads normalized Workspace references once instead of changing them with the Project picker", () => {
     const value = source();
     expect(value).toContain('fetch(`/api/data-sources?workspaceId=${encodeURIComponent(workspaceId)}`');
     expect(value).not.toContain('...(projectId ? { projectId } : {})');
@@ -74,9 +89,20 @@ describe("Settings Data Sources multi-connection workflow", () => {
     expect(value).toContain("setProjectPickerId(event.target.value)");
   });
 
-  it("exposes all Workspace references from the API", () => {
+  it("normalizes public Workspace references through each Project repository scope", () => {
     const value = routeSource();
-    expect(value).toContain("workspaceProjectReferences: workspaceReferences.filter");
+    expect(value).toContain("visibleWorkspaceReferences(data)");
+    expect(value).toContain("projectDataSourceReferenceRepository.listByProject(project.id)");
+    expect(value).toContain("workspaceProjectReferences: workspaceReferences");
+    expect(value).not.toContain("workspaceProjectReferences: workspaceReferences.filter");
+  });
+
+  it("locks resource identity after a connection is established", () => {
+    const value = source();
+    expect(value).toContain("connectionHasResourceIdentity");
+    expect(value).toContain("resourceLocked");
+    expect(value).toContain("다른 resource는 새 연결을 추가하세요.");
+    expect(routeSource()).toContain("assertResourceIdentityUnchanged(existing, resourceConfiguration)");
   });
 
   it("supports multiple named connections and safe Google credential reuse", () => {
@@ -126,19 +152,19 @@ describe("Settings Data Sources multi-connection workflow", () => {
     expect(selectPreferredDataSourceConnection(values, "googleSearchConsole", "missing")).toBeUndefined();
   });
 
-  it("preserves explicit Project choices across a new Google OAuth callback", () => {
-    expect(parseOAuthReturn("?dataSourceOAuth=resourceRequired&connectionId=callback-oauth&dataSourceProvider=youtubeAnalytics&assignProjectIds=finance,health")).toMatchObject({ outcome: "resourceRequired", connectionId: "callback-oauth", provider: "youtubeAnalytics", assignProjectIds: ["finance", "health"] });
+  it("preserves only one explicit Project choice across a new Google OAuth callback", () => {
+    expect(parseOAuthReturn("?dataSourceOAuth=resourceRequired&connectionId=callback-oauth&dataSourceProvider=youtubeAnalytics&assignProjectIds=finance,health")).toMatchObject({ outcome: "resourceRequired", connectionId: "callback-oauth", provider: "youtubeAnalytics", assignProjectIds: ["finance"] });
     const value = source();
-    expect(value).toContain('returnQuery.set("assignProjectIds"');
+    expect(value).toContain('returnQuery.set("assignProjectIds", assignmentProjectId)');
     expect(value).toContain('query.delete("assignProjectIds")');
   });
 
   it("shows safe deletion impact details for a disconnected card", () => {
-    const value = dataSourceDeletionConfirmation(connection({ id: "old-gsc", status: "disconnected", displayName: "Search Console", resourceConfiguration: { siteProperty: "sc-domain:old.example" }, projectReferenceCount: 2 }));
+    const value = dataSourceDeletionConfirmation(connection({ id: "old-gsc", status: "disconnected", displayName: "Search Console", resourceConfiguration: { siteProperty: "sc-domain:old.example" }, projectReferenceCount: 1 }));
     expect(value).toContain("이 데이터 소스 연결을 삭제하시겠습니까?");
     expect(value).toContain("Search Console");
     expect(value).toContain("sc-domain:old.example");
-    expect(value).toContain("Project 참조: 2개");
+    expect(value).toContain("Project 참조: 1개");
     expect(value).toContain("기존 Snapshot과 이미 콘텐츠에 사용된 Evidence는 보존됩니다.");
   });
 });
