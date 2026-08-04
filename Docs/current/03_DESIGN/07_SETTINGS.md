@@ -37,24 +37,35 @@ A Workspace can own multiple `DataSourceConnection` records for the same Provide
 
 The Data Sources screen uses this order:
 
-1. **Project context selection**
+1. **Existing Project area selection**
 2. **Explicit Provider connection creation**
 3. **Connection resource and Project assignment confirmation**
-4. **Assigned versus available Connection management**
+4. **Independent Project management areas**
 
-### Project context
+### Existing Project areas
 
-The first section asks which Project the user is configuring. The first Project is not silently selected. The user must choose a Project explicitly, or continue with Workspace-only connection creation.
+The Project selector lists Projects that already exist in the Workspace. It does not create Project data.
 
-A `새 Project 만들기` action opens the dedicated Project creation screen. After successful creation, the user returns to Data Sources with the new Project selected.
+`선택한 Project 영역 만들기` adds the selected existing Project as an independent lower management area. It must not navigate to a Project creation page or call `createProject`.
 
-Selecting a Project changes only the assignment view. It never moves, duplicates or rewrites a Workspace Connection.
+All current Workspace Projects are shown as independent areas by default. Closing an area hides only that UI area; it never deletes the Project, a Connection, a Snapshot, Evidence or a Project reference. A hidden area can be added again through the selector.
+
+Each area keeps its own immutable Project ID and renders from that ID. Changing the top selector must not rename, replace or rebind an existing area.
+
+```text
+Project areas
+├── 건강 정보        projectId: project-health
+├── 비바레인 미술 감상 가이드  projectId: project-art
+└── 밝은재테크       projectId: project-finance
+```
 
 ### Provider selection and new connection
 
 The generic `Provider 선택해서 새 연결 추가` action does not immediately open a preferred Provider form. Every enabled Provider card has its own explicit `이 Provider 연결 추가` action.
 
 Provider cards display the current same-Provider Connection count. Clicking the card body alone is not a hidden create or edit command. Existing Connection cards have a separate `구성 편집` action.
+
+Each Project area also exposes direct `GSC 연결 추가` and `NAVER 연결 추가` actions. Starting from a Project area preselects only that area’s Project in the connection editor; the selection remains visible and editable before save.
 
 Examples:
 
@@ -76,23 +87,27 @@ YouTube Analytics
 The Connection editor lists all Workspace Projects under `이 연결을 사용할 Project`.
 
 - No Project is assigned implicitly merely because it is the first Project.
-- Starting a new Connection while an explicit Project context is selected may preselect that Project, but the selection remains visible and editable before save.
+- Starting from a specific Project area may preselect that Project, but the choice remains visible before save.
 - Selecting no Project stores a Workspace-only Connection that is excluded from every Project's Opportunity Planning.
 - Saving or editing synchronizes only the explicit Project checkboxes.
 - Google OAuth return preserves the user's pending Project choices until resource selection and final save.
 
 Every configured connection has its own ID, display name, resource, sync state, last attempt, last success, freshness, latest period, limitations, safe recent error and Workspace-wide Project reference count. A Project may opt into any number of enabled same-Workspace connections. Opportunity Planning reads only connections explicitly assigned to that Project.
 
-### Project assignment view
+### Independent Project management areas
 
-After a Project is selected, the screen separates Connections into:
+Each lower Project area independently calculates:
 
 ```text
 <Project>에 배정된 연결
-배정 가능한 Workspace 연결
+<Project>에 배정 가능한 Workspace 연결
 ```
 
-The assigned section contains only references for the selected Project. The available section contains the remaining Workspace Connections. Each card has an explicit `이 Project에 배정` or `이 Project에서 제외` action. A Connection assigned to a different Project is not presented as though it belongs to the currently selected Project.
+The area uses its own Project ID when filtering references and when sending `set-project-reference`. It never uses a shared top selector value for assignment actions.
+
+Every Connection card displays the actual list of assigned Project names derived from Workspace references. The card may be rendered in several Project areas, but its `실제 배정 Project` text remains identical in every area.
+
+Each card has an explicit `이 Project에 배정` or `이 Project에서 제외` action bound to the Project area that rendered the card. Assigning or removing a Connection in one area must not alter the Project identity or display of another area.
 
 ### Google resource connections
 
