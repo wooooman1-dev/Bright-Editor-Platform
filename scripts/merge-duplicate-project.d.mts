@@ -1,6 +1,6 @@
-export type DuplicateProjectMergeResult = Readonly<{
-  studio: unknown;
-  metadata: unknown;
+export type DuplicateProjectMergeResult<TStudio = unknown, TMetadata = unknown> = Readonly<{
+  studio: TStudio;
+  metadata: TMetadata;
   changed: boolean;
   sourceProjectId: string;
   targetProjectId: string;
@@ -17,17 +17,17 @@ export type DuplicateProjectMergeResult = Readonly<{
   targetProjectCount?: number;
 }>;
 
-export function mergeDuplicateProjectSnapshots(
-  studioSnapshot: any,
-  metadataSnapshot: any,
+export function mergeDuplicateProjectSnapshots<TStudio, TMetadata>(
+  studioSnapshot: TStudio,
+  metadataSnapshot: TMetadata,
   sourceProjectId: string,
   targetProjectId: string,
-): DuplicateProjectMergeResult & { studio: any; metadata: any };
+): DuplicateProjectMergeResult<TStudio, TMetadata>;
 
-export function verifyMergedProjectSnapshots(
-  result: DuplicateProjectMergeResult,
-  persistedStudio: any,
-  persistedMetadata: any,
+export function verifyMergedProjectSnapshots<TStudio, TMetadata>(
+  result: DuplicateProjectMergeResult<TStudio, TMetadata>,
+  persistedStudio: TStudio,
+  persistedMetadata: TMetadata,
 ): Readonly<{ targetContentCount: number; targetProjectCount: number }>;
 
 export function runDuplicateProjectMerge(options: Readonly<{
