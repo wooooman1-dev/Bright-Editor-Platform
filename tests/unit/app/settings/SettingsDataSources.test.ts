@@ -41,22 +41,35 @@ describe("Settings Data Sources multi-connection workflow", () => {
     expect(value).not.toContain("createProject(");
   });
 
-  it("renders every current Project as an independent area while deduplicating identical IDs", () => {
+  it("renders every current Project as an independent assigned-only area while deduplicating identical IDs", () => {
     const value = source();
     expect(value).toContain("[...new Set(projects.map((project) => project.id))]");
     expect(value).toContain("projectConnectionBuckets(connections, workspaceReferences, project.id)");
-    expect(value).toContain("buckets.assigned.map((connection) => connectionCard(connection, project, true))");
-    expect(value).toContain("buckets.available.map((connection) => connectionCard(connection, project, false))");
-    expect(value).toContain("다른 Project가 이미 소유한 연결은 이 영역의 배정 후보로 표시하지 않습니다.");
+    expect(value).toContain("buckets.assigned.map((connection) => connectionCard(connection, project))");
+    expect(value).toContain("각 Project에는 실제로 배정된 연결만 표시합니다.");
+    expect(value).not.toContain("buckets.available");
+    expect(value).not.toContain("이 Project에 배정 가능한 미배정 연결");
   });
 
-  it("binds assignment actions to the Project area being rendered", () => {
+  it("renders unassigned connections once in a Workspace area with an explicit Project selector", () => {
     const value = source();
-    expect(value).toContain('projectId: contextProject.id');
+    expect(value).toContain("workspaceUnassignedConnections(connections, workspaceReferences)");
+    expect(value).toContain("data-workspace-unassigned-connections");
+    expect(value).toContain("Workspace 미배정 연결");
+    expect(value).toContain("workspaceConnections.map((connection) => connectionCard(connection))");
+    expect(value).toContain("배정할 Project");
+    expect(value).toContain("선택한 Project에 배정");
+    expect(value).toContain("workspaceAssignmentProjectIds");
+  });
+
+  it("binds release actions to the Project card and assignment actions to the Workspace card", () => {
+    const value = source();
+    expect(value).toContain("projectId: contextProject.id");
+    expect(value).toContain("projectId, connectionId: connection.id, enabled: true");
     expect(value).toContain("실제 배정 Project:");
     expect(value).toContain("projectNamesForConnection");
     expect(value).toContain("이 Project에서 제외");
-    expect(value).toContain("이 Project에 배정");
+    expect(value).toContain("선택한 Project에 배정");
   });
 
   it("starts GSC or NAVER creation with the area Project preselected", () => {
