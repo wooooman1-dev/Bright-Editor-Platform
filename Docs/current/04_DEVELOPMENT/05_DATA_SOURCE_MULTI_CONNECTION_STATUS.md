@@ -227,7 +227,17 @@ Next.js production build: passed
 Job conclusion: success
 ```
 
-A documentation-only commit after that implementation requires the normal current-HEAD CI rerun before final reporting.
+The subsequent documentation commit `02380b83cbb2e2551a3c2d6c579a1f0680a4b996` was also verified on the same four gates:
+
+```text
+GitHub Actions run: 30917247322
+Job: 92018384935
+TypeScript typecheck: passed
+ESLint zero-warning gate: passed
+complete non-E2E Vitest suite: passed
+Next.js production build: passed
+Job conclusion: success
+```
 
 ## Remaining local external verification
 
