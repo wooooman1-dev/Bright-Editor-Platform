@@ -1,35 +1,44 @@
 # Data Source and Opportunity Intelligence Architecture
 
-Status: Foundation implemented; Google Search Console and NAVER selected flows externally verified; multi-connection and YouTube Analytics changes are implemented and automated-verified in Draft PR #42 but remain externally unverified
+Status: Foundation implemented; Google Search Console and NAVER selected flows externally verified; multi-connection, single-Project ownership and YouTube Analytics changes remain in Draft PR #42 and require current CI plus local external verification
 
 ## 1. Ownership and boundaries
 
 ```text
 Workspace
-├── PlatformConnection            publishing only
-├── DataSourceConnection[]        market/performance data only
+├── PlatformConnection                 publishing only
+├── DataSourceCredential               reusable authentication secret
+├── DataSourceConnection[]             one site/channel/account/keyword resource
+│   └── DataSourceProjectOwner?        zero or one Project owner
 └── Project
-    └── ProjectDataSourceReference[]
+    └── ProjectDataSourceReference[]   explicit use permission for owned Connection
 ```
 
-`DataSourceConnection` belongs to exactly one Workspace. A Workspace can own multiple connections for the same Provider. Each connection represents exactly one selected Provider resource or one keyword configuration. A Project can reference enabled connections only from the same Workspace. Publishing accounts, automation permissions and Playwright workflows remain separate.
+`DataSourceConnection` belongs to exactly one Workspace and represents exactly one selected Provider resource or one keyword configuration. A Connection is either unassigned or owned by exactly one Project. It is never shared across multiple Projects.
 
-Examples:
+Authentication may be reused without sharing the Connection. A Workspace can create multiple same-Provider Connections that reference the same safe credential while keeping resource identity, Snapshot, Evidence and Project scope separate.
+
+Publishing accounts, automation permissions and Playwright workflows remain separate from Data Sources.
+
+Example:
 
 ```text
 Workspace
-├── GSC · 밝은건강       → bright-healthy.tistory.com
-├── GSC · 밝은재테크     → brightjaetech.kr
-├── NAVER · 건강         → 건강, 운동, 영양
-├── NAVER · 재테크       → 예금, 적금, 고정비, 보험
-└── YouTube · 밝은건강TV → one owned YouTube channel
+├── shared Google OAuth credential
+├── 건강정보 Project
+│   ├── GSC · 밝은건강       → bright-healthy.tistory.com
+│   ├── NAVER · 건강         → 건강, 운동, 영양
+│   └── YouTube · 밝은건강TV → one owned channel
+└── 밝은재테크 Project
+    ├── GSC · 밝은재테크     → brightjaetech.kr
+    └── NAVER · 재테크       → 예금, 적금, 고정비, 보험
 ```
 
-Core owns provider-independent contracts, Evidence semantics, freshness policy and recommendation classification. Application infrastructure owns durable metadata, DPAPI SecretStore integration, official HTTP adapters, raw snapshot files and the local manual-sync service. The UI receives only public metadata and safe errors.
+Core owns provider-independent contracts, Evidence semantics, freshness policy and recommendation classification. Application infrastructure owns durable metadata, DPAPI SecretStore integration, official HTTP adapters, raw snapshot files, Project ownership enforcement and local repair commands. The UI receives only public metadata and safe errors.
 
 ## 2. Connection identity and resource isolation
 
-A Provider name is not a Connection identity. Every resource Connection has a unique `connectionId`, display name, resource configuration, lifecycle state, snapshots, Evidence and Project references.
+A Provider name is not a Connection identity. Every resource Connection has a unique `connectionId`, display name, immutable resource identity, lifecycle state, snapshots, Evidence and optional Project owner.
 
 Selecting a Provider in Settings must not choose and mutate an existing preferred connection. The explicit workflows are:
 
@@ -39,60 +48,114 @@ Selecting a Provider in Settings must not choose and mutate an existing preferre
 → new OAuth or same-Provider credential reuse
 → authorized resource selection
 → new Connection ID
-→ optional Project assignment
+→ optional single Project assignment
 
 구성 편집
 → exact rendered Connection ID
 → version check
-→ resource/config update
+→ display/non-identity configuration update
+→ current Project 유지 또는 배정 해제
 
-Project별 배정
+Project 배정
 → exact Project ID + Connection ID
-→ same-Workspace ownership check
+→ same-Workspace check
+→ atomic single-owner claim
 ```
 
-Search Console, GA4, AdSense and YouTube Analytics use one Provider resource per Connection. NAVER Search Trend uses one Project-oriented keyword set per Connection. Different sites, channels or keyword strategies are never combined by overwriting a prior Connection.
+Search Console, GA4, AdSense and YouTube Analytics use one Provider resource per Connection. NAVER Search Trend uses one Project-oriented keyword set per Connection. Once a resource identity has been selected and stored, it cannot be changed on that Connection:
 
-## 3. Persistence
+- Search Console: `siteProperty`
+- GA4: `propertyId`
+- AdSense: `accountReference` plus `siteReference`
+- YouTube Analytics: `channelId`
+- NAVER Search Trend: normalized keyword set
 
-Data Source metadata is stored in `.bright-studio/intelligence/metadata.json` through the existing `SnapshotPersistenceStore` and `JsonFileSnapshotDriver`.
+A different site, channel, account or keyword strategy requires a new Connection. Existing Google authentication may be reused to create it.
+
+## 3. Project identity and duplicate protection
+
+A Project is the brand, topic, audience and content-strategy boundary. Project identity is determined by immutable Project ID, while a normalized duplicate name in the same Workspace is rejected at the canonical `studioStore` persistence boundary.
+
+Normalization uses Unicode NFKC, trimming, internal whitespace collapse and locale-aware lowercase comparison. Existing legacy duplicates are allowed to persist unchanged only long enough for verified migration; no new duplicate may be introduced and an existing duplicate set may be reduced by migration.
+
+The verified duplicate Project merge command:
+
+```text
+npm run project:merge-duplicate -- --source <duplicate-id> --target <canonical-id>
+```
+
+must:
+
+1. refuse to run while the Next.js development lock exists;
+2. acquire exclusive locks for both data files;
+3. verify source and target exist in the same Workspace and have the same normalized name;
+4. fingerprint `studio-data.json` and `metadata.json` before replacement;
+5. create timestamped backups for both files;
+6. move every exact nested source Project ID reference to the target ID;
+7. remove only the source Project record;
+8. re-read both persisted files;
+9. require exact equality with the intended snapshots;
+10. require zero remaining source Project ID references;
+11. restore both backups if either replacement or verification fails.
+
+Content IDs, manuscript data, Planning candidates, canonical Opportunity, Media IDs and Evidence IDs remain unchanged. Only their Project references move.
+
+## 4. Data Source persistence
+
+Data Source metadata is stored in `.bright-studio/intelligence/metadata.json` through `SnapshotPersistenceStore` and `JsonFileSnapshotDriver`.
 
 Collections:
 
 - `data-source-connections`
 - `project-data-source-references`
+- `data-source-project-owners`
 - `data-source-snapshots`
 - `opportunity-evidence`
 
+The Project owner collection is the atomic ownership gate. Legacy references without an owner record are projected through the deterministic canonical-owner policy; only the canonical active reference is visible to Planning and public API consumers.
+
 Large Provider payloads are stored separately under `.bright-studio/intelligence/raw-snapshots/<workspace>/<connection>/<snapshot>.json`. `DataSourceSnapshot` keeps only `rawSnapshotReference`, checksum/fingerprint, resource, period, operation and limitation metadata. Raw responses are never embedded into `UserData` or a Content Opportunity.
 
-Disable, disconnect and deletion have separate contracts. Disable retains Connection metadata, credentials, Project references, snapshots and Evidence while stopping synchronization. Disconnect removes the Connection's credential reference while retaining the Connection, Project references, snapshots and Evidence for reconnection. Data Source deletion removes the Connection card and every same-Workspace Project reference after explicit confirmation, but preserves raw snapshots, Snapshot metadata, normalized Evidence and all Content-owned records.
+Disable, disconnect and deletion have separate contracts. Disable retains Connection metadata, credential, Project owner/reference, snapshots and Evidence while stopping synchronization. Disconnect removes this Connection's credential reference while retaining its metadata, owner/reference, snapshots and Evidence for reconnection. Data Source deletion removes the Connection card, owner and Project references after explicit confirmation, but preserves raw snapshots, Snapshot metadata, normalized Evidence and Content-owned records.
 
-Deletion reuses the versioned local safe-backup writer. It first writes a secret-free backup, invalidates the active sync operation and pending OAuth state, and removes an unshared credential before committing metadata deletion. A single atomic persistence batch writes an archived source tombstone and removes all related Project references and the Connection. Google revoke failure does not prevent local deletion.
+Deletion reuses the versioned local safe-backup writer. It invalidates active sync and pending OAuth state, removes an unshared credential, writes an archived source tombstone and removes ownership/reference metadata atomically. Google revoke failure does not prevent local deletion.
 
-The tombstone retains only connection ID, Workspace, provider, display name, resource configuration, prior status, deletion time and retained/reference counts. Snapshot and Evidence records retain their historical connection ID and provider attribution. New Planning requires both a current Connection and an enabled Project reference, so tombstoned source Evidence is excluded. Existing Content Opportunity evidence IDs and public summaries remain unchanged.
+## 5. Credential protection and reuse
 
-## 4. Credential protection and reuse
-
-Google OAuth access data and NAVER client credentials are stored through the existing Windows DPAPI `SecretStore`. Normal Connection JSON contains `secretReference` only. API responses remove the reference and expose only `hasCredentials`.
+Google OAuth access data and NAVER client credentials are stored through the existing Windows DPAPI `SecretStore`. Normal Connection JSON contains `secretReference` only. API responses remove that reference and expose only `hasCredentials`.
 
 Tokens, refresh tokens, client secrets and authorization codes are not returned, logged or included in safe errors. Provider response bodies are not reflected verbatim on failure.
 
-A new Search Console or YouTube Analytics Connection can reuse the credential reference of an active same-Provider Google Connection. Reuse creates a new Connection ID with an empty resource selection and copies only the safe server-listed resources. It does not copy snapshots, Evidence, Project references or the selected resource.
+A new Search Console or YouTube Analytics Connection can reuse the credential reference of an active same-Provider Google Connection. Reuse creates a new Connection ID with an empty resource selection and copies only safe server-listed resources. It does not copy selected resource, Project owner, snapshots or Evidence.
 
-A credential may therefore be referenced by multiple active resource Connections. Lifecycle rules are reference-aware:
+Credential lifecycle is reference-aware:
 
-- Disconnecting one Connection removes only its credential reference.
-- Deleting one Connection does not revoke or delete a credential used by another active Connection.
-- Reconnecting one Connection may replace its credential without invalidating other Connections that still reference the old credential.
-- Remote revocation and local secret deletion occur only when no other active Connection references that credential.
-- Google credentials are not reused across Providers with different required OAuth scope sets.
+- disconnecting one Connection removes only that Connection's credential reference;
+- deleting one Connection does not revoke a credential used by another active Connection;
+- reconnecting one Connection does not invalidate other Connections still using the old credential;
+- remote revocation and local secret deletion occur only when no other active Connection references that credential;
+- Google credentials are not reused across Providers with different OAuth scope sets.
 
 Credential fields remain write-only. Saved token and secret values are never rendered back, including masked originals.
 
-Application code must not log OAuth authorization codes, raw state, access tokens, refresh tokens or client secrets. Development terminal output may contain framework-generated callback URLs and must be treated as sensitive.
+## 6. Settings UI projection
 
-## 5. Sync flow
+Every current Workspace Project is rendered as an independent area using its immutable Project ID. The top selector only hides or re-adds an existing area; it does not create, rename or rebind Project data.
+
+Each Project area calculates:
+
+```text
+assigned = active Connections owned by this Project
+available = active Connections with no Project owner
+```
+
+A Connection owned by another Project is not rendered in the current area's available list. Therefore a health GSC/NAVER Connection cannot appear as assignable inside a finance or art Project.
+
+The Connection editor uses one Project selector, not multi-select checkboxes. A Connection may remain unassigned, stay with its current owner, or be explicitly unassigned. Moving it to another Project requires first releasing the current owner and then assigning the now-unassigned Connection, while Repository ownership remains the final concurrency guard.
+
+If normalized duplicate Project names already exist, Settings displays a warning and does not suggest deleting either Project before verified migration.
+
+## 7. Sync flow
 
 ```text
 Manual Sync
@@ -106,68 +169,58 @@ Manual Sync
 → connection ready/error state
 ```
 
-Deletion marks an in-flight job `superseded` before credential or metadata cleanup. Snapshot, Evidence and Connection repositories reject writes for tombstoned connection IDs, preventing a late Provider response from recording a post-deletion result or recreating the Connection.
+Deletion marks an in-flight job `superseded` before credential or metadata cleanup. Snapshot, Evidence and Connection repositories reject writes for tombstoned connection IDs, preventing late Provider responses from recording post-deletion results or recreating a Connection.
 
-Sync is Connection-isolated. A failure changes only that Connection's current status and retains every previous successful snapshot. The operation ID stored on the Connection prevents a late response from committing after disconnect or a newer operation. A fresh successful snapshot for the same period is returned from cache without a Provider call.
+Sync is Connection-isolated. A failure changes only that Connection's current status and retains every previous successful snapshot. The operation ID prevents a late response from committing after disconnect or a newer operation. A fresh successful snapshot for the same period is returned from cache without a Provider call.
 
-Freshness is centrally configured per Provider with `fresh`, `aging`, `stale`, and `unavailable`:
+Freshness policy:
 
 - Search Console, GA4, AdSense and YouTube Analytics: 2-day fresh / 7-day aging
 - NAVER Search Trend: 1-day fresh / 3-day aging
 - Google Ads Keyword Planning: 7-day fresh / 30-day aging when activated
 - Google Trends Official: 1-day fresh / 7-day aging when activated
 
-## 6. Official Provider adapters
+## 8. Official Provider adapters
 
 - Google Search Console: official Search Analytics API; query/page clicks, site impressions, CTR and average position.
-- Google Analytics 4: official Data API `runReport`; page views, users, sessions, engagement and only actually returned configured key events.
+- Google Analytics 4: official Data API `runReport`; page views, users, sessions, engagement and only returned configured key events.
 - Google AdSense: official v2 report API; earnings, impressions, clicks, CTR and RPM at returned account/site scope.
 - YouTube Analytics: official YouTube Data API for the authorized account's channel list and YouTube Analytics `reports.query` for selected-channel views, estimated minutes watched, likes, comments, shares and subscriber gains/losses. Monetary metrics are not requested.
 - NAVER Search Trend: official NAVER DataLab Search API; relative ratio and period change only.
-- Google Ads Keyword Planning: conditional, not active until official API and customer authorization are verified.
-- Google Trends Official: conditional, not active until official access is verified. No scraping or pytrends fallback exists.
+- Google Ads Keyword Planning: conditional, inactive until official API and customer authorization are verified.
+- Google Trends Official: conditional, inactive until official access is verified. No scraping or pytrends fallback exists.
 
-## 7. Evidence semantics
+## 9. Evidence semantics
 
-Common Evidence records contain Workspace/Project scope, connection, Provider, type, metric, keyword/topic/content/page context, region/language/device, period, observation/sync time, freshness, verified flag, value/unit/relative value/change, confidence, limitations, source/raw references, version and deterministic fingerprint.
+Common Evidence records contain Workspace/Project scope, Connection, Provider, type, metric, keyword/topic/content/page context, region/language/device, period, observation/sync time, freshness, verified flag, value/unit/relative value/change, confidence, limitations, source/raw references, version and deterministic fingerprint.
 
 Server validation protects meaning:
 
-- Search Console impressions remain site search performance, not monthly market demand.
-- GA4 remains page engagement, not search demand.
-- YouTube Analytics remains selected-channel first-party performance, not external search demand.
-- NAVER and official Trends values remain relative indices, not absolute search volume.
-- Google Ads competition requires an explicit advertising-versus-SEO limitation.
+- Search Console impressions are site search performance, not monthly market demand.
+- GA4 is page engagement, not search demand.
+- YouTube Analytics is selected-channel first-party performance, not external search demand.
+- NAVER and official Trends values are relative indices, not absolute search volume.
+- Google Ads competition requires an advertising-versus-SEO limitation.
 - AdSense values cannot be attributed to a post without page-level Provider data.
 - Editorial inference cannot be marked as verified market Evidence.
 
-YouTube metrics use `videoPerformance`. They may contribute verified first-party performance context but never prove total market size, absolute search demand or predicted earnings.
+## 10. Planning and recommendation classification
 
-## 8. Internal growth Evidence
+Planning reads only Evidence from the Connection currently owned and explicitly referenced by the current Project. Connection status, enabled state, same-Workspace scope, resource context, Evidence verification, freshness and Project-topic matching remain required.
 
-Until the dedicated Content Library projection is implemented, the internal Evidence builder uses only current Project strategy and Contents with verified public HTTP(S) URLs. Drafts are not public performance. It can produce `contentGap`, `clusterOpportunity`, and `internalLinkOpportunity`, each with the limitation that it is not external search demand.
-
-## 9. Planning and recommendation classification
-
-Planning reads only Evidence from Connections explicitly referenced by the current Project. Connection status, enabled state, same-Workspace ownership, resource context, Evidence verification, freshness and Project-topic matching remain required.
-
-The service caps and filters the bundle to Project context before adding it to the existing single Planning AI request. The AI cannot attach canonical Evidence. After parsing, the server matches stored Evidence to each candidate, checks duplicate/public content, Project alignment, search-intent clarity and deterministic safety restrictions, then classifies and sorts candidates.
+The service caps and filters the Evidence bundle to Project context before adding it to the existing single Planning AI request. The AI cannot attach canonical Evidence. After parsing, the server matches stored Evidence to each candidate, checks duplicate/public content, Project alignment, search-intent clarity and deterministic safety restrictions, then classifies and sorts candidates.
 
 Order is deterministic: comprehensive, market opportunity, blog growth; within a type, verified Evidence, freshness and stable Opportunity identity are used. No unexplained numeric market score or first-place badge is produced.
 
-The classification result and Evidence summary become part of the Opportunity fingerprint. PUT persistence validates every non-empty Evidence ID against the current Workspace before merging Planning state.
+A healthy Workspace Connection owned by another Project or left unassigned is intentionally excluded. The UI must guide the user to create a separate resource Connection rather than reusing the wrong site's Connection.
 
-A healthy Workspace connection that is not assigned to the current Project is intentionally excluded. The UI must distinguish this from an unavailable or disconnected Provider so the user can correct Project assignment rather than reconnecting the wrong site.
+## 11. Quality Review
 
-## 10. Quality Review
-
-Generation and Quality Review use the confirmed canonical Opportunity. The existing Quality call count does not change. Deterministic review rules block unsupported market-volume/CPC/rank claims when market Evidence is unavailable, stale-as-current claims, Ads competition as SEO difficulty, CPC/RPM revenue prediction and recommendation type as a manuscript quality score.
+Generation and Quality Review use the confirmed canonical Opportunity. The existing one Generation call plus one Quality Review call policy does not change. Deterministic review rules block unsupported market-volume/CPC/rank claims, stale-as-current claims, Ads competition as SEO difficulty, CPC/RPM revenue prediction and recommendation type as manuscript quality score.
 
 YouTube channel performance cannot justify search-volume, universal audience-demand or revenue claims.
 
-## 11. Google OAuth providers
-
-### 11.1 Search Console
+## 12. Google OAuth providers
 
 Search Console requests only:
 
@@ -175,79 +228,53 @@ Search Console requests only:
 https://www.googleapis.com/auth/webmasters.readonly
 ```
 
-The server lists authorized site properties and rejects any property not returned by that authorized resource list.
-
-### 11.2 YouTube Analytics
-
-YouTube Analytics requests only the read-only scopes required for channel identity and Analytics reports:
+YouTube Analytics requests only:
 
 ```text
 https://www.googleapis.com/auth/youtube.readonly
 https://www.googleapis.com/auth/yt-analytics.readonly
 ```
 
-The server flow is:
+OAuth state persists only a SHA-256 state identifier and Workspace/Provider/Connection/return-path/timestamp context. State is short-lived, one-time and cannot carry credentials. Only internal Workspace Settings return paths are accepted. The callback returns the exact new Connection ID and Provider so the client hydrates the created Connection.
 
-```text
-GET /api/data-sources/google/start?provider=youtubeAnalytics
-→ one-time Workspace-bound OAuth state
-→ Google consent
-→ provider-specific scope verification
-→ DPAPI SecretStore token persistence
-→ YouTube channels.list(mine=true)
-→ configurationRequired Connection
-→ user selects one returned channel
-→ connected Connection
-→ manual sync through reports.query
-```
+Server-listed Search Console properties and owned YouTube channels are canonical. Typed or client-supplied identifiers not present in that list are rejected.
 
-A typed or client-supplied channel title is not canonical. The server stores the title associated with the selected server-listed channel ID.
+## 13. Verification status
 
-### 11.3 Shared state and return path
+Externally verified before the current correction:
 
-The OAuth state store persists only a SHA-256 state identifier and Workspace/Provider/Connection/return-path/timestamp context. State is short-lived, one-time and cannot carry credentials. Only internal Workspace Settings return paths are accepted. The callback returns the exact new Connection ID and Provider so the client hydrates the new resource Connection rather than an older preferred Connection.
+- Google Search Console OAuth login and real property list;
+- `https://bright-healthy.tistory.com/` selection with `siteOwner` permission;
+- real Search Console sync and Snapshot creation;
+- NAVER Search Trend connection and synchronization;
+- safe deletion of a legacy Search Console Data Source while historical records remained.
 
-Stored Google credentials contain the access token, refresh token, expiry, token type and granted scopes. They do not contain the authorization code, OAuth client secret or ID token. Automatic access-token refresh writes a new access token and expiry through DPAPI while preserving an existing refresh token when Google omits it.
+Implemented in Draft PR #42 but requiring current CI and local external verification:
 
-## 12. Verification status
-
-Externally verified before this Draft PR:
-
-- Google Search Console OAuth login completed successfully.
-- The actual Search Console property list was returned.
-- `https://bright-healthy.tistory.com/` was selected with `siteOwner` permission.
-- An actual Search Console sync completed and created a Snapshot.
-- NAVER Search Trend connected and synchronized successfully.
-- A legacy Search Console Data Source was safely deleted while historical records remained preserved.
-
-Implemented in Draft PR #42 and automated-verified, but not yet externally verified:
-
-- explicit Provider-level `새 연결 추가`
-- multiple same-Provider resource Connections
-- same-Provider Google credential reuse
-- reference-aware disconnect/delete/reconnect protection
-- separate Project assignment UI
-- multiple NAVER keyword-set Connections
-- YouTube Analytics OAuth, channel selection, sync and Evidence normalization
-
-Automated validation at commit `12e20c83ed99732c8b88f962482efa8cc0e041fe`:
-
-- GitHub Actions run: `30874382710`
-- Job: `91882765362`
-- TypeScript typecheck: passed
-- ESLint with zero-warning gate: passed
-- complete non-E2E Vitest suite: passed
-- Next.js production build: passed
-- Job conclusion: success
+- explicit Provider-level new Connection flow;
+- multiple same-Provider resource Connections;
+- same-Provider Google credential reuse;
+- single-Project Connection ownership with atomic conflict protection;
+- hiding other Project-owned Connections from available lists;
+- single Project selection in the editor;
+- immutable established resource identity;
+- normalized public Project reference projection;
+- duplicate Project name persistence guard;
+- verified two-file duplicate Project merge command;
+- multiple NAVER keyword-set Connections;
+- YouTube Analytics OAuth, channel selection, sync and Evidence normalization.
 
 Remaining external gates:
 
-- local UI verification with existing health Connections preserved
-- creation of a separate `brightjaetech.kr` Search Console Connection
-- creation and Project assignment of a finance NAVER keyword-set Connection
-- real YouTube OAuth, owned-channel selection, sync and Snapshot/Evidence verification
-- GA4 and AdSense real-account connection, resource selection and synchronization
-- automatic refresh after an access token actually expires
-- real quota limits, throttling and additional production response variants
+- current Draft PR CI success;
+- verified local merge of the duplicate `건강정보` Project with source ID zero afterward;
+- one `건강정보` area rendered after migration;
+- health GSC/NAVER visible only in the canonical health Project;
+- no health Connection cards in finance or art Project areas;
+- creation of separate `brightjaetech.kr` Search Console and finance NAVER Connections;
+- real YouTube OAuth, channel selection, Snapshot and Evidence creation;
+- GA4 and AdSense real-account connection and synchronization;
+- automatic refresh after an access token expires;
+- real quota, throttling and production response variants.
 
-No multi-connection or YouTube Analytics feature may be marked externally verified merely because automated tests pass.
+No feature is externally verified merely because automated tests pass.
