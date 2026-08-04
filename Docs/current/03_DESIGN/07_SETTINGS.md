@@ -40,7 +40,8 @@ The Data Sources screen uses this order:
 1. existing Project area selection;
 2. explicit Provider connection creation;
 3. Connection resource and single Project assignment confirmation;
-4. independent Project management areas.
+4. one Workspace-level unassigned Connection area;
+5. independent assigned-only Project management areas.
 
 ### Existing Project areas
 
@@ -94,26 +95,45 @@ The Connection editor exposes one selector under `이 연결을 사용할 Projec
 - A Connection can have at most one active Project owner/reference.
 - Google OAuth return preserves at most one pending Project choice until resource selection and final save.
 - An established Connection can stay with its owner or be unassigned.
-- Moving it to another Project requires first saving it as unassigned and then assigning that now-unassigned Connection from the destination area.
+- Moving it to another Project requires first saving it as unassigned and then assigning it from the Workspace unassigned Connection area.
 
 The Repository owner claim is the final atomic concurrency gate. A second Project assignment returns a safe `409 DATA_SOURCE_PROJECT_SCOPE_CONFLICT` response identifying the existing owner and directing the user to add a separate Connection.
 
+### Workspace unassigned Connection area
+
+Connections with no active Project owner are rendered once in the Workspace-level `Workspace 미배정 연결` area.
+
+```text
+Workspace 미배정 연결
+└── one Connection card
+    ├── configuration, sync and lifecycle actions
+    ├── one Project selector
+    └── 선택한 Project에 배정
+```
+
+The same unassigned Connection must not be repeated under every Project. Repetition gives the false impression that the Connection already belongs to each Project and multiplies destructive configuration, sync and deletion controls across the page.
+
+The Workspace area calculates:
+
+```text
+unassigned = Connections with no active Project owner
+```
+
+Each unassigned card provides one explicit Project selector. Assignment sends the selected immutable Project ID and exact Connection ID. After the server accepts the atomic owner claim and the screen refreshes, the card disappears from the Workspace area and appears only in the assigned Project area.
+
 ### Independent Project management areas
 
-Each lower Project area independently calculates:
+Each lower Project area calculates only:
 
 ```text
 assigned = Connections owned by this Project
-available = Connections with no Project owner
 ```
 
-A Connection owned by another Project is not rendered in the current area's available list. This prevents health GSC/NAVER cards, including their edit, sync, disable, disconnect and delete actions, from appearing inside finance or art Project areas.
+A Project area never renders unassigned Connections and never renders a Connection owned by another Project. This prevents one unassigned or health-specific GSC/NAVER card, including its edit, sync, disable, disconnect and delete actions, from appearing repeatedly inside health, finance and art Project areas.
 
-The area uses its own Project ID when filtering and when sending `set-project-reference`. It never uses a shared top selector value for assignment actions.
+The area uses its own Project ID when filtering and when sending `set-project-reference` for release. It never uses a shared top selector value for assignment actions.
 
-Every visible Connection card displays its actual assigned Project name derived from normalized public Workspace references. A card may appear in its owner area or as an unassigned candidate, but never as a candidate in another owner’s area.
-
-Each card has an explicit `이 Project에 배정` or `이 Project에서 제외` action bound to the Project area that rendered it.
+Every visible assigned Connection card displays its actual Project name derived from normalized public Workspace references and exposes `이 Project에서 제외`. Releasing the Connection moves it to the single Workspace unassigned area; it does not duplicate it across Project areas.
 
 ### Resource identity
 
