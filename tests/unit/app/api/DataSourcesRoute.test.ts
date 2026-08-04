@@ -7,7 +7,8 @@ const mocks = vi.hoisted(() => ({
   connectionFind: vi.fn(), connectionList: vi.fn(), connectionSave: vi.fn(),
   snapshotList: vi.fn(), referenceList: vi.fn(), referenceListWorkspace: vi.fn(), referenceSave: vi.fn(), referenceDelete: vi.fn(),
   syncStart: vi.fn(), syncStatus: vi.fn(), storeSecret: vi.fn(), deleteSecret: vi.fn(), studioGet: vi.fn(),
-  oauthConfigured: vi.fn(), oauthInvalidate: vi.fn(), oauthRevoke: vi.fn(), dataSourceDelete: vi.fn(),
+  oauthConfigured: vi.fn(), oauthInvalidate: vi.fn(), oauthRevoke: vi.fn(), oauthAuthorized: vi.fn(), oauthPersist: vi.fn(),
+  searchConsoleListSites: vi.fn(), youtubeListChannels: vi.fn(), dataSourceDelete: vi.fn(),
 }));
 
 vi.mock("../../../../app/application/data-sources/data-source-runtime", () => ({
@@ -16,8 +17,10 @@ vi.mock("../../../../app/application/data-sources/data-source-runtime", () => ({
   projectDataSourceReferenceRepository: { listByProject: mocks.referenceList, listByWorkspace: mocks.referenceListWorkspace, save: mocks.referenceSave, delete: mocks.referenceDelete },
   dataSourceSyncService: { start: mocks.syncStart, status: mocks.syncStatus },
   googleOAuthClientFactory: { configured: mocks.oauthConfigured },
-  googleOAuthCredentialService: { revoke: mocks.oauthRevoke },
+  googleOAuthCredentialService: { revoke: mocks.oauthRevoke, authorized: mocks.oauthAuthorized },
   googleOAuthStateStore: { invalidate: mocks.oauthInvalidate },
+  googleSearchConsoleService: { listSites: mocks.searchConsoleListSites },
+  googleYouTubeAnalyticsService: { listChannels: mocks.youtubeListChannels },
   dataSourceDeletionService: { delete: mocks.dataSourceDelete },
 }));
 vi.mock("../../../../app/application/connections/connection-runtime", () => ({ secretStore: { storeSecret: mocks.storeSecret, deleteSecret: mocks.deleteSecret } }));
@@ -41,6 +44,10 @@ describe("Data Source API safety", () => {
     mocks.oauthConfigured.mockReturnValue(false);
     mocks.oauthInvalidate.mockResolvedValue(undefined);
     mocks.oauthRevoke.mockResolvedValue(undefined);
+    mocks.oauthPersist.mockResolvedValue(undefined);
+    mocks.oauthAuthorized.mockResolvedValue({ client: { id: "authorized-google-client" }, persist: mocks.oauthPersist });
+    mocks.searchConsoleListSites.mockResolvedValue([]);
+    mocks.youtubeListChannels.mockResolvedValue([]);
     mocks.connectionList.mockResolvedValue([]);
     mocks.snapshotList.mockResolvedValue([]);
     mocks.referenceList.mockResolvedValue([]);
@@ -109,13 +116,39 @@ describe("Data Source API safety", () => {
     expect(mocks.connectionSave).not.toHaveBeenCalled();
   });
 
-  it("creates a second same-provider resource connection without overwriting the source", async () => {
-    const source = { id: "gsc-health", workspaceId: "workspace-1", provider: "googleSearchConsole", displayName: "GSC · 밝은건강", status: "ready", secretReference: "shared-google-secret", credentialMode: "googleOAuth", resourceConfiguration: { siteProperty: "sc-domain:health.example" }, availableResources: [{ resourceId: "sc-domain:health.example", siteUrl: "sc-domain:health.example" }, { resourceId: "sc-domain:finance.example", siteUrl: "sc-domain:finance.example" }], enabled: true, createdAt: "now", updatedAt: "now", version: 3 };
+  it("refreshes the live Search Console resource list when reusing a stored credential", async () => {
+    const source = { id: "gsc-health", workspaceId: "workspace-1", provider: "googleSearchConsole", displayName: "GSC · 밝은건강", status: "ready", secretReference: "shared-google-secret", credentialMode: "googleOAuth", resourceConfiguration: { siteProperty: "sc-domain:health.example" }, availableResources: [{ resourceId: "sc-domain:health.example", siteUrl: "sc-domain:health.example" }], enabled: true, createdAt: "now", updatedAt: "now", version: 3 };
+    const freshResources = [
+      { resourceId: "sc-domain:health.example", siteUrl: "sc-domain:health.example" },
+      { resourceId: "sc-domain:brightjaetech.kr", siteUrl: "sc-domain:brightjaetech.kr", permissionLevel: "siteOwner" },
+    ];
     mocks.connectionFind.mockResolvedValue(source);
+    mocks.searchConsoleListSites.mockResolvedValue(freshResources);
+
     const response = await POST(request({ action: "create-google-resource-connection", workspaceId: "workspace-1", sourceConnectionId: source.id, displayName: "GSC · 밝은재테크" }));
+
     expect(response.status).toBe(200);
-    expect(mocks.connectionSave).toHaveBeenCalledWith(expect.objectContaining({ id: expect.not.stringMatching(/^gsc-health$/), provider: "googleSearchConsole", displayName: "GSC · 밝은재테크", status: "configurationRequired", secretReference: "shared-google-secret", resourceConfiguration: {}, availableResources: source.availableResources }));
+    await expect(response.json()).resolves.toMatchObject({ reusedGoogleCredential: true, resourcesRefreshed: true, connection: { availableResources: freshResources } });
+    expect(mocks.oauthAuthorized).toHaveBeenCalledWith(source);
+    expect(mocks.searchConsoleListSites).toHaveBeenCalledWith({ id: "authorized-google-client" });
+    expect(mocks.youtubeListChannels).not.toHaveBeenCalled();
+    expect(mocks.oauthPersist).toHaveBeenCalled();
+    expect(mocks.connectionSave).toHaveBeenCalledWith(expect.objectContaining({ id: expect.not.stringMatching(/^gsc-health$/), provider: "googleSearchConsole", displayName: "GSC · 밝은재테크", status: "configurationRequired", secretReference: "shared-google-secret", resourceConfiguration: {}, availableResources: freshResources }));
     expect(mocks.storeSecret).not.toHaveBeenCalled();
+  });
+
+  it("refreshes the live YouTube channel list when reusing a stored credential", async () => {
+    const source = { id: "youtube-health", workspaceId: "workspace-1", provider: "youtubeAnalytics", displayName: "YouTube · 밝은건강TV", status: "ready", secretReference: "shared-youtube-secret", credentialMode: "googleOAuth", resourceConfiguration: { channelId: "old-channel" }, availableResources: [{ resourceId: "old-channel", siteUrl: "old-channel" }], enabled: true, createdAt: "now", updatedAt: "now", version: 2 };
+    const freshResources = [{ resourceId: "new-channel", siteUrl: "new-channel", displayName: "새 채널", permissionLevel: "owner" }];
+    mocks.connectionFind.mockResolvedValue(source);
+    mocks.youtubeListChannels.mockResolvedValue(freshResources);
+
+    const response = await POST(request({ action: "create-google-resource-connection", workspaceId: "workspace-1", sourceConnectionId: source.id, displayName: "YouTube · 새 채널" }));
+
+    expect(response.status).toBe(200);
+    expect(mocks.youtubeListChannels).toHaveBeenCalledWith({ id: "authorized-google-client" });
+    expect(mocks.searchConsoleListSites).not.toHaveBeenCalled();
+    expect(mocks.connectionSave).toHaveBeenCalledWith(expect.objectContaining({ provider: "youtubeAnalytics", availableResources: freshResources }));
   });
 
   it("disconnects one shared Google resource without revoking the credential used by another connection", async () => {
