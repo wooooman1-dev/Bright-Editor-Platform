@@ -127,14 +127,6 @@ export function SettingsDataSources({ projects, workspaceId }: { projects: reado
   }, [projects, request]);
 
   useEffect(() => {
-    setProjectSectionIds((current) => {
-      const valid = current.filter((projectId) => projects.some((project) => project.id === projectId));
-      const missing = projects.filter((project) => !valid.includes(project.id)).map((project) => project.id);
-      return [...valid, ...missing];
-    });
-  }, [projects]);
-
-  useEffect(() => {
     const oauthReturn = oauthReturnHandled.current ? emptyOAuthReturn : readOAuthReturn();
     oauthReturnHandled.current = true;
     if (oauthReturn.message) setNotice(oauthReturn.message);
