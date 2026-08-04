@@ -88,25 +88,35 @@ After that Project-level filter, each generated candidate is matched again using
 
 Therefore an assigned Connection alone is not enough. Its Evidence must also overlap the Project strategy and then the candidate topic/keywords.
 
-## Automated verification history
+## Automated verification
 
-Previously successful automated checks:
-
-- multi-connection foundation
-- Project-first Provider selection
-- Google credential reuse and protection
-- YouTube Analytics implementation
-
-Independent Project area correction commits:
+Independent Project area implementation commits:
 
 ```text
 537377b  fix: render independent project data source areas
 5da311b  fix: remove incorrect project creation flow from data sources
 2887985  test: cover independent project data source areas
 f6795cd  fix: avoid synchronizing project sections in an effect
+89efa4f  docs: record independent project areas and evidence matching
 ```
 
-The first correction CI reached TypeScript successfully but failed the zero-warning lint gate because a synchronous state update was placed in an effect. Commit `f6795cd` removes that effect. Final CI for the latest branch HEAD must pass before local verification is requested.
+Final verified head before this verification-note update:
+
+```text
+Commit: 89efa4f4cc4b8198296ecaa9a68867f3fc504cd0
+Run: 30881416179
+Job: 91903424472
+Conclusion: success
+```
+
+The successful job passed:
+
+- TypeScript typecheck
+- ESLint zero-warning gate
+- complete non-E2E Vitest suite
+- Next.js production build
+
+Automated success does not replace local UI and real Provider verification.
 
 ## Not externally verified
 
