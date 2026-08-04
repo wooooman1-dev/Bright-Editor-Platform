@@ -4,6 +4,7 @@ import {
   duplicateNormalizedProjectNames,
   projectConnectionBuckets,
   singleProjectIds,
+  workspaceUnassignedConnections,
 } from "../../../../app/settings/DataSourceProjectAssignmentPolicy";
 
 const connections = Object.freeze([{ id: "health-gsc" }, { id: "finance-gsc" }, { id: "unassigned" }]);
@@ -13,20 +14,23 @@ const references = Object.freeze([
 ]);
 
 describe("DataSourceProjectAssignmentPolicy", () => {
-  it("shows a Project only its assigned connections and globally unassigned connections", () => {
+  it("shows each Project only its assigned connections", () => {
     expect(projectConnectionBuckets(connections, references, "health")).toEqual({
       assigned: [{ id: "health-gsc" }],
-      available: [{ id: "unassigned" }],
     });
     expect(projectConnectionBuckets(connections, references, "finance")).toEqual({
       assigned: [{ id: "finance-gsc" }],
-      available: [{ id: "unassigned" }],
     });
   });
 
-  it("never exposes another Project owner's connection as available", () => {
-    const buckets = projectConnectionBuckets(connections, references, "finance");
-    expect(buckets.available.map((connection) => connection.id)).not.toContain("health-gsc");
+  it("returns globally unassigned connections once for the Workspace area", () => {
+    expect(workspaceUnassignedConnections(connections, references)).toEqual([{ id: "unassigned" }]);
+  });
+
+  it("never exposes another Project owner's connection as Workspace-unassigned", () => {
+    const unassigned = workspaceUnassignedConnections(connections, references);
+    expect(unassigned.map((connection) => connection.id)).not.toContain("health-gsc");
+    expect(unassigned.map((connection) => connection.id)).not.toContain("finance-gsc");
   });
 
   it("keeps only one explicit Project assignment", () => {
