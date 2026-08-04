@@ -19,10 +19,10 @@ export class GoogleSearchConsoleOAuthFlow {
     const existing = input.connectionId ? await this.connections.findById(input.connectionId) : undefined;
     if (input.connectionId && (!existing || existing.workspaceId !== input.workspaceId)) throw new DataSourceError("이 Workspace에서 Data Source 연결에 접근할 수 없습니다.", "DATA_SOURCE_WORKSPACE_FORBIDDEN", 403);
     if (existing && existing.provider !== "googleSearchConsole") throw new DataSourceError("Google OAuth 연결 대상 Provider가 일치하지 않습니다.", "GOOGLE_OAUTH_STATE_INVALID", 400);
-    const exchanged = await this.credentials.exchangeCode(input.code, existing?.secretReference);
+    const exchanged = await this.credentials.exchangeCode(input.code, existing?.secretReference, "googleSearchConsole");
     const availableResources = await this.searchConsole.listSites(exchanged.client);
     const selected = existing?.resourceConfiguration.siteProperty;
-    const retainsSelection = Boolean(selected && availableResources.some((value) => value.siteUrl === selected));
+    const retainsSelection = Boolean(selected && availableResources.some((value) => (value.resourceId ?? value.siteUrl) === selected));
     const resourceConfiguration = retainsSelection ? existing!.resourceConfiguration : Object.freeze(Object.fromEntries(Object.entries(existing?.resourceConfiguration ?? {}).filter(([key]) => key !== "siteProperty")));
     const secretReference = await this.secrets.storeSecret(`data-source-${input.workspaceId}-googleSearchConsole`, JSON.stringify(exchanged.credential));
     const current = existing ? await this.connections.findById(existing.id) : undefined;
@@ -36,7 +36,12 @@ export class GoogleSearchConsoleOAuthFlow {
     });
     try { await this.connections.save(connection); }
     catch (error) { await this.secrets.deleteSecret(secretReference); throw error; }
-    if (current?.secretReference && current.secretReference !== secretReference) await this.secrets.deleteSecret(current.secretReference).catch(() => undefined);
+    if (current?.secretReference && current.secretReference !== secretReference) await this.deleteSecretWhenUnshared(input.workspaceId, current.secretReference, current.id);
     return Object.freeze({ connection, resourceRequired: !retainsSelection });
+  }
+
+  private async deleteSecretWhenUnshared(workspaceId: string, secretReference: string, currentId: string) {
+    const shared = (await this.connections.listByWorkspace(workspaceId)).some((connection) => connection.id !== currentId && connection.secretReference === secretReference);
+    if (!shared) await this.secrets.deleteSecret(secretReference).catch(() => undefined);
   }
 }
