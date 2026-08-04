@@ -1,6 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
-import { repairProjectDataSourceAssignments } from "../../../scripts/repair-project-data-source-assignments.mjs";
+import {
+  repairProjectDataSourceAssignments,
+  runProjectDataSourceAssignmentRepair,
+  verifyPersistedProjectDataSourceAssignments,
+} from "../../../scripts/repair-project-data-source-assignments.mjs";
+
+const temporaryDirectories = [];
+
+afterEach(async () => {
+  await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+});
 
 function studioSnapshot() {
   return {
@@ -35,6 +48,7 @@ function studioSnapshot() {
 
 function metadataSnapshot() {
   return {
+    schemaVersion: 1,
     data: {
       "data-source-connections": {
         healthGsc: {
@@ -113,4 +127,53 @@ describe("Project Data Source assignment repair", () => {
     expect(second.removedReferences).toEqual([]);
     expect(second.metadata).toEqual(first.metadata);
   });
+
+  it("writes the repaired metadata and verifies the persisted file", async () => {
+    const directory = await temporaryDirectory();
+    const studioPath = path.join(directory, "studio-data.json");
+    const metadataPath = path.join(directory, "metadata.json");
+    await writeFile(studioPath, JSON.stringify(studioSnapshot(), null, 2), "utf8");
+    await writeFile(metadataPath, JSON.stringify(metadataSnapshot(), null, 2), "utf8");
+
+    const result = await runProjectDataSourceAssignmentRepair({ studioPath, metadataPath, nextDevLockPath: null });
+    const persisted = JSON.parse(await readFile(metadataPath, "utf8"));
+
+    expect(result.verified).toBe(true);
+    expect(result.activeReferenceCount).toBe(3);
+    expect(Object.keys(persisted.data["project-data-source-references"]).sort()).toEqual([
+      "finance:finance-naver",
+      "health:health-gsc",
+      "health:health-naver",
+    ]);
+    expect(result.backupPath).toBeTruthy();
+    expect(JSON.parse(await readFile(result.backupPath, "utf8"))).toEqual(metadataSnapshot());
+  });
+
+  it("rejects repair while the Next.js development server lock exists", async () => {
+    const directory = await temporaryDirectory();
+    const studioPath = path.join(directory, "studio-data.json");
+    const metadataPath = path.join(directory, "metadata.json");
+    const nextDevLockPath = path.join(directory, ".next", "dev", "lock");
+    await mkdir(path.dirname(nextDevLockPath), { recursive: true });
+    await writeFile(nextDevLockPath, "", "utf8");
+    await writeFile(studioPath, JSON.stringify(studioSnapshot(), null, 2), "utf8");
+    await writeFile(metadataPath, JSON.stringify(metadataSnapshot(), null, 2), "utf8");
+
+    await expect(runProjectDataSourceAssignmentRepair({ studioPath, metadataPath, nextDevLockPath }))
+      .rejects.toThrow("Next.js 개발 서버가 실행 중입니다");
+    expect(JSON.parse(await readFile(metadataPath, "utf8"))).toEqual(metadataSnapshot());
+  });
+
+  it("rejects a success result when the persisted metadata is not the repaired snapshot", () => {
+    const result = repairProjectDataSourceAssignments(studioSnapshot(), metadataSnapshot());
+
+    expect(() => verifyPersistedProjectDataSourceAssignments(studioSnapshot(), result, metadataSnapshot()))
+      .toThrow("metadata.json 재읽기 결과가 기록하려던 정리 결과와 일치하지 않습니다");
+  });
 });
+
+async function temporaryDirectory() {
+  const directory = await mkdtemp(path.join(tmpdir(), "bright-project-assignment-repair-"));
+  temporaryDirectories.push(directory);
+  return directory;
+}
