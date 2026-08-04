@@ -4,6 +4,7 @@ import {
   isDataSourceProvider,
   type DataSourceConnection,
   type DataSourceResourceConfiguration,
+  type DataSourceResourceOption,
   type ProjectDataSourceReference,
 } from "../../../core/intelligence";
 import { secretStore } from "../../application/connections/connection-runtime";
@@ -15,6 +16,8 @@ import {
   googleOAuthClientFactory,
   googleOAuthCredentialService,
   googleOAuthStateStore,
+  googleSearchConsoleService,
+  googleYouTubeAnalyticsService,
   projectDataSourceReferenceRepository,
 } from "../../application/data-sources/data-source-runtime";
 import { DataSourceError, publicDataSourceError } from "../../application/data-sources/DataSourceErrors";
@@ -109,16 +112,31 @@ async function createGoogleResourceConnection(workspaceId: string, body: Record<
   if (!googleOAuthProviders.has(source.provider) || source.credentialMode !== "googleOAuth" || !source.secretReference || source.status === "disconnected") {
     throw new DataSourceError("재사용 가능한 Google OAuth 연결이 아닙니다.", "DATA_SOURCE_CREDENTIAL_VALIDATION_ERROR", 400, "sourceConnectionId");
   }
+  const availableResources = await currentGoogleResources(source);
   const now = new Date().toISOString();
   const connection: DataSourceConnection = Object.freeze({
     id: randomUUID(), workspaceId, provider: source.provider,
     displayName: required(body.displayName, "새 연결의 표시 이름을 입력해 주세요.", "displayName"),
     status: "configurationRequired", secretReference: source.secretReference, credentialMode: "googleOAuth",
-    resourceConfiguration: Object.freeze({}), availableResources: source.availableResources,
+    resourceConfiguration: Object.freeze({}), availableResources,
     enabled: true, createdAt: now, updatedAt: now, version: 1,
   });
   await dataSourceConnectionRepository.save(connection);
-  return NextResponse.json({ connection: publicDataSourceConnection(connection), reusedGoogleCredential: true });
+  return NextResponse.json({ connection: publicDataSourceConnection(connection), reusedGoogleCredential: true, resourcesRefreshed: true });
+}
+
+async function currentGoogleResources(connection: DataSourceConnection): Promise<readonly DataSourceResourceOption[]> {
+  const session = await googleOAuthCredentialService.authorized(connection);
+  try {
+    const resources = connection.provider === "googleSearchConsole"
+      ? await googleSearchConsoleService.listSites(session.client)
+      : await googleYouTubeAnalyticsService.listChannels(session.client);
+    await session.persist();
+    return resources;
+  } catch (error) {
+    await session.persist().catch(() => undefined);
+    throw error;
+  }
 }
 
 async function disconnect(workspaceId: string, connectionId: string, version: number) {
