@@ -15,6 +15,12 @@ function studioSnapshot() {
               strategy: { primaryTopic: "생활건강", subtopics: ["운동", "걷기", "건강보험", "실손보험"] },
             },
             {
+              id: "art",
+              name: "비바레인 미술 감상 가이드",
+              description: "서양미술과 작품 감상을 설명합니다.",
+              strategy: { primaryTopic: "서양미술 감상", subtopics: ["화가", "명화", "미술사"] },
+            },
+            {
               id: "finance",
               name: "밝은재테크",
               description: "예금과 적금, 고정비, 신용관리 정보를 제공합니다.",
@@ -52,8 +58,10 @@ function metadataSnapshot() {
       },
       "project-data-source-references": {
         "health:health-gsc": { projectId: "health", connectionId: "health-gsc", enabled: true },
+        "art:health-gsc": { projectId: "art", connectionId: "health-gsc", enabled: true },
         "finance:health-gsc": { projectId: "finance", connectionId: "health-gsc", enabled: true },
         "health:health-naver": { projectId: "health", connectionId: "health-naver", enabled: true },
+        "art:health-naver": { projectId: "art", connectionId: "health-naver", enabled: true },
         "finance:health-naver": { projectId: "finance", connectionId: "health-naver", enabled: true },
         "finance:finance-naver": { projectId: "finance", connectionId: "finance-naver", enabled: true },
       },
@@ -68,12 +76,19 @@ function metadataSnapshot() {
 }
 
 describe("Project Data Source assignment repair", () => {
-  it("removes only health-only references from 밝은재테크", () => {
+  it("removes health-only references from every unrelated Project", () => {
     const original = metadataSnapshot();
     const result = repairProjectDataSourceAssignments(studioSnapshot(), original);
     const references = result.metadata.data["project-data-source-references"];
 
-    expect(result.removedReferences.map((value) => value.connectionId).sort()).toEqual(["health-gsc", "health-naver"]);
+    expect(result.removedReferences.map((value) => `${value.projectId}:${value.connectionId}`).sort()).toEqual([
+      "art:health-gsc",
+      "art:health-naver",
+      "finance:health-gsc",
+      "finance:health-naver",
+    ]);
+    expect(references["art:health-gsc"]).toBeUndefined();
+    expect(references["art:health-naver"]).toBeUndefined();
     expect(references["finance:health-gsc"]).toBeUndefined();
     expect(references["finance:health-naver"]).toBeUndefined();
     expect(references["health:health-gsc"]).toEqual({ projectId: "health", connectionId: "health-gsc", enabled: true });
