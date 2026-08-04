@@ -1,6 +1,6 @@
 # Data Source and Opportunity Intelligence Architecture
 
-Status: Foundation implemented; Google Search Console and NAVER selected flows externally verified; multi-connection and YouTube Analytics changes are implemented in Draft PR #42 and remain externally unverified
+Status: Foundation implemented; Google Search Console and NAVER selected flows externally verified; multi-connection and YouTube Analytics changes are implemented and automated-verified in Draft PR #42 but remain externally unverified
 
 ## 1. Ownership and boundaries
 
@@ -220,7 +220,7 @@ Externally verified before this Draft PR:
 - NAVER Search Trend connected and synchronized successfully.
 - A legacy Search Console Data Source was safely deleted while historical records remained preserved.
 
-Implemented in Draft PR #42 but not yet externally verified:
+Implemented in Draft PR #42 and automated-verified, but not yet externally verified:
 
 - explicit Provider-level `새 연결 추가`
 - multiple same-Provider resource Connections
@@ -230,11 +230,20 @@ Implemented in Draft PR #42 but not yet externally verified:
 - multiple NAVER keyword-set Connections
 - YouTube Analytics OAuth, channel selection, sync and Evidence normalization
 
-Remaining gates:
+Automated validation at commit `12e20c83ed99732c8b88f962482efa8cc0e041fe`:
 
-- automated typecheck, lint, complete test suite and production build for Draft PR #42
+- GitHub Actions run: `30874382710`
+- Job: `91882765362`
+- TypeScript typecheck: passed
+- ESLint with zero-warning gate: passed
+- complete non-E2E Vitest suite: passed
+- Next.js production build: passed
+- Job conclusion: success
+
+Remaining external gates:
+
 - local UI verification with existing health Connections preserved
-- creation of a separate brightjaetech.kr Search Console Connection
+- creation of a separate `brightjaetech.kr` Search Console Connection
 - creation and Project assignment of a finance NAVER keyword-set Connection
 - real YouTube OAuth, owned-channel selection, sync and Snapshot/Evidence verification
 - GA4 and AdSense real-account connection, resource selection and synchronization
