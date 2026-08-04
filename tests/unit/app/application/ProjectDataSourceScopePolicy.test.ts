@@ -57,4 +57,34 @@ describe("Project Data Source scope policy", () => {
     await expect(repository.listByProject("project-health")).resolves.toEqual([health]);
     await expect(repository.listByProject("project-finance")).resolves.toEqual([]);
   });
+
+  it("allows only one Project to win simultaneous first-assignment requests", async () => {
+    const store = new InMemoryPersistenceStore();
+    const repository = new DurableProjectDataSourceReferenceRepository(store);
+    const health = reference("project-health", "2026-08-04T10:00:00.000Z");
+    const finance = reference("project-finance", "2026-08-04T10:00:00.000Z");
+
+    const results = await Promise.allSettled([repository.save(health), repository.save(finance)]);
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
+
+    const visible = [
+      ...(await repository.listByProject("project-health")),
+      ...(await repository.listByProject("project-finance")),
+    ];
+    expect(visible).toHaveLength(1);
+    expect(visible[0].connectionId).toBe("connection-health");
+  });
+
+  it("releases ownership when the owning Project removes the connection", async () => {
+    const store = new InMemoryPersistenceStore();
+    const repository = new DurableProjectDataSourceReferenceRepository(store);
+    const health = reference("project-health", "2026-08-04T10:00:00.000Z");
+    const finance = reference("project-finance", "2026-08-04T10:01:00.000Z");
+
+    await repository.save(health);
+    await repository.delete(health.projectId, health.connectionId);
+    await expect(repository.save(finance)).resolves.toBeUndefined();
+    await expect(repository.listByProject("project-finance")).resolves.toEqual([finance]);
+  });
 });
