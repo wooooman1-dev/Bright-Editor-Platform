@@ -9,6 +9,8 @@ import type {
   ProjectDataSourceReferenceRepository,
 } from "../../../core/intelligence";
 import type { PersistenceStore } from "../../../core/data";
+import { DataSourceError } from "./DataSourceErrors";
+import { projectDataSourceScopeConflict, projectScopedReferences } from "./ProjectDataSourceScopePolicy";
 
 const connectionCollection = "data-source-connections";
 const referenceCollection = "project-data-source-references";
@@ -38,9 +40,24 @@ export class DurableDataSourceConnectionRepository implements DataSourceConnecti
 
 export class DurableProjectDataSourceReferenceRepository implements ProjectDataSourceReferenceRepository {
   constructor(private readonly store: PersistenceStore) {}
-  async listByProject(projectId: string) { return (await this.store.list<ProjectDataSourceReference>(referenceCollection)).filter((value) => value.projectId === projectId); }
+  async listByProject(projectId: string) {
+    const references = await this.store.list<ProjectDataSourceReference>(referenceCollection);
+    return projectScopedReferences(references, projectId);
+  }
   async listByWorkspace(workspaceId: string) { return (await this.store.list<ProjectDataSourceReference>(referenceCollection)).filter((value) => value.workspaceId === workspaceId); }
-  save(value: ProjectDataSourceReference) { return this.store.set(referenceCollection, `${value.projectId}:${value.connectionId}`, value); }
+  async save(value: ProjectDataSourceReference) {
+    const references = await this.store.list<ProjectDataSourceReference>(referenceCollection);
+    const conflict = projectDataSourceScopeConflict(references, value);
+    if (conflict) {
+      throw new DataSourceError(
+        "이 Data Source 연결은 이미 다른 Project에 배정되어 있습니다. 현재 Project 전용 연결을 새로 추가해 주세요.",
+        "DATA_SOURCE_PROJECT_SCOPE_CONFLICT",
+        409,
+        "connectionId",
+      );
+    }
+    return this.store.set(referenceCollection, `${value.projectId}:${value.connectionId}`, value);
+  }
   delete(projectId: string, connectionId: string) { return this.store.delete(referenceCollection, `${projectId}:${connectionId}`); }
 }
 
