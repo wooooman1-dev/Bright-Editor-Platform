@@ -22,7 +22,6 @@ import { studioStore } from "../../application/studio-store";
 import type { UserData } from "../../user-flow/user-data";
 
 const googleOAuthProviders = new Set<DataSourceConnection["provider"]>(["googleSearchConsole", "youtubeAnalytics"]);
-const projectReferenceMutationQueues = new Map<string, Promise<void>>();
 
 export async function GET(request: Request) {
   try {
@@ -140,42 +139,11 @@ async function setEnabled(workspaceId: string, connectionId: string, version: nu
 }
 
 async function setProjectReference(data: UserData, projectId: string, connectionId: string, enabled: boolean) {
-  return withProjectReferenceMutationLock(connectionId, async () => {
-    const project = ownedProject(data, projectId), connection = await ownedConnection(project.workspaceId, connectionId);
-    if (connection.workspaceId !== project.workspaceId) throw new DataSourceError("다른 Workspace의 Data Source를 이 Project에서 사용할 수 없습니다.", "DATA_SOURCE_PERMISSION_ERROR", 403);
-    if (enabled) {
-      const references = await projectDataSourceReferenceRepository.listByWorkspace(project.workspaceId);
-      const conflictingReference = references.find((value) => value.connectionId === connectionId && value.enabled && value.projectId !== project.id);
-      if (conflictingReference) {
-        const assignedProject = data.projects.find((value) => value.id === conflictingReference.projectId && value.workspaceId === project.workspaceId);
-        throw new DataSourceError(
-          `이 Data Source 연결은 이미 ${assignedProject?.name ?? conflictingReference.projectId} Project에서 사용 중입니다. 다른 Project에는 전용 연결을 새로 추가해 주세요.`,
-          "DATA_SOURCE_CONFLICT",
-          409,
-          "connectionId",
-        );
-      }
-      await projectDataSourceReferenceRepository.save(Object.freeze({ workspaceId: project.workspaceId, projectId, connectionId, enabled: true, updatedAt: new Date().toISOString() }));
-    } else {
-      await projectDataSourceReferenceRepository.delete(projectId, connectionId);
-    }
-    return NextResponse.json({ referenced: enabled });
-  });
-}
-
-async function withProjectReferenceMutationLock<T>(connectionId: string, operation: () => Promise<T>): Promise<T> {
-  const previous = projectReferenceMutationQueues.get(connectionId) ?? Promise.resolve();
-  let release: (() => void) | undefined;
-  const current = new Promise<void>((resolve) => { release = resolve; });
-  const queued = previous.catch(() => undefined).then(() => current);
-  projectReferenceMutationQueues.set(connectionId, queued);
-  await previous.catch(() => undefined);
-  try {
-    return await operation();
-  } finally {
-    release?.();
-    if (projectReferenceMutationQueues.get(connectionId) === queued) projectReferenceMutationQueues.delete(connectionId);
-  }
+  const project = ownedProject(data, projectId), connection = await ownedConnection(project.workspaceId, connectionId);
+  if (connection.workspaceId !== project.workspaceId) throw new DataSourceError("다른 Workspace의 Data Source를 이 Project에서 사용할 수 없습니다.", "DATA_SOURCE_PERMISSION_ERROR", 403);
+  if (enabled) await projectDataSourceReferenceRepository.save(Object.freeze({ workspaceId: project.workspaceId, projectId, connectionId, enabled: true, updatedAt: new Date().toISOString() }));
+  else await projectDataSourceReferenceRepository.delete(projectId, connectionId);
+  return NextResponse.json({ referenced: enabled });
 }
 
 async function startSync(workspaceId: string, body: Record<string, unknown>) {
