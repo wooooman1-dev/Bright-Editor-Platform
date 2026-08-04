@@ -18,29 +18,30 @@ export function repairProjectDataSourceAssignments(studioSnapshot, metadataSnaps
   if (!references || typeof references !== "object") throw new Error("metadata.json에서 Project Data Source Reference 목록을 찾을 수 없습니다.");
 
   const healthProject = projects.find((project) => normalize(project?.name) === normalize("건강 정보"));
-  const financeProject = projects.find((project) => normalize(project?.name) === normalize("밝은재테크"));
   if (!healthProject) throw new Error("건강 정보 Project를 찾을 수 없습니다.");
-  if (!financeProject) throw new Error("밝은재테크 Project를 찾을 수 없습니다.");
 
+  const projectById = new Map(projects.map((project) => [project?.id, project]));
   const connectionById = new Map(Object.values(connections).map((connection) => [connection?.id, connection]));
   const healthTerms = projectTerms(healthProject);
-  const financeTerms = projectTerms(financeProject);
   const nextMetadata = structuredClone(metadataSnapshot);
   const nextReferences = nextMetadata.data["project-data-source-references"];
   const removedReferences = [];
 
   for (const [storageKey, reference] of Object.entries(references)) {
-    if (reference?.projectId !== financeProject.id || reference?.enabled !== true) continue;
-    const connection = connectionById.get(reference.connectionId);
-    if (!connection) continue;
+    if (reference?.projectId === healthProject.id || reference?.enabled !== true) continue;
 
-    const reason = wrongFinanceAssignmentReason(connection, healthTerms, financeTerms);
+    const targetProject = projectById.get(reference?.projectId);
+    const connection = connectionById.get(reference?.connectionId);
+    if (!targetProject || !connection) continue;
+
+    const reason = wrongHealthAssignmentReason(connection, healthTerms, projectTerms(targetProject), targetProject.name);
     if (!reason) continue;
 
     delete nextReferences[storageKey];
     removedReferences.push({
       storageKey,
-      projectId: financeProject.id,
+      projectId: targetProject.id,
+      projectName: targetProject.name,
       connectionId: connection.id,
       provider: connection.provider,
       displayName: connection.displayName,
@@ -72,7 +73,7 @@ export async function runProjectDataSourceAssignmentRepair({
   const result = repairProjectDataSourceAssignments(studio, metadata);
 
   if (!result.removedReferences.length) {
-    console.log("정리할 잘못된 밝은재테크 Data Source 배정이 없습니다.");
+    console.log("정리할 잘못된 건강용 Data Source Project 배정이 없습니다.");
     return { ...result, backupPath: null };
   }
 
@@ -84,9 +85,9 @@ export async function runProjectDataSourceAssignmentRepair({
   await writeFile(temporaryPath, `${JSON.stringify(result.metadata, null, 2)}\n`, "utf8");
   await rename(temporaryPath, metadataPath);
 
-  console.log(`밝은재테크의 잘못된 Data Source 배정 ${result.removedReferences.length}개를 제거했습니다.`);
+  console.log(`건강용 Data Source의 잘못된 Project 배정 ${result.removedReferences.length}개를 제거했습니다.`);
   for (const removed of result.removedReferences) {
-    console.log(`- ${removed.provider} · ${removed.displayName} · ${removed.resource}`);
+    console.log(`- ${removed.projectName} · ${removed.provider} · ${removed.displayName} · ${removed.resource}`);
     console.log(`  사유: ${removed.reason}`);
   }
   console.log(`건강 정보 Project의 활성 배정 ${result.preservedHealthReferenceCount}개는 유지했습니다.`);
@@ -95,11 +96,11 @@ export async function runProjectDataSourceAssignmentRepair({
   return { ...result, backupPath };
 }
 
-function wrongFinanceAssignmentReason(connection, healthTerms, financeTerms) {
+function wrongHealthAssignmentReason(connection, healthTerms, targetTerms, targetProjectName) {
   if (connection.provider === "googleSearchConsole") {
     const siteProperty = normalize(connection.resourceConfiguration?.siteProperty);
     if (siteProperty.includes("bright-healthy.tistory.com")) {
-      return "건강 정보 Tistory Search Console 속성이 밝은재테크에 배정되어 있음";
+      return `건강 정보 Tistory Search Console 속성이 ${targetProjectName}에 배정되어 있음`;
     }
     return null;
   }
@@ -109,9 +110,9 @@ function wrongFinanceAssignmentReason(connection, healthTerms, financeTerms) {
       ? connection.resourceConfiguration.keywords
       : [];
     const healthScore = overlapScore(keywords, healthTerms);
-    const financeScore = overlapScore(keywords, financeTerms);
-    if (healthScore > 0 && financeScore === 0) {
-      return `NAVER 키워드가 건강 문맥에만 일치함 (건강 ${healthScore}, 재테크 ${financeScore})`;
+    const targetScore = overlapScore(keywords, targetTerms);
+    if (healthScore > 0 && targetScore === 0) {
+      return `NAVER 키워드가 건강 문맥에만 일치함 (건강 ${healthScore}, ${targetProjectName} ${targetScore})`;
     }
   }
 
