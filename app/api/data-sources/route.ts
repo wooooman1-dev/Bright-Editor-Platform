@@ -4,6 +4,7 @@ import {
   isDataSourceProvider,
   type DataSourceConnection,
   type DataSourceResourceConfiguration,
+  type ProjectDataSourceReference,
 } from "../../../core/intelligence";
 import { secretStore } from "../../application/connections/connection-runtime";
 import {
@@ -32,12 +33,15 @@ export async function GET(request: Request) {
     if (projectId) ownedProject(data, projectId);
     const connections = await dataSourceConnectionRepository.listByWorkspace(workspaceId);
     const snapshots = await dataSourceSnapshotRepository.listByWorkspace(workspaceId);
-    const workspaceReferences = await projectDataSourceReferenceRepository.listByWorkspace(workspaceId);
+    const workspaceReferences = await visibleWorkspaceReferences(data);
     const references = projectId ? workspaceReferences.filter((value) => value.projectId === projectId) : [];
     return NextResponse.json({
-      connections: connections.map((connection) => ({ ...publicDataSourceConnection(connection, snapshots.filter((value) => value.connectionId === connection.id).sort((a, b) => b.syncedAt.localeCompare(a.syncedAt))[0]), projectReferenceCount: workspaceReferences.filter((value) => value.connectionId === connection.id).length })),
-      projectReferences: references.filter((value) => value.workspaceId === workspaceId),
-      workspaceProjectReferences: workspaceReferences.filter((value) => value.workspaceId === workspaceId),
+      connections: connections.map((connection) => ({
+        ...publicDataSourceConnection(connection, snapshots.filter((value) => value.connectionId === connection.id).sort((a, b) => b.syncedAt.localeCompare(a.syncedAt))[0]),
+        projectReferenceCount: workspaceReferences.filter((value) => value.connectionId === connection.id).length,
+      })),
+      projectReferences: references,
+      workspaceProjectReferences: workspaceReferences,
       googleOAuth: { configured: googleOAuthClientFactory.configured() },
       conditionalProviders: [
         { provider: "googleAdsKeywordPlanning", status: "configurationRequired", reason: "Google Ads API access and an authorized customer account must be verified before activation." },
@@ -88,6 +92,7 @@ async function saveConnection(workspaceId: string, body: Record<string, unknown>
     if (!selected) throw new DataSourceError(provider === "googleSearchConsole" ? "선택한 Search Console 속성에 접근할 수 없습니다. 속성을 다시 선택해 주세요." : "선택한 YouTube 채널에 접근할 수 없습니다. 채널을 다시 선택해 주세요.", provider === "googleSearchConsole" ? "GOOGLE_SEARCH_CONSOLE_RESOURCE_NOT_FOUND" : "DATA_SOURCE_RESOURCE_NOT_FOUND", 400, provider === "googleSearchConsole" ? "siteProperty" : "channelId");
     if (provider === "youtubeAnalytics") resourceConfiguration = Object.freeze({ ...resourceConfiguration, channelTitle: selected.displayName ?? selected.siteUrl });
   } else if (Object.keys(credentials).length) validateCredentials(provider, credentials);
+  if (existing) assertResourceIdentityUnchanged(existing, resourceConfiguration);
   let secretReference = existing?.secretReference, createdSecret: string | undefined;
   if (!googleOAuthProviders.has(provider) && Object.keys(credentials).length) { createdSecret = await secretStore.storeSecret(`data-source-${workspaceId}-${provider}`, JSON.stringify(credentials)); secretReference = createdSecret; }
   if (!secretReference) throw new DataSourceError(provider === "naverSearchTrend" ? "NAVER Client ID와 Client Secret을 입력해 주세요." : "OAuth access token을 입력해 주세요.", "DATA_SOURCE_CREDENTIAL_VALIDATION_ERROR", 400, provider === "naverSearchTrend" ? "clientId" : "accessToken");
@@ -141,8 +146,16 @@ async function setEnabled(workspaceId: string, connectionId: string, version: nu
 async function setProjectReference(data: UserData, projectId: string, connectionId: string, enabled: boolean) {
   const project = ownedProject(data, projectId), connection = await ownedConnection(project.workspaceId, connectionId);
   if (connection.workspaceId !== project.workspaceId) throw new DataSourceError("다른 Workspace의 Data Source를 이 Project에서 사용할 수 없습니다.", "DATA_SOURCE_PERMISSION_ERROR", 403);
-  if (enabled) await projectDataSourceReferenceRepository.save(Object.freeze({ workspaceId: project.workspaceId, projectId, connectionId, enabled: true, updatedAt: new Date().toISOString() }));
-  else await projectDataSourceReferenceRepository.delete(projectId, connectionId);
+  if (enabled) {
+    const ownerReference = (await visibleWorkspaceReferences(data)).find((reference) => reference.connectionId === connectionId);
+    if (ownerReference && ownerReference.projectId !== projectId) {
+      const ownerName = data.projects.find((value) => value.id === ownerReference.projectId)?.name ?? ownerReference.projectId;
+      throw new DataSourceError(`이 연결은 이미 ${ownerName} Project에서 사용 중입니다. ${project.name}에는 전용 연결을 새로 추가해 주세요.`, "DATA_SOURCE_PROJECT_SCOPE_CONFLICT", 409, "connectionId");
+    }
+    await projectDataSourceReferenceRepository.save(Object.freeze({ workspaceId: project.workspaceId, projectId, connectionId, enabled: true, updatedAt: new Date().toISOString() }));
+  } else {
+    await projectDataSourceReferenceRepository.delete(projectId, connectionId);
+  }
   return NextResponse.json({ referenced: enabled });
 }
 
@@ -151,6 +164,39 @@ async function startSync(workspaceId: string, body: Record<string, unknown>) {
   const periodEnd = date(body.periodEnd, new Date()), periodStart = date(body.periodStart, new Date(Date.parse(periodEnd) - 27 * 86400000));
   const job = await dataSourceSyncService.start({ workspaceId, connectionId, connectionVersion: number(body.connectionVersion), periodStart, periodEnd, operationId: typeof body.operationId === "string" ? body.operationId : undefined });
   return NextResponse.json({ job, connectionVersion: connection.version + 1 });
+}
+
+async function visibleWorkspaceReferences(data: UserData): Promise<readonly ProjectDataSourceReference[]> {
+  const references = (await Promise.all(data.projects.map((project) => projectDataSourceReferenceRepository.listByProject(project.id)))).flat();
+  const byConnection = new Map<string, ProjectDataSourceReference>();
+  for (const reference of references) {
+    if (reference.enabled && reference.workspaceId === data.workspace?.id && !byConnection.has(reference.connectionId)) {
+      byConnection.set(reference.connectionId, reference);
+    }
+  }
+  return Object.freeze([...byConnection.values()]);
+}
+
+function assertResourceIdentityUnchanged(existing: DataSourceConnection, next: DataSourceResourceConfiguration): void {
+  const currentIdentity = resourceIdentity(existing.provider, existing.resourceConfiguration);
+  if (!currentIdentity.value) return;
+  const nextIdentity = resourceIdentity(existing.provider, next);
+  if (currentIdentity.value === nextIdentity.value) return;
+  throw new DataSourceError(
+    "기존 Data Source 연결의 사이트·채널·계정·키워드 resource는 변경할 수 없습니다. 다른 resource는 새 연결을 추가해 주세요.",
+    "DATA_SOURCE_CONFLICT",
+    409,
+    currentIdentity.field,
+  );
+}
+
+function resourceIdentity(provider: DataSourceConnection["provider"], value: DataSourceResourceConfiguration): Readonly<{ field: string; value: string }> {
+  if (provider === "googleSearchConsole") return Object.freeze({ field: "siteProperty", value: value.siteProperty?.trim() ?? "" });
+  if (provider === "googleAnalytics4") return Object.freeze({ field: "propertyId", value: value.propertyId?.trim() ?? "" });
+  if (provider === "googleAdSense") return Object.freeze({ field: "accountReference", value: `${value.accountReference?.trim() ?? ""}\u0000${value.siteReference?.trim() ?? ""}`.replace(/^\u0000$/, "") });
+  if (provider === "youtubeAnalytics") return Object.freeze({ field: "channelId", value: value.channelId?.trim() ?? "" });
+  if (provider === "naverSearchTrend") return Object.freeze({ field: "keywords", value: [...new Set((value.keywords ?? []).map((item) => item.normalize("NFKC").trim().toLocaleLowerCase("ko-KR")).filter(Boolean))].sort().join("\u0000") });
+  return Object.freeze({ field: "resourceConfiguration", value: value.officialResourceReference?.trim() ?? value.customerReference?.trim() ?? "" });
 }
 
 async function credentialIsShared(connection: DataSourceConnection): Promise<boolean> {
