@@ -38,13 +38,11 @@ The previous Settings UI did not expose an explicit new-connection workflow. Sel
 
 ## Automated verification
 
-Verified at commit:
+Implementation verification at commit:
 
 ```text
 12e20c83ed99732c8b88f962482efa8cc0e041fe
 ```
-
-GitHub Actions evidence:
 
 ```text
 Run: 30874382710
@@ -52,14 +50,26 @@ Job: 91882765362
 Conclusion: success
 ```
 
-Passed steps:
+Documentation-head verification at commit:
+
+```text
+aa1e0833d2d49d9ba9e8186a128929e2e40c247a
+```
+
+```text
+Run: 30875240227
+Job: 91885280528
+Conclusion: success
+```
+
+Both successful jobs passed:
 
 - TypeScript typecheck
 - ESLint zero-warning gate
 - complete non-E2E Vitest suite
 - Next.js production build
 
-A later documentation-only commit records this result. A final CI run for the documentation head must also pass before local verification begins.
+The feature is automated-verified. Local UI behavior and real Provider interactions remain separate external gates.
 
 ## Not externally verified
 
