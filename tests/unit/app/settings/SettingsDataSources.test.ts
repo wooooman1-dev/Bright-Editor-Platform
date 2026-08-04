@@ -97,7 +97,10 @@ describe("Settings Data Sources multi-connection workflow", () => {
   it("parses provider-aware OAuth callback state and removes it only after hydration", () => {
     expect(parseOAuthReturn("?dataSourceOAuth=resourceRequired&connectionId=callback-oauth&dataSourceProvider=youtubeAnalytics")).toMatchObject({ outcome: "resourceRequired", connectionId: "callback-oauth", provider: "youtubeAnalytics" });
     const value = source();
-    expect(value.indexOf("refresh(oauthReturn.connectionId || undefined).then")).toBeLessThan(value.indexOf("removeOAuthReturnQuery();"));
+    const hydrateIndex = value.indexOf("refresh(oauthReturn.connectionId || undefined).then");
+    const cleanupIndex = value.lastIndexOf("removeOAuthReturnQuery();");
+    expect(hydrateIndex).toBeGreaterThanOrEqual(0);
+    expect(cleanupIndex).toBeGreaterThan(hydrateIndex);
     expect(value).toContain('query.delete("dataSourceProvider")');
     expect(value).toContain("OAuth로 생성된 Google 연결을 찾을 수 없습니다.");
   });
