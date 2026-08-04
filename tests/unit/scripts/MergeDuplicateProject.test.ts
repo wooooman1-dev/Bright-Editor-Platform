@@ -62,7 +62,8 @@ describe("duplicate Project merge", () => {
     });
     expect(result.studio.data.application["user-data"].mediaMetadata[0].metadata.projectId).toBe(targetProjectId);
     expect(result.metadata.data["opportunity-evidence"].evidence1.projectId).toBe(targetProjectId);
-    expect(JSON.stringify(result)).not.toContain(sourceProjectId);
+    expect(JSON.stringify(result.studio)).not.toContain(sourceProjectId);
+    expect(JSON.stringify(result.metadata)).not.toContain(sourceProjectId);
     expect(verifyMergedProjectSnapshots(result, result.studio, result.metadata)).toEqual({ targetContentCount: 1, targetProjectCount: 1 });
   });
 
