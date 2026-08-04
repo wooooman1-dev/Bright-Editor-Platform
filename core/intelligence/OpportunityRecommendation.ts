@@ -3,7 +3,7 @@ import type { EvidenceFreshness, OpportunityEvidenceRecord } from "./Evidence";
 export type OpportunityRecommendationType = "comprehensive" | "marketOpportunity" | "blogGrowth";
 export type OpportunityEvidenceStatus = "verified" | "limited" | "unavailable";
 
-const externalTypes = new Set(["searchPerformance", "searchDemand", "relativeTrend", "risingTrend", "keywordCompetition", "commercialIntent", "pageEngagement", "revenuePerformance"]);
+const externalTypes = new Set(["searchPerformance", "searchDemand", "relativeTrend", "risingTrend", "keywordCompetition", "commercialIntent", "pageEngagement", "revenuePerformance", "videoPerformance"]);
 const internalTypes = new Set(["contentGap", "internalLinkOpportunity", "clusterOpportunity"]);
 
 export type RecommendationAssessment = Readonly<{
