@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DataSourceConnectionErrorCode, DataSourceProvider, DataSourceResourceConfiguration, DataSourceResourceOption } from "../../core/intelligence";
 
@@ -56,7 +55,8 @@ export function SettingsDataSources({ projects, workspaceId }: { projects: reado
   const providerGridAnchor = useRef<HTMLDivElement>(null);
   const [connections, setConnections] = useState<readonly PublicDataSourceConnection[]>([]);
   const [workspaceReferences, setWorkspaceReferences] = useState<readonly ProjectReference[]>([]);
-  const [projectId, setProjectId] = useState(() => initialProjectId(projects));
+  const [projectPickerId, setProjectPickerId] = useState(() => initialProjectId(projects));
+  const [projectSectionIds, setProjectSectionIds] = useState<readonly string[]>(() => projects.map((project) => project.id));
   const [provider, setProvider] = useState<DataSourceProvider>("googleSearchConsole");
   const [displayName, setDisplayName] = useState("Google Search Console");
   const [resource, setResource] = useState<Record<string, string>>({});
@@ -85,12 +85,11 @@ export function SettingsDataSources({ projects, workspaceId }: { projects: reado
   }, [workspaceId]);
 
   const refresh = useCallback(async (preferredConnectionId?: string) => {
-    const query = new URLSearchParams({ workspaceId, ...(projectId ? { projectId } : {}) });
-    const response = await fetch(`/api/data-sources?${query}`, { cache: "no-store" });
+    const response = await fetch(`/api/data-sources?workspaceId=${encodeURIComponent(workspaceId)}`, { cache: "no-store" });
     const result = await response.json() as {
       connections?: PublicDataSourceConnection[];
-      projectReferences?: ProjectReference[];
       workspaceProjectReferences?: ProjectReference[];
+      projectReferences?: ProjectReference[];
       googleOAuth?: { configured?: boolean };
       error?: string;
     };
@@ -110,25 +109,39 @@ export function SettingsDataSources({ projects, workspaceId }: { projects: reado
         setEditingConnectionId(connection.id);
         setAssignmentProjectIds(projectIdsForConnection(nextWorkspaceReferences, connection.id));
         setEditorOpen(true);
-      } else setNotice("OAuth로 생성된 Google 연결을 찾을 수 없습니다. 설정 데이터를 새로고침한 뒤 다시 연결해 주세요.");
+      } else {
+        setNotice("OAuth로 생성된 Google 연결을 찾을 수 없습니다. 설정 데이터를 새로고침한 뒤 다시 연결해 주세요.");
+      }
     }
     return Object.freeze({ connections: nextConnections, workspaceReferences: nextWorkspaceReferences });
-  }, [projectId, workspaceId]);
+  }, [workspaceId]);
 
   const replaceProjectAssignments = useCallback(async (connectionId: string, desiredProjectIds: readonly string[], currentReferences: readonly ProjectReference[]) => {
     const allowed = new Set(projects.map((project) => project.id));
     const desired = new Set(desiredProjectIds.filter((value) => allowed.has(value)));
     const current = new Set(projectIdsForConnection(currentReferences, connectionId));
-    const updates = projects.flatMap((project) => desired.has(project.id) === current.has(project.id) ? [] : [request({ action: "set-project-reference", projectId: project.id, connectionId, enabled: desired.has(project.id) })]);
+    const updates = projects.flatMap((project) => desired.has(project.id) === current.has(project.id)
+      ? []
+      : [request({ action: "set-project-reference", projectId: project.id, connectionId, enabled: desired.has(project.id) })]);
     await Promise.all(updates);
   }, [projects, request]);
+
+  useEffect(() => {
+    setProjectSectionIds((current) => {
+      const valid = current.filter((projectId) => projects.some((project) => project.id === projectId));
+      const missing = projects.filter((project) => !valid.includes(project.id)).map((project) => project.id);
+      return [...valid, ...missing];
+    });
+  }, [projects]);
 
   useEffect(() => {
     const oauthReturn = oauthReturnHandled.current ? emptyOAuthReturn : readOAuthReturn();
     oauthReturnHandled.current = true;
     if (oauthReturn.message) setNotice(oauthReturn.message);
     void refresh(oauthReturn.connectionId || undefined).then(() => {
-      if (oauthReturn.connectionId && oauthReturn.assignProjectIds.length) setAssignmentProjectIds(oauthReturn.assignProjectIds.filter((value) => projects.some((project) => project.id === value)));
+      if (oauthReturn.connectionId && oauthReturn.assignProjectIds.length) {
+        setAssignmentProjectIds(oauthReturn.assignProjectIds.filter((value) => projects.some((project) => project.id === value)));
+      }
       if (oauthReturn.outcome) removeOAuthReturnQuery();
     }).catch((error) => setNotice(message(error)));
   }, [projects, refresh]);
@@ -143,13 +156,13 @@ export function SettingsDataSources({ projects, workspaceId }: { projects: reado
     setEditorOpen(true);
   };
 
-  const beginNewConnection = (nextProvider: DataSourceProvider) => {
+  const beginNewConnection = (nextProvider: DataSourceProvider, defaultProjectId?: string) => {
     setProvider(nextProvider);
     setDisplayName(providerLabel(nextProvider));
     setResource({});
     setAccessToken(""); setClientId(""); setClientSecret(""); setFieldErrors({});
     setEditingConnectionId("");
-    setAssignmentProjectIds(projectId ? [projectId] : []);
+    setAssignmentProjectIds(defaultProjectId ? [defaultProjectId] : []);
     setEditorOpen(true);
     setNotice(`${providerLabel(nextProvider)} 새 연결을 추가합니다. 기존 연결은 변경되지 않습니다.`);
     window.setTimeout(() => editorAnchor.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
@@ -161,7 +174,9 @@ export function SettingsDataSources({ projects, workspaceId }: { projects: reado
       const result = await request(body);
       await refresh();
       return result;
-    } finally { setBusy(false); }
+    } finally {
+      setBusy(false);
+    }
   };
 
   const save = async () => {
@@ -188,7 +203,9 @@ export function SettingsDataSources({ projects, workspaceId }: { projects: reado
       setAccessToken(""); setClientId(""); setClientSecret("");
       setAssignmentProjectIds([...assignmentProjectIds]);
       setNotice(existing ? "연결 구성과 Project 배정을 업데이트했습니다." : "새 데이터 소스 연결과 Project 배정을 저장했습니다.");
-    } finally { setBusy(false); }
+    } finally {
+      setBusy(false);
+    }
   };
 
   const reuseGoogleConnection = async (source: PublicDataSourceConnection) => {
@@ -200,14 +217,17 @@ export function SettingsDataSources({ projects, workspaceId }: { projects: reado
       await refresh(result.connection.id);
       setAssignmentProjectIds(pendingAssignments);
       setNotice(`${source.displayName}의 Google 인증을 안전하게 재사용했습니다. 사용할 리소스와 Project 배정을 확인한 뒤 저장해 주세요.`);
-    } finally { setBusy(false); }
+    } finally {
+      setBusy(false);
+    }
   };
 
   const startGoogleOAuth = (targetProvider: DataSourceProvider, connectionId?: string) => {
     const returnQuery = new URLSearchParams(window.location.search);
     returnQuery.set("section", "data-sources");
-    if (projectId) returnQuery.set("projectId", projectId); else returnQuery.delete("projectId");
-    if (!connectionId && assignmentProjectIds.length) returnQuery.set("assignProjectIds", assignmentProjectIds.join(",")); else returnQuery.delete("assignProjectIds");
+    returnQuery.delete("projectId");
+    if (!connectionId && assignmentProjectIds.length) returnQuery.set("assignProjectIds", assignmentProjectIds.join(","));
+    else returnQuery.delete("assignProjectIds");
     const returnTo = `${window.location.pathname}?${returnQuery.toString()}`;
     const query = new URLSearchParams({ workspaceId, provider: targetProvider, returnTo, ...(connectionId ? { connectionId } : {}) });
     window.location.assign(`/api/data-sources/google/start?${query}`);
@@ -234,8 +254,11 @@ export function SettingsDataSources({ projects, workspaceId }: { projects: reado
       if (editingConnectionId === connection.id) { setEditingConnectionId(""); setEditorOpen(false); }
       await refresh();
       setNotice("데이터 소스 연결을 삭제했습니다. 기존 Snapshot과 Evidence는 보존됩니다.");
-    } catch (error) { handleError(error); }
-    finally { setBusy(false); }
+    } catch (error) {
+      handleError(error);
+    } finally {
+      setBusy(false);
+    }
   };
 
   const poll = async (jobId: string) => {
@@ -243,7 +266,11 @@ export function SettingsDataSources({ projects, workspaceId }: { projects: reado
       await new Promise((resolve) => window.setTimeout(resolve, 1000));
       const response = await fetch(`/api/data-sources?workspaceId=${encodeURIComponent(workspaceId)}&jobId=${encodeURIComponent(jobId)}`, { cache: "no-store" });
       const result = await response.json() as { job?: { state: string; message: string } };
-      if (result.job && ["completed", "failed", "superseded"].includes(result.job.state)) { await refresh(); setNotice(result.job.state === "failed" ? "" : result.job.message); return; }
+      if (result.job && ["completed", "failed", "superseded"].includes(result.job.state)) {
+        await refresh();
+        setNotice(result.job.state === "failed" ? "" : result.job.message);
+        return;
+      }
     }
     setNotice("동기화는 계속될 수 있습니다. 잠시 후 마지막 성공 시각을 다시 확인해 주세요.");
   };
@@ -259,31 +286,33 @@ export function SettingsDataSources({ projects, workspaceId }: { projects: reado
     setFieldErrors((current) => ({ ...current, [field]: undefined }));
   };
 
-  const changeProjectContext = (nextProjectId: string) => {
-    setProjectId(nextProjectId);
-    const query = new URLSearchParams(window.location.search);
-    query.set("section", "data-sources");
-    if (nextProjectId) query.set("projectId", nextProjectId); else query.delete("projectId");
-    window.history.replaceState(null, "", `${window.location.pathname}?${query.toString()}${window.location.hash}`);
+  const addProjectSection = () => {
+    if (!projectPickerId) { setNotice("하단에 추가할 Project를 먼저 선택해 주세요."); return; }
+    if (projectSectionIds.includes(projectPickerId)) { setNotice("선택한 Project 영역은 이미 하단에 있습니다."); return; }
+    setProjectSectionIds((current) => [...current, projectPickerId]);
+    setNotice(`${projectName(projects, projectPickerId)} Project 영역을 하단에 추가했습니다.`);
+  };
+
+  const removeProjectSection = (projectId: string) => {
+    setProjectSectionIds((current) => current.filter((value) => value !== projectId));
+    setNotice(`${projectName(projects, projectId)} Project 영역만 닫았습니다. Project와 연결 데이터는 변경되지 않았습니다.`);
   };
 
   const selectedProvider = providers.find((value) => value.provider === provider)!;
   const editingConnection = connections.find((value) => value.id === editingConnectionId);
   const hasGoogleOAuthCredential = editingConnection?.credentialMode === "googleOAuth" && editingConnection.hasCredentials;
   const reusableGoogleConnections = connections.filter((value) => value.provider === provider && value.credentialMode === "googleOAuth" && value.hasCredentials && value.status !== "disconnected" && value.id !== editingConnectionId);
-  const selectedProject = projects.find((value) => value.id === projectId);
-  const selectedReferenceIds = new Set(workspaceReferences.filter((value) => value.projectId === projectId && value.enabled).map((value) => value.connectionId));
-  const assignedConnections = projectId ? connections.filter((value) => selectedReferenceIds.has(value.id)) : [];
-  const availableConnections = projectId ? connections.filter((value) => !selectedReferenceIds.has(value.id)) : connections;
 
-  const connectionCard = (connection: PublicDataSourceConnection, referenced: boolean) => {
+  const connectionCard = (connection: PublicDataSourceConnection, contextProject: ProjectSummary, referenced: boolean) => {
     const reconnectRequired = connection.status === "error" && (connection.lastErrorCode === "DATA_SOURCE_AUTHENTICATION_ERROR" || connection.lastErrorCode === "GOOGLE_OAUTH_REFRESH_FAILED");
-    return <article aria-current={editingConnectionId === connection.id ? "true" : undefined} className={`rounded-xl border p-4 ${editingConnectionId === connection.id ? "border-[#ff6b6b] bg-[#fffafa]" : "bg-white"}`} key={connection.id}>
+    const assignedNames = projectNamesForConnection(workspaceReferences, projects, connection.id);
+    return <article aria-current={editingConnectionId === connection.id ? "true" : undefined} className={`rounded-xl border p-4 ${editingConnectionId === connection.id ? "border-[#ff6b6b] bg-[#fffafa]" : "bg-white"}`} key={`${contextProject.id}:${connection.id}`}>
       <div className="flex flex-wrap justify-between gap-3">
         <div>
           <p className="font-semibold">{providerLabel(connection.provider)} · {connection.displayName}</p>
-          <p className="mt-1 text-sm text-[#77777f]">{statusLabel(connection.status, reconnectRequired)} · freshness {freshnessLabel(connection.freshness)}{projectId ? referenced ? ` · ${selectedProject?.name}에 배정됨` : " · 이 Project에 배정 가능" : ""}</p>
-          <p className="mt-1 text-xs text-[#92929a]">연결 ID: {connection.id} · 전체 Project 참조 {connection.projectReferenceCount ?? 0}개</p>
+          <p className="mt-1 text-sm text-[#77777f]">{statusLabel(connection.status, reconnectRequired)} · freshness {freshnessLabel(connection.freshness)} · {referenced ? `${contextProject.name}에서 사용 중` : `${contextProject.name}에 배정 가능`}</p>
+          <p className="mt-1 text-xs font-medium text-[#686870]">실제 배정 Project: {assignedNames.length ? assignedNames.join(", ") : "없음"}</p>
+          <p className="mt-1 text-xs text-[#92929a]">연결 ID: {connection.id} · 전체 Project 참조 {connection.projectReferenceCount ?? assignedNames.length}개</p>
           <p className="mt-1 text-xs text-[#92929a]">선택 resource: {connectionResourceLabel(connection)} · 마지막 성공: {formatDate(connection.lastSuccessfulSyncAt)} · 최근 시도: {formatDate(connection.lastSyncAttemptAt)}</p>
           {connection.latestSnapshot ? <p className="mt-2 text-xs text-[#77777f]">기간 {connection.latestSnapshot.periodStart}~{connection.latestSnapshot.periodEnd} · {connection.latestSnapshot.limitations.join(" ")}</p> : <p className="mt-2 text-xs text-amber-800">성공 snapshot 없음</p>}
           {connection.lastError ? <p className="mt-2 text-sm text-red-700">{connectionErrorLabel(connection.lastErrorCode, connection.lastError)}</p> : null}
@@ -291,7 +320,9 @@ export function SettingsDataSources({ projects, workspaceId }: { projects: reado
         <div className="flex flex-wrap gap-2">
           <button className="rounded-lg border px-3 py-2 text-sm font-semibold" disabled={busy} onClick={() => {
             if (reconnectRequired && isGoogleOAuthProvider(connection.provider)) { startGoogleOAuth(connection.provider, connection.id); return; }
-            editConnection(connection); setNotice(`${connection.displayName} 연결을 편집하고 있습니다.`); editorAnchor.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+            editConnection(connection);
+            setNotice(`${connection.displayName} 연결을 편집하고 있습니다.`);
+            editorAnchor.current?.scrollIntoView({ behavior: "smooth", block: "start" });
           }} type="button">{reconnectRequired ? "다시 연결" : "구성 편집"}</button>
           <button className="rounded-lg border px-3 py-2 text-sm font-semibold disabled:opacity-50" disabled={busy || connection.status === "syncing" || !connection.enabled} onClick={() => void sync(connection).catch((error) => setNotice(message(error)))} type="button">{connection.status === "syncing" ? "동기화 중…" : "수동 동기화"}</button>
           <button className="rounded-lg border px-3 py-2 text-sm font-semibold" disabled={busy || connection.status === "disconnected"} onClick={() => void action({ action: "set-enabled", connectionId: connection.id, connectionVersion: connection.version, enabled: !connection.enabled }).catch((error) => setNotice(message(error)))} type="button">{connection.enabled ? "비활성화" : "활성화"}</button>
@@ -299,18 +330,19 @@ export function SettingsDataSources({ projects, workspaceId }: { projects: reado
           <button className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm font-semibold text-red-800" disabled={busy} onClick={() => void deleteDataSource(connection)} type="button">데이터 소스 삭제</button>
         </div>
       </div>
-      {projectId ? <div className="mt-4 border-t pt-4"><button className={`rounded-lg px-4 py-2 text-sm font-semibold ${referenced ? "border text-[#65656d]" : "bg-[#ff6b6b] text-white"}`} disabled={busy} onClick={() => void action({ action: "set-project-reference", projectId, connectionId: connection.id, enabled: !referenced }).then(() => setNotice(referenced ? `${selectedProject?.name} Project에서 제외했습니다.` : `${selectedProject?.name} Project에 배정했습니다.`)).catch(handleError)} type="button">{referenced ? "이 Project에서 제외" : "이 Project에 배정"}</button></div> : null}
+      <div className="mt-4 border-t pt-4">
+        <button className={`rounded-lg px-4 py-2 text-sm font-semibold ${referenced ? "border text-[#65656d]" : "bg-[#ff6b6b] text-white"}`} disabled={busy} onClick={() => void action({ action: "set-project-reference", projectId: contextProject.id, connectionId: connection.id, enabled: !referenced }).then(() => setNotice(referenced ? `${contextProject.name} Project에서 제외했습니다.` : `${contextProject.name} Project에 배정했습니다.`)).catch(handleError)} type="button">{referenced ? "이 Project에서 제외" : "이 Project에 배정"}</button>
+      </div>
     </article>;
   };
 
   return <div className="space-y-5">
     <section className="rounded-[20px] border border-black/6 bg-white p-5 sm:p-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#ff6b6b]">Project context</p><h2 className="mt-1 text-lg font-semibold">데이터 소스를 설정할 Project</h2><p className="mt-2 text-sm leading-6 text-[#77777f]">Project는 브랜드·주제·독자·콘텐츠 전략 단위입니다. Tistory, WordPress, YouTube는 Project의 발행 대상입니다.</p></div>
-        <Link className="rounded-xl border px-4 py-3 text-sm font-semibold" href={`/projects/new?workspaceId=${encodeURIComponent(workspaceId)}&returnTo=data-sources`}>새 Project 만들기</Link>
+      <div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#ff6b6b]">Project areas</p><h2 className="mt-1 text-lg font-semibold">하단에 표시할 Project 영역</h2><p className="mt-2 text-sm leading-6 text-[#77777f]">기존 Project를 선택한 뒤 관리 영역을 추가합니다. 이 버튼은 Project 데이터를 새로 만들지 않습니다.</p></div>
+      <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-end">
+        <label className="block flex-1 text-sm font-semibold">Project 선택<select className="mt-2 w-full rounded-xl border px-4 py-3 font-normal" onChange={(event) => setProjectPickerId(event.target.value)} value={projectPickerId}><option value="">Project를 선택해 주세요.</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
+        <button className="rounded-xl border px-5 py-3 text-sm font-semibold disabled:opacity-50" disabled={busy || !projectPickerId} onClick={addProjectSection} type="button">선택한 Project 영역 만들기</button>
       </div>
-      <label className="mt-5 block text-sm font-semibold">Project 선택<select className="mt-2 w-full rounded-xl border px-4 py-3 font-normal" onChange={(event) => changeProjectContext(event.target.value)} value={projectId}><option value="">Project를 선택해 주세요.</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
-      {!projectId ? <p className="mt-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">Project를 선택해야 배정된 연결과 배정 가능한 연결을 구분할 수 있습니다. 연결 자체는 Project 선택 없이도 Workspace에 저장할 수 있습니다.</p> : null}
     </section>
 
     <section className="rounded-[20px] border border-black/6 bg-white p-5 sm:p-6">
@@ -338,7 +370,7 @@ export function SettingsDataSources({ projects, workspaceId }: { projects: reado
 
           <fieldset className="rounded-xl border bg-white p-4 sm:col-span-2">
             <legend className="px-1 text-sm font-semibold">이 연결을 사용할 Project</legend>
-            <p className="mt-1 text-xs leading-5 text-[#77777f]">선택하지 않으면 Workspace 연결로만 저장되며 어느 Project의 Opportunity Planning에도 사용되지 않습니다.</p>
+            <p className="mt-1 text-xs leading-5 text-[#77777f]">체크한 Project 영역에서만 Opportunity Planning Evidence로 사용됩니다. 선택하지 않으면 Workspace 연결로만 저장됩니다.</p>
             <div className="mt-3 grid gap-2 sm:grid-cols-2">{projects.map((project) => <label className="flex items-center gap-2 rounded-lg border p-3 text-sm" key={project.id}><input checked={assignmentProjectIds.includes(project.id)} onChange={(event) => setAssignmentProjectIds((current) => event.target.checked ? [...new Set([...current, project.id])] : current.filter((value) => value !== project.id))} type="checkbox" /><span className="font-semibold">{project.name}</span></label>)}</div>
             {!projects.length ? <p className="mt-3 text-sm text-amber-800">먼저 Project를 만들어 주세요.</p> : null}
           </fieldset>
@@ -396,24 +428,45 @@ export function SettingsDataSources({ projects, workspaceId }: { projects: reado
     </section>
 
     <section className="rounded-[20px] border border-black/6 bg-white p-5 sm:p-6">
-      <div><h2 className="text-lg font-semibold">Project별 데이터 소스 배정</h2><p className="mt-1 text-sm text-[#77777f]">Workspace 연결을 선택한 Project 기준으로 분리해 보여줍니다.</p></div>
-      {!projectId ? <p className="mt-5 rounded-xl bg-[#f8f8fa] p-4 text-sm text-[#77777f]">위에서 Project를 선택하면 `배정된 연결`과 `배정 가능한 연결`로 나뉩니다.</p> : <div className="mt-5 space-y-7">
-        <div><h3 className="font-semibold">{selectedProject?.name}에 배정된 연결</h3><div className="mt-3 space-y-3">{assignedConnections.length ? assignedConnections.map((connection) => connectionCard(connection, true)) : <p className="rounded-xl border border-dashed p-4 text-sm text-[#77777f]">이 Project에 배정된 Data Source가 없습니다.</p>}</div></div>
-        <div><h3 className="font-semibold">배정 가능한 Workspace 연결</h3><div className="mt-3 space-y-3">{availableConnections.length ? availableConnections.map((connection) => connectionCard(connection, false)) : <p className="rounded-xl border border-dashed p-4 text-sm text-[#77777f]">추가로 배정할 연결이 없습니다.</p>}</div></div>
+      <div><h2 className="text-lg font-semibold">Project별 데이터 소스 영역</h2><p className="mt-1 text-sm text-[#77777f]">각 영역은 고유한 Project ID를 유지합니다. 위 선택값을 바꿔도 이미 만들어진 다른 Project 영역은 변경되지 않습니다.</p></div>
+      {!projectSectionIds.length ? <p className="mt-5 rounded-xl bg-[#f8f8fa] p-4 text-sm text-[#77777f]">위에서 Project를 선택하고 `선택한 Project 영역 만들기`를 눌러 주세요.</p> : <div className="mt-5 space-y-8">
+        {projectSectionIds.map((sectionProjectId) => {
+          const project = projects.find((value) => value.id === sectionProjectId);
+          if (!project) return null;
+          const assignedIdSet = new Set(workspaceReferences.filter((value) => value.projectId === project.id && value.enabled).map((value) => value.connectionId));
+          const assignedConnections = connections.filter((value) => assignedIdSet.has(value.id));
+          const availableConnections = connections.filter((value) => !assignedIdSet.has(value.id));
+          return <section className="rounded-2xl border bg-[#fcfcfd] p-4 sm:p-5" data-project-id={project.id} key={project.id}>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#ff6b6b]">Project data sources</p><h3 className="mt-1 text-xl font-semibold">{project.name}</h3><p className="mt-1 text-xs text-[#92929a]">Project ID: {project.id}</p></div>
+              <div className="flex flex-wrap gap-2"><button className="rounded-lg border px-3 py-2 text-xs font-semibold" disabled={busy} onClick={() => beginNewConnection("googleSearchConsole", project.id)} type="button">GSC 연결 추가</button><button className="rounded-lg border px-3 py-2 text-xs font-semibold" disabled={busy} onClick={() => beginNewConnection("naverSearchTrend", project.id)} type="button">NAVER 연결 추가</button><button className="rounded-lg border px-3 py-2 text-xs font-semibold text-[#65656d]" disabled={busy} onClick={() => removeProjectSection(project.id)} type="button">영역 닫기</button></div>
+            </div>
+            <div className="mt-6"><h4 className="font-semibold">이 Project에 배정된 연결</h4><div className="mt-3 space-y-3">{assignedConnections.length ? assignedConnections.map((connection) => connectionCard(connection, project, true)) : <p className="rounded-xl border border-dashed bg-white p-4 text-sm text-[#77777f]">이 Project에 배정된 Data Source가 없습니다.</p>}</div></div>
+            <div className="mt-6"><h4 className="font-semibold">이 Project에 배정 가능한 Workspace 연결</h4><div className="mt-3 space-y-3">{availableConnections.length ? availableConnections.map((connection) => connectionCard(connection, project, false)) : <p className="rounded-xl border border-dashed bg-white p-4 text-sm text-[#77777f]">추가로 배정할 연결이 없습니다.</p>}</div></div>
+          </section>;
+        })}
       </div>}
     </section>
     <p aria-live="polite" className="text-sm text-[#66666f]">{notice}</p>
   </div>;
 }
 
-function Field({ error, label, onChange, placeholder, value }: { error?: string; label: string; onChange: (value: string) => void; placeholder?: string; value: string }) { return <label className="text-sm font-semibold">{label}<input aria-invalid={Boolean(error)} className="mt-2 w-full rounded-xl border px-4 py-3 font-normal" onChange={(event) => onChange(event.target.value)} placeholder={placeholder} value={value} />{error ? <span className="mt-1 block text-xs font-normal text-red-700">{error}</span> : null}</label>; }
-function SecretField(props: Parameters<typeof Field>[0]) { return <label className="text-sm font-semibold">{props.label}<input aria-invalid={Boolean(props.error)} autoComplete="off" className="mt-2 w-full rounded-xl border px-4 py-3 font-normal" onChange={(event) => props.onChange(event.target.value)} type="password" value={props.value} />{props.error ? <span className="mt-1 block text-xs font-normal text-red-700">{props.error}</span> : null}</label>; }
-function SelectField({ error, label, onChange, options, value }: { error?: string; label: string; onChange: (value: string) => void; options: readonly DataSourceResourceOption[]; value: string }) { return <label className="text-sm font-semibold">{label}<select aria-invalid={Boolean(error)} className="mt-2 w-full rounded-xl border px-4 py-3 font-normal" onChange={(event) => onChange(event.target.value)} value={value}><option value="">리소스를 선택해 주세요.</option>{options.map((option) => <option key={resourceOptionId(option)} value={resourceOptionId(option)}>{option.displayName ?? option.siteUrl}{option.permissionLevel ? ` · ${option.permissionLevel}` : ""}</option>)}</select>{error ? <span className="mt-1 block text-xs font-normal text-red-700">{error}</span> : null}</label>; }
+function Field({ error, label, onChange, placeholder, value }: { error?: string; label: string; onChange: (value: string) => void; placeholder?: string; value: string }) {
+  return <label className="text-sm font-semibold">{label}<input aria-invalid={Boolean(error)} className="mt-2 w-full rounded-xl border px-4 py-3 font-normal" onChange={(event) => onChange(event.target.value)} placeholder={placeholder} value={value} />{error ? <span className="mt-1 block text-xs font-normal text-red-700">{error}</span> : null}</label>;
+}
+function SecretField(props: Parameters<typeof Field>[0]) {
+  return <label className="text-sm font-semibold">{props.label}<input aria-invalid={Boolean(props.error)} autoComplete="off" className="mt-2 w-full rounded-xl border px-4 py-3 font-normal" onChange={(event) => props.onChange(event.target.value)} type="password" value={props.value} />{props.error ? <span className="mt-1 block text-xs font-normal text-red-700">{props.error}</span> : null}</label>;
+}
+function SelectField({ error, label, onChange, options, value }: { error?: string; label: string; onChange: (value: string) => void; options: readonly DataSourceResourceOption[]; value: string }) {
+  return <label className="text-sm font-semibold">{label}<select aria-invalid={Boolean(error)} className="mt-2 w-full rounded-xl border px-4 py-3 font-normal" onChange={(event) => onChange(event.target.value)} value={value}><option value="">리소스를 선택해 주세요.</option>{options.map((option) => <option key={resourceOptionId(option)} value={resourceOptionId(option)}>{option.displayName ?? option.siteUrl}{option.permissionLevel ? ` · ${option.permissionLevel}` : ""}</option>)}</select>{error ? <span className="mt-1 block text-xs font-normal text-red-700">{error}</span> : null}</label>;
+}
 function resourceOptionId(option: DataSourceResourceOption) { return option.resourceId ?? option.siteUrl; }
 function split(value?: string) { return value?.split(",").map((item) => item.trim()).filter(Boolean) ?? []; }
 function providerLabel(value: DataSourceProvider) { return providers.find((item) => item.provider === value)?.label ?? value; }
 function isGoogleOAuthProvider(value: DataSourceProvider) { return value === "googleSearchConsole" || value === "youtubeAnalytics"; }
 function projectIdsForConnection(references: readonly ProjectReference[], connectionId: string) { return [...new Set(references.filter((value) => value.connectionId === connectionId && value.enabled).map((value) => value.projectId))]; }
+function projectNamesForConnection(references: readonly ProjectReference[], projects: readonly ProjectSummary[], connectionId: string) { return projectIdsForConnection(references, connectionId).map((projectId) => projectName(projects, projectId)); }
+function projectName(projects: readonly ProjectSummary[], projectId: string) { return projects.find((project) => project.id === projectId)?.name ?? projectId; }
 function initialProjectId(projects: readonly ProjectSummary[]) { if (typeof window === "undefined") return ""; const requested = new URLSearchParams(window.location.search).get("projectId") ?? ""; return projects.some((project) => project.id === requested) ? requested : ""; }
 export function dataSourceDeletionConfirmation(connection: PublicDataSourceConnection): string {
   return `이 데이터 소스 연결을 삭제하시겠습니까?\n\nProvider: ${providerLabel(connection.provider)}\n표시 이름: ${connection.displayName}\n선택된 resource: ${connectionResourceLabel(connection)}\n현재 상태: ${statusLabel(connection.status)}\nProject 참조: ${connection.projectReferenceCount ?? 0}개\n\n연결 카드와 Project 사용 설정은 제거됩니다.\n기존 Snapshot과 이미 콘텐츠에 사용된 Evidence는 보존됩니다.\n삭제 후 다시 사용하려면 새 연결을 만들어야 합니다.`;
@@ -454,7 +507,7 @@ export function parseOAuthReturn(search: string): OAuthReturn {
 function readOAuthReturn(): OAuthReturn { return typeof window === "undefined" ? emptyOAuthReturn : parseOAuthReturn(window.location.search); }
 function removeOAuthReturnQuery() {
   const query = new URLSearchParams(window.location.search);
-  query.delete("dataSourceOAuth"); query.delete("connectionId"); query.delete("oauthCode"); query.delete("dataSourceProvider"); query.delete("assignProjectIds");
+  query.delete("dataSourceOAuth"); query.delete("connectionId"); query.delete("oauthCode"); query.delete("dataSourceProvider"); query.delete("assignProjectIds"); query.delete("projectId");
   window.history.replaceState(null, "", `${window.location.pathname}${query.size ? `?${query}` : ""}${window.location.hash}`);
 }
 
