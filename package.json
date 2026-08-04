@@ -11,6 +11,7 @@
     "playwright:install": "playwright install chromium",
     "tistory:login": "set RUN_TISTORY_LOGIN=1&& vitest run tests/manual/tistory-login.test.ts",
     "project:apply-default-profiles": "node scripts/apply-project-profile-defaults.mjs",
+    "data-sources:repair-project-assignments": "node scripts/repair-project-data-source-assignments.mjs",
     "dev": "next dev --webpack",
     "build": "next build",
     "start": "next start",
