@@ -2,6 +2,8 @@ import { google } from "googleapis";
 import { DataSourceError } from "../DataSourceErrors";
 
 export const GOOGLE_SEARCH_CONSOLE_READONLY_SCOPE = "https://www.googleapis.com/auth/webmasters.readonly";
+export const GOOGLE_YOUTUBE_READONLY_SCOPE = "https://www.googleapis.com/auth/youtube.readonly";
+export const GOOGLE_YOUTUBE_ANALYTICS_READONLY_SCOPE = "https://www.googleapis.com/auth/yt-analytics.readonly";
 
 export type GoogleOAuthConfiguration = Readonly<{ clientId: string; clientSecret: string; redirectUri: string }>;
 type GoogleOAuthEnvironment = Readonly<Record<string, string | undefined>>;
@@ -25,6 +27,7 @@ export class GoogleOAuthClientFactory {
 
   scopes(provider: string): readonly string[] {
     if (provider === "googleSearchConsole") return Object.freeze([GOOGLE_SEARCH_CONSOLE_READONLY_SCOPE]);
+    if (provider === "youtubeAnalytics") return Object.freeze([GOOGLE_YOUTUBE_READONLY_SCOPE, GOOGLE_YOUTUBE_ANALYTICS_READONLY_SCOPE]);
     throw new DataSourceError("지원하지 않는 Google OAuth Provider입니다.", "DATA_SOURCE_REQUEST_VALIDATION_ERROR", 400, "provider");
   }
 }
