@@ -21,6 +21,31 @@ The Workspace contains several existing Projects and Workspace-owned Data Source
 
 The same UI also mislabeled an action as `새 Project 만들기` and routed to a real Project creation page. The intended behavior was to create a lower management area for an already existing Project, not to create new Project data.
 
+A later local repair run reported that four invalid health-only Project references had been removed. A subsequent read-only inspection of the real `.bright-studio/intelligence/metadata.json` still showed the same health GSC and NAVER Connections actively referenced by all three Projects.
+
+The repair function itself removed the intended records in memory, but the command treated a successful temporary-file rename as final success. It did not protect against a running Next.js development server, did not detect a metadata change immediately before replacement, and did not re-read the final file to prove that the persisted snapshot matched the intended result. Therefore the prior success log was not a durable-storage verification.
+
+## Assignment repair durability fix
+
+The repair command now applies the following gates before it may print success:
+
+```text
+1. Refuse to run while `.next/dev/lock` exists
+2. Acquire an exclusive repair lock
+3. Read the actual studio-data.json and metadata.json
+4. Calculate invalid health-only references
+5. Fingerprint metadata.json before backup and before replacement
+6. Abort if another process changes the file
+7. Create a timestamped backup
+8. Replace metadata.json through the temporary file
+9. Re-read the persisted metadata.json
+10. Require exact equality with the intended repaired snapshot
+11. Re-run the assignment classifier and require zero remaining invalid references
+12. Report the final active Reference count only after verification
+```
+
+The command still preserves Connections, Snapshots, Evidence, credentials, Projects and Content data. The real local metadata remains externally unverified until the updated command is pulled, run with the development server stopped, and followed by the read-only Reference listing.
+
 ## Final ownership and UI decision
 
 ```text
@@ -50,6 +75,10 @@ Current Workspace Projects are rendered as separate lower areas. A Project area 
 - multiple Search Console resources and NAVER keyword sets remain supported
 - Google OAuth credential reuse remains reference-aware
 - YouTube Analytics provider implementation remains included
+- Project assignment repair refuses to run while the Next.js development server lock exists
+- repair writes use a per-file exclusive repair lock and metadata fingerprint checks
+- repair success requires persisted-file re-read and exact result verification
+- file-level regression tests cover durable write, backup preservation, development-server refusal and false-success rejection
 
 ## Current external Evidence matching behavior
 
@@ -101,28 +130,40 @@ f6795cd  fix: avoid synchronizing project sections in an effect
 02eb2e8  docs: record independent project area CI success
 ```
 
-Final verified HEAD:
+Assignment repair durability commits:
 
 ```text
-Commit: 02eb2e8c60a3612b3b33493142df299aa6c02d3e
-Run: 30881688318
-Job: 91904229360
+86b3239  fix: verify project assignment repair persistence
+1491d4a  test: cover durable project assignment repair
+```
+
+Previous verified HEAD:
+
+```text
+Commit: a7d0c6ad9b08a836bf931acaef1af0a05fe00a4d
+Run: 30892994324
+Job: 91939223421
 Conclusion: success
 ```
 
-The successful job passed:
+That successful job passed:
 
 - TypeScript typecheck
 - ESLint zero-warning gate
 - complete non-E2E Vitest suite
 - Next.js production build
 
-Automated success does not replace local UI and real Provider verification.
+The assignment repair durability commits require a new CI result. Automated success does not replace local metadata and real Provider verification.
 
 ## Not externally verified
 
 The following remain real-environment gates:
 
+- pull the assignment repair durability commits into the local feature branch
+- stop the Next.js development server before running the repair command
+- run `npm run data-sources:repair-project-assignments`
+- require the command to print `metadata.json 재읽기 검증을 통과했습니다.`
+- re-read the actual metadata and confirm only the two health Project References remain for the existing health GSC and NAVER Connections
 - three existing Projects render as three independent lower areas
 - changing the top picker leaves all existing area identities unchanged
 - the actual assigned Project names stay identical on a Connection card in every area
