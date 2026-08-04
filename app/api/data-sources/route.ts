@@ -37,6 +37,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       connections: connections.map((connection) => ({ ...publicDataSourceConnection(connection, snapshots.filter((value) => value.connectionId === connection.id).sort((a, b) => b.syncedAt.localeCompare(a.syncedAt))[0]), projectReferenceCount: workspaceReferences.filter((value) => value.connectionId === connection.id).length })),
       projectReferences: references.filter((value) => value.workspaceId === workspaceId),
+      workspaceProjectReferences: workspaceReferences.filter((value) => value.workspaceId === workspaceId),
       googleOAuth: { configured: googleOAuthClientFactory.configured() },
       conditionalProviders: [
         { provider: "googleAdsKeywordPlanning", status: "configurationRequired", reason: "Google Ads API access and an authorized customer account must be verified before activation." },
