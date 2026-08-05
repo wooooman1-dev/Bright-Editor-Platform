@@ -18,12 +18,41 @@ The preflight applies only when all of the following are true:
 
 Standard content and legacy non-structured calls remain unchanged.
 
+## Claim Scope Boundary
+
+Required Claims are derived from the factual scope of the primary topic, not from every phrase stored in Planning.
+
+Primary-topic scope includes:
+
+- source request;
+- selected topic;
+- primary and secondary keywords;
+- search intent;
+- content angle;
+- reader problem.
+
+A specialized Claim bundle such as deposit protection, retirement pay, revolving credit, or continuing-transaction law is activated only when that subject is part of the primary-topic scope or Planning contains a concrete verified value for the Claim.
+
+The following must not activate a full specialized Claim bundle by themselves:
+
+- an internal-link target or related-content reference;
+- a generic quality requirement;
+- a boilerplate warning or exception label;
+- a conceptual mention that contains no concrete factual value.
+
+Generic scalar Claims such as amount, interest rate, period, eligibility, tax rate, exceptions, and statutory basis require a concrete Planning value before they become mandatory preflight Claims. Specialized topic Claims may still be discovered without a planned value when the specialized subject is the confirmed primary topic.
+
+When scoped Planning produces no required factual Claims, Bright Studio returns `not_required` and skips the Source Preflight AI discovery call. Generation remains responsible for omitting unsupported external factual values, and deterministic post-Generation verification remains enabled.
+
+Internal-link strategy remains editorial navigation context. Mentioning a verified related article does not make every factual Claim from that related article mandatory for the current manuscript.
+
 ## Required Workflow
 
 ```text
 Confirmed Content Opportunity
 → required factual Claim derivation
-→ official source discovery
+→ primary-topic Claim scope
+→ official source discovery when Claims remain
 → actual web-search URL membership check
 → URL safety and official-source policy
 → direct page fetch
@@ -134,7 +163,7 @@ Bright Studio does not ask Generation to create the final reader-visible source 
 
 For approval-preparation content:
 
-- Source Preflight: 1 small discovery call
+- Source Preflight: 0 calls when scoped Planning has no required factual Claims, otherwise 1 small discovery call
 - Generation: 1 call
 - Quality Review: 1 call
 
