@@ -2,7 +2,7 @@
 
 import { studioStore } from "../../application/studio-store";
 import { mergeServerMutationSnapshot, mergeUserDataSnapshot } from "../../application/persistence/mergeUserDataSnapshot";
-import { AIWorkflow } from "../../../core/ai";
+import { AIWorkflow, ApprovalSourcePreflightError } from "../../../core/ai";
 import { contentRevisionId, editorialRevisionId, evaluateQualityImprovement, evaluateQualityReviewReadiness, isStandardQualityApproved, qualityImprovementRejectionMessage, QualityEngine } from "../../../core/quality";
 import { contentOpportunityAIContext, EditorialGenerationStrategy } from "../../application/EditorialGenerationStrategy";
 import { OpenAIProvider } from "../../application/OpenAIProvider";
@@ -486,7 +486,14 @@ Quality tasks: ${JSON.stringify(currentQuality.tasks)}
         violations: diagnostic.violations,
       });
     }
-    return NextResponse.json({ error: message(error), ...(diagnostic ? { diagnostic } : {}) }, { status });
+    const code = error instanceof ApprovalSourcePreflightError
+      ? error.code
+      : undefined;
+    return NextResponse.json({
+      error: message(error),
+      ...(code ? { code } : {}),
+      ...(diagnostic ? { diagnostic } : {}),
+    }, { status });
   }
 }
 

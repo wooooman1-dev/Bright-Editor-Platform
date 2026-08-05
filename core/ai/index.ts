@@ -1,5 +1,6 @@
 export type { AIProvider, AIRequest, AIResponse, AIWebSource } from "./AIProvider";
 export {
+  approvalSourcePreflightMaximumClaimsPerSource,
   approvalSourcePreflightTask,
   ApprovalSourcePreflightError,
   runApprovalSourcePreflight,

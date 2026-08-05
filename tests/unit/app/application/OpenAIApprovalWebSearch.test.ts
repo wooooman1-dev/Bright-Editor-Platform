@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { OpenAIProvider } from "../../../../app/application/OpenAIProvider";
+import {
+  approvalSourcePreflightFormat,
+  OpenAIProvider,
+} from "../../../../app/application/OpenAIProvider";
+import { approvalSourcePreflightMaximumClaimsPerSource } from "../../../../core/ai";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -114,6 +118,32 @@ describe("OpenAI approval web search", () => {
       tools: [{ type: "web_search", search_context_size: "high" }],
       text: { format: { name: "approval_source_preflight", strict: true }, verbosity: "low" },
     });
+  });
+
+  it("keeps the strict source schema aligned with the parsed Claim contract", () => {
+    const sourceSchema = approvalSourcePreflightFormat.schema.properties
+      .sources.items;
+    const claimSchema = sourceSchema.properties.claims;
+
+    expect(sourceSchema.required).toEqual([
+      "url",
+      "title",
+      "evidenceExcerpt",
+      "claims",
+    ]);
+    expect(claimSchema.maxItems)
+      .toBe(approvalSourcePreflightMaximumClaimsPerSource);
+    expect(claimSchema.items.additionalProperties).toBe(false);
+    expect(claimSchema.items.required).toEqual([
+      "field",
+      "value",
+      "evidenceExcerpt",
+    ]);
+    expect(Object.keys(claimSchema.items.properties)).toEqual([
+      "field",
+      "value",
+      "evidenceExcerpt",
+    ]);
   });
 
   it("does not attach web search to Generation after a verified preflight bundle exists", async () => {

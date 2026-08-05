@@ -110,6 +110,38 @@ export function requiredApprovalSourcePreflightClaims(
   return Object.freeze([...required.values()]);
 }
 
+export function hasConcreteApprovalSourcePreflightPlannedValue(
+  opportunity: ConfirmedContentOpportunity,
+  requirement: ApprovalSourcePreflightRequirement,
+): boolean {
+  const plannedValue = requirement.plannedValue?.replace(/\s+/gu, " ").trim();
+  if (!plannedValue) return false;
+  const validator = genericScalarPlannedValueValidators.get(requirement.field);
+  if (!validator || !validator(plannedValue)) return false;
+
+  if (!genericScalarFieldsRequiringExplicitLabel.has(requirement.field)) {
+    return true;
+  }
+
+  const fieldLabel = genericPlanningSignalByField.get(requirement.field);
+  if (!fieldLabel) return false;
+  const normalizedPlannedValue = normalizeComparable(plannedValue);
+  if (normalizedPlannedValue.length < 2) return false;
+
+  return explicitPlanningLines(opportunity).some((line) => {
+    const separatorIndex = line.search(/[:：]/u);
+    if (separatorIndex < 1) return false;
+    const label = line.slice(0, separatorIndex).trim();
+    const value = normalizeComparable(line.slice(separatorIndex + 1));
+    return fieldLabel.test(label)
+      && value.length >= 2
+      && (
+        value.includes(normalizedPlannedValue)
+        || normalizedPlannedValue.includes(value)
+      );
+  });
+}
+
 export function evaluateApprovalSourcePreflightCoverage(input: Readonly<{
   profileId: ApprovalPolicyProfileId;
   opportunity: ConfirmedContentOpportunity;
@@ -298,6 +330,16 @@ function explicitPlanningFactValues(
     for (const fact of extractProfileApprovalFactsFromText(line, profileId)) {
       if (!concretePlanningFact(line, fact.field, fact.value)) continue;
       if (!found.has(fact.field)) found.set(fact.field, fact.value);
+    }
+    for (const [field, pattern] of genericPlanningSignals) {
+      if (found.has(field)) continue;
+      const match = line.match(pattern);
+      if (!match || match.index === undefined) continue;
+      const value = line.slice(match.index + match[0].length)
+        .replace(/^[\s:：·-]+/u, "")
+        .trim();
+      if (!concretePlanningFact(line, field, value)) continue;
+      found.set(field, value);
     }
   }
   return found;
@@ -537,6 +579,62 @@ const genericPlanningSignals: readonly Readonly<[string, RegExp]>[] = Object.fre
   ["exceptions", /예외|제외|주의사항/iu],
   ["statutoryBasis", /법적\s*근거|관련\s*법령|법률상|법령상/iu],
 ]);
+const genericPlanningSignalByField = new Map(genericPlanningSignals);
+const editorialCountPattern = /\d+(?:[.,]\d+)?\s*(?:가지|단계|방법|순서|항목|체크포인트|팁)/u;
+const genericScalarFieldsRequiringExplicitLabel = new Set([
+  "eligibility",
+  "exceptions",
+  "statutoryBasis",
+]);
+const genericScalarPlannedValueValidators: ReadonlyMap<string, (value: string) => boolean> = new Map([
+  ["amount", (value) => hasMoneyOrPercentQuantity(value)],
+  ["incomeThreshold", (value) => hasMoneyOrPercentQuantity(value)],
+  ["interestRate", (value) => hasPercentQuantity(value)],
+  ["taxRate", (value) => hasPercentQuantity(value)],
+  ["period", (value) => hasPeriodQuantity(value)],
+  ["eligibility", (value) => hasEligibilityCondition(value)],
+  ["exceptions", (value) => hasExceptionCondition(value)],
+  ["statutoryBasis", (value) => hasStatutoryBasis(value)],
+]);
+
+function hasMoneyOrPercentQuantity(value: string): boolean {
+  return extractCanonicalQuantities(value).some((quantity) =>
+    quantity.startsWith("money:") || quantity.startsWith("percent:"));
+}
+
+function hasPercentQuantity(value: string): boolean {
+  return extractCanonicalQuantities(value)
+    .some((quantity) => quantity.startsWith("percent:"));
+}
+
+function hasPeriodQuantity(value: string): boolean {
+  return extractCanonicalQuantities(value).some((quantity) => {
+    if (quantity.startsWith("date:")) return true;
+    if (!quantity.startsWith("duration:")) return false;
+    return !/^duration:20\d{2}:년$/u.test(quantity);
+  });
+}
+
+function hasEligibilityCondition(value: string): boolean {
+  return hasDescriptivePlanningValue(value)
+    && /(?:대상|세대주|무주택|이상|이하|미만|초과|불가|가능|보유|체류|신청|적용|자격|요건)/u.test(value);
+}
+
+function hasExceptionCondition(value: string): boolean {
+  return hasDescriptivePlanningValue(value)
+    && !/(?:일반화하면\s*안\s*되|주의사항)/u.test(value);
+}
+
+function hasStatutoryBasis(value: string): boolean {
+  return hasDescriptivePlanningValue(value)
+    && /(?:[가-힣A-Za-z]{2,}(?:법|시행령|시행규칙|법률|조례|규정)|(?:법|시행령|시행규칙)\s*제?\s*\d+조)/u.test(value);
+}
+
+function hasDescriptivePlanningValue(value: string): boolean {
+  const normalized = value.replace(/\s+/gu, " ").trim();
+  if (normalized.length < 2 || editorialCountPattern.test(normalized)) return false;
+  return !/(?:^(?:확인|비교|주의사항|예외|제외|대상)(?:\s*(?:필요|확인))?$|확인\s*(?:필요|하세요|해야|방법|순서)|(?:대상|적용)\s*여부\s*확인|확인\s*경로|비교\s*(?:방법|기준)?|판단할\s*기준|결정할\s*기준|독자가[^.]{0,40}(?:결정|판단))/iu.test(normalized);
+}
 
 const topicMarkerFields = new Set([
   "retirementTopic",

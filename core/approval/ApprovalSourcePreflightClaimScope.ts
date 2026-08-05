@@ -1,5 +1,8 @@
 import type { ConfirmedContentOpportunity } from "../content";
-import type { ApprovalSourcePreflightRequirement } from "./ApprovalSourcePreflightCoverage";
+import {
+  hasConcreteApprovalSourcePreflightPlannedValue,
+  type ApprovalSourcePreflightRequirement,
+} from "./ApprovalSourcePreflightCoverage";
 
 export function scopeApprovalSourcePreflightRequirements(
   opportunity: ConfirmedContentOpportunity,
@@ -7,7 +10,13 @@ export function scopeApprovalSourcePreflightRequirements(
 ): readonly ApprovalSourcePreflightRequirement[] {
   const topicText = primaryTopicText(opportunity);
   return Object.freeze(requirements.filter((requirement) => {
-    if (requirement.plannedValue?.trim()) return true;
+    if (requirement.plannedValue?.trim()) {
+      return !genericScalarFields.has(requirement.field)
+        || hasConcreteApprovalSourcePreflightPlannedValue(
+          opportunity,
+          requirement,
+        );
+    }
     if (requirement.field.startsWith("genericClaim:")) return true;
     if (genericScalarFields.has(requirement.field)) return false;
     if (depositProtectionFields.has(requirement.field)) {

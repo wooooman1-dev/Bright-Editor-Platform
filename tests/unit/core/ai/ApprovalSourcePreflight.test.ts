@@ -63,16 +63,19 @@ const strategy: ContentGenerationStrategy = {
 };
 
 function generationInput(input: Readonly<{
+  topic?: string;
+  secondaryKeywords?: readonly string[];
   expectedCoverage?: readonly string[];
   searchIntent?: string;
   readerProblem?: string;
 }> = {}): GenerationInput {
+  const topic = input.topic ?? "정부 지원 신청 조건 확인 방법";
   const candidate = createContentOpportunityCandidate({
-    sourceRequest: "정부 지원 신청 조건 확인 방법 글을 작성해줘",
+    sourceRequest: `${topic} 글을 작성해줘`,
     selectionMode: "userSpecified",
-    selectedTopic: "정부 지원 신청 조건 확인 방법",
-    primaryKeyword: "정부 지원 신청 조건 확인 방법",
-    secondaryKeywords: ["지원 대상 확인"],
+    selectedTopic: topic,
+    primaryKeyword: topic,
+    secondaryKeywords: input.secondaryKeywords ?? ["지원 대상 확인"],
     searchIntent: input.searchIntent
       ?? "공식 페이지에서 지원 대상과 신청 조건을 확인하는 방법",
     audience: "정부 지원 신청 가능 여부를 확인하려는 독자",
@@ -205,6 +208,35 @@ afterEach(() => {
 });
 
 describe("Approval Source Preflight", () => {
+  it("starts with manuscript Generation for the insurance check Opportunity", async () => {
+    const provider = new QueueProvider([generationResponse()]);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await new AIWorkflow(provider, strategy).generate(generationInput({
+      topic: "보험료 점검 방법: 보장·갱신·해지 조건을 확인하는 순서",
+      secondaryKeywords: [
+        "보험 보장 내용 확인",
+        "갱신형 비갱신형 차이",
+        "보험 해지 전 확인사항",
+      ],
+      expectedCoverage: [
+        "보장 금액 확인",
+        "보장 기간 확인",
+        "납입기간 확인",
+        "갱신 여부 확인",
+        "해지 영향 확인",
+        "보장 대상·보장 기간·보장 금액·면책 및 제한 조건을 확인하는 순서",
+      ],
+      searchIntent: "보장, 갱신, 납입기간과 해지 영향을 확인하는 순서를 알고 싶어 한다.",
+      readerProblem: "보험 계약 조건을 충분히 확인하지 않은 채 변경을 고려할 수 있다.",
+    }));
+
+    expect(provider.requests).toHaveLength(1);
+    expect(provider.requests[0]?.metadata?.task).toBe("content-generation");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("skips Source Preflight discovery when scoped required Claims are empty", async () => {
     const provider = new QueueProvider([generationResponse()]);
     const fetchMock = vi.fn();
@@ -327,6 +359,32 @@ describe("Approval Source Preflight", () => {
     const provider = new QueueProvider([preflightResponse({
       sources: [source({ claims: [] })],
     })]);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      pageHtml(),
+      {
+        status: 200,
+        headers: { "content-type": "text/html; charset=utf-8" },
+      },
+    )));
+
+    await expect(
+      new AIWorkflow(provider, strategy).generate(generationInput()),
+    ).rejects.toThrow("미확보 Claim: eligibility");
+    expect(provider.requests).toHaveLength(1);
+  });
+
+  it("does not pass required Claim Coverage when a response omits claims", async () => {
+    const response = preflightResponse();
+    const provider = new QueueProvider([{
+      ...response,
+      content: JSON.stringify({
+        sources: [{
+          url: sourceUrl,
+          title: "정부24 공식 안내",
+          evidenceExcerpt: sourceEvidenceExcerpt,
+        }],
+      }),
+    }]);
     vi.stubGlobal("fetch", vi.fn(async () => new Response(
       pageHtml(),
       {

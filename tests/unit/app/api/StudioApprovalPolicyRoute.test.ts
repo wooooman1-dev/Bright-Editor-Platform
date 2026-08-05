@@ -318,6 +318,60 @@ describe("studio approval policy routes", () => {
     );
   });
 
+  it("preserves the Source Preflight error code in the API response", async () => {
+    const current = data(approvalContent());
+    storeMocks.get.mockResolvedValue(current);
+    storeMocks.update.mockImplementation(async (
+      _collection: string,
+      _id: string,
+      updater: (value: UserData | undefined) => UserData,
+    ) => updater(current));
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({
+        id: "response-preflight-empty",
+        model: "gpt-5.6-terra",
+        status: "completed",
+        output_text: JSON.stringify({ sources: [] }),
+        output: [{
+          type: "web_search_call",
+          action: { sources: [] },
+        }],
+      }), { status: 200 }),
+    );
+
+    const response = await POST(new Request("http://localhost/api/studio", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "generate",
+        input: {
+          contentId: "content-1",
+          opportunityId: opportunity.opportunityId,
+          opportunityVersion: opportunity.version,
+          opportunityFingerprint: opportunity.fingerprint,
+          primaryKeyword: opportunity.primaryKeyword,
+          topic: opportunity.selectedTopic,
+          searchIntent: opportunity.searchIntent,
+          secondaryKeywords: opportunity.secondaryKeywords,
+          keywords: [
+            opportunity.primaryKeyword,
+            ...opportunity.secondaryKeywords,
+          ],
+          platform: "tistory",
+          projectId: "project-1",
+          workspaceId: "workspace-1",
+        },
+      }),
+    }));
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "APPROVAL_SOURCE_NOT_READY",
+      error: expect.stringContaining("웹 검색 도구가 실제로 확인한 직접 출처 URL이 없습니다"),
+    });
+    expect(fetchSpy).toHaveBeenCalledOnce();
+  });
+
   it("keeps the stable profile ID out of a canonical revision prompt", async () => {
     const document: ContentDocument = {
       id: "content-1",

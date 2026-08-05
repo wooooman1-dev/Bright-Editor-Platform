@@ -19,6 +19,7 @@ import type { ConfirmedContentOpportunity } from "../content";
 import type { AIProvider, AIResponse, AIWebSource } from "./AIProvider";
 
 export const approvalSourcePreflightTask = "approval-source-preflight";
+export const approvalSourcePreflightMaximumClaimsPerSource = 40;
 
 export type ApprovalSourcePreflightClaimSource = Readonly<{
   url: string;
@@ -317,7 +318,7 @@ function parseDiscoveredSources(raw: string): readonly DiscoveredSource[] {
     }
     const claims = Array.isArray(value.claims)
       ? value.claims.flatMap((claim) => parseClaim(claim))
-        .slice(0, maximumPreflightClaimsPerSource)
+        .slice(0, approvalSourcePreflightMaximumClaimsPerSource)
       : [];
     const url = canonicalizeApprovalEvidenceUrl(safety.normalizedUrl);
     sources.set(url, Object.freeze({
@@ -620,7 +621,6 @@ function uniqueClaims(
 }
 
 const maximumPreflightSources = 6;
-const maximumPreflightClaimsPerSource = 40;
 const maximumClaimFieldLength = 200;
 const maximumClaimValueLength = 500;
 const maximumClaimEvidenceLength = 1_200;

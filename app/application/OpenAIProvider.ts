@@ -1,4 +1,5 @@
 import {
+  approvalSourcePreflightMaximumClaimsPerSource,
   aiUsageStageForTask,
   createAIUsageRecord,
   type AIProvider,
@@ -351,11 +352,25 @@ export const approvalSourcePreflightFormat = {
         items: {
           type: "object",
           additionalProperties: false,
-          required: ["url", "title", "evidenceExcerpt"],
+          required: ["url", "title", "evidenceExcerpt", "claims"],
           properties: {
             url: { type: "string" },
             title: { type: "string" },
             evidenceExcerpt: { type: "string" },
+            claims: {
+              type: "array",
+              maxItems: approvalSourcePreflightMaximumClaimsPerSource,
+              items: {
+                type: "object",
+                additionalProperties: false,
+                required: ["field", "value", "evidenceExcerpt"],
+                properties: {
+                  field: { type: "string" },
+                  value: { type: "string" },
+                  evidenceExcerpt: { type: "string" },
+                },
+              },
+            },
           },
         },
       },
