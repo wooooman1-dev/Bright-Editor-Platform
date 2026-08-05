@@ -81,7 +81,7 @@ function generationInput(input: Readonly<{
     readerProblem: input.readerProblem
       ?? "자신이 신청 대상인지 판단하기 어려움",
     expectedCoverage: input.expectedCoverage ?? [
-      "지원 대상",
+      `지원 대상: ${eligibilityValue}`,
       "신청 조건",
       "공식 재확인 경로",
     ],
@@ -205,6 +205,37 @@ afterEach(() => {
 });
 
 describe("Approval Source Preflight", () => {
+  it("skips Source Preflight discovery when scoped required Claims are empty", async () => {
+    const provider = new QueueProvider([generationResponse()]);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await new AIWorkflow(provider, strategy).generate(
+      generationInput({
+        expectedCoverage: [
+          "예금과 적금의 납입 구조 차이",
+          "금리 숫자를 볼 때 납입 방식과 기간을 함께 봐야 하는 이유",
+          "예금자보호 확인 콘텐츠와 연결되는 금융회사별 예금 합산 점검 필요성",
+        ],
+        searchIntent: "예금과 적금의 차이와 선택 기준 확인",
+        readerProblem: "금리 숫자만 비교해 어떤 상품 유형이 맞는지 판단하기 어려움",
+      }),
+    );
+
+    expect(provider.requests).toHaveLength(1);
+    expect(provider.requests[0]?.metadata?.task).toBe("content-generation");
+    expect(provider.requests[0]?.instruction).not.toContain(
+      "Required factual Claims",
+    );
+    expect(provider.requests[0]?.instruction).not.toContain(
+      "Approval source preflight bundle",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.sourcePreflightDiagnostics).toBeUndefined();
+    expect(result.document.metadata?.approvalEvidence).toBeUndefined();
+    expect(result.document.metadata?.aiUsage?.map((record) => record.stage))
+      .toEqual(["generation"]);
+  });
   it("validates every required Claim before calling manuscript Generation", async () => {
     const provider = new QueueProvider([
       preflightResponse(),
