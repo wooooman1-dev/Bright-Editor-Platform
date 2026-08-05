@@ -14,6 +14,7 @@ import {
   type ApprovalSourcePreflightRequirement,
   type SiteApprovalReadinessFetch,
 } from "../approval";
+import { scopeApprovalSourcePreflightRequirements } from "../approval/ApprovalSourcePreflightClaimScope";
 import type { ConfirmedContentOpportunity } from "../content";
 import type { AIProvider, AIResponse, AIWebSource } from "./AIProvider";
 
@@ -48,10 +49,27 @@ export async function runApprovalSourcePreflight(input: Readonly<{
   contentType: string;
   fetcher?: SiteApprovalReadinessFetch;
 }>): Promise<ApprovalSourcePreflightResult> {
-  const requiredClaims = requiredApprovalSourcePreflightClaims(
+  const requiredClaims = scopeApprovalSourcePreflightRequirements(
     input.opportunity,
-    input.snapshot.profileId,
+    requiredApprovalSourcePreflightClaims(
+      input.opportunity,
+      input.snapshot.profileId,
+    ),
   );
+  if (!requiredClaims.length) {
+    const coverage = evaluateApprovalSourcePreflightCoverage({
+      profileId: input.snapshot.profileId,
+      opportunity: input.opportunity,
+      requiredClaims,
+      sources: [],
+    });
+    return Object.freeze({
+      sources: Object.freeze([]),
+      claimSources: Object.freeze([]),
+      coverage,
+    });
+  }
+
   const response = await input.provider.generate({
     instruction: approvalSourceDiscoveryInstruction(
       input.snapshot,
