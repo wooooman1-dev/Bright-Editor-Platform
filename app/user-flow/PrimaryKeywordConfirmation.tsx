@@ -1,5 +1,17 @@
 import { opportunityEvidenceLabel, type ContentOpportunityCandidate } from "../../core/content";
 import type { ContentPlanningResult } from "./user-data";
+import {
+  contentDepthLabel,
+  contentTypeLabel,
+  evidenceTypeLabel,
+  formatEvidenceLimitations,
+  formatOpportunityConfidence,
+  formatOpportunityEvidenceSummary,
+  freshnessLabel,
+  platformLabel,
+  providerLabel,
+  topicComplexityLabel,
+} from "./opportunity-presentation";
 
 export function PrimaryKeywordConfirmation({
   customKeyword,
@@ -37,7 +49,7 @@ export function PrimaryKeywordConfirmation({
           const selected = !customKeywordSelected && candidate.opportunityId === selectedOpportunityId;
           const expectedCoverage = stringArray(candidate.expectedCoverage);
           const secondaryKeywords = stringArray(candidate.secondaryKeywords);
-          const limitations = stringArray(candidate.limitations);
+          const limitations = formatEvidenceLimitations(stringArray(candidate.limitations));
           const evidence = Array.isArray(candidate.opportunityEvidence) ? candidate.opportunityEvidence : [];
           const target = candidate.qualityTarget;
           return (
@@ -53,16 +65,17 @@ export function PrimaryKeywordConfirmation({
                   {target ? (
                     <span className="mt-2 block rounded-lg bg-white/80 px-3 py-2 text-xs leading-5 text-[#66666f]">
                       <span className="font-semibold text-[#34343a]">콘텐츠 깊이 · {contentDepthLabel(target.contentDepth)}</span>
-                      <span className="block">주제 복잡도 · {target.topicComplexity} · 독자 문제 · {target.readerProblem}</span>
+                      <span className="block">콘텐츠 유형 · {contentTypeLabel(candidate.contentType)}</span>
+                      <span className="block">주제 복잡도 · {topicComplexityLabel(target.topicComplexity)} · 독자 문제 · {target.readerProblem}</span>
                       <span className="block">핵심 질문 · {target.coreQuestions.join(", ")}</span>
                       <span className="block">필수 요소 · {target.requiredContentElements.join(", ")}</span>
                       <span className="block">판단 기준 · {target.decisionCriteria.join(", ")}</span>
                     </span>
                   ) : null}
                   <span className="mt-2 block text-xs text-[#77777f]">근거 · {[...new Set(evidence.map((item) => item.evidenceType ? evidenceTypeLabel(item.evidenceType) : opportunityEvidenceLabel(item.source)))].join(", ")}</span>
-                  <span className="mt-1 block text-xs text-[#77777f]">데이터 출처 · {[...new Set(evidence.map((item) => item.provider).filter(Boolean))].join(", ") || "외부 데이터 없음"}</span>
+                  <span className="mt-1 block text-xs text-[#77777f]">데이터 출처 · {[...new Set(evidence.map((item) => item.provider ? providerLabel(item.provider) : opportunityEvidenceLabel(item.source)))].join(", ") || "외부 데이터 없음"}</span>
                   <span className="mt-1 block text-xs text-[#77777f]">데이터 기간 · {[...new Set(evidence.map((item) => item.periodStart || item.periodEnd ? `${item.periodStart ?? "?"}~${item.periodEnd ?? "?"}` : "내부 현재 상태"))].join(", ")}</span>
-                  <span className={`mt-1 block text-xs ${candidate.freshness === "stale" ? "font-semibold text-amber-800" : "text-[#77777f]"}`}>freshness · {freshnessLabel(candidate.freshness)} · confidence {Math.round(candidate.confidence * 100)}%</span>
+                  <span className={`mt-1 block text-xs ${candidate.freshness === "stale" ? "font-semibold text-amber-800" : "text-[#77777f]"}`}>최신성 · {freshnessLabel(candidate.freshness)} · 신뢰도 {formatOpportunityConfidence(candidate.confidence)}</span>
                   <span className="mt-1 block text-xs leading-5 text-amber-800">제한사항 · {limitations.join(" ") || "없음"}</span>
                 </span>
               </span>
@@ -86,15 +99,15 @@ export function PrimaryKeywordConfirmation({
           <Info label="목표" value={plan.contentGoal} />
           <Info label="선정 방식" value={plan.selectionMode === "automatic" ? "AI 자동 선정" : "사용자 지정"} />
           <Info label="후보 수" value={`${opportunityCandidates.length}개`} />
-          <Info label="신뢰도" value={`${Math.round(plan.confidence * 100)}%`} />
-          <Info label="주의사항" value={plan.estimateDisclosure} />
-          <Info label="선택된 플랫폼" value={plan.recommendedPlatforms.join(", ") || "canonical"} />
+          <Info label="신뢰도" value={formatOpportunityConfidence(plan.confidence)} />
+          <Info label="주의사항" value={formatEvidenceLimitations([plan.estimateDisclosure]).join(" ") || "없음"} />
+          <Info label="선택된 플랫폼" value={plan.recommendedPlatforms.map(platformLabel).join(", ") || platformLabel("canonical")} />
         </dl>
         <p className="mt-4 text-sm leading-6 text-[#77777f]">{plan.recommendationReason}</p>
         <div className="mt-5 space-y-3">
           {opportunityCandidates.map((candidate) => {
             const evidence = Array.isArray(candidate.opportunityEvidence) ? candidate.opportunityEvidence : [];
-            return <div className="rounded-xl border bg-white p-3" key={`${candidate.opportunityId}-evidence`}><p className="text-sm font-semibold">{candidate.selectedTopic} · {recommendationTypeLabel(candidate.recommendationType)}</p>{evidence.map((item) => <p className="mt-2 text-xs leading-5 text-[#66666f]" key={item.evidenceId ?? `${item.source}-${item.summary}`}>{item.provider ?? opportunityEvidenceLabel(item.source)} · {item.summary}{item.sourceReference ? ` · ${item.sourceReference}` : ""}{item.limitation ? ` · 제한: ${item.limitation}` : ""}</p>)}</div>;
+            return <div className="rounded-xl border bg-white p-3" key={`${candidate.opportunityId}-evidence`}><p className="text-sm font-semibold">{candidate.selectedTopic} · {recommendationTypeLabel(candidate.recommendationType)}</p>{evidence.map((item) => <p className="mt-2 text-xs leading-5 text-[#66666f]" key={item.evidenceId ?? `${item.source}-${item.summary}`}>{formatOpportunityEvidenceSummary(item)}{item.sourceReference ? ` · ${item.sourceReference}` : ""}</p>)}</div>;
           })}
         </div>
       </details>
@@ -105,10 +118,6 @@ export function PrimaryKeywordConfirmation({
 function stringArray(value: unknown): string[] { return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0) : []; }
 
 function recommendationTypeLabel(value: ContentOpportunityCandidate["recommendationType"]) { return value === "comprehensive" ? "종합 추천" : value === "marketOpportunity" ? "시장 기회 추천" : "블로그 성장 추천"; }
-function contentDepthLabel(value: NonNullable<ContentOpportunityCandidate["qualityTarget"]>["contentDepth"]) { return ({ quick: "standard · 기존 quick 호환", standard: "standard · 핵심 문제 해결", deep: "deep · 복잡한 판단과 예외", comparison: "comparison · 선택 기준 비교" } as const)[value]; }
-function freshnessLabel(value: ContentOpportunityCandidate["freshness"]) { return value === "fresh" ? "최신" : value === "aging" ? "갱신 권장" : value === "stale" ? "오래됨" : "확인 불가"; }
-function evidenceTypeLabel(value: NonNullable<ContentOpportunityCandidate["opportunityEvidence"][number]["evidenceType"]>) { return ({ contentGap: "콘텐츠 공백", internalLinkOpportunity: "내부 링크 기회", clusterOpportunity: "콘텐츠 클러스터", searchPerformance: "검색 성과", searchDemand: "검색 수요", relativeTrend: "상대 검색 추세", risingTrend: "상승 추세", keywordCompetition: "광고 경쟁", commercialIntent: "상업 의도", pageEngagement: "페이지 참여", revenuePerformance: "수익 성과", editorialInference: "편집 추론" } as Record<string, string>)[value] ?? value; }
-
 function Info({ label, value }: { label: string; value: string }) {
   return <div><dt className="text-xs font-semibold uppercase text-[#92929a]">{label}</dt><dd className="mt-1 text-sm">{value}</dd></div>;
 }

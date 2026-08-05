@@ -53,6 +53,7 @@ export class OpportunityEvidenceService {
       const userSpecifiedFallback = candidate.selectionMode === "userSpecified" && searchIntentClear && safe;
       const recommendationType = assessment.recommendationType ?? (userSpecifiedFallback ? "blogGrowth" as const : undefined);
       if (!recommendationType) return [];
+      const evidenceConfidence = averageVerifiedEvidenceConfidence(matched);
       const summaries = matched.map(toOpportunityEvidence);
       const limitations = [...assessment.limitations];
       if (userSpecifiedFallback && !matched.length) limitations.push("사용자가 직접 지정한 주제이므로 외부 시장 Evidence 없이 계속 진행합니다. 검색 수요와 성과 가능성은 검증되지 않았습니다.");
@@ -79,8 +80,8 @@ export class OpportunityEvidenceService {
         freshness: assessment.freshness,
         limitations: Object.freeze([...new Set(limitations)]),
         classificationVersion: 1,
-        confidence: matched.length
-          ? Math.min(candidate.confidence, matched.reduce((sum, value) => sum + value.confidence, 0) / matched.length)
+        confidence: evidenceConfidence !== undefined
+          ? evidenceConfidence
           : userSpecifiedFallback ? Math.min(candidate.confidence, 0.55) : 0,
         cautions: candidate.cautions,
         projectId: project.id,
@@ -154,5 +155,10 @@ function safetyPassed(candidate: ContentOpportunityCandidate): boolean { return 
 function meaningful(value: string): string[] { const ignored = new Set(["관리", "방법", "가이드", "정보", "콘텐츠", "글", "프로젝트", "위한", "대한"]); return [...new Set(normalize(value).split(" ").filter((term) => term.length >= 2 && !ignored.has(term)))]; }
 function normalize(value: string): string { return value.normalize("NFKC").toLocaleLowerCase("ko-KR").replace(/[^0-9a-z가-힣\s]/g, " ").replace(/\s+/g, " ").trim(); }
 function overlap(left: readonly string[], right: readonly string[]): boolean { return left.some((a) => right.some((b) => a.includes(b) || b.includes(a))); }
+function averageVerifiedEvidenceConfidence(values: readonly OpportunityEvidenceRecord[]): number | undefined {
+  const eligible = values.filter((value) => value.verified && value.freshness !== "unavailable");
+  if (!eligible.length) return undefined;
+  return eligible.reduce((sum, value) => sum + value.confidence, 0) / eligible.length;
+}
 function verifiedCount(value: ContentOpportunityCandidate): number { return value.opportunityEvidence.filter((item) => item.verified).length; }
 function freshnessPriority(value: ContentOpportunityCandidate["freshness"]): number { return value === "fresh" ? 0 : value === "aging" ? 1 : value === "stale" ? 2 : 3; }

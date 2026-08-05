@@ -131,7 +131,7 @@ describe("studio planning endpoint", () => {
       planningWorkflow: { status: "planning", operationId: "planning-operation-1", revision: 1 },
     });
 
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ output_text: JSON.stringify(planningResult) }), { status: 200 }));
+    const providerFetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ output_text: JSON.stringify(planningResult) }), { status: 200 }));
     const planResponse = await POST(new Request("http://localhost/api/studio", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "plan", input: {
         naturalLanguageRequest: koreanRequest, workspaceId: "workspace-1", projectId: "project-1", contentId: "planning-content",
@@ -139,9 +139,13 @@ describe("studio planning endpoint", () => {
       } }),
     }));
     expect(planResponse.status).toBe(200);
+    const responseBody = await planResponse.json() as { plan: { confidence: number; opportunityCandidates: readonly { confidence: number }[] } };
+    expect(responseBody.plan.confidence).toBe(0.75);
+    expect(responseBody.plan.opportunityCandidates[0].confidence).toBe(0.75);
     expect(current.contents[0].planningWorkflow).toMatchObject({ status: "candidatesReady", revision: 2, selectedOpportunityId: expect.stringMatching(/^opportunity-/) });
     expect(current.contents[0].planning?.opportunityCandidates).toHaveLength(1);
-    expect(current.contents[0].planning?.opportunityCandidates?.[0]).toMatchObject({ projectId: "project-1", fingerprint: expect.stringMatching(/^fp-/) });
+    expect(current.contents[0].planning?.opportunityCandidates?.[0]).toMatchObject({ projectId: "project-1", confidence: 0.75, fingerprint: expect.stringMatching(/^fp-/) });
+    expect(providerFetch).toHaveBeenCalledOnce();
   });
 
   it("keeps a user-specified topic when Evidence cannot verify Project alignment", async () => {

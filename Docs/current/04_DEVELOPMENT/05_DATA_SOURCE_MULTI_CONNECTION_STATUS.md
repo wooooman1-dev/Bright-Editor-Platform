@@ -263,3 +263,11 @@ The confirmed cause was a second lexical Project-metadata filter inside `Opportu
 The correction keeps Workspace, Connection owner/reference, enabled state and connection lifecycle checks as the Project scope gate. It passes context-bearing Evidence from those explicitly owned Connections into Planning, while the existing server candidate matcher still requires keyword/topic/page relevance before attaching Evidence or classifying a candidate. GSC remains first-party site search performance and NAVER remains a relative trend index; neither is converted into absolute market search volume.
 
 Regression coverage now includes current-Project GSC/NAVER input, other-Workspace exclusion, other-Project exclusion, GSC semantic limits, fresh NAVER classification and stale browser-snapshot protection for newly completed Today's Content candidates.
+
+## Opportunity confidence and Korean presentation correction
+
+Read-only inspection of the next real finance Today’s Content (`content-msg4b4rg-jzkank`) found three fresh market-opportunity candidates with matched NAVER relative-trend, NAVER rising-trend and internal content-gap Evidence. The stored Evidence confidence values were `1`, `1` and `0.75`, but every persisted candidate and the top-level plan stored `confidence: 0`.
+
+The confirmed scoring defect was the classifier expression `min(AI candidate confidence, matched Evidence confidence average)`. The Planning parser normalizes a missing, non-numeric or explicit zero AI confidence to zero, so valid server-owned Evidence could never raise the result above zero. Candidate confidence is now derived from the mean confidence of matched verified, usable Evidence. The no-match user-specified fallback remains unchanged, and Workspace, Project, Connection and candidate-relevance filters are untouched.
+
+The stored Evidence/provider/type contracts remain unchanged. `PrimaryKeywordConfirmation` now uses a deterministic presentation formatter for confidence percentage, content depth, topic complexity, provider, Evidence type, metric, unit, freshness, platform and known limitation text. Duplicate NAVER statements are collapsed after translation. NAVER remains a relative trend rather than absolute search volume, rising trend alone does not establish market size, GSC remains site performance, and no AI translation call was added.

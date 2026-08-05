@@ -8,7 +8,7 @@ import type { UserData, UserProject } from "../../../../app/user-flow/user-data"
 
 const project: UserProject = { id: "project-1", workspaceId: "workspace-1", name: "건강", description: "건강 관리", strategy: { primaryTopic: "건강", subtopics: ["장 건강", "혈당"], excludedTopics: [], defaultContentType: "guide", defaultPlatform: "tistory", targetLength: "long", targetAudience: "성인", tone: "친절", internalLinkPolicy: "public only", relatedPostPolicy: "public only", ctaPolicy: "optional", imageStrategy: "editorial", seoPolicy: "people first" }, createdAt: "2026-07-18T00:00:00.000Z", updatedAt: "2026-07-18T00:00:00.000Z" };
 const data: UserData = { workspace: { id: "workspace-1", name: "Studio" }, brands: [], projects: [project], contents: [] };
-const candidate = (topic: string) => createContentOpportunityCandidate({ sourceRequest: "오늘의 건강 글", selectionMode: "automatic", selectedTopic: topic, primaryKeyword: `${topic} 방법`, secondaryKeywords: [], searchIntent: `${topic} 실천 방법 탐색`, audience: "성인", contentType: "guide", contentAngle: "실천 안내", readerProblem: "기준 부족", expectedCoverage: [topic], selectionRationale: "콘텐츠 공백", opportunityEvidence: [{ source: "unknown", summary: "서버 판정 전" }], confidence: 0.8, cautions: [], projectId: project.id });
+const candidate = (topic: string, confidence = 0.8, selectionMode: "automatic" | "userSpecified" = "automatic") => createContentOpportunityCandidate({ sourceRequest: "오늘의 건강 글", selectionMode, selectedTopic: topic, primaryKeyword: `${topic} 방법`, secondaryKeywords: [], searchIntent: `${topic} 실천 방법 탐색`, audience: "성인", contentType: "guide", contentAngle: "실천 안내", readerProblem: "기준 부족", expectedCoverage: [topic], selectionRationale: "콘텐츠 공백", opportunityEvidence: [{ source: "unknown", summary: "서버 판정 전" }], confidence, cautions: [], projectId: project.id });
 
 describe("server-owned Opportunity Evidence classification", () => {
   it("allows all three candidates to be blog-growth recommendations without forced type balancing", async () => {
@@ -113,7 +113,7 @@ describe("server-owned Opportunity Evidence classification", () => {
     expect(gscEvidence?.limitation).toContain("not total market demand");
   });
 
-  it("uses fresh NAVER relative trend Evidence without falling back to unavailable or zero confidence", async () => {
+  it("derives nonzero confidence from matched fresh NAVER Evidence even when the AI candidate confidence is zero", async () => {
     const store = new InMemoryPersistenceStore();
     const connections = new DurableDataSourceConnectionRepository(store);
     const references = new DurableProjectDataSourceReferenceRepository(store);
@@ -121,14 +121,28 @@ describe("server-owned Opportunity Evidence classification", () => {
     const service = new OpportunityEvidenceService(connections, references, evidence);
     await connections.save({ id: "naver-current", workspaceId: "workspace-1", provider: "naverSearchTrend", displayName: "NAVER", status: "ready", resourceConfiguration: { keywords: ["장 건강"] }, enabled: true, createdAt: "now", updatedAt: "now", version: 1 });
     await references.save({ workspaceId: "workspace-1", projectId: project.id, connectionId: "naver-current", enabled: true, updatedAt: "now" });
-    await evidence.saveMany([createOpportunityEvidence({ workspaceId: "workspace-1", connectionId: "naver-current", projectId: null, provider: "naverSearchTrend", evidenceType: "relativeTrend", metric: "searchTrendRatio", keyword: "장 건강", observedAt: "2026-08-05", syncedAt: new Date().toISOString(), freshness: "fresh", verified: true, value: 72, relativeValue: 72, unit: "relativeRatio", confidence: 1, limitations: ["NAVER ratio is relative and is not absolute search volume."], sourceReference: "snapshot-naver:row-0", resourceScope: "query" })]);
+    await evidence.saveMany([
+      createOpportunityEvidence({ workspaceId: "workspace-1", connectionId: "naver-current", projectId: null, provider: "naverSearchTrend", evidenceType: "relativeTrend", metric: "searchTrendRatio", keyword: "장 건강", observedAt: "2026-08-05", syncedAt: new Date().toISOString(), freshness: "fresh", verified: true, value: 72, relativeValue: 72, unit: "relativeRatio", confidence: 1, limitations: ["NAVER ratio is relative and is not absolute search volume."], sourceReference: "snapshot-naver:row-0", resourceScope: "query" }),
+      createOpportunityEvidence({ workspaceId: "workspace-1", connectionId: "naver-current", projectId: null, provider: "naverSearchTrend", evidenceType: "risingTrend", metric: "trendChange", keyword: "장 건강", observedAt: "2026-08-05", syncedAt: new Date().toISOString(), freshness: "fresh", verified: true, value: 0.5, relativeValue: 72, unit: "relativeChangeRate", confidence: 1, limitations: ["A rising relative trend does not establish absolute market size."], sourceReference: "snapshot-naver:row-0:rising", resourceScope: "query" }),
+    ]);
 
-    const classified = service.classifyCandidates([candidate("장 건강")], await service.buildPlanningBundle(data, project), data, project)[0];
+    const classified = service.classifyCandidates([candidate("장 건강", 0)], await service.buildPlanningBundle(data, project), data, project)[0];
 
     expect(classified).toMatchObject({ freshness: "fresh", marketEvidenceStatus: "verified" });
+    expect(classified.confidence).toBeCloseTo((1 + 1 + 0.75) / 3);
     expect(classified.confidence).toBeGreaterThan(0);
     expect(classified.limitations).not.toContain("외부 시장 데이터가 확인되지 않았습니다. 검색 수요는 검증되지 않았습니다.");
-    expect(classified.opportunityEvidence.find((value) => value.provider === "naverSearchTrend")).toMatchObject({ evidenceType: "relativeTrend" });
+    expect(classified.opportunityEvidence.find((value) => value.provider === "naverSearchTrend" && value.evidenceType === "relativeTrend")).toMatchObject({ evidenceType: "relativeTrend" });
+  });
+
+  it("keeps the zero-confidence fallback when a user-specified candidate has no matched Evidence", () => {
+    const store = new InMemoryPersistenceStore();
+    const service = new OpportunityEvidenceService(new DurableDataSourceConnectionRepository(store), new DurableProjectDataSourceReferenceRepository(store), new DurableOpportunityEvidenceRepository(store));
+
+    const classified = service.classifyCandidates([candidate("장 건강", 0, "userSpecified")], [], data, project)[0];
+
+    expect(classified.confidence).toBe(0);
+    expect(classified.evidenceIds).toEqual([]);
   });
 
   it("rejects Evidence IDs from another Workspace", async () => {
