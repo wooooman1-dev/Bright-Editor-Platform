@@ -32,6 +32,105 @@ describe("server-owned Opportunity Evidence classification", () => {
     expect(service.classifyCandidates([candidate("장 건강")], bundle, withPublished, project)[0].recommendationType).toBe("comprehensive");
   });
 
+  it("includes latest GSC and NAVER Evidence from Connections owned by the current Project without literal Project-name overlap", async () => {
+    const financeProject: UserProject = {
+      ...project,
+      id: "project-finance",
+      name: "밝은재테크",
+      description: "생활경제·재테크 콘텐츠 운영",
+      strategy: { ...project.strategy!, primaryTopic: "밝은재테크", subtopics: ["생활경제·재테크 콘텐츠 운영"] },
+    };
+    const financeData: UserData = { ...data, projects: [financeProject] };
+    const store = new InMemoryPersistenceStore();
+    const connections = new DurableDataSourceConnectionRepository(store);
+    const references = new DurableProjectDataSourceReferenceRepository(store);
+    const evidence = new DurableOpportunityEvidenceRepository(store);
+    const service = new OpportunityEvidenceService(connections, references, evidence);
+    await connections.save({ id: "gsc-finance", workspaceId: "workspace-1", provider: "googleSearchConsole", displayName: "GSC", status: "ready", resourceConfiguration: { siteProperty: "sc-domain:finance.example" }, enabled: true, lastSuccessfulSyncAt: "2026-08-05T00:00:00.000Z", createdAt: "now", updatedAt: "now", version: 1 });
+    await connections.save({ id: "naver-finance", workspaceId: "workspace-1", provider: "naverSearchTrend", displayName: "NAVER", status: "ready", resourceConfiguration: { keywords: ["예금"] }, enabled: true, lastSuccessfulSyncAt: "2026-08-05T00:01:00.000Z", createdAt: "now", updatedAt: "now", version: 1 });
+    await references.save({ workspaceId: "workspace-1", projectId: financeProject.id, connectionId: "gsc-finance", enabled: true, updatedAt: "2026-08-05T00:00:00.000Z" });
+    await references.save({ workspaceId: "workspace-1", projectId: financeProject.id, connectionId: "naver-finance", enabled: true, updatedAt: "2026-08-05T00:01:00.000Z" });
+    const gsc = createOpportunityEvidence({ workspaceId: "workspace-1", connectionId: "gsc-finance", projectId: null, provider: "googleSearchConsole", evidenceType: "searchPerformance", metric: "impressions", keyword: "휴면예금", observedAt: "2026-08-05", syncedAt: new Date().toISOString(), freshness: "fresh", verified: true, value: 12, unit: "siteImpressions", confidence: 1, limitations: ["Search Console impressions are site performance, not total market demand."], sourceReference: "snapshot-gsc-latest:row-0:impressions", resourceScope: "query" });
+    const naver = createOpportunityEvidence({ workspaceId: "workspace-1", connectionId: "naver-finance", projectId: null, provider: "naverSearchTrend", evidenceType: "relativeTrend", metric: "searchTrendRatio", keyword: "예금", observedAt: "2026-08-05", syncedAt: new Date().toISOString(), freshness: "fresh", verified: true, value: 65.2, relativeValue: 65.2, unit: "relativeRatio", confidence: 1, limitations: ["NAVER ratio is relative and is not absolute search volume."], sourceReference: "snapshot-naver-latest:row-0", resourceScope: "query" });
+    await evidence.saveMany([gsc, naver]);
+
+    const bundle = await service.buildPlanningBundle(financeData, financeProject);
+
+    expect(bundle).toEqual(expect.arrayContaining([
+      expect.objectContaining({ evidenceId: gsc.evidenceId, connectionId: "gsc-finance" }),
+      expect.objectContaining({ evidenceId: naver.evidenceId, connectionId: "naver-finance" }),
+    ]));
+  });
+
+  it("excludes Evidence from another Workspace from the Planning bundle", async () => {
+    const store = new InMemoryPersistenceStore();
+    const connections = new DurableDataSourceConnectionRepository(store);
+    const references = new DurableProjectDataSourceReferenceRepository(store);
+    const evidence = new DurableOpportunityEvidenceRepository(store);
+    const service = new OpportunityEvidenceService(connections, references, evidence);
+    await connections.save({ id: "foreign", workspaceId: "workspace-2", provider: "naverSearchTrend", displayName: "Foreign NAVER", status: "ready", resourceConfiguration: { keywords: ["장 건강"] }, enabled: true, createdAt: "now", updatedAt: "now", version: 1 });
+    await references.save({ workspaceId: "workspace-2", projectId: project.id, connectionId: "foreign", enabled: true, updatedAt: "now" });
+    const foreign = createOpportunityEvidence({ workspaceId: "workspace-2", connectionId: "foreign", projectId: null, provider: "naverSearchTrend", evidenceType: "relativeTrend", keyword: "장 건강", observedAt: "2026-08-05", syncedAt: new Date().toISOString(), freshness: "fresh", verified: true, value: 50, unit: "relativeRatio", confidence: 1, limitations: [], sourceReference: "snapshot-foreign", resourceScope: "query" });
+    await evidence.saveMany([foreign]);
+
+    const bundle = await service.buildPlanningBundle(data, project);
+
+    expect(bundle.some((value) => value.evidenceId === foreign.evidenceId)).toBe(false);
+  });
+
+  it("excludes Evidence owned by another Project in the same Workspace", async () => {
+    const otherProject: UserProject = { ...project, id: "project-2", name: "다른 Project" };
+    const store = new InMemoryPersistenceStore();
+    const connections = new DurableDataSourceConnectionRepository(store);
+    const references = new DurableProjectDataSourceReferenceRepository(store);
+    const evidence = new DurableOpportunityEvidenceRepository(store);
+    const service = new OpportunityEvidenceService(connections, references, evidence);
+    await connections.save({ id: "naver-other", workspaceId: "workspace-1", provider: "naverSearchTrend", displayName: "NAVER", status: "ready", resourceConfiguration: { keywords: ["장 건강"] }, enabled: true, createdAt: "now", updatedAt: "now", version: 1 });
+    await references.save({ workspaceId: "workspace-1", projectId: otherProject.id, connectionId: "naver-other", enabled: true, updatedAt: "now" });
+    const otherEvidence = createOpportunityEvidence({ workspaceId: "workspace-1", connectionId: "naver-other", projectId: null, provider: "naverSearchTrend", evidenceType: "relativeTrend", keyword: "장 건강", observedAt: "2026-08-05", syncedAt: new Date().toISOString(), freshness: "fresh", verified: true, value: 50, unit: "relativeRatio", confidence: 1, limitations: [], sourceReference: "snapshot-other", resourceScope: "query" });
+    await evidence.saveMany([otherEvidence]);
+
+    const bundle = await service.buildPlanningBundle({ ...data, projects: [project, otherProject] }, project);
+
+    expect(bundle.some((value) => value.evidenceId === otherEvidence.evidenceId)).toBe(false);
+  });
+
+  it("keeps GSC-only Evidence as site search performance rather than market search demand", async () => {
+    const store = new InMemoryPersistenceStore();
+    const connections = new DurableDataSourceConnectionRepository(store);
+    const references = new DurableProjectDataSourceReferenceRepository(store);
+    const evidence = new DurableOpportunityEvidenceRepository(store);
+    const service = new OpportunityEvidenceService(connections, references, evidence);
+    await connections.save({ id: "gsc-only", workspaceId: "workspace-1", provider: "googleSearchConsole", displayName: "GSC", status: "ready", resourceConfiguration: { siteProperty: "sc-domain:example.com" }, enabled: true, createdAt: "now", updatedAt: "now", version: 1 });
+    await references.save({ workspaceId: "workspace-1", projectId: project.id, connectionId: "gsc-only", enabled: true, updatedAt: "now" });
+    await evidence.saveMany([createOpportunityEvidence({ workspaceId: "workspace-1", connectionId: "gsc-only", projectId: null, provider: "googleSearchConsole", evidenceType: "searchPerformance", metric: "impressions", keyword: "장 건강", observedAt: "2026-08-05", syncedAt: new Date().toISOString(), freshness: "fresh", verified: true, value: 120, unit: "siteImpressions", confidence: 1, limitations: ["Search Console impressions are site performance, not total market demand."], sourceReference: "snapshot-gsc:row-0:impressions", resourceScope: "query" })]);
+
+    const classified = service.classifyCandidates([candidate("장 건강")], await service.buildPlanningBundle(data, project), data, project)[0];
+    const gscEvidence = classified.opportunityEvidence.find((value) => value.provider === "googleSearchConsole");
+
+    expect(gscEvidence).toMatchObject({ evidenceType: "searchPerformance", metric: "impressions" });
+    expect(gscEvidence?.evidenceType).not.toBe("searchDemand");
+    expect(gscEvidence?.limitation).toContain("not total market demand");
+  });
+
+  it("uses fresh NAVER relative trend Evidence without falling back to unavailable or zero confidence", async () => {
+    const store = new InMemoryPersistenceStore();
+    const connections = new DurableDataSourceConnectionRepository(store);
+    const references = new DurableProjectDataSourceReferenceRepository(store);
+    const evidence = new DurableOpportunityEvidenceRepository(store);
+    const service = new OpportunityEvidenceService(connections, references, evidence);
+    await connections.save({ id: "naver-current", workspaceId: "workspace-1", provider: "naverSearchTrend", displayName: "NAVER", status: "ready", resourceConfiguration: { keywords: ["장 건강"] }, enabled: true, createdAt: "now", updatedAt: "now", version: 1 });
+    await references.save({ workspaceId: "workspace-1", projectId: project.id, connectionId: "naver-current", enabled: true, updatedAt: "now" });
+    await evidence.saveMany([createOpportunityEvidence({ workspaceId: "workspace-1", connectionId: "naver-current", projectId: null, provider: "naverSearchTrend", evidenceType: "relativeTrend", metric: "searchTrendRatio", keyword: "장 건강", observedAt: "2026-08-05", syncedAt: new Date().toISOString(), freshness: "fresh", verified: true, value: 72, relativeValue: 72, unit: "relativeRatio", confidence: 1, limitations: ["NAVER ratio is relative and is not absolute search volume."], sourceReference: "snapshot-naver:row-0", resourceScope: "query" })]);
+
+    const classified = service.classifyCandidates([candidate("장 건강")], await service.buildPlanningBundle(data, project), data, project)[0];
+
+    expect(classified).toMatchObject({ freshness: "fresh", marketEvidenceStatus: "verified" });
+    expect(classified.confidence).toBeGreaterThan(0);
+    expect(classified.limitations).not.toContain("외부 시장 데이터가 확인되지 않았습니다. 검색 수요는 검증되지 않았습니다.");
+    expect(classified.opportunityEvidence.find((value) => value.provider === "naverSearchTrend")).toMatchObject({ evidenceType: "relativeTrend" });
+  });
+
   it("rejects Evidence IDs from another Workspace", async () => {
     const store = new InMemoryPersistenceStore(), evidence = new DurableOpportunityEvidenceRepository(store), service = new OpportunityEvidenceService(new DurableDataSourceConnectionRepository(store), new DurableProjectDataSourceReferenceRepository(store), evidence);
     const foreign = createOpportunityEvidence({ workspaceId: "workspace-2", projectId: "project-2", provider: "brightStudio", evidenceType: "contentGap", observedAt: "now", syncedAt: "now", freshness: "fresh", verified: true, confidence: 1, limitations: [], sourceReference: "foreign", resourceScope: "project" });

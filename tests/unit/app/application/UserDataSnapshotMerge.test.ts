@@ -183,6 +183,47 @@ describe("mergeUserDataSnapshot", () => {
     expect(mergeUserDataSnapshot(current, stale).contents.map((content) => content.id)).toEqual(["content-1", "content-2"]);
   });
 
+  it("does not let an older saved candidate overwrite a newly completed Today's Content candidate snapshot", () => {
+    const oldCandidate = createContentOpportunityCandidate({
+      sourceRequest: "오늘의 글", selectionMode: "automatic", selectedTopic: "기존 후보", primaryKeyword: "기존 후보 방법",
+      secondaryKeywords: [], searchIntent: "기존 후보를 확인하는 방법 탐색", audience: "독자", contentType: "guide", contentAngle: "기존",
+      readerProblem: "기존 문제", expectedCoverage: [], selectionRationale: "내부 공백", opportunityEvidence: [{ source: "inferred", summary: "내부 근거" }],
+      confidence: 0, cautions: [], projectId: "project-1",
+    });
+    const freshCandidate = createContentOpportunityCandidate({
+      sourceRequest: "오늘의 글", selectionMode: "automatic", selectedTopic: "휴면예금 찾는 방법", primaryKeyword: "휴면예금 찾는 방법",
+      secondaryKeywords: ["예금"], searchIntent: "휴면예금을 조회하고 지급 신청 전 확인하는 방법 탐색", audience: "독자", contentType: "guide", contentAngle: "공식 조회",
+      readerProblem: "숨은 예금을 찾기 어려움", expectedCoverage: [], selectionRationale: "NAVER 상대 추세와 내부 공백",
+      opportunityEvidence: [{ source: "verified", summary: "NAVER relativeTrend", evidenceId: "evidence-naver", provider: "naverSearchTrend", evidenceType: "relativeTrend", freshness: "fresh", verified: true }],
+      recommendationType: "marketOpportunity", evidenceIds: ["evidence-naver"], marketEvidenceStatus: "verified", internalGrowthEvidenceStatus: "verified", freshness: "fresh", limitations: ["NAVER ratio is not absolute search volume."], classificationVersion: 1,
+      confidence: 0.8, cautions: [], projectId: "project-1",
+    });
+    const plan = (candidate: typeof oldCandidate) => ({
+      interpretedIntent: "오늘의 글", domain: "finance", targetAudience: "독자", contentGoal: "정보 제공",
+      recommendedPrimaryKeyword: candidate.primaryKeyword, keywordCandidates: [candidate.primaryKeyword], searchIntent: candidate.searchIntent,
+      recommendedContentType: "guide", recommendedPlatforms: [], suggestedTitleAngles: [candidate.selectedTopic], relatedKeywords: candidate.secondaryKeywords,
+      contentCluster: [], recommendationReason: candidate.selectionRationale, confidence: candidate.confidence, estimateDisclosure: "근거 설명",
+      selectionMode: "automatic" as const, opportunityCandidates: [candidate],
+    });
+    const current = snapshot({ contents: [{
+      ...snapshot().contents[0], title: freshCandidate.selectedTopic, planning: plan(freshCandidate) as never,
+      planningWorkflow: { status: "candidatesReady", request: "오늘의 글", selectionMode: "automatic", operationId: "new-operation", revision: 2, selectedOpportunityId: freshCandidate.opportunityId, lastSuccessfulStep: "planning", createdAt: "2026-08-05T00:00:00.000Z", updatedAt: "2026-08-05T00:02:00.000Z" },
+      updatedAt: "2026-08-05T00:02:00.000Z",
+    }] });
+    const stale = snapshot({ contents: [{
+      ...snapshot().contents[0], title: oldCandidate.selectedTopic, planning: plan(oldCandidate) as never,
+      planningWorkflow: { status: "candidatesReady", request: "오늘의 글", selectionMode: "automatic", operationId: "old-operation", revision: 1, selectedOpportunityId: oldCandidate.opportunityId, lastSuccessfulStep: "planning", createdAt: "2026-08-05T00:00:00.000Z", updatedAt: "2026-08-05T00:01:00.000Z" },
+      updatedAt: "2026-08-05T00:03:00.000Z",
+    }] });
+
+    const merged = mergeUserDataSnapshot(current, stale).contents[0];
+
+    expect(merged.planningWorkflow).toBe(current.contents[0].planningWorkflow);
+    expect(merged.planning).toBe(current.contents[0].planning);
+    expect(merged.planning?.opportunityCandidates?.[0].opportunityId).toBe(freshCandidate.opportunityId);
+    expect(merged.planning?.opportunityCandidates?.[0].evidenceIds).toEqual(["evidence-naver"]);
+  });
+
   it("persists a failed workflow without revalidating or deleting an unchanged legacy Planning snapshot", () => {
     const currentCandidate = createContentOpportunityCandidate({
       sourceRequest: "건강 주제 선정", selectionMode: "automatic", selectedTopic: "장 건강 관리", primaryKeyword: "장 건강 관리 방법",

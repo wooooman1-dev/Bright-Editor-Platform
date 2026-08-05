@@ -253,3 +253,13 @@ Automated verification does not prove the newly rendered local UI. Local verific
 8. verify real YouTube OAuth, GA4 and AdSense flows separately.
 
 Automated success does not replace real local UI, persisted metadata or Provider verification.
+
+## Opportunity Planning scope correction
+
+Read-only inspection of the real finance Project on 2026-08-05 confirmed that its GSC and NAVER Connections were owned and referenced by the correct Workspace and Project, both had successful Snapshots, and NAVER had nine normalized fresh relative-trend Evidence records. The current Planning bundle nevertheless contained only internal `brightStudio` content-gap Evidence.
+
+The confirmed cause was a second lexical Project-metadata filter inside `OpportunityEvidenceService.buildPlanningBundle()`. After the explicit single-Project owner/reference gate passed, that filter compared broad Project labels such as `생활경제` and `재테크` with configured NAVER resource keywords such as `예금`, `적금`, `고정비`, `보험` and `대출`. Because those valid finance concepts did not share a literal substring with the broad Project labels, every NAVER Evidence record was removed before the existing Planning AI call.
+
+The correction keeps Workspace, Connection owner/reference, enabled state and connection lifecycle checks as the Project scope gate. It passes context-bearing Evidence from those explicitly owned Connections into Planning, while the existing server candidate matcher still requires keyword/topic/page relevance before attaching Evidence or classifying a candidate. GSC remains first-party site search performance and NAVER remains a relative trend index; neither is converted into absolute market search volume.
+
+Regression coverage now includes current-Project GSC/NAVER input, other-Workspace exclusion, other-Project exclusion, GSC semantic limits, fresh NAVER classification and stale browser-snapshot protection for newly completed Today's Content candidates.

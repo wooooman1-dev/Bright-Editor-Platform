@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { ContentPlanningStrategy, createManualPlanningResult, filterPlanningPlatforms, normalizePlanningPrimaryKeyword, parsePlanningResult, projectStrategyAIContext } from "../../../../app/application/ContentPlanningStrategy";
+import { createOpportunityEvidence } from "../../../../core/intelligence";
 
 const result = { interpretedIntent: "혈당 관리 글", domain: "health", targetAudience: "50대", contentGoal: "실천 안내", recommendedPrimaryKeyword: "50대 혈당 관리", keywordCandidates: ["50대 혈당 관리", "식후 걷기"], searchIntent: "informational", recommendedContentType: "guide", recommendedPlatforms: ["tistory"], suggestedTitleAngles: ["50대 혈당 관리 가이드"], relatedKeywords: ["식후 혈당"], contentCluster: ["운동", "식단"], recommendationReason: "요청과 독자에 적합", confidence: 0.86, estimateDisclosure: "AI estimate" };
 
@@ -85,6 +86,30 @@ describe("natural-language content planning", () => {
     expect(instruction).not.toContain("targetLengthRange");
     expect(plan.recommendedPrimaryKeyword).toBe("50대 혈당 관리 가이드");
     expect(plan.estimateDisclosure).toContain("not measured");
+  });
+
+  it("passes GSC site performance and NAVER relative trend Evidence to the single Planning prompt without changing their meaning", async () => {
+    const provider = { generate: vi.fn().mockResolvedValue({ content: JSON.stringify(result), model: "test" }) };
+    const gsc = createOpportunityEvidence({ workspaceId: "workspace-1", connectionId: "gsc-1", projectId: null, provider: "googleSearchConsole", evidenceType: "searchPerformance", metric: "impressions", keyword: "휴면예금", observedAt: "2026-08-05", syncedAt: "2026-08-05T00:00:00.000Z", freshness: "fresh", verified: true, value: 12, unit: "siteImpressions", confidence: 1, limitations: ["Search Console impressions are site performance, not total market demand."], sourceReference: "snapshot-gsc:row-0:impressions", resourceScope: "query" });
+    const naver = createOpportunityEvidence({ workspaceId: "workspace-1", connectionId: "naver-1", projectId: null, provider: "naverSearchTrend", evidenceType: "relativeTrend", metric: "searchTrendRatio", keyword: "예금", observedAt: "2026-08-05", syncedAt: "2026-08-05T00:01:00.000Z", freshness: "fresh", verified: true, value: 65.2, relativeValue: 65.2, unit: "relativeRatio", confidence: 1, limitations: ["NAVER ratio is relative and is not absolute search volume."], sourceReference: "snapshot-naver:row-0", resourceScope: "query" });
+
+    await new ContentPlanningStrategy(provider).analyze("오늘의 생활경제 글을 골라줘", ["wordpress"], {
+      projectId: "project-finance",
+      selectionMode: "automatic",
+      hasVerifiedKeywordData: true,
+      evidenceBundle: [gsc, naver],
+    });
+
+    expect(provider.generate).toHaveBeenCalledOnce();
+    const instruction = provider.generate.mock.calls[0]?.[0].instruction as string;
+    expect(instruction).toContain(`"evidenceId":"${gsc.evidenceId}"`);
+    expect(instruction).toContain('"provider":"googleSearchConsole"');
+    expect(instruction).toContain('"unit":"siteImpressions"');
+    expect(instruction).toContain(`"evidenceId":"${naver.evidenceId}"`);
+    expect(instruction).toContain('"provider":"naverSearchTrend"');
+    expect(instruction).toContain('"unit":"relativeRatio"');
+    expect(instruction).toContain("NAVER/Trends ratios are relative");
+    expect(instruction).toContain("Search Console impressions are site impressions");
   });
 
   it("removes unrequested project branding and preserves the concrete search task", () => {

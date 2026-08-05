@@ -24,10 +24,9 @@ export class OpportunityEvidenceService {
     const allowedIds = new Set(references.map((value) => value.connectionId));
     const connections = (await this.connections.listByWorkspace(project.workspaceId)).filter((value) => allowedIds.has(value.id) && value.enabled && value.status !== "disconnected");
     const allowedConnectionIds = new Set(connections.map((value) => value.id));
-    const projectTerms = meaningful(`${project.name} ${project.description} ${project.strategy?.primaryTopic ?? ""} ${(project.strategy?.subtopics ?? []).join(" ")}`);
     const external = (await this.repository.listByWorkspace(project.workspaceId))
       .filter((value) => value.projectId == null && Boolean(value.connectionId && allowedConnectionIds.has(value.connectionId)))
-      .filter((value) => !value.keyword && !value.topic && !value.pageUrl ? false : overlap(projectTerms, meaningful(`${value.keyword ?? ""} ${value.topic ?? ""} ${value.pageUrl ?? ""}`)))
+      .filter((value) => Boolean(value.keyword || value.topic || value.pageUrl))
       .sort((a, b) => b.syncedAt.localeCompare(a.syncedAt))
       .slice(0, 100)
       .map((value) => value.provider === "brightStudio" ? value : Object.freeze({ ...value, freshness: calculateFreshness(value.provider, value.syncedAt) }));

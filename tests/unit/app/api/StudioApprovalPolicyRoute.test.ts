@@ -5,8 +5,18 @@ const storeMocks = vi.hoisted(() => ({
   set: vi.fn(),
   update: vi.fn(),
 }));
+const dataSourceMocks = vi.hoisted(() => ({
+  connections: { listByWorkspace: vi.fn().mockResolvedValue([]) },
+  references: { listByProject: vi.fn().mockResolvedValue([]) },
+  evidence: { findById: vi.fn(), listByWorkspace: vi.fn().mockResolvedValue([]), saveMany: vi.fn().mockResolvedValue(undefined) },
+}));
 vi.mock("../../../../app/application/studio-store", () => ({
   studioStore: storeMocks,
+}));
+vi.mock("../../../../app/application/data-sources/data-source-runtime", () => ({
+  dataSourceConnectionRepository: dataSourceMocks.connections,
+  projectDataSourceReferenceRepository: dataSourceMocks.references,
+  opportunityEvidenceRepository: dataSourceMocks.evidence,
 }));
 
 import { POST } from "../../../../app/api/studio/route";
