@@ -14,6 +14,12 @@ import {
 } from "../../core/content";
 import type { ContentPlanningResult, ProjectContentStrategy, WorkspacePlatform } from "../user-flow/user-data";
 import type { OpportunityEvidenceRecord } from "../../core/intelligence";
+import type { VerificationClaimKind, VerificationClaimSpec } from "../../core/approval";
+import { verificationClaimId } from "../../core/approval";
+import { createContentOpportunityVerificationPlan } from "../../core/content";
+import { isExplicitVerificationPlanningEnabled } from "./ExplicitVerificationPlanningPolicy";
+export type { PlanningVerificationClaimDraft } from "./PlanningContracts";
+import { planningVerificationClaimMaximum } from "./PlanningContracts";
 
 const DISCLOSURE = "Keyword competition and opportunity are AI estimates, not measured search-volume, CPC, or competition data.";
 const SEARCH_TASK_SUFFIXES = new Set(["방법", "가이드", "비교", "기준", "조건", "순서", "계산", "신청", "설정", "추천", "정리"]);
@@ -62,6 +68,7 @@ export type ContentPlanningContext = Readonly<{
   existingContent?: readonly string[];
   hasVerifiedKeywordData?: boolean;
   evidenceBundle?: readonly OpportunityEvidenceRecord[];
+  explicitVerificationPlanningEnabled?: boolean;
 }>;
 
 export class ContentPlanningStrategy {
@@ -75,12 +82,14 @@ export class ContentPlanningStrategy {
     const request = naturalLanguageRequest.trim();
     if (!request) throw new Error("What would you like to create?");
     const ownedBrandTerms = planningOwnedBrandTerms(context);
+    const explicitVerificationPlanningEnabled = context.explicitVerificationPlanningEnabled ?? isExplicitVerificationPlanningEnabled();
     const modeInstruction = context.selectionMode === "automatic"
       ? "The user delegated topic selection. Compare content gaps, then return 2-4 complete and mutually coherent opportunities. Select topic and primary keyword together."
       : "The user explicitly specified a topic. Keep every opportunity within that topic and search intent; never replace it with an adjacent topic because it seems more attractive.";
     const response = await this.provider.generate({
       instruction: `Analyze this content request as an editorial strategist. Do not write the final content. ${modeInstruction}
 Request: ${request}
+${explicitVerificationPlanningEnabled ? "Verification claims rule: expectedCoverage is editorial scope only. verificationClaims contains only concrete externally verifiable facts (specific values, dates, eligibility, legal provisions, locations, rates). Exclude editorial instructions, section titles, search intent, strategy, and abstract facts; do not duplicate between arrays; return [] when none are needed; never include claimId, fingerprint, status, normalizedValue, or source data." : ""}
 Project strategy: ${context.projectContext ?? "Use only the request and supplied project context."}
 Project-owned labels that are identity, not default search keywords: ${JSON.stringify(ownedBrandTerms)}. Do not use these labels as the complete selectedTopic or primaryKeyword, and do not prefix selectedTopic or primaryKeyword with them unless the user's request explicitly makes that label the search subject. Keep third-party product, institution, and service names when they are genuinely part of the search task.
 Existing content to avoid duplicating: ${(context.existingContent ?? []).join(" | ") || "none supplied"}
@@ -89,9 +98,9 @@ Enabled publishing platforms: ${enabledPlatforms ? (enabledPlatforms.join(", ") 
 Only the supplied server Evidence is factual. Do not invent monthly volume, CPC, competition scores, rankings, provider names, or popularity. NAVER/Trends ratios are relative, Search Console impressions are site impressions, GA4 is engagement, and AdSense scope must not be narrowed. Opportunity Evidence will be attached and classified by the server after your response; do not create Evidence IDs.
   Return JSON only with top-level interpretedIntent, domain, targetAudience, contentGoal, recommendedPlatforms, suggestedTitleAngles, contentCluster, recommendationReason, confidence, estimateDisclosure, and opportunityCandidates. Each opportunity candidate must be one atomic plan containing selectedTopic, primaryKeyword, secondaryKeywords, searchIntent, audience, contentType, contentAngle, readerProblem, expectedCoverage, coreQuestions, requiredContentElements, decisionCriteria, examplesNeeded, warningsOrExceptions, actionableNextSteps, comparisonNeeds, tableNeeds, checklistNeeds, scopeBoundaries, topicComplexity, contentDepth, selectionRationale, opportunityEvidence [{source,summary}], confidence, and cautions. contentDepth must be standard, deep, or comparison; never return quick. Do not return any prose-length or section-length targets.
   Build each candidate as a coherent information contract before returning it. The primaryKeyword must be the concise phrase a reader would actually search, including a task modifier such as 방법, 비교, 기준, 조건, 계산, 신청, or 설정 when that modifier is essential to the search intent. The selectedTopic should naturally contain the primaryKeyword phrase when that reads well; otherwise it must preserve all of the keyword's core concepts without switching to an adjacent search task. searchIntent must state the concrete question or task the reader wants resolved, not only a classification label such as informational, transactional, commercial, or navigational. readerProblem must describe the reader's decision or action obstacle. Make coreQuestions directly answerable, make requiredContentElements concrete enough to judge as missing/mentioned/sufficient, and keep expectedCoverage items mutually distinct. decisionCriteria, examplesNeeded, warningsOrExceptions, and actionableNextSteps must each add a non-duplicative editorial role. Required elements identify information the reader needs, not merely words that should appear. Topic, keyword, intent, coverage, and supporting keywords in each candidate must describe one search task.`,
-      metadata: { task: "content-planning" },
+      metadata: { task: "content-planning", ...(explicitVerificationPlanningEnabled ? { explicitVerificationPlanning: "1" } : {}) },
     });
-    const plan = parsePlanningResult(response.content, { ...context, ownedBrandTerms, sourceRequest: request });
+    const plan = parsePlanningResult(response.content, { ...context, ownedBrandTerms, sourceRequest: request, explicitVerificationPlanningEnabled });
     return enabledPlatforms ? filterPlanningPlatforms(plan, enabledPlatforms) : plan;
   }
 }
@@ -142,7 +151,7 @@ export function createManualPlanningResult(
 
 export function parsePlanningResult(
   raw: string,
-  context: (Pick<ContentPlanningContext, "projectId" | "selectionMode" | "hasVerifiedKeywordData" | "ownedBrandTerms" | "projectContext"> & { sourceRequest?: string }) = { projectId: "planning-project", selectionMode: "userSpecified" },
+  context: (Pick<ContentPlanningContext, "projectId" | "selectionMode" | "hasVerifiedKeywordData" | "ownedBrandTerms" | "projectContext" | "explicitVerificationPlanningEnabled"> & { sourceRequest?: string }) = { projectId: "planning-project", selectionMode: "userSpecified" },
 ): ContentPlanningResult {
   const value = JSON.parse(stripFence(raw)) as Record<string, unknown>;
   const base = {
@@ -173,6 +182,7 @@ export function parsePlanningResult(
     hasVerifiedKeywordData: context.hasVerifiedKeywordData === true,
     ownedBrandTerms,
     preserveRequestedOwnedTerms,
+    explicitVerificationPlanningEnabled: context.explicitVerificationPlanningEnabled ?? isExplicitVerificationPlanningEnabled(),
   });
   if (candidates.length) return fromCandidates(normalizedBase, candidates, context.selectionMode);
   if (Array.isArray(value.opportunityCandidates)) throw new Error("AI planning response is missing a complete Content Opportunity.");
@@ -206,7 +216,7 @@ export function parsePlanningResult(
 
 function parseOpportunityCandidates(
   raw: unknown,
-  context: Readonly<{ sourceRequest: string; projectId: string; selectionMode: ContentOpportunitySelectionMode; hasVerifiedKeywordData: boolean; ownedBrandTerms: readonly string[]; preserveRequestedOwnedTerms: boolean }>,
+  context: Readonly<{ sourceRequest: string; projectId: string; selectionMode: ContentOpportunitySelectionMode; hasVerifiedKeywordData: boolean; ownedBrandTerms: readonly string[]; preserveRequestedOwnedTerms: boolean; explicitVerificationPlanningEnabled: boolean }>,
 ): readonly ContentOpportunityCandidate[] {
   if (!Array.isArray(raw)) return [];
   return Object.freeze(raw.flatMap((item) => {
@@ -227,6 +237,7 @@ function parseOpportunityCandidates(
       const contentType = text(value.contentType, "opportunity.contentType");
       const readerProblem = text(value.readerProblem, "opportunity.readerProblem");
       const expectedCoverage = list(value.expectedCoverage);
+      const verificationPlan = context.explicitVerificationPlanningEnabled ? createPlanningVerificationPlan(value.verificationClaims) : undefined;
       const candidate = createContentOpportunityCandidate({
         sourceRequest: context.sourceRequest,
         selectionMode: context.selectionMode,
@@ -264,13 +275,35 @@ function parseOpportunityCandidates(
         confidence: confidence(value.confidence),
         cautions: list(value.cautions, [DISCLOSURE]),
         projectId: context.projectId,
+        ...(verificationPlan ? { verificationPlan } : {}),
       });
       if (context.selectionMode === "userSpecified" && !requestTopicCoherent(context.sourceRequest, candidate.selectedTopic)) return [];
       return [candidate];
-    } catch {
+    } catch (error) {
+      if (context.explicitVerificationPlanningEnabled) throw error;
       return [];
     }
   }));
+}
+
+function createPlanningVerificationPlan(raw: unknown) {
+  if (!Array.isArray(raw) || raw.length > planningVerificationClaimMaximum) throw new Error("Explicit planning response requires verificationClaims array.");
+  const seen = new Set<string>();
+  const claims = raw.map((item, index) => {
+    if (!item || typeof item !== "object") throw new Error(`Invalid verification claim at index ${index}.`);
+    const value = item as Record<string, unknown>;
+    const kinds = ["money", "ratio", "date", "dateRange", "duration", "location", "eligibility", "legal", "general"];
+    if (!kinds.includes(value.kind as string)) throw new Error(`Invalid verification claim kind at index ${index}.`);
+    const textValue = (name: string) => { if (typeof value[name] !== "string" || !(value[name] as string).trim()) throw new Error(`Invalid verification claim ${name} at index ${index}.`); return (value[name] as string).trim(); };
+    if (typeof value.required !== "boolean" || !value.qualifiers || typeof value.qualifiers !== "object" || Array.isArray(value.qualifiers)) throw new Error(`Invalid verification claim at index ${index}.`);
+    const qualifiers = Object.freeze(Object.fromEntries(Object.entries(value.qualifiers as Record<string, unknown>).map(([key, itemValue]) => { if (!["subject", "scope", "basis", "note"].includes(key) || typeof itemValue !== "string") throw new Error(`Invalid verification qualifier at index ${index}.`); return [key, itemValue.trim()]; })));
+    const draft = { field: textValue("field"), kind: value.kind as VerificationClaimKind, statement: textValue("statement").replace(/\s+/g, " "), ...(typeof value.rawValue === "string" && value.rawValue.trim() ? { rawValue: value.rawValue.trim() } : {}), qualifiers, required: value.required, ...(typeof value.policyId === "string" && value.policyId.trim() ? { policyId: value.policyId.trim() } : {}) } as Omit<VerificationClaimSpec, "claimId">;
+    const claim = Object.freeze({ ...draft, claimId: verificationClaimId(draft) });
+    if (seen.has(claim.claimId)) throw new Error(`Duplicate verification claim at index ${index}.`);
+    seen.add(claim.claimId);
+    return claim;
+  });
+  return createContentOpportunityVerificationPlan(claims);
 }
 
 function fromCandidates(

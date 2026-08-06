@@ -1,5 +1,6 @@
 import type { VerificationClaimResult, VerificationClaimSpec, VerificationSourceAssessment } from "./VerificationClaim";
 export function verificationPlanFingerprint(specs: readonly VerificationClaimSpec[]): string { return hash(canonical(specs)); }
+export function verificationClaimId(spec: Omit<VerificationClaimSpec, "claimId">): string { return `verification-claim-${hash(canonical(spec)).slice(4)}`; }
 export function sourceSnapshotFingerprint(assessments: readonly VerificationSourceAssessment[]): string { return hash(canonical(assessments)); }
 export function verificationSnapshotFingerprint(input: Readonly<{ claimDefinitionFingerprint: string; sourceSnapshotFingerprint: string; results: readonly VerificationClaimResult[] }>): string { return hash(canonical(input)); }
 function canonical(value: unknown): string { return JSON.stringify(sortValue(value)); }

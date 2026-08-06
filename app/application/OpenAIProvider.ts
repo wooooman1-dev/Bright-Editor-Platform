@@ -20,6 +20,7 @@ import {
   type ContentPlanQualityTarget,
 } from "../../core/content";
 import { openAIGenerationModel } from "./OpenAIModelPolicy";
+import { explicitPlanningOutputFormat } from "./PlanningContracts";
 
 export class AIConfigurationError extends Error {
   constructor(message = "OPENAI_API_KEY is required to generate content.") {
@@ -321,6 +322,7 @@ function readTimeout(value: string | undefined, fallback: number): number {
 }
 
 function editorialOutputPolicy(metadata?: Readonly<Record<string, string>>) {
+  if (metadata?.task === "content-planning" && metadata.explicitVerificationPlanning === "1") return { maxOutputTokens: 12_000, verbosity: "medium" as const, format: explicitPlanningOutputFormat };
   if (metadata?.task === "approval-source-preflight") {
     return {
       maxOutputTokens: 2_500,
