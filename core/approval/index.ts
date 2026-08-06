@@ -32,3 +32,8 @@ export {
   evaluateApprovalDraftIntegrity,
   evaluateApprovalPreparationText,
 } from "./ApprovalLegalScopePolicy";
+export * from "./VerificationClaim";
+export * from "./VerificationClaimNormalizer";
+export * from "./VerificationSourceIdentity";
+export * from "./VerificationClaimFingerprint";
+export * from "./VerificationClaimPolicy";
