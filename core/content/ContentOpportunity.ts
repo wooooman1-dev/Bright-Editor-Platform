@@ -6,9 +6,22 @@ import {
   type ContentDepthPolicyInput,
   type ContentPlanQualityTarget,
 } from "./ContentDepthPolicy";
+import {
+  verificationPlanFingerprint,
+} from "../approval/VerificationClaimFingerprint";
+import type {
+  VerificationClaimSpec,
+} from "../approval/VerificationClaim";
 
 export type ContentOpportunitySelectionMode = "automatic" | "userSpecified";
 export type OpportunityEvidenceSource = "verified" | "estimated" | "inferred" | "unknown";
+
+export type ContentOpportunityVerificationPlan = Readonly<{
+  schemaVersion: 1;
+  mode: "explicit";
+  claims: readonly VerificationClaimSpec[];
+  fingerprint: string;
+}>;
 
 export type OpportunityEvidence = Readonly<{
   source: OpportunityEvidenceSource;
@@ -55,6 +68,7 @@ export type ContentOpportunityCandidate = Readonly<{
   confidence: number;
   cautions: readonly string[];
   projectId: string;
+  verificationPlan?: ContentOpportunityVerificationPlan;
 }>;
 
 export type ConfirmedContentOpportunity = ContentOpportunityCandidate & Readonly<{
@@ -64,6 +78,46 @@ export type ConfirmedContentOpportunity = ContentOpportunityCandidate & Readonly
 }>;
 
 export type ContentOpportunityDraft = Omit<ContentOpportunityCandidate, "opportunityId" | "version" | "fingerprint" | "qualityTarget" | "recommendationType" | "evidenceIds" | "marketEvidenceStatus" | "internalGrowthEvidenceStatus" | "freshness" | "limitations" | "classificationVersion" | "providerSearchIntent"> & Partial<Pick<ContentOpportunityCandidate, "qualityTarget" | "recommendationType" | "evidenceIds" | "marketEvidenceStatus" | "internalGrowthEvidenceStatus" | "freshness" | "limitations" | "classificationVersion" | "providerSearchIntent">>;
+
+export function createContentOpportunityVerificationPlan(
+  claims: readonly VerificationClaimSpec[],
+): ContentOpportunityVerificationPlan {
+  const clonedClaims = claims.map(cloneVerificationClaimSpec);
+  const claimIds = new Set<string>();
+  for (const claim of clonedClaims) {
+    if (claimIds.has(claim.claimId)) throw new Error(`Duplicate verification Claim ID: ${claim.claimId}.`);
+    claimIds.add(claim.claimId);
+  }
+  const frozenClaims = Object.freeze(clonedClaims);
+  return Object.freeze({
+    schemaVersion: 1,
+    mode: "explicit" as const,
+    claims: frozenClaims,
+    fingerprint: verificationPlanFingerprint(frozenClaims),
+  });
+}
+
+export function hasSelfConsistentVerificationPlan(
+  value: ContentOpportunityVerificationPlan | undefined,
+): value is ContentOpportunityVerificationPlan {
+  if (!value || value.schemaVersion !== 1 || value.mode !== "explicit" || !Array.isArray(value.claims)) return false;
+  try {
+    const claimIds = new Set<string>();
+    for (const claim of value.claims) {
+      if (!isVerificationClaimSpec(claim) || claimIds.has(claim.claimId)) return false;
+      claimIds.add(claim.claimId);
+    }
+    return value.fingerprint === verificationPlanFingerprint(value.claims);
+  } catch {
+    return false;
+  }
+}
+
+export function resolveContentOpportunityVerificationMode(
+  value: Pick<ContentOpportunityCandidate, "verificationPlan">,
+): "legacy" | "explicit" {
+  return value.verificationPlan ? "explicit" : "legacy";
+}
 
 export function createContentOpportunityCandidate(input: ContentOpportunityDraft): ContentOpportunityCandidate {
   const value = canonicalOpportunityValue(input);
@@ -261,6 +315,7 @@ function canonicalOpportunityValue(input: ContentOpportunityDraft | ContentOppor
     confidence: Number.isFinite(input.confidence) ? Math.max(0, Math.min(1, input.confidence)) : 0,
     cautions: cleanList(input.cautions),
     projectId: required(input.projectId, "projectId"),
+    ...(input.verificationPlan ? { verificationPlan: normalizeVerificationPlan(input.verificationPlan) } : {}),
   });
 }
 
@@ -306,13 +361,43 @@ function normalizeSearchIntent(value: string, readerProblem: string): string {
 }
 
 function fingerprintValue(value: ReturnType<typeof canonicalOpportunityValue>): string {
-  const source = JSON.stringify(value);
+  const { verificationPlan: _verificationPlan, ...opportunityValue } = value;
+  void _verificationPlan;
+  const source = JSON.stringify(opportunityValue);
   let hash = 2166136261;
   for (let index = 0; index < source.length; index += 1) {
     hash ^= source.charCodeAt(index);
     hash = Math.imul(hash, 16777619);
   }
   return `fp-${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}
+
+function normalizeVerificationPlan(value: ContentOpportunityVerificationPlan): ContentOpportunityVerificationPlan {
+  if (!hasSelfConsistentVerificationPlan(value)) {
+    throw new Error("Content Opportunity verificationPlan fingerprint or structure is invalid.");
+  }
+  return createContentOpportunityVerificationPlan(value.claims);
+}
+
+function cloneVerificationClaimSpec(value: VerificationClaimSpec): VerificationClaimSpec {
+  if (!isVerificationClaimSpec(value)) throw new Error("Content Opportunity verification Claim is invalid.");
+  return Object.freeze({
+    ...value,
+    qualifiers: Object.freeze({ ...value.qualifiers }),
+  });
+}
+
+function isVerificationClaimSpec(value: unknown): value is VerificationClaimSpec {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<VerificationClaimSpec>;
+  return typeof candidate.claimId === "string"
+    && Boolean(candidate.claimId.trim())
+    && typeof candidate.field === "string"
+    && typeof candidate.kind === "string"
+    && typeof candidate.statement === "string"
+    && typeof candidate.required === "boolean"
+    && Boolean(candidate.qualifiers)
+    && typeof candidate.qualifiers === "object";
 }
 
 function evidenceSortKey(value: Readonly<Record<string, unknown>>): string {

@@ -15,7 +15,7 @@ import {
   type ContentPlanningResult,
   type UserData,
 } from "../../../../app/user-flow/user-data";
-import { createContentOpportunityCandidate } from "../../../../core/content";
+import { createContentOpportunityCandidate, createContentOpportunityVerificationPlan } from "../../../../core/content";
 
 const first = createContentOpportunityCandidate({
   sourceRequest: "오늘의 건강 글을 골라줘", selectionMode: "automatic", selectedTopic: "장 건강 관리", primaryKeyword: "장 건강 관리 방법",
@@ -55,6 +55,19 @@ function candidatesReady(): UserData {
 }
 
 describe("durable Content planning workflow", () => {
+  it("persists and merges an explicit verification plan without changing Opportunity identity", () => {
+    const claim = { claimId: "claim-1", field: "amount", kind: "money" as const, statement: "지원금", qualifiers: { subject: "가구" }, required: true };
+    const explicit = createContentOpportunityCandidate({ ...first, verificationPlan: createContentOpportunityVerificationPlan([claim]) });
+    const explicitPlan: ContentPlanningResult = { ...plan, opportunityCandidates: [explicit, second] };
+    const ready = completeContentPlanning(startContentPlanning(baseData(), {
+      id: "content-explicit", projectId: "project-1", request: "explicit", selectionMode: "automatic", operationId: "planning-explicit", now: "2026-08-01T00:00:00.000Z",
+    }), { workspaceId: "workspace-1", projectId: "project-1", contentId: "content-explicit", operationId: "planning-explicit", plan: explicitPlan, now: "2026-08-01T00:01:00.000Z" });
+    const restored = mergeUserDataSnapshot(undefined, JSON.parse(JSON.stringify(ready)))
+      .contents[0].planning!.opportunityCandidates![0];
+    expect(restored.verificationPlan).toEqual(explicit.verificationPlan);
+    expect(restored.fingerprint).toBe(first.fingerprint);
+    expect(restored.version).toBe(1);
+  });
   it("creates a Content-bound snapshot before AI planning and restores every candidate field", () => {
     const started = startContentPlanning(baseData(), {
       id: "content-1", projectId: "project-1", request: "오늘의 건강 글을 골라줘", selectionMode: "automatic",

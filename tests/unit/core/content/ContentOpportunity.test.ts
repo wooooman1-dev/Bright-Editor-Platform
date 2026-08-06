@@ -5,8 +5,11 @@ import {
   assertConfirmedContentOpportunity,
   confirmContentOpportunity,
   createContentOpportunityCandidate,
+  createContentOpportunityVerificationPlan,
   detectContentOpportunitySelectionMode,
+  hasSelfConsistentVerificationPlan,
   hasCurrentContentOpportunityFingerprint,
+  resolveContentOpportunityVerificationMode,
 } from "../../../../core/content";
 
 const candidate = () => createContentOpportunityCandidate({
@@ -29,6 +32,59 @@ const candidate = () => createContentOpportunityCandidate({
 });
 
 describe("Content Opportunity contract", () => {
+  const verificationClaim = () => ({
+    claimId: "claim-1", field: "amount", kind: "money" as const, statement: "지원금", rawValue: "100만원",
+    qualifiers: { subject: "가구" }, required: true,
+  });
+
+  it("keeps absent plans legacy without creating claims", () => {
+    const value = candidate();
+    expect(resolveContentOpportunityVerificationMode(value)).toBe("legacy");
+    expect(value).not.toHaveProperty("verificationPlan");
+  });
+
+  it("creates and preserves an explicit empty plan", () => {
+    const plan = createContentOpportunityVerificationPlan([]);
+    const value = createContentOpportunityCandidate({ ...candidate(), verificationPlan: plan });
+    expect(plan.mode).toBe("explicit");
+    expect(plan.schemaVersion).toBe(1);
+    expect(plan.claims).toEqual([]);
+    expect(resolveContentOpportunityVerificationMode(value)).toBe("explicit");
+    expect(value.verificationPlan).toEqual(plan);
+    expect(value.version).toBe(1);
+  });
+
+  it("rejects duplicate claims and invalid plan fingerprints", () => {
+    expect(() => createContentOpportunityVerificationPlan([verificationClaim(), verificationClaim()])).toThrow("Duplicate verification Claim ID");
+    const plan = createContentOpportunityVerificationPlan([verificationClaim()]);
+    expect(hasSelfConsistentVerificationPlan({ ...plan, fingerprint: "vfp-invalid" })).toBe(false);
+  });
+
+  it("freezes copied claims and nested qualifiers", () => {
+    const claims = [verificationClaim()];
+    const plan = createContentOpportunityVerificationPlan(claims);
+    claims[0]!.qualifiers.subject = "변경";
+    expect(plan.claims[0]!.qualifiers.subject).toBe("가구");
+    expect(Object.isFrozen(plan)).toBe(true);
+    expect(Object.isFrozen(plan.claims)).toBe(true);
+    expect(Object.isFrozen(plan.claims[0])).toBe(true);
+    expect(Object.isFrozen(plan.claims[0]!.qualifiers)).toBe(true);
+  });
+
+  it("changes only the plan fingerprint when plan claims change", () => {
+    const withoutPlan = candidate();
+    const withPlan = createContentOpportunityCandidate({ ...withoutPlan, verificationPlan: createContentOpportunityVerificationPlan([verificationClaim()]) });
+    const changedPlan = createContentOpportunityCandidate({ ...withoutPlan, verificationPlan: createContentOpportunityVerificationPlan([{ ...verificationClaim(), rawValue: "200만원" }]) });
+    expect(withPlan.fingerprint).toBe(withoutPlan.fingerprint);
+    expect(withPlan.verificationPlan?.fingerprint).not.toBe(changedPlan.verificationPlan?.fingerprint);
+  });
+
+  it("preserves the plan when the opportunity is confirmed", () => {
+    const value = createContentOpportunityCandidate({ ...candidate(), verificationPlan: createContentOpportunityVerificationPlan([verificationClaim()]) });
+    const confirmed = confirmContentOpportunity(value, { workspaceId: "workspace-1", projectId: "project-1", contentId: "content-1", confirmedAt: "2026-08-01T00:00:00.000Z" });
+    expect(confirmed.verificationPlan).toEqual(value.verificationPlan);
+    expect(confirmed.fingerprint).toBe(value.fingerprint);
+  });
   it("creates the same identity and fingerprint for the same planning input", () => {
     expect(candidate()).toEqual(candidate());
   });
