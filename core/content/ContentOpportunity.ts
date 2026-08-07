@@ -11,6 +11,7 @@ import {
 } from "../approval/VerificationClaimFingerprint";
 import type {
   VerificationClaimSpec,
+  VerificationTemporalRequirement,
 } from "../approval/VerificationClaim";
 
 export type ContentOpportunitySelectionMode = "automatic" | "userSpecified";
@@ -384,7 +385,13 @@ function cloneVerificationClaimSpec(value: VerificationClaimSpec): VerificationC
   return Object.freeze({
     ...value,
     qualifiers: Object.freeze({ ...value.qualifiers }),
+    ...(value.temporalRequirement ? { temporalRequirement: cloneTemporalRequirement(value.temporalRequirement) } : {}),
   });
+}
+
+function cloneTemporalRequirement(value: VerificationTemporalRequirement): VerificationTemporalRequirement {
+  if (!isVerificationTemporalRequirement(value)) throw new Error("Content Opportunity verification temporal requirement is invalid.");
+  return Object.freeze({ ...value });
 }
 
 function isVerificationClaimSpec(value: unknown): value is VerificationClaimSpec {
@@ -397,7 +404,30 @@ function isVerificationClaimSpec(value: unknown): value is VerificationClaimSpec
     && typeof candidate.statement === "string"
     && typeof candidate.required === "boolean"
     && Boolean(candidate.qualifiers)
-    && typeof candidate.qualifiers === "object";
+    && typeof candidate.qualifiers === "object"
+    && (candidate.temporalRequirement === undefined || isVerificationTemporalRequirement(candidate.temporalRequirement));
+}
+
+function isVerificationTemporalRequirement(value: unknown): value is VerificationTemporalRequirement {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const candidate = value as Record<string, unknown>;
+  if (candidate.mode === "current" || candidate.mode === "notRequired" || candidate.mode === "unknown") {
+    return candidate.date === undefined && candidate.start === undefined && candidate.end === undefined;
+  }
+  if (candidate.mode === "asOf") {
+    return isStrictDate(candidate.date) && candidate.start === undefined && candidate.end === undefined;
+  }
+  if (candidate.mode === "period") {
+    return isStrictDate(candidate.start) && isStrictDate(candidate.end) && String(candidate.start) <= String(candidate.end) && candidate.date === undefined;
+  }
+  return false;
+}
+
+function isStrictDate(value: unknown): boolean {
+  if (typeof value !== "string" || !/^20\d{2}-\d{2}-\d{2}$/u.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year!, month! - 1, day!));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month! - 1 && date.getUTCDate() === day;
 }
 
 function evidenceSortKey(value: Readonly<Record<string, unknown>>): string {
