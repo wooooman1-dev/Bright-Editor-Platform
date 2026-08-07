@@ -19,6 +19,10 @@ export function preserveCanonicalSeoMetadata(
   if (metaDescription) metadata.metaDescription = metaDescription;
   else Reflect.deleteProperty(metadata, "metaDescription");
 
+  if (current.metadata?.generatedClaimVerification) {
+    metadata.generatedClaimVerification = current.metadata.generatedClaimVerification;
+  }
+
   return Object.freeze({
     ...candidate,
     metadata: Object.freeze(metadata),
