@@ -1,4 +1,4 @@
-import type { VerificationClaimKind, VerificationClaimQualifiers } from "../../core/approval";
+import type { VerificationClaimKind, VerificationClaimQualifiers, VerificationTemporalRequirement } from "../../core/approval";
 
 export const planningVerificationClaimMaximum = 12;
 export type PlanningVerificationClaimDraft = Readonly<{
@@ -7,21 +7,35 @@ export type PlanningVerificationClaimDraft = Readonly<{
   statement: string;
   rawValue?: string;
   qualifiers: VerificationClaimQualifiers;
+  temporalRequirement: VerificationTemporalRequirement;
   required: boolean;
   policyId?: string;
 }>;
+
+const temporalRequirement = {
+  type: "object",
+  additionalProperties: false,
+  required: ["mode"],
+  properties: {
+    mode: { type: "string", enum: ["current", "asOf", "period", "notRequired", "unknown"] },
+    date: { type: "string" },
+    start: { type: "string" },
+    end: { type: "string" },
+  },
+} as const;
 
 const verificationClaims = {
   type: "array",
   maxItems: planningVerificationClaimMaximum,
   items: {
     type: "object", additionalProperties: false,
-    required: ["field", "kind", "statement", "qualifiers", "required"],
+    required: ["field", "kind", "statement", "qualifiers", "temporalRequirement", "required"],
     properties: {
       field: { type: "string" },
       kind: { type: "string", enum: ["money", "ratio", "date", "dateRange", "duration", "location", "eligibility", "legal", "general"] },
       statement: { type: "string" }, rawValue: { type: "string" },
       qualifiers: { type: "object", additionalProperties: false, properties: { subject: { type: "string" }, scope: { type: "string" }, basis: { type: "string" }, note: { type: "string" } } },
+      temporalRequirement,
       required: { type: "boolean" }, policyId: { type: "string" },
     },
   },
