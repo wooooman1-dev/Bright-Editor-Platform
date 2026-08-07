@@ -1,4 +1,5 @@
 import type {
+  VerificationClaimKind,
   VerificationFreshnessStatus,
   VerificationTemporalEvidence,
   VerificationTemporalRequirement,
@@ -15,6 +16,7 @@ export type VerificationTemporalEvaluation = Readonly<{
 }>;
 
 export function evaluateVerificationTemporalEvidence(input: Readonly<{
+  claimKind: VerificationClaimKind;
   requirement?: VerificationTemporalRequirement;
   evidence?: VerificationTemporalEvidence;
   claimEvidenceExcerpt?: string;
@@ -24,7 +26,9 @@ export function evaluateVerificationTemporalEvidence(input: Readonly<{
 }>): VerificationTemporalEvaluation {
   const requirement = input.requirement ?? { mode: "unknown" as const };
   if (requirement.mode === "notRequired") {
-    return frozen({ freshnessStatus: "fresh", fresh: true, diagnostics: ["freshness_not_required"] });
+    return input.claimKind === "general"
+      ? frozen({ freshnessStatus: "fresh", fresh: true, diagnostics: ["freshness_not_required"] })
+      : unknown(["temporal_not_required_disallowed", "freshness_unknown"]);
   }
   if (requirement.mode === "unknown") return unknown(["freshness_unknown"]);
 
@@ -33,12 +37,6 @@ export function evaluateVerificationTemporalEvidence(input: Readonly<{
     ?? deriveVerificationTemporalEvidence({
       requirement,
       evidenceExcerpt: claimExcerpt,
-      claimValue: input.claimValue,
-    })
-    ?? deriveTemporalEvidenceFromUniqueClaimContext({
-      requirement,
-      pageText: input.pageText,
-      claimEvidenceExcerpt: claimExcerpt,
       claimValue: input.claimValue,
     });
   if (!evidence) return unknown(["temporal_evidence_missing", "freshness_unknown"]);
@@ -54,8 +52,8 @@ export function evaluateVerificationTemporalEvidence(input: Readonly<{
 }
 
 /**
- * Derives temporal Evidence only from a Claim-owned Evidence excerpt.
- * A page-level date elsewhere in the document is intentionally insufficient.
+ * Derives temporal Evidence only from the server-verified Claim Evidence excerpt.
+ * A page-level or nearby date outside that excerpt is intentionally insufficient.
  */
 export function deriveVerificationTemporalEvidence(input: Readonly<{
   requirement: Exclude<VerificationTemporalRequirement, Readonly<{ mode: "notRequired" }> | Readonly<{ mode: "unknown" }>>;
@@ -93,22 +91,6 @@ export function deriveVerificationTemporalEvidence(input: Readonly<{
   return evidenceStart <= start && evidenceEnd >= end
     ? Object.freeze({ kind: "referencePeriod", evidenceExcerpt: excerpt, start: evidenceStart, end: evidenceEnd })
     : undefined;
-}
-
-function deriveTemporalEvidenceFromUniqueClaimContext(input: Readonly<{
-  requirement: Exclude<VerificationTemporalRequirement, Readonly<{ mode: "notRequired" }> | Readonly<{ mode: "unknown" }>>;
-  pageText: string;
-  claimEvidenceExcerpt: string;
-  claimValue: string;
-}>): VerificationTemporalEvidence | undefined {
-  const page = normalizeWhitespace(input.pageText);
-  const claimExcerpt = normalizeWhitespace(input.claimEvidenceExcerpt);
-  if (!page || !claimExcerpt || !compact(claimExcerpt).includes(compact(input.claimValue))) return undefined;
-  const first = page.indexOf(claimExcerpt);
-  if (first < 0 || page.indexOf(claimExcerpt, first + claimExcerpt.length) >= 0) return undefined;
-  const margin = 240;
-  const context = page.slice(Math.max(0, first - margin), Math.min(page.length, first + claimExcerpt.length + margin));
-  return deriveVerificationTemporalEvidence({ requirement: input.requirement, evidenceExcerpt: context, claimValue: input.claimValue });
 }
 
 function evaluateCurrent(evidence: VerificationTemporalEvidence, observedAt: string | undefined): VerificationTemporalEvaluation {
