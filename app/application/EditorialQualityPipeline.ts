@@ -29,7 +29,7 @@ export type EditorialQualityPipelineResult = Readonly<{
 
 export function contentDocumentAIContext(document: ContentDocument): Readonly<Record<string, unknown>> {
   if (!document.metadata) return document;
-  const excluded = new Set(["qualityTarget", "generationDiagnostic", "reviewDiagnostic", "aiUsage"]);
+  const excluded = new Set(["qualityTarget", "generationDiagnostic", "reviewDiagnostic", "aiUsage", "generatedClaimVerification"]);
   const metadataEntries = Object.fromEntries(
     Object.entries(document.metadata).filter(([key]) => !excluded.has(key)),
   );
@@ -316,6 +316,7 @@ function preserveReviewMetadata(current: ContentDocument, candidate: ContentDocu
     longFormStructure: protectedCandidate.metadata?.longFormStructure ?? current.metadata?.longFormStructure,
     ...(protectedCandidate.metadata?.tags?.length ? { tags: protectedCandidate.metadata.tags } : current.metadata?.tags?.length ? { tags: current.metadata.tags } : {}),
     ...(current.metadata?.approvalEvidence ? { approvalEvidence: current.metadata.approvalEvidence } : {}),
+    ...(current.metadata?.generatedClaimVerification ? { generatedClaimVerification: current.metadata.generatedClaimVerification } : {}),
     ...(current.metadata?.aiUsage ? { aiUsage: current.metadata.aiUsage } : {}),
     generationDiagnostic: current.metadata?.generationDiagnostic,
   };
