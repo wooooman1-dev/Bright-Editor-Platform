@@ -6,6 +6,7 @@ import {
   type ApprovalEvidenceSource,
   type ApprovalPolicySnapshot,
   type GeneratedClaimBinding,
+  type VerificationSnapshot,
 } from "../approval";
 import {
   findUnrequestedOwnedIdentityOccurrences,
@@ -41,6 +42,7 @@ export type GenerationResult = Readonly<{
   document: ContentDocument;
   rawResponse: string;
   generatedClaimBindings?: readonly GeneratedClaimBinding[];
+  verificationSnapshot?: VerificationSnapshot;
   providerDiagnostics?: AIResponse["diagnostics"];
   sourcePreflightDiagnostics?: AIResponse["diagnostics"];
 }>;
@@ -182,6 +184,9 @@ export class AIWorkflow {
         rawResponse: response.content,
         ...(generatedClaimBindings
           ? { generatedClaimBindings }
+          : {}),
+        ...(sourcePreflight?.verificationSnapshot
+          ? { verificationSnapshot: sourcePreflight.verificationSnapshot }
           : {}),
         ...(response.diagnostics
           ? { providerDiagnostics: response.diagnostics }
