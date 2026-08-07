@@ -7,6 +7,7 @@ import {
   verificationPlanFingerprint,
   verificationSnapshotFingerprint,
 } from "./VerificationClaimFingerprint";
+import { evaluateVerificationClaim } from "./VerificationClaimPolicy";
 
 export type VerificationGenerationPlan = Readonly<{
   claims: readonly VerificationClaimSpec[];
@@ -26,8 +27,9 @@ export type VerificationGenerationGateResult = Readonly<{
  * Phase 5A deterministic boundary between explicit Source Preflight and Generation.
  *
  * The gate trusts neither a stored status nor a caller-provided source list by itself.
- * It revalidates the plan/snapshot fingerprints, requires every required Claim to be
- * verified, and exposes only fresh supporting assessments as Generation evidence.
+ * It revalidates the plan/snapshot fingerprints, re-evaluates verified Claim policy,
+ * requires every required Claim to remain verified, and exposes only fresh supporting
+ * assessments as Generation evidence.
  */
 export function evaluateVerificationGenerationGate(input: Readonly<{
   plan: VerificationGenerationPlan;
@@ -86,6 +88,22 @@ export function evaluateVerificationGenerationGate(input: Readonly<{
   for (const claim of input.plan.claims) {
     const result = resultByClaimId.get(claim.claimId);
     if (!result || result.status !== "verified") {
+      if (claim.required) blockingClaimIds.push(claim.claimId);
+      continue;
+    }
+
+    const reevaluated = evaluateVerificationClaim(claim, {
+      claimId: result.claimId,
+      ...(result.normalizedValue ? { normalizedValue: result.normalizedValue } : {}),
+      sourceAssessments: result.sourceAssessments,
+      unresolvedConflict: result.unresolvedConflict,
+      freshnessPassed: result.freshnessPassed,
+      ...(result.verifiedAt ? { verifiedAt: result.verifiedAt } : {}),
+      ...(result.reviewBy ? { reviewBy: result.reviewBy } : {}),
+      diagnostics: result.diagnostics,
+    });
+    if (reevaluated.status !== "verified") {
+      diagnostics.push(`verification_claim_policy_recheck_failed:${claim.claimId}`);
       if (claim.required) blockingClaimIds.push(claim.claimId);
       continue;
     }
