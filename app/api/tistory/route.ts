@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 
 import type { UserData } from "../../user-flow/user-data";
-import { assertApprovalDraftIntegrity } from "../../../core/approval";
+import {
+  assertApprovalDraftIntegrity,
+  assertGeneratedClaimVerificationIntegrity,
+} from "../../../core/approval";
 import { PlatformConnectionService } from "../../../core/connections";
 import { editorialRevisionId, PublishingGate, QualityEngine } from "../../../core/quality";
 import { classifyTistoryDraftOutcome } from "../../../apps/tistory/workflows/TistoryDraftOutcome";
@@ -44,9 +47,21 @@ export async function POST(request: Request) {
     if (!policy.publishing.draftOnly || policy.publishing.publicPublish) throw new Error("현재 작업공간은 안전한 임시저장 정책만 사용할 수 있습니다.");
     if (policy.publishing.reviewFirst && body.finalConfirmation !== true) throw new Error("검토 후 최종 확인이 필요합니다.");
     const revisionId = editorialRevisionId(content.document);
+    assertGeneratedClaimVerificationIntegrity({
+      document: content.document,
+      plan: content.opportunity?.verificationPlan,
+      currentRevisionId: revisionId,
+    });
     if (!content.quality) throw new Error("최근 편집 이후 품질 검토를 통과해야 외부 임시저장을 실행할 수 있습니다.");
     new PublishingGate().assertReady(content.quality, revisionId, content.document);
-    const quality = new QualityEngine().review(content.document, { contentType: content.contentType, platform: "tistory", primaryKeyword: content.primaryKeyword, searchIntent: content.searchIntent, revisionId });
+    const quality = new QualityEngine().review(content.document, {
+      contentType: content.contentType,
+      platform: "tistory",
+      primaryKeyword: content.primaryKeyword,
+      searchIntent: content.searchIntent,
+      opportunity: content.opportunity,
+      revisionId,
+    });
     new PublishingGate().assertReady(quality, revisionId, content.document);
     assertApprovalDraftIntegrity(content.document);
     const connection = await connectionRepository.findById(connectionId);
