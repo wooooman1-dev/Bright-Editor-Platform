@@ -60,7 +60,13 @@ describe("runApprovalSourcePreflight explicit integration", () => {
     const excerpt = "공식 안내에 따르면 지원 금액 50만원의 적용 기간은 2020-01-01부터 2099-12-31까지입니다.";
     const { result, provider } = await run(urls.map((url) => source(url, "50만원", excerpt)), async () => page("50만원", excerpt), [currentClaim]);
     expect(provider.calls).toBe(1);
-    expect(result.verificationSnapshot?.results[0]).toMatchObject({ status: "verified", independentInstitutionCount: 3, primarySourceFound: true, freshnessPassed: true });
+    expect(result.verificationSnapshot?.results[0]).toMatchObject({
+      status: "verified",
+      independentInstitutionCount: 3,
+      primarySourceFound: true,
+      freshnessPassed: true,
+      normalizedValue: { kind: "money", value: { amount: 500_000, currency: "KRW" } },
+    });
     expect(result.claimSources).toHaveLength(3);
     expect(result.verificationSnapshot?.results[0]?.sourceAssessments.every((item) => item.freshnessStatus === "fresh")).toBe(true);
   });
@@ -83,6 +89,18 @@ describe("runApprovalSourcePreflight explicit integration", () => {
     const mismatch = await run([source(urls[0], "100만원", mismatchExcerpt)], async () => page("100만원", mismatchExcerpt));
     expect(mismatch.result.verificationSnapshot?.results[0]?.diagnostics).toContain("claim_raw_value_mismatch");
     expect(mismatch.result.verificationSnapshot?.results[0]?.status).not.toBe("verified");
+  });
+
+  it("rejects ambiguous unitless money instead of silently assuming KRW", () => {
+    const unitlessClaim: VerificationClaimSpec = { ...claim, rawValue: undefined };
+    const excerpt = "공식 안내에 따르면 지원 금액 값은 500000이며 단위 표기는 제공되지 않았습니다.";
+    const assessment = assessmentsFromExplicitDiscovery({
+      claims: [unitlessClaim],
+      sources: [{ requestedUrl: urls[0], pageText: excerpt, evidenceExcerpt: excerpt, claims: [{ claimId: "claim-amount", value: "500000", evidenceExcerpt: excerpt }], role: "primaryOfficial", authoritative: true, fresh: true }],
+    })[0]!;
+    expect(assessment.supports).toBe(false);
+    expect(assessment.normalizedValue).toBeUndefined();
+    expect(assessment.diagnostics).toContain("claim_normalization_failed");
   });
 
   it("isolates fetch failures and returns insufficient required results when all fail", async () => {
