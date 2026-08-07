@@ -120,6 +120,19 @@ describe("OpenAI approval web search", () => {
     });
   });
 
+  it("selects the explicit schema only for explicit verification mode", async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ output_text: "{\"sources\":[]}" }) }) as Response);
+    vi.stubGlobal("fetch", fetchMock);
+    const provider = new OpenAIProvider("sk-test-key", "gpt-5-test", 5_000);
+    await provider.generate({ instruction: "fixture", metadata: { task: "approval-source-preflight", verificationMode: "explicit" } });
+    const calls = fetchMock.mock.calls as unknown as Array<[RequestInfo, RequestInit]>;
+    const explicitBody = JSON.parse(new TextDecoder().decode(calls[0]?.[1]?.body as Uint8Array)) as { text: { format: unknown } };
+    await provider.generate({ instruction: "fixture", metadata: { task: "approval-source-preflight" } });
+    const legacyBody = JSON.parse(new TextDecoder().decode(calls[1]?.[1]?.body as Uint8Array)) as { text: { format: unknown } };
+    expect(explicitBody.text.format).toEqual(expect.objectContaining({ name: "explicit_approval_source_preflight" }));
+    expect(legacyBody.text.format).toEqual(expect.objectContaining({ name: "approval_source_preflight" }));
+  });
+
   it("keeps the strict source schema aligned with the parsed Claim contract", () => {
     const sourceSchema = approvalSourcePreflightFormat.schema.properties
       .sources.items;

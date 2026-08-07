@@ -24,8 +24,8 @@ export function canonicalizeVerificationSourceIdentity(input: VerificationSource
 export function approvalCompatibleSourceId(url: string): string {
   return stableId(`url:${url}`, "approval-source");
 }
-type Usable = { institutionGroupId: string; authoritative?: boolean; role?: VerificationSourceRole; supports?: boolean; fresh?: boolean; normalizedValue?: unknown };
-function usable(sources: readonly Usable[]): readonly Usable[] { return sources.filter((source) => source.supports !== false && source.fresh !== false && (!("normalizedValue" in source) || source.normalizedValue !== undefined)); }
+type Usable = { institutionGroupId: string; authoritative?: boolean; role?: VerificationSourceRole; supports?: boolean; fresh?: boolean; freshnessStatus?: "fresh" | "stale" | "unknown"; normalizedValue?: unknown };
+function usable(sources: readonly Usable[]): readonly Usable[] { return sources.filter((source) => source.supports !== false && source.freshnessStatus !== "unknown" && source.freshnessStatus !== "stale" && source.fresh !== false && (!("normalizedValue" in source) || source.normalizedValue !== undefined)); }
 export function countIndependentInstitutions(sources: readonly Usable[]): number { return new Set(usable(sources).map((source) => source.institutionGroupId)).size; }
 export function countAuthoritativeInstitutions(sources: readonly Usable[]): number { return new Set(usable(sources).filter((source) => source.authoritative).map((source) => source.institutionGroupId)).size; }
 export function hasPrimaryOfficial(sources: readonly Usable[]): boolean { return usable(sources).some((source) => source.role === "primaryOfficial"); }

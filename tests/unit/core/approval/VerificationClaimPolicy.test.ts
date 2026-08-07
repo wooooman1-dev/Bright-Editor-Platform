@@ -9,4 +9,12 @@ describe("Verification policy", () => {
   it("makes primary conflict authoritative and blocks verification", () => expect(evaluateVerificationClaim(spec, input([source("a", "primaryOfficial", true, 1), source("b", "officialCorroborating", true, 2), source("c", "independentCorroborating", false, 2)], true)).status).toBe("conflicted"));
   it("makes stale status lower priority than conflict", () => expect(evaluateVerificationClaim(spec, { ...input([], true), freshnessPassed: false }).status).toBe("conflicted"));
   it("does not accept a source-family count as institution count", () => expect(evaluateVerificationClaim(spec, input([source("a", "primaryOfficial", true), source("a", "officialCorroborating", true), source("b", "independentCorroborating", false)])).status).toBe("insufficient"));
+  it("excludes unknown and stale assessments from verification counts", () => {
+    const unknown = { ...source("unknown", "primaryOfficial", true), fresh: false, freshnessStatus: "unknown" as const };
+    const stale = { ...source("stale", "officialCorroborating", true), fresh: false, freshnessStatus: "stale" as const };
+    const result = evaluateVerificationClaim(spec, input([source("fresh", "primaryOfficial", true), unknown, stale]));
+    expect(result.independentInstitutionCount).toBe(1);
+    expect(result.authoritativeInstitutionCount).toBe(1);
+    expect(result.status).toBe("stale");
+  });
 });

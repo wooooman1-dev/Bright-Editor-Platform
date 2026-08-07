@@ -203,14 +203,36 @@ async function runExplicitPreflight(input: Readonly<Parameters<typeof runApprova
   const accepted: ExplicitDiscoveredSource[] = [];
   for (const source of eligible) {
     const page = byUrl.get(source.requestedUrl);
-    if (!page) { accepted.push({ ...source, role: "independentCorroborating", authoritative: false, fresh: false, diagnostics: ["source_fetch_failed"] }); continue; }
+    if (!page || page.extractionStatus !== "extracted") { accepted.push({ ...source, role: "independentCorroborating", authoritative: false, diagnostics: ["source_fetch_failed"] }); continue; }
     const rejection = preflightPageRejection(input.snapshot, page, source.evidenceExcerpt);
     if (rejection) { accepted.push({ ...source, finalUrl: page.finalUrl, pageText: page.text, role: "independentCorroborating", authoritative: false, fresh: false, diagnostics: [rejection] }); continue; }
     accepted.push({ ...source, finalUrl: page.finalUrl, pageText: page.text, publisherId: page.publisher, authoritative: officialSourceAllowed(input.snapshot.profileId, page), role: accepted.length ? "officialCorroborating" : "primaryOfficial", diagnostics: [] });
   }
   const assessments = assessmentsFromExplicitDiscovery({ claims: plan.claims, sources: accepted });
   const results = plan.claims.map((claim) => { const claimAssessments = assessments.filter((assessment) => assessment.diagnostics.includes(`claim:${claim.claimId}`)); const usable = claimAssessments.filter((assessment) => assessment.supports && assessment.normalizedValue); return { claimId: claim.claimId, ...(usable[0]?.normalizedValue ? { normalizedValue: usable[0].normalizedValue } : {}), sourceAssessments: claimAssessments, unresolvedConflict: false, freshnessPassed: usable.length > 0 && usable.every((assessment) => assessment.fresh), diagnostics: claimAssessments.flatMap((assessment) => assessment.diagnostics.filter((diagnostic) => !diagnostic.startsWith("claim:"))) }; });
-  return Object.freeze({ sources: Object.freeze(accepted.map((source) => Object.freeze({ url: source.finalUrl ?? source.requestedUrl, title: source.title, excerpt: source.evidenceExcerpt, provenance: "citation" as const }))), claimSources: Object.freeze([]), coverage: evaluateApprovalSourcePreflightCoverage({ profileId: input.snapshot.profileId, opportunity: input.opportunity, requiredClaims: [], sources: [] }), verificationSnapshot: createVerificationSnapshot({ plan, assessments, results }), ...(response.diagnostics ? { diagnostics: response.diagnostics } : {}) });
+  const verificationSnapshot = createVerificationSnapshot({ plan, assessments, results });
+  return Object.freeze({ sources: Object.freeze(accepted.map((source) => Object.freeze({ url: source.finalUrl ?? source.requestedUrl, title: source.title, excerpt: source.evidenceExcerpt, provenance: "citation" as const }))), claimSources: explicitCompatibilityClaimSources(plan.claims, accepted, verificationSnapshot), coverage: evaluateApprovalSourcePreflightCoverage({ profileId: input.snapshot.profileId, opportunity: input.opportunity, requiredClaims: [], sources: [] }), verificationSnapshot, ...(response.diagnostics ? { diagnostics: response.diagnostics } : {}) });
+}
+
+/** Compatibility projection only; VerificationSnapshot remains explicit canonical truth. */
+function explicitCompatibilityClaimSources(
+  claims: readonly import("../approval").VerificationClaimSpec[],
+  sources: readonly ExplicitDiscoveredSource[],
+  snapshot: import("../approval").VerificationSnapshot,
+): readonly ApprovalSourcePreflightClaimSource[] {
+  const verified = new Set(snapshot.results.filter((result) => result.status === "verified").map((result) => result.claimId));
+  const projected = sources.map((source) => {
+    const claimsForSource = source.claims.flatMap((claim) => {
+      const spec = claims.find((item) => item.claimId === claim.claimId);
+      const result = snapshot.results.find((item) => item.claimId === claim.claimId);
+      const assessment = result?.sourceAssessments.find((item) => item.canonicalUrl === (source.finalUrl ?? source.requestedUrl) && item.supports && item.fresh);
+      return spec && verified.has(claim.claimId) && assessment
+        ? [{ field: spec.field, value: claim.value, evidenceExcerpt: claim.evidenceExcerpt }]
+        : [];
+    });
+    return Object.freeze({ url: source.finalUrl ?? source.requestedUrl, claims: Object.freeze(claimsForSource) });
+  });
+  return Object.freeze(projected.filter((source) => source.claims.length));
 }
 
 function explicitPreflightInstruction(snapshot: ApprovalPolicySnapshot, opportunity: ConfirmedContentOpportunity): string { return `Perform explicit source discovery only. Use each claimId exactly as provided. Claims: ${JSON.stringify(opportunity.verificationPlan!.claims)}. Profile: ${snapshot.profileDisplayName}. Return JSON with sources containing url,title,evidenceExcerpt and claims containing claimId,value,evidenceExcerpt.`; }

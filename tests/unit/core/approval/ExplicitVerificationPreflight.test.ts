@@ -33,4 +33,23 @@ describe("explicit verification snapshot", () => {
     expect(Object.isFrozen(snapshot.results)).toBe(true);
     expect(Object.isFrozen(snapshot.results[0].sourceAssessments)).toBe(true);
   });
+
+  it("verifies only at the trusted assessment boundary when all high-risk requirements are fresh", () => {
+    const plan = createContentOpportunityVerificationPlan([claim]);
+    const assessments = [source("a", "primaryOfficial", true), source("b", "officialCorroborating", true), source("c", "independentCorroborating", false)];
+    const snapshot = createVerificationSnapshot({ plan, assessments, results: [{ claimId: claim.claimId, normalizedValue: money(100), sourceAssessments: assessments, unresolvedConflict: false, freshnessPassed: true, diagnostics: [] }] });
+    expect(snapshot.results[0]).toMatchObject({ status: "verified", independentInstitutionCount: 3, authoritativeInstitutionCount: 2 });
+  });
+
+  it("keeps unknown primary, mixed freshness, and all-unknown evidence insufficient", () => {
+    const plan = createContentOpportunityVerificationPlan([claim]);
+    const fresh = source("fresh", "officialCorroborating", true);
+    const unknown = { ...source("unknown", "primaryOfficial", true), fresh: false, freshnessStatus: "unknown" as const };
+    const stale = { ...source("stale", "independentCorroborating", false), fresh: false, freshnessStatus: "stale" as const };
+    const mixed = createVerificationSnapshot({ plan, assessments: [fresh, unknown, stale], results: [{ claimId: claim.claimId, normalizedValue: money(100), sourceAssessments: [fresh, unknown, stale], unresolvedConflict: false, freshnessPassed: true, diagnostics: ["freshness_unknown"] }] });
+    expect(mixed.results[0]).toMatchObject({ status: "stale", independentInstitutionCount: 1, primarySourceFound: false });
+    const unknowns = ["a", "b", "c"].map((id, index) => ({ ...source(id, index === 0 ? "primaryOfficial" : "officialCorroborating", true), fresh: false, freshnessStatus: "unknown" as const }));
+    const allUnknown = createVerificationSnapshot({ plan, assessments: unknowns, results: [{ claimId: claim.claimId, normalizedValue: money(100), sourceAssessments: unknowns, unresolvedConflict: false, freshnessPassed: false, diagnostics: ["freshness_unknown"] }] });
+    expect(allUnknown.results[0]).toMatchObject({ status: "insufficient", independentInstitutionCount: 0, authoritativeInstitutionCount: 0 });
+  });
 });
