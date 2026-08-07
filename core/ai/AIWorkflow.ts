@@ -1,7 +1,7 @@
 import {
   approvalPolicySnapshotFromEditorialContext,
-  bindGeneratedClaims,
   canonicalizeApprovalEvidenceUrl,
+  createGeneratedClaimVerificationRecord,
   type ApprovalEvidenceFact,
   type ApprovalEvidenceSource,
   type ApprovalPolicySnapshot,
@@ -15,6 +15,7 @@ import {
   type ConfirmedContentOpportunity,
   type ContentDocument,
 } from "../content";
+import { editorialRevisionId } from "../quality/QualityEngine";
 import type { AIProvider, AIResponse, AIWebSource } from "./AIProvider";
 import {
   runApprovalSourcePreflight,
@@ -168,22 +169,31 @@ export class AIWorkflow {
         response.diagnostics?.aiUsage,
       );
       assertGeneratedDocumentOwnedIdentityPolicy(generatedDocument, input);
-      const generatedClaimBindings = generationPreflight
+      const generatedClaimVerification = generationPreflight
         && "gate" in generationPreflight
         && input.contentOpportunity?.verificationPlan
         && sourcePreflight?.verificationSnapshot
-        ? bindGeneratedClaims({
+        ? createGeneratedClaimVerificationRecord({
             document: generatedDocument,
             plan: input.contentOpportunity.verificationPlan,
             snapshot: sourcePreflight.verificationSnapshot,
-            gate: generationPreflight.gate,
-          }).bindings
+            boundEditorialRevisionId: editorialRevisionId(generatedDocument),
+          })
         : undefined;
+      const canonicalGeneratedDocument = generatedClaimVerification
+        ? Object.freeze({
+            ...generatedDocument,
+            metadata: Object.freeze({
+              ...generatedDocument.metadata!,
+              generatedClaimVerification,
+            }),
+          })
+        : generatedDocument;
       const result = Object.freeze({
-        document: generatedDocument,
+        document: canonicalGeneratedDocument,
         rawResponse: response.content,
-        ...(generatedClaimBindings
-          ? { generatedClaimBindings }
+        ...(generatedClaimVerification
+          ? { generatedClaimBindings: generatedClaimVerification.bindings }
           : {}),
         ...(sourcePreflight?.verificationSnapshot
           ? { verificationSnapshot: sourcePreflight.verificationSnapshot }
