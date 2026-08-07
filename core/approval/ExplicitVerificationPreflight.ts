@@ -116,12 +116,26 @@ function freezeAssessments(values: readonly VerificationSourceAssessment[]): rea
 }
 
 function normalizeExplicitScalar(kind: VerificationClaimSpec["kind"], value: string): VerificationSourceAssessment["normalizedValue"] {
-  const text = value.replace(/\s+/gu, " ").trim();
+  const text = value.normalize("NFKC").replace(/\s+/gu, " ").trim();
   if (!text) return undefined;
   if (kind === "general") return { kind, value: { statement: text } };
-  if (kind === "money") { const match = text.replace(/,/gu, "").match(/(-?\d+(?:\.\d+)?)\s*(원|KRW|달러|USD)?/iu); if (!match) return undefined; return { kind, value: { amount: Number(match[1]), currency: (match[2] ?? "KRW").toUpperCase() === "원" ? "KRW" : (match[2] ?? "KRW").toUpperCase(), basis: "total" } }; }
-  if (kind === "ratio") { const match = text.match(/(-?\d+(?:\.\d+)?)\s*%/u); return match ? { kind, value: { value: Number(match[1]), representation: "percent", meaning: "rate" } } : undefined; }
+  if (kind === "money") return normalizeExplicitMoney(text);
+  if (kind === "ratio") {
+    const match = text.match(/^(-?\d+(?:\.\d+)?)\s*%$/u);
+    return match ? { kind, value: { value: Number(match[1]), representation: "percent", meaning: "rate" } } : undefined;
+  }
   return undefined;
+}
+
+function normalizeExplicitMoney(text: string): VerificationSourceAssessment["normalizedValue"] {
+  const match = text.replace(/,/gu, "").match(/^(-?\d+(?:\.\d+)?)\s*(억원|만원|천원|원|KRW|달러|USD)$/iu);
+  if (!match) return undefined;
+  const numeric = Number(match[1]);
+  if (!Number.isFinite(numeric)) return undefined;
+  const unit = (match[2] ?? "").toLocaleLowerCase("en-US");
+  const koreanFactor = unit === "억원" ? 100_000_000 : unit === "만원" ? 10_000 : unit === "천원" ? 1_000 : 1;
+  const currency = unit === "달러" || unit === "usd" ? "USD" : "KRW";
+  return { kind: "money", value: { amount: numeric * koreanFactor, currency, basis: "total" } };
 }
 
 function hasNormalizedConflict(assessments: readonly VerificationSourceAssessment[]): boolean {
