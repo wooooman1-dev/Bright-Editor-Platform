@@ -17,6 +17,7 @@ export type VerificationTemporalEvaluation = Readonly<{
 export function evaluateVerificationTemporalEvidence(input: Readonly<{
   requirement?: VerificationTemporalRequirement;
   evidence?: VerificationTemporalEvidence;
+  claimEvidenceExcerpt?: string;
   pageText: string;
   claimValue: string;
   observedAt?: string;
@@ -27,7 +28,12 @@ export function evaluateVerificationTemporalEvidence(input: Readonly<{
   }
   if (requirement.mode === "unknown") return unknown(["freshness_unknown"]);
 
-  const evidence = normalizeEvidence(input.evidence);
+  const evidence = normalizeEvidence(input.evidence)
+    ?? deriveVerificationTemporalEvidence({
+      requirement,
+      evidenceExcerpt: input.claimEvidenceExcerpt ?? "",
+      claimValue: input.claimValue,
+    });
   if (!evidence) return unknown(["temporal_evidence_missing", "freshness_unknown"]);
   const page = normalizeWhitespace(input.pageText);
   const excerpt = normalizeWhitespace(evidence.evidenceExcerpt);
@@ -40,9 +46,51 @@ export function evaluateVerificationTemporalEvidence(input: Readonly<{
   return evaluatePeriod(evidence, requirement.start, requirement.end);
 }
 
+/**
+ * Derives temporal Evidence only from the already submitted Claim Evidence excerpt.
+ * A page-level date elsewhere in the document is intentionally insufficient.
+ */
+export function deriveVerificationTemporalEvidence(input: Readonly<{
+  requirement: Exclude<VerificationTemporalRequirement, Readonly<{ mode: "notRequired" }> | Readonly<{ mode: "unknown" }>>;
+  evidenceExcerpt: string;
+  claimValue: string;
+}>): VerificationTemporalEvidence | undefined {
+  const excerpt = normalizeWhitespace(input.evidenceExcerpt);
+  if (!excerpt || !compact(excerpt).includes(compact(input.claimValue))) return undefined;
+  const dates = extractDateLiterals(excerpt);
+  if (!dates.length) return undefined;
+
+  if (input.requirement.mode === "current") {
+    if (dates.length >= 2 && hasEffectivePeriodMarker(excerpt)) {
+      return Object.freeze({ kind: "effectivePeriod", evidenceExcerpt: excerpt, start: dates[0], end: dates[dates.length - 1] });
+    }
+    if (hasValidThroughMarker(excerpt)) {
+      return Object.freeze({ kind: "validThrough", evidenceExcerpt: excerpt, end: dates[dates.length - 1] });
+    }
+    return undefined;
+  }
+
+  if (input.requirement.mode === "asOf") {
+    const target = strictDate(input.requirement.date);
+    if (!target || !hasReferenceMarker(excerpt)) return undefined;
+    if (dates.length >= 2 && dates[0]! <= target && target <= dates[dates.length - 1]!) {
+      return Object.freeze({ kind: "referencePeriod", evidenceExcerpt: excerpt, start: dates[0], end: dates[dates.length - 1] });
+    }
+    if (dates.includes(target)) return Object.freeze({ kind: "referenceDate", evidenceExcerpt: excerpt, date: target });
+    return undefined;
+  }
+
+  const start = strictDate(input.requirement.start), end = strictDate(input.requirement.end);
+  if (!start || !end || start > end || !hasReferenceMarker(excerpt) || dates.length < 2) return undefined;
+  const evidenceStart = dates[0]!, evidenceEnd = dates[dates.length - 1]!;
+  return evidenceStart <= start && evidenceEnd >= end
+    ? Object.freeze({ kind: "referencePeriod", evidenceExcerpt: excerpt, start: evidenceStart, end: evidenceEnd })
+    : undefined;
+}
+
 function evaluateCurrent(evidence: VerificationTemporalEvidence, observedAt: string | undefined): VerificationTemporalEvaluation {
   const observed = observedAt ? timestampDay(observedAt) : undefined;
-  if (!observed) return unknown(["temporal_observation_missing", "freshness_unknown"]);
+  if (!observed) return unknown(["temporal_observation_missing", "freshness_unknown"], evidence, observedAt);
   if (evidence.kind === "validThrough" && evidence.end) {
     if (observed > evidence.end) return stale(evidence, observedAt, ["claim_stale"]);
     return fresh(evidence, observedAt);
@@ -100,16 +148,11 @@ export function extractVerificationDateLiterals(value: string): readonly string[
 }
 
 function extractDateLiterals(value: string): string[] {
-  const found = new Set<string>();
-  for (const match of value.matchAll(/\b(20\d{2})[-./](\d{1,2})[-./](\d{1,2})\b/gu)) {
-    const normalized = dateParts(match[1], match[2], match[3]);
-    if (normalized) found.add(normalized);
-  }
-  for (const match of value.matchAll(/(20\d{2})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일/gu)) {
-    const normalized = dateParts(match[1], match[2], match[3]);
-    if (normalized) found.add(normalized);
-  }
-  return [...found].sort();
+  const found: string[] = [];
+  const add = (value: string | undefined) => { if (value && !found.includes(value)) found.push(value); };
+  for (const match of value.matchAll(/\b(20\d{2})[-./](\d{1,2})[-./](\d{1,2})\b/gu)) add(dateParts(match[1], match[2], match[3]));
+  for (const match of value.matchAll(/(20\d{2})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일/gu)) add(dateParts(match[1], match[2], match[3]));
+  return found;
 }
 
 function strictDate(value: string): string | undefined {
@@ -128,6 +171,16 @@ function dateParts(yearValue: string | undefined, monthValue: string | undefined
 function timestampDay(value: string): string | undefined {
   const timestamp = Date.parse(value);
   return Number.isFinite(timestamp) ? new Date(timestamp).toISOString().slice(0, 10) : undefined;
+}
+
+function hasEffectivePeriodMarker(value: string): boolean {
+  return /(?:적용\s*기간|유효\s*기간|시행\s*기간|효력\s*기간|적용\s*일자|effective\s+(?:period|from)|valid\s+from)/iu.test(value);
+}
+function hasValidThroughMarker(value: string): boolean {
+  return /(?:유효\s*기한|만료일|종료일|(?:적용|유효|시행|지원|지급)[^.!?]{0,40}까지|valid\s+through|\buntil\b|\bexpires?\b)/iu.test(value);
+}
+function hasReferenceMarker(value: string): boolean {
+  return /(?:기준(?:일|기간|연도|년도|시점)?|통계\s*(?:기간|연도|년도)?|대상\s*기간|reference\s+(?:date|period)|\bas\s+of\b)/iu.test(value);
 }
 
 function normalizeWhitespace(value: string): string { return value.replace(/\s+/gu, " ").normalize("NFKC").trim(); }
