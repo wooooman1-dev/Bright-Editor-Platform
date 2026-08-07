@@ -33,8 +33,8 @@ const candidate = () => createContentOpportunityCandidate({
 
 describe("Content Opportunity contract", () => {
   const verificationClaim = () => ({
-    claimId: "claim-1", field: "amount", kind: "money" as const, statement: "지원금", rawValue: "100만원",
-    qualifiers: { subject: "가구" }, required: true,
+    claimId: "claim-1", field: "amount", kind: "money" as const, statement: "현재 지원금", rawValue: "100만원",
+    qualifiers: { subject: "가구" }, temporalRequirement: { mode: "current" as const }, required: true,
   });
 
   it("keeps absent plans legacy without creating claims", () => {
@@ -60,23 +60,28 @@ describe("Content Opportunity contract", () => {
     expect(hasSelfConsistentVerificationPlan({ ...plan, fingerprint: "vfp-invalid" })).toBe(false);
   });
 
-  it("freezes copied claims and nested qualifiers", () => {
+  it("freezes copied claims, nested qualifiers, and temporal requirements", () => {
     const claims = [verificationClaim()];
     const plan = createContentOpportunityVerificationPlan(claims);
     claims[0]!.qualifiers.subject = "변경";
     expect(plan.claims[0]!.qualifiers.subject).toBe("가구");
+    expect(plan.claims[0]!.temporalRequirement).toEqual({ mode: "current" });
     expect(Object.isFrozen(plan)).toBe(true);
     expect(Object.isFrozen(plan.claims)).toBe(true);
     expect(Object.isFrozen(plan.claims[0])).toBe(true);
     expect(Object.isFrozen(plan.claims[0]!.qualifiers)).toBe(true);
+    expect(Object.isFrozen(plan.claims[0]!.temporalRequirement)).toBe(true);
   });
 
-  it("changes only the plan fingerprint when plan claims change", () => {
+  it("changes only the plan fingerprint when plan claims or temporal intent change", () => {
     const withoutPlan = candidate();
     const withPlan = createContentOpportunityCandidate({ ...withoutPlan, verificationPlan: createContentOpportunityVerificationPlan([verificationClaim()]) });
     const changedPlan = createContentOpportunityCandidate({ ...withoutPlan, verificationPlan: createContentOpportunityVerificationPlan([{ ...verificationClaim(), rawValue: "200만원" }]) });
+    const changedTemporal = createContentOpportunityCandidate({ ...withoutPlan, verificationPlan: createContentOpportunityVerificationPlan([{ ...verificationClaim(), temporalRequirement: { mode: "unknown" } }]) });
     expect(withPlan.fingerprint).toBe(withoutPlan.fingerprint);
+    expect(withPlan.fingerprint).toBe(changedTemporal.fingerprint);
     expect(withPlan.verificationPlan?.fingerprint).not.toBe(changedPlan.verificationPlan?.fingerprint);
+    expect(withPlan.verificationPlan?.fingerprint).not.toBe(changedTemporal.verificationPlan?.fingerprint);
   });
 
   it("preserves the plan when the opportunity is confirmed", () => {
