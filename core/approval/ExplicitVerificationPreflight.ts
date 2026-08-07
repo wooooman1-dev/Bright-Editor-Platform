@@ -71,7 +71,7 @@ export function assessmentsFromExplicitDiscovery(input: Readonly<{ claims: reado
 }
 function normalizeScalarText(value: string): string { return value.replace(/,/gu, "").replace(/\s+/gu, "").normalize("NFKC").toLocaleLowerCase("en-US"); }
 
-function legacyFixtureFreshness(source: ExplicitDiscoveredSource) {
+function legacyFixtureFreshness(source: ExplicitDiscoveredSource): ReturnType<typeof evaluateVerificationTemporalEvidence> {
   if (source.fresh === true) return Object.freeze({ freshnessStatus: "fresh" as const, fresh: true, ...(source.observedAt ? { observedAt: source.observedAt } : {}), diagnostics: Object.freeze([] as string[]) });
   if (source.fresh === false) return Object.freeze({ freshnessStatus: "stale" as const, fresh: false, ...(source.observedAt ? { observedAt: source.observedAt } : {}), diagnostics: Object.freeze(["claim_stale"]) });
   if (source.effectiveUntil && source.observedAt) {
