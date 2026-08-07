@@ -44,6 +44,12 @@ const source = (
   diagnostics: [`claim:${claimId}`],
 });
 
+const completeSources = (claimId: string): readonly VerificationSourceAssessment[] => Object.freeze([
+  source(claimId, "primary"),
+  source(claimId, "official-a"),
+  source(claimId, "official-b"),
+]);
+
 function plan(claims: readonly VerificationClaimSpec[]) {
   return Object.freeze({
     claims: Object.freeze([...claims]),
@@ -112,7 +118,7 @@ describe("Verification Generation Gate", () => {
 
   it("allows a required verified Claim and exposes only its fresh supporting sources", () => {
     const required = claim("required");
-    const assessments = [source("required", "primary"), source("required", "official")];
+    const assessments = completeSources("required");
     const gate = evaluateVerificationGenerationGate({
       plan: plan([required]),
       snapshot: snapshot([required], [result("required", "verified", assessments)]),
@@ -121,7 +127,8 @@ describe("Verification Generation Gate", () => {
     expect(gate.verifiedClaimIds).toEqual(["required"]);
     expect(gate.verifiedCanonicalUrls).toEqual([
       "https://primary.example/claim",
-      "https://official.example/claim",
+      "https://official-a.example/claim",
+      "https://official-b.example/claim",
     ]);
   });
 
@@ -202,7 +209,7 @@ describe("Verification Generation Gate", () => {
   it("keeps same-field Claims independent by claimId", () => {
     const verified = claim("claim-a", true, "amount");
     const missing = claim("claim-b", true, "amount");
-    const assessments = [source("claim-a", "primary")];
+    const assessments = completeSources("claim-a");
     const gate = evaluateVerificationGenerationGate({
       plan: plan([verified, missing]),
       snapshot: snapshot(
@@ -215,19 +222,23 @@ describe("Verification Generation Gate", () => {
     expect(gate.blockingClaimIds).toEqual(["claim-b"]);
   });
 
-  it("excludes stale assessments when a verified Claim also has fresh evidence", () => {
+  it("excludes stale assessments when a verified Claim also has complete fresh evidence", () => {
     const required = claim("required");
-    const fresh = source("required", "primary");
+    const fresh = completeSources("required");
     const stale = source("required", "old", "stale");
     const gate = evaluateVerificationGenerationGate({
       plan: plan([required]),
-      snapshot: snapshot([required], [result("required", "verified", [fresh, stale])]),
+      snapshot: snapshot([required], [result("required", "verified", [...fresh, stale])]),
     });
     expect(gate.ready).toBe(true);
-    expect(gate.verifiedCanonicalUrls).toEqual(["https://primary.example/claim"]);
+    expect(gate.verifiedCanonicalUrls).toEqual([
+      "https://primary.example/claim",
+      "https://official-a.example/claim",
+      "https://official-b.example/claim",
+    ]);
   });
 
-  it("does not trust an unknown-freshness assessment even if a malformed Snapshot labels the Claim verified", () => {
+  it("re-evaluates policy and rejects a malformed verified status backed only by unknown freshness", () => {
     const required = claim("required");
     const unknown = source("required", "primary", "unknown");
     const gate = evaluateVerificationGenerationGate({
@@ -236,6 +247,6 @@ describe("Verification Generation Gate", () => {
     });
     expect(gate.ready).toBe(false);
     expect(gate.blockingClaimIds).toEqual(["required"]);
-    expect(gate.diagnostics).toContain("verification_verified_claim_missing_generation_source:required");
+    expect(gate.diagnostics).toContain("verification_claim_policy_recheck_failed:required");
   });
 });
