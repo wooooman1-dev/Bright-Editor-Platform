@@ -1,4 +1,5 @@
 import type { AIUsageRecord } from "../ai/AIUsageCost";
+import type { GeneratedClaimVerificationRecord } from "../approval/GeneratedClaimBinding";
 import type {
   ApprovalDuplicateCheckSnapshot,
   ApprovalEvidencePack,
@@ -35,6 +36,7 @@ export type ContentMetadata = Readonly<{
   approvalEvidence?: ApprovalEvidencePack;
   approvalDuplicateCheck?: ApprovalDuplicateCheckSnapshot;
   siteApprovalReadiness?: SiteApprovalReadinessSnapshot;
+  generatedClaimVerification?: GeneratedClaimVerificationRecord;
   approvalReadinessExecution?: Readonly<{
     version: "1.0" | "2.0" | "3.0";
     key: string;
