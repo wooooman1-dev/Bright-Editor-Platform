@@ -44,7 +44,7 @@ const claim: VerificationClaimSpec = Object.freeze({
   statement: "현재 지원 금액은 50만원이다.",
   rawValue: "50만원",
   qualifiers: {},
-  temporalRequirement: { mode: "current" },
+  temporalRequirement: { mode: "current" as const },
   required: true,
 });
 
@@ -134,8 +134,8 @@ function assessment(
     authoritative: true,
     supports: true,
     normalizedValue: {
-      kind: "money",
-      value: { amount: 500_000, currency: "KRW", basis: "total" },
+      kind: "money" as const,
+      value: { amount: 500_000, currency: "KRW", basis: "total" as const },
     },
     freshnessStatus,
     fresh: freshnessStatus === "fresh",
@@ -188,14 +188,22 @@ const claimEvidence = Object.freeze([{
   evidenceExcerpt: "지원 금액 50만원의 적용 기간은 2026-01-01부터 2026-12-31까지입니다.",
 }]);
 
+const emptyCoverage: ApprovalSourcePreflightResult["coverage"] = Object.freeze({
+  status: "not_required",
+  requiredClaims: Object.freeze([]),
+  coveredClaimFields: Object.freeze([]),
+  uncoveredClaimFields: Object.freeze([]),
+  sources: Object.freeze([]),
+});
+
 function preflightResult(snapshot: ReturnType<typeof verifiedSnapshot>): ApprovalSourcePreflightResult {
   return Object.freeze({
     sources: Object.freeze([
-      { url: "https://primary.example/claim", title: "primary", excerpt: "verified", provenance: "citation" },
-      { url: "https://official-a.example/claim", title: "official-a", excerpt: "verified", provenance: "citation" },
-      { url: "https://official-b.example/claim", title: "official-b", excerpt: "verified", provenance: "citation" },
-      { url: "https://stale.example/claim", title: "stale", excerpt: "stale", provenance: "citation" },
-      { url: "https://rejected.example/claim", title: "rejected", excerpt: "rejected", provenance: "citation" },
+      { url: "https://primary.example/claim", title: "primary", excerpt: "verified", provenance: "citation" as const },
+      { url: "https://official-a.example/claim", title: "official-a", excerpt: "verified", provenance: "citation" as const },
+      { url: "https://official-b.example/claim", title: "official-b", excerpt: "verified", provenance: "citation" as const },
+      { url: "https://stale.example/claim", title: "stale", excerpt: "stale", provenance: "citation" as const },
+      { url: "https://rejected.example/claim", title: "rejected", excerpt: "rejected", provenance: "citation" as const },
     ]),
     claimSources: Object.freeze([
       { url: "https://primary.example/claim", claims: claimEvidence },
@@ -203,7 +211,7 @@ function preflightResult(snapshot: ReturnType<typeof verifiedSnapshot>): Approva
       { url: "https://official-b.example/claim", claims: claimEvidence },
       { url: "https://stale.example/claim", claims: claimEvidence },
     ]),
-    coverage: { status: "complete", requiredClaims: Object.freeze([]), coveredClaimFields: Object.freeze([]), uncoveredClaimFields: Object.freeze([]), diagnostics: Object.freeze([]) } as ApprovalSourcePreflightResult["coverage"],
+    coverage: emptyCoverage,
     verificationSnapshot: snapshot,
   });
 }
@@ -217,7 +225,7 @@ describe("AIWorkflow explicit Verification Generation Gate", () => {
     vi.mocked(runApprovalSourcePreflight).mockResolvedValue(Object.freeze({
       sources: Object.freeze([]),
       claimSources: Object.freeze([]),
-      coverage: { status: "complete", requiredClaims: Object.freeze([]), coveredClaimFields: Object.freeze([]), uncoveredClaimFields: Object.freeze([]), diagnostics: Object.freeze([]) } as ApprovalSourcePreflightResult["coverage"],
+      coverage: emptyCoverage,
       verificationSnapshot: insufficientSnapshot(),
     }));
     const provider = new RecordingProvider();
