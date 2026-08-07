@@ -38,6 +38,7 @@ export function assessmentsFromExplicitDiscovery(input: Readonly<{ claims: reado
       const supports = Boolean(claim.evidenceExcerpt.trim() && excerptFound && valueFound && rawMatches && normalized);
       const temporal = spec.temporalRequirement
         ? evaluateVerificationTemporalEvidence({
+          claimKind: spec.kind,
           requirement: spec.temporalRequirement,
           claimEvidenceExcerpt: claim.evidenceExcerpt,
           pageText: source.pageText ?? "",
