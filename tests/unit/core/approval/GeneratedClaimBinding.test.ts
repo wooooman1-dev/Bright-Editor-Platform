@@ -3,10 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   bindGeneratedClaims,
   createVerificationSnapshot,
-  evaluateVerificationGenerationGate,
   type VerificationClaimSpec,
   type VerificationSourceAssessment,
 } from "../../../../core/approval";
+import { evaluateVerificationGenerationGate } from "../../../../core/approval/VerificationGenerationGate";
 import { createContentOpportunityVerificationPlan, type ContentDocument } from "../../../../core/content";
 
 const claim: VerificationClaimSpec = Object.freeze({
