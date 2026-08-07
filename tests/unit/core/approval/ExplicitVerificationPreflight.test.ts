@@ -4,7 +4,7 @@ import { createVerificationSnapshot, emptyVerificationSnapshot, type Verificatio
 
 const claim: VerificationClaimSpec = { claimId: "claim-a", field: "amount", kind: "money", statement: "amount", qualifiers: {}, required: true };
 const money = (amount: number) => ({ kind: "money" as const, value: { amount, currency: "KRW", basis: "total" as const } });
-const source = (id: string, role: VerificationSourceAssessment["role"], authoritative: boolean, amount = 100): VerificationSourceAssessment => ({ sourceId: id, institutionGroupId: id, role, authoritative, supports: true, normalizedValue: money(amount), fresh: true, diagnostics: [] });
+const source = (id: string, role: VerificationSourceAssessment["role"], authoritative: boolean, amount = 100): VerificationSourceAssessment => ({ sourceId: id, institutionGroupId: id, role, authoritative, supports: true, normalizedValue: money(amount), freshnessStatus: "fresh", fresh: true, diagnostics: [] });
 
 describe("explicit verification snapshot", () => {
   it("keeps an empty explicit plan distinct and makes no source assessments", () => {
@@ -47,7 +47,7 @@ describe("explicit verification snapshot", () => {
     const unknown = { ...source("unknown", "primaryOfficial", true), fresh: false, freshnessStatus: "unknown" as const };
     const stale = { ...source("stale", "independentCorroborating", false), fresh: false, freshnessStatus: "stale" as const };
     const mixed = createVerificationSnapshot({ plan, assessments: [fresh, unknown, stale], results: [{ claimId: claim.claimId, normalizedValue: money(100), sourceAssessments: [fresh, unknown, stale], unresolvedConflict: false, freshnessPassed: true, diagnostics: ["freshness_unknown"] }] });
-    expect(mixed.results[0]).toMatchObject({ status: "stale", independentInstitutionCount: 1, primarySourceFound: false });
+    expect(mixed.results[0]).toMatchObject({ status: "insufficient", independentInstitutionCount: 1, primarySourceFound: false });
     const unknowns = ["a", "b", "c"].map((id, index) => ({ ...source(id, index === 0 ? "primaryOfficial" : "officialCorroborating", true), fresh: false, freshnessStatus: "unknown" as const }));
     const allUnknown = createVerificationSnapshot({ plan, assessments: unknowns, results: [{ claimId: claim.claimId, normalizedValue: money(100), sourceAssessments: unknowns, unresolvedConflict: false, freshnessPassed: false, diagnostics: ["freshness_unknown"] }] });
     expect(allUnknown.results[0]).toMatchObject({ status: "insufficient", independentInstitutionCount: 0, authoritativeInstitutionCount: 0 });
