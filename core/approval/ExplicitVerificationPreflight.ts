@@ -5,6 +5,7 @@ import { sourceSnapshotFingerprint, verificationSnapshotFingerprint } from "./Ve
 import { evaluateVerificationClaim } from "./VerificationClaimPolicy";
 import { normalizeVerificationValue } from "./VerificationClaimNormalizer";
 import { canonicalizeVerificationSourceIdentity } from "./VerificationSourceIdentity";
+import { evaluateVerificationTemporalEvidence } from "./VerificationTemporalPolicy";
 
 export type ExplicitVerificationClock = () => string;
 export type ExplicitVerificationInput = Readonly<{
@@ -18,13 +19,14 @@ export type ExplicitDiscoveredClaim = Readonly<{ claimId: string; value: string;
 export type ExplicitDiscoveredSource = Readonly<{ requestedUrl: string; finalUrl?: string; title?: string; evidenceExcerpt: string; pageText?: string; publisherId?: string; role?: "primaryOfficial" | "officialCorroborating" | "independentCorroborating"; authoritative?: boolean; observedAt?: string; effectiveFrom?: string; effectiveUntil?: string; fresh?: boolean; claims: readonly ExplicitDiscoveredClaim[]; diagnostics?: readonly string[] }>;
 
 /** Converts server-validated explicit discovery records into claim assessments. AI-owned identity fields are ignored. */
-export function assessmentsFromExplicitDiscovery(input: Readonly<{ claims: readonly VerificationClaimSpec[]; sources: readonly ExplicitDiscoveredSource[] }>): readonly VerificationSourceAssessment[] {
+export function assessmentsFromExplicitDiscovery(input: Readonly<{ claims: readonly VerificationClaimSpec[]; sources: readonly ExplicitDiscoveredSource[]; now?: ExplicitVerificationClock }>): readonly VerificationSourceAssessment[] {
   const specs = new Map(input.claims.map((claim) => [claim.claimId, claim]));
   const output: VerificationSourceAssessment[] = [];
+  const now = input.now ?? (() => new Date().toISOString());
   for (const source of input.sources) {
     const identity = canonicalizeVerificationSourceIdentity({ requestedUrl: source.requestedUrl, finalUrl: source.finalUrl, publisherId: source.publisherId, role: source.role ?? "independentCorroborating", authoritative: source.authoritative === true });
     const baseDiagnostics = [...(source.diagnostics ?? [])];
-    if (!identity) { output.push(Object.freeze({ sourceId: `unresolved-${source.requestedUrl}`, institutionGroupId: `unresolved-${source.requestedUrl}`, role: "independentCorroborating", authoritative: false, supports: false, fresh: false, diagnostics: Object.freeze([...baseDiagnostics, "Source institution identity could not be resolved."]) })); continue; }
+    if (!identity) { output.push(Object.freeze({ sourceId: `unresolved-${source.requestedUrl}`, institutionGroupId: `unresolved-${source.requestedUrl}`, role: "independentCorroborating", authoritative: false, supports: false, fresh: false, freshnessStatus: "unknown", diagnostics: Object.freeze([...baseDiagnostics, "Source institution identity could not be resolved.", "freshness_unknown"]) })); continue; }
     for (const claim of source.claims) {
       const spec = specs.get(claim.claimId);
       if (!spec) continue;
@@ -34,14 +36,50 @@ export function assessmentsFromExplicitDiscovery(input: Readonly<{ claims: reado
       const valueFound = page.includes(claim.value.replace(/\s+/gu, " ").normalize("NFKC"));
       const rawMatches = !spec.rawValue || normalizeScalarText(spec.rawValue) === normalizeScalarText(claim.value);
       const supports = Boolean(claim.evidenceExcerpt.trim() && excerptFound && valueFound && rawMatches && normalized);
-      const freshnessStatus = source.effectiveUntil ? (source.observedAt && source.effectiveUntil < source.observedAt ? "stale" : "fresh") : source.fresh === true ? "fresh" : source.fresh === false ? "stale" : "unknown";
-      const fresh = freshnessStatus === "fresh";
-      output.push(Object.freeze({ ...identity, supports, ...(normalized && valueFound ? { normalizedValue: normalized } : {}), freshnessStatus, ...(source.observedAt ? { observedAt: source.observedAt } : {}), ...(source.effectiveFrom ? { effectiveFrom: source.effectiveFrom } : {}), ...(source.effectiveUntil ? { effectiveUntil: source.effectiveUntil } : {}), fresh, diagnostics: Object.freeze([...baseDiagnostics, ...(excerptFound ? [] : ["claim_evidence_excerpt_not_found"]), ...(valueFound ? [] : ["claim_value_not_found"]), ...(rawMatches ? [] : ["claim_raw_value_mismatch"]), ...(normalized ? [] : ["claim_normalization_failed"]), ...(freshnessStatus === "stale" ? ["claim_stale"] : freshnessStatus === "unknown" ? ["freshness_unknown"] : []), `claim:${claim.claimId}`]) }));
+      const temporal = spec.temporalRequirement
+        ? evaluateVerificationTemporalEvidence({
+          requirement: spec.temporalRequirement,
+          claimEvidenceExcerpt: claim.evidenceExcerpt,
+          pageText: source.pageText ?? "",
+          claimValue: claim.value,
+          observedAt: source.observedAt ?? (source.pageText ? now() : undefined),
+        })
+        : legacyFixtureFreshness(source);
+      output.push(Object.freeze({
+        ...identity,
+        supports,
+        ...(normalized && valueFound ? { normalizedValue: normalized } : {}),
+        freshnessStatus: temporal.freshnessStatus,
+        ...(temporal.observedAt ? { observedAt: temporal.observedAt } : {}),
+        ...(temporal.effectiveFrom ? { effectiveFrom: temporal.effectiveFrom } : {}),
+        ...(temporal.effectiveUntil ? { effectiveUntil: temporal.effectiveUntil } : {}),
+        ...(temporal.temporalEvidence ? { temporalEvidence: temporal.temporalEvidence } : {}),
+        fresh: temporal.fresh,
+        diagnostics: Object.freeze([
+          ...baseDiagnostics,
+          ...(excerptFound ? [] : ["claim_evidence_excerpt_not_found"]),
+          ...(valueFound ? [] : ["claim_value_not_found"]),
+          ...(rawMatches ? [] : ["claim_raw_value_mismatch"]),
+          ...(normalized ? [] : ["claim_normalization_failed"]),
+          ...temporal.diagnostics,
+          `claim:${claim.claimId}`,
+        ]),
+      }));
     }
   }
   return Object.freeze(output);
 }
 function normalizeScalarText(value: string): string { return value.replace(/,/gu, "").replace(/\s+/gu, "").normalize("NFKC").toLocaleLowerCase("en-US"); }
+
+function legacyFixtureFreshness(source: ExplicitDiscoveredSource) {
+  if (source.fresh === true) return Object.freeze({ freshnessStatus: "fresh" as const, fresh: true, ...(source.observedAt ? { observedAt: source.observedAt } : {}), diagnostics: Object.freeze([] as string[]) });
+  if (source.fresh === false) return Object.freeze({ freshnessStatus: "stale" as const, fresh: false, ...(source.observedAt ? { observedAt: source.observedAt } : {}), diagnostics: Object.freeze(["claim_stale"]) });
+  if (source.effectiveUntil && source.observedAt) {
+    const observed = Date.parse(source.observedAt), end = Date.parse(source.effectiveUntil);
+    if (Number.isFinite(observed) && Number.isFinite(end) && observed > end) return Object.freeze({ freshnessStatus: "stale" as const, fresh: false, observedAt: source.observedAt, effectiveUntil: source.effectiveUntil, diagnostics: Object.freeze(["claim_stale"]) });
+  }
+  return Object.freeze({ freshnessStatus: "unknown" as const, fresh: false, ...(source.observedAt ? { observedAt: source.observedAt } : {}), diagnostics: Object.freeze(["freshness_unknown"]) });
+}
 
 /** Builds the Phase 4 server-owned immutable Snapshot. No AI, fetch, or persistence is performed here. */
 export function createVerificationSnapshot(input: ExplicitVerificationInput): VerificationSnapshot {
