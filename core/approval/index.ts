@@ -37,3 +37,4 @@ export * from "./VerificationClaimNormalizer";
 export * from "./VerificationSourceIdentity";
 export * from "./VerificationClaimFingerprint";
 export * from "./VerificationClaimPolicy";
+export * from "./ExplicitVerificationPreflight";

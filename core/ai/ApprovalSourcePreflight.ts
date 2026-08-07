@@ -17,6 +17,7 @@ import {
 import { scopeApprovalSourcePreflightRequirements } from "../approval/ApprovalSourcePreflightClaimScope";
 import type { ConfirmedContentOpportunity } from "../content";
 import type { AIProvider, AIResponse, AIWebSource } from "./AIProvider";
+import { assessmentsFromExplicitDiscovery, createVerificationSnapshot, type ExplicitDiscoveredSource } from "../approval/ExplicitVerificationPreflight";
 
 export const approvalSourcePreflightTask = "approval-source-preflight";
 export const approvalSourcePreflightMaximumClaimsPerSource = 40;
@@ -31,6 +32,7 @@ export type ApprovalSourcePreflightResult = Readonly<{
   claimSources: readonly ApprovalSourcePreflightClaimSource[];
   coverage: ApprovalSourcePreflightCoverageResult;
   diagnostics?: AIResponse["diagnostics"];
+  verificationSnapshot?: import("../approval").VerificationSnapshot;
 }>;
 
 export class ApprovalSourcePreflightError extends Error {
@@ -50,6 +52,7 @@ export async function runApprovalSourcePreflight(input: Readonly<{
   contentType: string;
   fetcher?: SiteApprovalReadinessFetch;
 }>): Promise<ApprovalSourcePreflightResult> {
+  if (input.opportunity.verificationPlan) return runExplicitPreflight(input);
   const requiredClaims = scopeApprovalSourcePreflightRequirements(
     input.opportunity,
     requiredApprovalSourcePreflightClaims(
@@ -184,6 +187,38 @@ export async function runApprovalSourcePreflight(input: Readonly<{
     coverage,
     ...(response.diagnostics ? { diagnostics: response.diagnostics } : {}),
   });
+}
+
+async function runExplicitPreflight(input: Readonly<Parameters<typeof runApprovalSourcePreflight>[0]>): Promise<ApprovalSourcePreflightResult> {
+  const plan = input.opportunity.verificationPlan!;
+  if (!plan.claims.length) {
+    return Object.freeze({ sources: Object.freeze([]), claimSources: Object.freeze([]), coverage: evaluateApprovalSourcePreflightCoverage({ profileId: input.snapshot.profileId, opportunity: input.opportunity, requiredClaims: [], sources: [] }), verificationSnapshot: createVerificationSnapshot({ plan, assessments: [] }) });
+  }
+  const response = await input.provider.generate({ instruction: explicitPreflightInstruction(input.snapshot, input.opportunity), metadata: { task: approvalSourcePreflightTask, verificationMode: "explicit", approvalPurpose: input.snapshot.contentPurpose, approvalProfileId: input.snapshot.profileId, approvalPolicyVersion: input.snapshot.policyVersion, platform: input.platform, contentType: input.contentType } });
+  const discovered = parseExplicitSources(response.content);
+  const observed = new Set((response.diagnostics?.webSources ?? []).map((source) => canonicalizeApprovalEvidenceUrl(source.url)));
+  const eligible = discovered.filter((source) => !observed.size || observed.has(source.requestedUrl));
+  const pages = await fetchPreflightPages(eligible.map((source) => source.requestedUrl), input.fetcher ?? fetch);
+  const byUrl = new Map(pages.map((page) => [canonicalizeApprovalEvidenceUrl(page.requestedUrl), page]));
+  const accepted: ExplicitDiscoveredSource[] = [];
+  for (const source of eligible) {
+    const page = byUrl.get(source.requestedUrl);
+    if (!page) { accepted.push({ ...source, role: "independentCorroborating", authoritative: false, fresh: false, diagnostics: ["source_fetch_failed"] }); continue; }
+    const rejection = preflightPageRejection(input.snapshot, page, source.evidenceExcerpt);
+    if (rejection) { accepted.push({ ...source, finalUrl: page.finalUrl, pageText: page.text, role: "independentCorroborating", authoritative: false, fresh: false, diagnostics: [rejection] }); continue; }
+    accepted.push({ ...source, finalUrl: page.finalUrl, pageText: page.text, publisherId: page.publisher, authoritative: officialSourceAllowed(input.snapshot.profileId, page), role: accepted.length ? "officialCorroborating" : "primaryOfficial", diagnostics: [] });
+  }
+  const assessments = assessmentsFromExplicitDiscovery({ claims: plan.claims, sources: accepted });
+  const results = plan.claims.map((claim) => { const claimAssessments = assessments.filter((assessment) => assessment.diagnostics.includes(`claim:${claim.claimId}`)); const usable = claimAssessments.filter((assessment) => assessment.supports && assessment.normalizedValue); return { claimId: claim.claimId, ...(usable[0]?.normalizedValue ? { normalizedValue: usable[0].normalizedValue } : {}), sourceAssessments: claimAssessments, unresolvedConflict: false, freshnessPassed: usable.length > 0 && usable.every((assessment) => assessment.fresh), diagnostics: claimAssessments.flatMap((assessment) => assessment.diagnostics.filter((diagnostic) => !diagnostic.startsWith("claim:"))) }; });
+  return Object.freeze({ sources: Object.freeze(accepted.map((source) => Object.freeze({ url: source.finalUrl ?? source.requestedUrl, title: source.title, excerpt: source.evidenceExcerpt, provenance: "citation" as const }))), claimSources: Object.freeze([]), coverage: evaluateApprovalSourcePreflightCoverage({ profileId: input.snapshot.profileId, opportunity: input.opportunity, requiredClaims: [], sources: [] }), verificationSnapshot: createVerificationSnapshot({ plan, assessments, results }), ...(response.diagnostics ? { diagnostics: response.diagnostics } : {}) });
+}
+
+function explicitPreflightInstruction(snapshot: ApprovalPolicySnapshot, opportunity: ConfirmedContentOpportunity): string { return `Perform explicit source discovery only. Use each claimId exactly as provided. Claims: ${JSON.stringify(opportunity.verificationPlan!.claims)}. Profile: ${snapshot.profileDisplayName}. Return JSON with sources containing url,title,evidenceExcerpt and claims containing claimId,value,evidenceExcerpt.`; }
+function parseExplicitSources(raw: string): readonly ExplicitDiscoveredSource[] {
+  let parsed: unknown; try { parsed = JSON.parse(stripFence(raw)); } catch { throw new ApprovalSourcePreflightError("Explicit source discovery response is not valid JSON."); }
+  const values = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>).sources : undefined;
+  if (!Array.isArray(values)) throw new ApprovalSourcePreflightError("Explicit source discovery response requires sources.");
+  return Object.freeze(values.slice(0, maximumPreflightSources).flatMap((item) => { if (!item || typeof item !== "object" || Array.isArray(item)) return []; const value = item as Record<string, unknown>; const rawUrl = typeof value.url === "string" ? value.url.trim() : ""; const safety = evaluateApprovalSourceUrlSafety(rawUrl); if (!safety.safe || !safety.normalizedUrl) return []; const claims = Array.isArray(value.claims) ? value.claims.flatMap((item) => { if (!item || typeof item !== "object" || Array.isArray(item)) return []; const claim = item as Record<string, unknown>; return typeof claim.claimId === "string" && typeof claim.value === "string" && typeof claim.evidenceExcerpt === "string" ? [{ claimId: claim.claimId.trim(), value: claim.value.trim(), evidenceExcerpt: claim.evidenceExcerpt.trim() }] : []; }) : []; return [{ requestedUrl: canonicalizeApprovalEvidenceUrl(safety.normalizedUrl), title: typeof value.title === "string" ? value.title.trim() : "", evidenceExcerpt: typeof value.evidenceExcerpt === "string" ? value.evidenceExcerpt.trim() : "", claims }]; }));
 }
 
 export function withApprovalSourcePreflightInstruction(

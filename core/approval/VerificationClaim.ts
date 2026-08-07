@@ -21,14 +21,18 @@ export type VerificationNormalizedValue =
   | Readonly<{ kind: "general"; value: NormalizedGeneralClaim }>;
 export type VerificationClaimQualifiers = Readonly<{ subject?: string; scope?: string; basis?: string; note?: string }>;
 export type VerificationClaimSpec = Readonly<{ claimId: string; field: string; kind: VerificationClaimKind; statement: string; rawValue?: string; qualifiers: VerificationClaimQualifiers; required: boolean; policyId?: string }>;
-export type VerificationSourceAssessment = Readonly<{ sourceId: string; institutionGroupId: string; publisherId?: string; role: VerificationSourceRole; authoritative: boolean; supports: boolean; normalizedValue?: VerificationNormalizedValue; observedAt?: string; effectiveFrom?: string; effectiveUntil?: string; fresh: boolean; diagnostics: readonly string[] }>;
+export type VerificationFreshnessStatus = "fresh" | "stale" | "unknown";
+export type VerificationSourceAssessment = Readonly<{ sourceId: string; institutionGroupId: string; sourceFamilyId?: string; canonicalUrl?: string; publisherId?: string; role: VerificationSourceRole; authoritative: boolean; supports: boolean; normalizedValue?: VerificationNormalizedValue; freshnessStatus?: VerificationFreshnessStatus; observedAt?: string; effectiveFrom?: string; effectiveUntil?: string; fresh: boolean; diagnostics: readonly string[] }>;
 export type VerificationClaimResult = Readonly<{ claimId: string; status: VerificationClaimStatus; normalizedValue?: VerificationNormalizedValue; sourceAssessments: readonly VerificationSourceAssessment[]; independentInstitutionCount: number; authoritativeInstitutionCount: number; primarySourceFound: boolean; unresolvedConflict: boolean; freshnessPassed: boolean; verifiedAt?: string; reviewBy?: string; diagnostics: readonly string[] }>;
 export type VerificationSnapshot = Readonly<{ verificationMode: VerificationMode; claimDefinitionFingerprint: string; sourceSnapshotFingerprint: string; results: readonly VerificationClaimResult[]; overallStatus: VerificationOverallStatus; createdAt: string; updatedAt: string; verificationSnapshotFingerprint: string }>;
 export type GeneratedClaimReference = Readonly<{ referenceType: "verified"; verificationClaimId: string; sourceIds: readonly string[] }> | Readonly<{ referenceType: "unverifiedDetected"; diagnosticCode: string }>;
 export function verificationOverallStatus(claims: readonly VerificationClaimSpec[], results: readonly VerificationClaimResult[] = []): VerificationOverallStatus {
   if (!claims.length) return "not_required";
   if (!results.length) return "planned";
-  const statuses = results.map((result) => result.status);
+  const requiredIds = new Set(claims.filter((claim) => claim.required).map((claim) => claim.claimId));
+  const relevant = requiredIds.size ? results.filter((result) => requiredIds.has(result.claimId)) : results;
+  if (!relevant.length) return "verified";
+  const statuses = relevant.map((result) => result.status);
   if (statuses.includes("conflicted")) return "conflicted";
   if (statuses.includes("stale")) return "stale";
   if (statuses.includes("insufficient")) return "insufficient";

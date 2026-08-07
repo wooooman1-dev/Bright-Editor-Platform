@@ -327,7 +327,7 @@ function editorialOutputPolicy(metadata?: Readonly<Record<string, string>>) {
     return {
       maxOutputTokens: 2_500,
       verbosity: "low" as const,
-      format: approvalSourcePreflightFormat,
+      format: metadata.verificationMode === "explicit" ? explicitApprovalSourcePreflightFormat : approvalSourcePreflightFormat,
     };
   }
   if (metadata?.task === "content-generation") {
@@ -373,6 +373,35 @@ export const approvalSourcePreflightFormat = {
                 },
               },
             },
+          },
+        },
+      },
+    },
+  },
+} as const;
+
+export const explicitApprovalSourcePreflightFormat = {
+  type: "json_schema",
+  name: "explicit_approval_source_preflight",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    required: ["sources"],
+    properties: {
+      sources: {
+        type: "array",
+        maxItems: 6,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["url", "title", "evidenceExcerpt", "claims"],
+          properties: {
+            url: { type: "string" }, title: { type: "string" }, evidenceExcerpt: { type: "string" },
+            claims: { type: "array", maxItems: approvalSourcePreflightMaximumClaimsPerSource, items: {
+              type: "object", additionalProperties: false, required: ["claimId", "value", "evidenceExcerpt"],
+              properties: { claimId: { type: "string" }, value: { type: "string" }, evidenceExcerpt: { type: "string" } },
+            } },
           },
         },
       },
