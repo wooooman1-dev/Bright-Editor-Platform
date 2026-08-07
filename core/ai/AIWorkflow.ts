@@ -1,9 +1,11 @@
 import {
   approvalPolicySnapshotFromEditorialContext,
+  bindGeneratedClaims,
   canonicalizeApprovalEvidenceUrl,
   type ApprovalEvidenceFact,
   type ApprovalEvidenceSource,
   type ApprovalPolicySnapshot,
+  type GeneratedClaimBinding,
 } from "../approval";
 import {
   findUnrequestedOwnedIdentityOccurrences,
@@ -38,6 +40,7 @@ export type GenerationInput = Readonly<{
 export type GenerationResult = Readonly<{
   document: ContentDocument;
   rawResponse: string;
+  generatedClaimBindings?: readonly GeneratedClaimBinding[];
   providerDiagnostics?: AIResponse["diagnostics"];
   sourcePreflightDiagnostics?: AIResponse["diagnostics"];
 }>;
@@ -163,9 +166,23 @@ export class AIWorkflow {
         response.diagnostics?.aiUsage,
       );
       assertGeneratedDocumentOwnedIdentityPolicy(generatedDocument, input);
+      const generatedClaimBindings = generationPreflight
+        && "gate" in generationPreflight
+        && input.contentOpportunity?.verificationPlan
+        && sourcePreflight?.verificationSnapshot
+        ? bindGeneratedClaims({
+            document: generatedDocument,
+            plan: input.contentOpportunity.verificationPlan,
+            snapshot: sourcePreflight.verificationSnapshot,
+            gate: generationPreflight.gate,
+          }).bindings
+        : undefined;
       const result = Object.freeze({
         document: generatedDocument,
         rawResponse: response.content,
+        ...(generatedClaimBindings
+          ? { generatedClaimBindings }
+          : {}),
         ...(response.diagnostics
           ? { providerDiagnostics: response.diagnostics }
           : {}),
