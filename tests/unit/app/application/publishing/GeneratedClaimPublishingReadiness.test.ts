@@ -196,7 +196,7 @@ function workspace(platform: "wordpress" | "tistory") {
         draftOnly: true as const,
         publicPublish: false as const,
         sequentialDraftSave: true,
-        qualityApprovalRequired: true,
+        qualityApprovalRequired: true as const,
       },
       appearance: { theme: "system" as const },
     },
