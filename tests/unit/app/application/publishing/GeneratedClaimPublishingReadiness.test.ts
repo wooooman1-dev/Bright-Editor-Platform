@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ access: vi.fn() }));
-vi.mock("node:fs/promises", () => ({ access: mocks.access }));
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return { ...actual, access: mocks.access };
+});
 
 import { calculateTistoryReadiness } from "../../../../../app/application/publishing/TistoryPublishingPreparation";
 import { calculateWordPressDraftReadiness } from "../../../../../app/application/publishing/WordPressDraftReadiness";
