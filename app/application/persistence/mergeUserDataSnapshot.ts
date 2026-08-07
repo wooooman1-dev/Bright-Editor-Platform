@@ -34,7 +34,8 @@ export function mergeUserDataSnapshot(current: UserData | undefined, input: unkn
       contentType: serverContent.opportunity.contentType,
     }) : planningProtectedContent;
     const validatedContent = validatePlanningContent(opportunityProtectedContent, serverContent);
-    const protectedContent = preserveServerPublishingContent(serverContent, validatedContent);
+    const publishingProtectedContent = preserveServerPublishingContent(serverContent, validatedContent);
+    const protectedContent = preserveServerGeneratedClaimVerification(serverContent, publishingProtectedContent);
     if (serverContent?.quality) return Object.freeze({ ...protectedContent, quality: serverContent.quality });
     const { quality: _clientQuality, ...withoutClientQuality } = protectedContent;
     void _clientQuality;
@@ -95,6 +96,22 @@ function preserveServerPublishingContent(server: UserContent | undefined, incomi
       ...incoming.publishingPreparation,
       ...(tistoryPreparation ? { tistory: tistoryPreparation } : {}),
       ...(wordpressPreparation ? { wordpress: wordpressPreparation } : {}),
+    }),
+  });
+}
+
+function preserveServerGeneratedClaimVerification(server: UserContent | undefined, incoming: UserContent): UserContent {
+  const record = server?.document?.metadata?.generatedClaimVerification;
+  if (!record || !incoming.document || !server?.document?.metadata) return incoming;
+  return Object.freeze({
+    ...incoming,
+    document: Object.freeze({
+      ...incoming.document,
+      metadata: Object.freeze({
+        ...server.document.metadata,
+        ...incoming.document.metadata,
+        generatedClaimVerification: record,
+      }),
     }),
   });
 }
