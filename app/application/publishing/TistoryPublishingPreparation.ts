@@ -2,7 +2,10 @@ import { access } from "node:fs/promises";
 import path from "node:path";
 
 import type { PlatformConnection } from "../../../core/connections";
-import { evaluateApprovalDraftIntegrity } from "../../../core/approval";
+import {
+  evaluateApprovalDraftIntegrity,
+  evaluateGeneratedClaimVerificationIntegrity,
+} from "../../../core/approval";
 import { analyzeLongFormDocument } from "../../../core/content";
 import { editorialRevisionId, isStandardQualityApproved, QualityEngine } from "../../../core/quality";
 import { PublishingPermissionGate } from "../../../core/publishing";
@@ -163,11 +166,30 @@ export async function calculateTistoryReadiness(input: Readonly<{
   const preparation = content.publishingPreparation?.tistory;
   const categoryStored = Boolean(connection && preparation && preparation.publishingAccountId === connection.id);
   const currentRevision = content.document ? editorialRevisionId(content.document) : undefined;
-  const currentRuleQuality = content.document ? new QualityEngine().review(content.document, { contentType: content.contentType, platform: content.platform ?? "tistory", primaryKeyword: content.primaryKeyword, searchIntent: content.searchIntent, revisionId: currentRevision }) : undefined;
+  const currentRuleQuality = content.document ? new QualityEngine().review(content.document, {
+    contentType: content.contentType,
+    platform: content.platform ?? "tistory",
+    primaryKeyword: content.primaryKeyword,
+    searchIntent: content.searchIntent,
+    opportunity: content.opportunity,
+    revisionId: currentRevision,
+  }) : undefined;
   const hasDynamicTarget = Boolean(content.document?.metadata?.qualityTarget ?? content.qualityTarget ?? content.opportunity?.qualityTarget);
   const longFormReady = content.document && hasDynamicTarget ? analyzeLongFormDocument(content.document, content.qualityTarget ?? content.opportunity?.qualityTarget) : undefined;
   const longFormPassed = !content.document || !hasDynamicTarget
     || Boolean(longFormReady && longFormReady.violations.length === 0);
+  const generatedClaimIntegrity = content.document
+    ? evaluateGeneratedClaimVerificationIntegrity({
+        document: content.document,
+        plan: content.opportunity?.verificationPlan,
+        currentRevisionId: currentRevision,
+      })
+    : Object.freeze({
+        passed: !content.opportunity?.verificationPlan,
+        reasons: content.opportunity?.verificationPlan
+          ? Object.freeze(["검증할 canonical 원고가 없습니다."])
+          : Object.freeze([]),
+      });
   const approvalIntegrity = content.document
     ? evaluateApprovalDraftIntegrity(content.document)
     : Object.freeze({ passed: false, reasons: Object.freeze(["기준 원고가 없습니다."]) });
@@ -201,6 +223,11 @@ export async function calculateTistoryReadiness(input: Readonly<{
     { key: "category", passed: categoryStored, message: categoryStored ? (preparation!.platformCategoryId === null ? "카테고리 없음이 명시적으로 적용되었습니다." : `카테고리 ${preparation!.platformCategoryName}이 적용되었습니다.`) : "티스토리 카테고리 또는 카테고리 없음을 선택해 주세요." },
     { key: "planning_identity", passed: identityContamination.length === 0, message: identityContamination.length === 0 ? "기획 주제와 검색 키워드에 프로젝트명 또는 브랜드명이 검색어로 섞이지 않았습니다." : `기존 기획에 검색 주제가 아닌 프로젝트명 또는 브랜드명이 포함되어 있습니다: ${identityContamination.join(", ")}. 새 콘텐츠에서 기획을 다시 실행해 주세요.` },
     { key: "quality", passed: qualityPassed, message: qualityPassed ? `현재 문서 버전의 기본 원고 품질 승인 ${content.quality!.overallScore}점을 확인했습니다.` : "현재 문서 버전의 품질 승인이 필요합니다." },
+    { key: "generated_claim_verification", passed: generatedClaimIntegrity.passed, message: generatedClaimIntegrity.passed
+      ? content.opportunity?.verificationPlan
+        ? "현재 원고의 고위험 Claim을 저장된 VerificationSnapshot과 다시 검증했습니다."
+        : "현재 원고에는 explicit Verification Claim Gate가 필요하지 않습니다."
+      : generatedClaimIntegrity.reasons.join(" ") || "현재 원고의 고위험 Claim 검증이 필요합니다." },
     { key: "approval_article_integrity", passed: approvalIntegrity.passed, message: approvalIntegrity.passed ? "현재 승인 준비 원고의 정책·핵심 Claim·공식 출처·중복 무결성을 확인했습니다." : approvalIntegrity.reasons.join(" ") || "현재 승인 준비 원고의 사실·출처 검증이 필요합니다." },
     { key: "media_upload_permission", passed: mediaPermissionPassed, message: localImageCount === 0 ? "외부 업로드가 필요한 로컬 이미지가 없습니다." : mediaPermissionPassed ? `로컬 이미지 ${localImageCount}개의 티스토리 업로드가 허용되었습니다.` : `로컬 이미지 ${localImageCount}개가 있습니다. 설정의 이미지 권한에서 이 계정의 업로드를 허용해 주세요.` },
     { key: "draft_only", passed: policy.publishing.draftOnly && !policy.publishing.publicPublish, message: policy.publishing.draftOnly && !policy.publishing.publicPublish ? "임시글만 저장 정책이 적용되었습니다." : "임시글만 저장 정책을 확인해 주세요." },
