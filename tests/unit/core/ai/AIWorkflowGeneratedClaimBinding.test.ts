@@ -30,6 +30,7 @@ import {
   createContentOpportunityCandidate,
   createContentOpportunityVerificationPlan,
 } from "../../../../core/content";
+import { editorialRevisionId } from "../../../../core/quality";
 
 const claim: VerificationClaimSpec = Object.freeze({
   claimId: "claim-amount",
@@ -182,7 +183,7 @@ describe("AIWorkflow Generated Claim binding", () => {
     vi.mocked(runApprovalSourcePreflight).mockResolvedValue(preflight);
   });
 
-  it("returns server-owned verified Claim bindings without persisting them into ContentDocument metadata", async () => {
+  it("persists the server-owned Snapshot and verified Claim bindings in canonical metadata", async () => {
     const provider = new RecordingProvider();
     const result = await new AIWorkflow(provider, strategy).generate(input);
 
@@ -196,6 +197,14 @@ describe("AIWorkflow Generated Claim binding", () => {
         sourceIds: ["primary", "official-a", "official-b"],
       },
     });
-    expect(result.document.metadata).not.toHaveProperty("generatedClaimBindings");
+    expect(result.verificationSnapshot?.verificationSnapshotFingerprint).toBe(snapshot.verificationSnapshotFingerprint);
+    expect(result.document.metadata?.generatedClaimVerification).toMatchObject({
+      schemaVersion: 1,
+      boundEditorialRevisionId: editorialRevisionId(result.document),
+      verifiedClaimIds: [claim.claimId],
+      unverifiedDetectedCount: 0,
+    });
+    expect(result.document.metadata?.generatedClaimVerification?.verificationSnapshot.verificationSnapshotFingerprint).toBe(snapshot.verificationSnapshotFingerprint);
+    expect(result.document.metadata?.generatedClaimVerification?.bindings).toEqual(result.generatedClaimBindings);
   });
 });
