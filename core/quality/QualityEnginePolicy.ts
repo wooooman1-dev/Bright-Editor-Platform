@@ -1,6 +1,8 @@
 import {
+  bindGeneratedClaims,
   evaluateApprovalPreparationText,
   evaluateApprovalReadiness,
+  evaluateVerificationGenerationGate,
   type ApprovalReadinessReport,
 } from "../approval";
 import {
@@ -10,6 +12,7 @@ import {
 } from "../content";
 import {
   QualityEngine as BaseQualityEngine,
+  editorialRevisionId,
   isStandardQualityApproved as isBaseStandardQualityApproved,
   type QualityDimensionResult,
   type QualityReport,
@@ -35,7 +38,8 @@ export type ApprovalAwareQualityReport = QualityReport & Readonly<{
  */
 export class QualityEngine extends BaseQualityEngine {
   review(document: ContentDocument, context: QualityReviewContext = {}): ApprovalAwareQualityReport {
-    const report = applyEditorialMarkupIntegrity(super.review(document, context), document);
+    const integrityReport = applyEditorialMarkupIntegrity(super.review(document, context), document);
+    const report = applyGeneratedClaimVerificationIntegrity(integrityReport, document, context);
     const snapshot = document.metadata?.approvalPolicy;
     if (!snapshot) return report;
 
@@ -84,6 +88,91 @@ export function isApprovalApplicationReady(
   if (!isBaseStandardQualityApproved(report)) return false;
   const readiness = report.approvalReadiness;
   return readiness ? readiness.applicationReady === true : true;
+}
+
+function applyGeneratedClaimVerificationIntegrity(
+  report: QualityReport,
+  document: ContentDocument,
+  context: QualityReviewContext,
+): QualityReport {
+  const plan = context.opportunity?.verificationPlan;
+  if (!plan) return report;
+
+  const stored = document.metadata?.generatedClaimVerification;
+  const issues: string[] = [];
+  if (!stored) {
+    issues.push("검증 Claim Snapshot이 현재 canonical 원고에 저장되어 있지 않습니다.");
+  } else {
+    const gate = evaluateVerificationGenerationGate({
+      plan,
+      snapshot: stored.verificationSnapshot,
+    });
+    if (!gate.ready) {
+      const detail = [...gate.diagnostics, ...gate.blockingClaimIds.map((claimId) => `claim:${claimId}`)].join(", ");
+      issues.push(`저장된 검증 Snapshot이 현재 Generation Gate를 통과하지 못합니다${detail ? `: ${detail}` : ""}.`);
+    } else {
+      const rebound = bindGeneratedClaims({
+        document,
+        plan,
+        snapshot: stored.verificationSnapshot,
+        gate,
+      });
+      const unverified = rebound.bindings.filter((binding) =>
+        binding.reference.referenceType === "unverifiedDetected");
+      for (const binding of unverified) {
+        issues.push(`검증되지 않은 고위험 사실이 원고에 남아 있습니다: ${binding.matchedText} (${bindingLocation(binding.location)}).`);
+      }
+
+      const currentRevisionId = context.revisionId ?? editorialRevisionId(document);
+      if (stored.boundEditorialRevisionId === currentRevisionId) {
+        const expected = JSON.stringify({
+          bindings: rebound.bindings,
+          verifiedClaimIds: rebound.verifiedClaimIds,
+          unverifiedDetectedCount: rebound.unverifiedDetectedCount,
+        });
+        const actual = JSON.stringify({
+          bindings: stored.bindings,
+          verifiedClaimIds: stored.verifiedClaimIds,
+          unverifiedDetectedCount: stored.unverifiedDetectedCount,
+        });
+        if (expected !== actual) {
+          issues.push("현재 원고 revision의 저장된 Claim binding이 서버 재계산 결과와 일치하지 않습니다.");
+        }
+      }
+    }
+  }
+
+  const uniqueIssues = [...new Set(issues)];
+  if (!uniqueIssues.length) return report;
+  const task = "검증되지 않은 고위험 사실을 제거하거나 현재 VerificationSnapshot에서 검증된 Claim 값으로 수정한 뒤 Quality Review를 다시 실행하세요.";
+  return Object.freeze({
+    ...report,
+    approved: false,
+    approvalType: "none" as const,
+    approvalState: "blocked" as const,
+    findings: Object.freeze([
+      ...report.findings,
+      ...uniqueIssues.map((message) => ({
+        category: "searchIntent" as const,
+        message,
+        severity: "error" as const,
+      })),
+    ]),
+    tasks: Object.freeze([
+      ...report.tasks,
+      ...uniqueIssues.map((message) => ({
+        category: "searchIntent" as const,
+        message: `${message} ${task}`,
+        status: "blocked" as const,
+      })),
+    ]),
+  });
+}
+
+function bindingLocation(location: import("../approval").GeneratedClaimLocation): string {
+  if (location.kind === "title") return "title";
+  if (location.kind === "metadata") return `metadata.${location.field}`;
+  return `block:${location.blockId}`;
 }
 
 function applyEditorialMarkupIntegrity(report: QualityReport, document: ContentDocument): QualityReport {
