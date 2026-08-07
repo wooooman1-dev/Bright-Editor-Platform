@@ -1,5 +1,8 @@
 import type { PlatformConnection } from "../../../core/connections";
-import { evaluateApprovalDraftIntegrity } from "../../../core/approval";
+import {
+  evaluateApprovalDraftIntegrity,
+  evaluateGeneratedClaimVerificationIntegrity,
+} from "../../../core/approval";
 import { editorialRevisionId, PublishingGate } from "../../../core/quality";
 import { PublishingPermissionGate } from "../../../core/publishing";
 import type { WordPressCategoryListResult } from "../../../apps/wordpress";
@@ -75,6 +78,18 @@ export function calculateWordPressDraftReadiness(input: Readonly<{
     && categorySelection.source === "content"
     && categorySelection.policyCompliant !== false;
   const qualityReady = standardQualityReady(content);
+  const generatedClaimIntegrity = content.document
+    ? evaluateGeneratedClaimVerificationIntegrity({
+        document: content.document,
+        plan: content.opportunity?.verificationPlan,
+        currentRevisionId: editorialRevisionId(content.document),
+      })
+    : Object.freeze({
+        passed: !content.opportunity?.verificationPlan,
+        reasons: content.opportunity?.verificationPlan
+          ? Object.freeze(["검증할 canonical 원고가 없습니다."])
+          : Object.freeze([]),
+      });
   const approvalIntegrity = content.document
     ? evaluateApprovalDraftIntegrity(content.document)
     : Object.freeze({ passed: false, reasons: Object.freeze(["기준 원고가 없습니다."]) });
@@ -114,6 +129,11 @@ export function calculateWordPressDraftReadiness(input: Readonly<{
     check("quality_revision", qualityReady,
       "현재 문서 버전의 기본 품질 승인을 확인했습니다.",
       "현재 문서 버전이 기본 품질 승인을 통과해야 합니다."),
+    check("generated_claim_verification", generatedClaimIntegrity.passed,
+      content.opportunity?.verificationPlan
+        ? "현재 원고의 고위험 Claim을 저장된 VerificationSnapshot과 다시 검증했습니다."
+        : "현재 원고에는 explicit Verification Claim Gate가 필요하지 않습니다.",
+      generatedClaimIntegrity.reasons.join(" ") || "현재 원고의 고위험 Claim 검증이 필요합니다."),
     check("approval_article_integrity", approvalIntegrity.passed,
       "현재 승인 준비 원고의 정책·핵심 Claim·공식 출처·중복 무결성을 확인했습니다.",
       approvalIntegrity.reasons.join(" ") || "현재 승인 준비 원고의 사실·출처 검증이 필요합니다."),
