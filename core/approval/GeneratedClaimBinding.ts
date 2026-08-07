@@ -6,9 +6,10 @@ import type {
   VerificationSnapshot,
   VerificationSourceAssessment,
 } from "./VerificationClaim";
-import type {
-  VerificationGenerationGateResult,
-  VerificationGenerationPlan,
+import {
+  evaluateVerificationGenerationGate,
+  type VerificationGenerationGateResult,
+  type VerificationGenerationPlan,
 } from "./VerificationGenerationGate";
 
 export type GeneratedClaimLocation =
@@ -23,6 +24,15 @@ export type GeneratedClaimBinding = Readonly<{
 }>;
 
 export type GeneratedClaimBindingResult = Readonly<{
+  bindings: readonly GeneratedClaimBinding[];
+  verifiedClaimIds: readonly string[];
+  unverifiedDetectedCount: number;
+}>;
+
+export type GeneratedClaimVerificationRecord = Readonly<{
+  schemaVersion: 1;
+  verificationSnapshot: VerificationSnapshot;
+  boundEditorialRevisionId: string;
   bindings: readonly GeneratedClaimBinding[];
   verifiedClaimIds: readonly string[];
   unverifiedDetectedCount: number;
@@ -113,6 +123,42 @@ export function bindGeneratedClaims(input: Readonly<{
     ]),
     unverifiedDetectedCount: deduplicated.filter((binding) =>
       binding.reference.referenceType === "unverifiedDetected").length,
+  });
+}
+
+/**
+ * Phase 5C canonical persistence record.
+ *
+ * The caller supplies the editorial revision identifier because approval Core
+ * does not depend on Quality Core. The record is created only after the server
+ * re-evaluates the Generation Gate and rebinds the current document.
+ */
+export function createGeneratedClaimVerificationRecord(input: Readonly<{
+  document: ContentDocument;
+  plan: VerificationGenerationPlan;
+  snapshot: VerificationSnapshot;
+  boundEditorialRevisionId: string;
+}>): GeneratedClaimVerificationRecord {
+  const gate = evaluateVerificationGenerationGate({
+    plan: input.plan,
+    snapshot: input.snapshot,
+  });
+  if (!gate.ready) {
+    throw new Error(`Generated Claim verification record requires a ready Generation Gate: ${gate.diagnostics.join(",") || gate.blockingClaimIds.join(",")}`);
+  }
+  const result = bindGeneratedClaims({
+    document: input.document,
+    plan: input.plan,
+    snapshot: input.snapshot,
+    gate,
+  });
+  return Object.freeze({
+    schemaVersion: 1 as const,
+    verificationSnapshot: input.snapshot,
+    boundEditorialRevisionId: input.boundEditorialRevisionId,
+    bindings: result.bindings,
+    verifiedClaimIds: result.verifiedClaimIds,
+    unverifiedDetectedCount: result.unverifiedDetectedCount,
   });
 }
 
