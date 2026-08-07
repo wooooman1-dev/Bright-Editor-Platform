@@ -59,8 +59,11 @@ export function bindGeneratedClaims(input: Readonly<{
     const tokens = claimTextTokens(claim, result.normalizedValue);
     if (!tokens.length) return [];
     return [{ claim, sourceIds, tokens }];
-  });
+  }).sort((a, b) => a.claim.claimId.localeCompare(b.claim.claimId));
 
+  const allowedScalarTokens = new Set(
+    claimMatchers.flatMap((matcher) => matcher.tokens.map(normalizeComparableText)),
+  );
   const bindings: GeneratedClaimBinding[] = [];
   for (const segment of generatedTextSegments(input.document)) {
     const normalizedSegment = normalizeComparableText(segment.text);
@@ -85,9 +88,6 @@ export function bindGeneratedClaims(input: Readonly<{
       }
     }
 
-    const allowedScalarTokens = new Set(
-      claimMatchers.flatMap((matcher) => matcher.tokens.map(normalizeComparableText)),
-    );
     for (const detected of detectHighRiskScalarTokens(segment.text)) {
       const normalized = normalizeComparableText(detected.text);
       if (!normalized || allowedScalarTokens.has(normalized)) continue;
@@ -120,15 +120,21 @@ function trustedClaimSourceIds(
   assessments: readonly VerificationSourceAssessment[],
   gateSourceIds: ReadonlySet<string>,
 ): readonly string[] {
-  return Object.freeze([...new Set(assessments.flatMap((assessment) =>
+  const roleRank: Readonly<Record<VerificationSourceAssessment["role"], number>> = {
+    primaryOfficial: 0,
+    officialCorroborating: 1,
+    independentCorroborating: 2,
+  };
+  const trusted = assessments.filter((assessment) =>
     gateSourceIds.has(assessment.sourceId)
-      && assessment.supports === true
-      && Boolean(assessment.normalizedValue)
-      && assessment.fresh === true
-      && assessment.freshnessStatus !== "stale"
-      && assessment.freshnessStatus !== "unknown"
-        ? [assessment.sourceId]
-        : []))]);
+    && assessment.supports === true
+    && Boolean(assessment.normalizedValue)
+    && assessment.fresh === true
+    && assessment.freshnessStatus !== "stale"
+    && assessment.freshnessStatus !== "unknown")
+    .sort((a, b) => roleRank[a.role] - roleRank[b.role]
+      || a.sourceId.localeCompare(b.sourceId));
+  return Object.freeze([...new Set(trusted.map((assessment) => assessment.sourceId))]);
 }
 
 function claimTextTokens(
@@ -160,6 +166,10 @@ function claimTextTokens(
   } else if (normalizedValue?.kind === "dateRange") {
     const start = normalizedValue.value.start;
     const end = normalizedValue.value.end;
+    add(start);
+    add(end);
+    add(koreanDate(start));
+    add(koreanDate(end));
     add(`${start}~${end}`);
     add(`${start} - ${end}`);
     add(`${koreanDate(start)}~${koreanDate(end)}`);
@@ -233,7 +243,7 @@ function detectHighRiskScalarTokens(value: string): readonly DetectedScalar[] {
   const detected: DetectedScalar[] = [];
   collectMatches(detected, value, /\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*(?:조원|억원|만원|원)/gu, "money");
   collectMatches(detected, value, /\d+(?:\.\d+)?\s*(?:%|퍼센트)/gu, "ratio");
-  collectMatches(detected, value, /\d{4}[.-]\d{1,2}[.-]\d{1,2}|\d{4}년\s*\d{1,2}월(?:\s*\d{1,2}일)?/gu, "date");
+  collectMatches(detected, value, /\d{4}[.-]\d{1,2}(?:[.-]\d{1,2})?|\d{4}년(?:\s*\d{1,2}월(?:\s*\d{1,2}일)?)?/gu, "date");
   collectMatches(detected, value, /제\s*\d+\s*조(?:의\s*\d+)?/gu, "legal");
   const occupiedByDate = detected.filter((item) => item.kind === "date");
   for (const item of regexMatches(value, /\d+(?:\.\d+)?\s*(?:개월|일|주|년)/gu)) {
@@ -272,9 +282,12 @@ function regexMatches(value: string, pattern: RegExp): readonly Readonly<{
 }
 
 function koreanDate(value: string): string | undefined {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(value.trim());
-  if (!match) return undefined;
-  return `${Number(match[1])}년 ${Number(match[2])}월 ${Number(match[3])}일`;
+  const day = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(value.trim());
+  if (day) return `${Number(day[1])}년 ${Number(day[2])}월 ${Number(day[3])}일`;
+  const month = /^(\d{4})-(\d{2})$/u.exec(value.trim());
+  if (month) return `${Number(month[1])}년 ${Number(month[2])}월`;
+  const year = /^(\d{4})$/u.exec(value.trim());
+  return year ? `${Number(year[1])}년` : undefined;
 }
 
 function normalizeComparableText(value: string): string {
