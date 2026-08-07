@@ -14,7 +14,7 @@ import {
 } from "../../core/content";
 import type { ContentPlanningResult, ProjectContentStrategy, WorkspacePlatform } from "../user-flow/user-data";
 import type { OpportunityEvidenceRecord } from "../../core/intelligence";
-import type { VerificationClaimKind, VerificationClaimSpec } from "../../core/approval";
+import type { VerificationClaimKind, VerificationClaimSpec, VerificationTemporalRequirement } from "../../core/approval";
 import { verificationClaimId } from "../../core/approval";
 import { createContentOpportunityVerificationPlan } from "../../core/content";
 import { isExplicitVerificationPlanningEnabled } from "./ExplicitVerificationPlanningPolicy";
@@ -89,7 +89,7 @@ export class ContentPlanningStrategy {
     const response = await this.provider.generate({
       instruction: `Analyze this content request as an editorial strategist. Do not write the final content. ${modeInstruction}
 Request: ${request}
-${explicitVerificationPlanningEnabled ? "Verification claims rule: expectedCoverage is editorial scope only. verificationClaims contains only concrete externally verifiable facts (specific values, dates, eligibility, legal provisions, locations, rates). Exclude editorial instructions, section titles, search intent, strategy, and abstract facts; do not duplicate between arrays; return [] when none are needed; never include claimId, fingerprint, status, normalizedValue, or source data." : ""}
+${explicitVerificationPlanningEnabled ? "Verification claims rule: expectedCoverage is editorial scope only. verificationClaims contains only concrete externally verifiable facts (specific values, dates, eligibility, legal provisions, locations, rates). Exclude editorial instructions, section titles, search intent, strategy, and abstract facts; do not duplicate between arrays; return [] when none are needed; never include claimId, fingerprint, status, normalizedValue, or source data. Every verification Claim must include temporalRequirement: use mode=current only when the Claim asserts a currently applicable value; mode=asOf with date YYYY-MM-DD for a value explicitly tied to one reference date; mode=period with start/end YYYY-MM-DD for an explicit historical/reference period; mode=notRequired only when time validity is genuinely irrelevant; use mode=unknown when the temporal meaning cannot be safely classified. Never invent dates to satisfy this field." : ""}
 Project strategy: ${context.projectContext ?? "Use only the request and supplied project context."}
 Project-owned labels that are identity, not default search keywords: ${JSON.stringify(ownedBrandTerms)}. Do not use these labels as the complete selectedTopic or primaryKeyword, and do not prefix selectedTopic or primaryKeyword with them unless the user's request explicitly makes that label the search subject. Keep third-party product, institution, and service names when they are genuinely part of the search task.
 Existing content to avoid duplicating: ${(context.existingContent ?? []).join(" | ") || "none supplied"}
@@ -297,7 +297,8 @@ function createPlanningVerificationPlan(raw: unknown) {
     const textValue = (name: string) => { if (typeof value[name] !== "string" || !(value[name] as string).trim()) throw new Error(`Invalid verification claim ${name} at index ${index}.`); return (value[name] as string).trim(); };
     if (typeof value.required !== "boolean" || !value.qualifiers || typeof value.qualifiers !== "object" || Array.isArray(value.qualifiers)) throw new Error(`Invalid verification claim at index ${index}.`);
     const qualifiers = Object.freeze(Object.fromEntries(Object.entries(value.qualifiers as Record<string, unknown>).map(([key, itemValue]) => { if (!["subject", "scope", "basis", "note"].includes(key) || typeof itemValue !== "string") throw new Error(`Invalid verification qualifier at index ${index}.`); return [key, itemValue.trim()]; })));
-    const draft = { field: textValue("field"), kind: value.kind as VerificationClaimKind, statement: textValue("statement").replace(/\s+/g, " "), ...(typeof value.rawValue === "string" && value.rawValue.trim() ? { rawValue: value.rawValue.trim() } : {}), qualifiers, required: value.required, ...(typeof value.policyId === "string" && value.policyId.trim() ? { policyId: value.policyId.trim() } : {}) } as Omit<VerificationClaimSpec, "claimId">;
+    const temporalRequirement = parsePlanningTemporalRequirement(value.temporalRequirement, index);
+    const draft = { field: textValue("field"), kind: value.kind as VerificationClaimKind, statement: textValue("statement").replace(/\s+/g, " "), ...(typeof value.rawValue === "string" && value.rawValue.trim() ? { rawValue: value.rawValue.trim() } : {}), qualifiers, temporalRequirement, required: value.required, ...(typeof value.policyId === "string" && value.policyId.trim() ? { policyId: value.policyId.trim() } : {}) } as Omit<VerificationClaimSpec, "claimId">;
     const claim = Object.freeze({ ...draft, claimId: verificationClaimId(draft) });
     if (seen.has(claim.claimId)) throw new Error(`Duplicate verification claim at index ${index}.`);
     seen.add(claim.claimId);
@@ -305,6 +306,38 @@ function createPlanningVerificationPlan(raw: unknown) {
   });
   return createContentOpportunityVerificationPlan(claims);
 }
+
+function parsePlanningTemporalRequirement(raw: unknown, index: number): VerificationTemporalRequirement {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error(`Invalid verification temporalRequirement at index ${index}.`);
+  const value = raw as Record<string, unknown>;
+  const mode = value.mode;
+  if (mode === "current" || mode === "notRequired" || mode === "unknown") {
+    if (hasTemporalDateValue(value.date) || hasTemporalDateValue(value.start) || hasTemporalDateValue(value.end)) throw new Error(`Unexpected verification temporal date at index ${index}.`);
+    return Object.freeze({ mode });
+  }
+  if (mode === "asOf") {
+    const date = strictPlanningDate(value.date, `verification temporal date at index ${index}`);
+    if (hasTemporalDateValue(value.start) || hasTemporalDateValue(value.end)) throw new Error(`Unexpected verification temporal period at index ${index}.`);
+    return Object.freeze({ mode, date });
+  }
+  if (mode === "period") {
+    const start = strictPlanningDate(value.start, `verification temporal start at index ${index}`);
+    const end = strictPlanningDate(value.end, `verification temporal end at index ${index}`);
+    if (start > end || hasTemporalDateValue(value.date)) throw new Error(`Invalid verification temporal period at index ${index}.`);
+    return Object.freeze({ mode, start, end });
+  }
+  throw new Error(`Invalid verification temporal mode at index ${index}.`);
+}
+
+function strictPlanningDate(raw: unknown, field: string): string {
+  if (typeof raw !== "string" || !/^20\d{2}-\d{2}-\d{2}$/u.test(raw.trim())) throw new Error(`Invalid ${field}.`);
+  const value = raw.trim();
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year!, month! - 1, day!));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month! - 1 || date.getUTCDate() !== day) throw new Error(`Invalid ${field}.`);
+  return value;
+}
+function hasTemporalDateValue(value: unknown): boolean { return typeof value === "string" ? Boolean(value.trim()) : value !== undefined; }
 
 function fromCandidates(
   base: Readonly<{
