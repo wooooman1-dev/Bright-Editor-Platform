@@ -8,6 +8,7 @@ import type { VerificationClaimSpec } from "../../../../core/approval";
 
 const snapshot = resolveApprovalPolicySnapshot("adsense_approval", "wordpress_life_economy_v1")!;
 const urls = ["https://www.gov.kr/amount", "https://law.go.kr/amount", "https://www.nts.go.kr/amount"];
+const defaultExcerpt = "공식 안내에 따르면 지원 금액은 50만원이며 신청 전에 세부 기준을 확인해야 합니다.";
 const claim: VerificationClaimSpec = { claimId: "claim-amount", field: "amount", kind: "money", statement: "지원 금액", rawValue: "50만원", qualifiers: {}, required: true };
 const currentClaim: VerificationClaimSpec = { ...claim, temporalRequirement: { mode: "current" } };
 
@@ -25,12 +26,13 @@ function opportunity(claims: readonly VerificationClaimSpec[] = [claim]) {
   return confirmContentOpportunity(candidate, { workspaceId: "workspace-1", projectId: "project-1", contentId: "content-1", confirmedAt: "2026-08-07T00:00:00.000Z" });
 }
 
-function source(url: string, value = "50만원", excerpt = "지원 금액은 50만원입니다.", claimId = "claim-amount") {
+function source(url: string, value = "50만원", excerpt = defaultExcerpt, claimId = "claim-amount") {
   return { url, title: "공식 안내", evidenceExcerpt: excerpt, claims: [{ claimId, value, evidenceExcerpt: excerpt }] };
 }
 
-function page(value = "50만원", excerpt = "지원 금액은 50만원입니다."): Response {
-  return new Response(`<html><body>${excerpt} 적용 기준 ${value}</body></html>`, { status: 200, headers: { "content-type": "text/html" } });
+function page(value = "50만원", excerpt = defaultExcerpt): Response {
+  const filler = "이 페이지는 공식 지원 제도의 대상, 신청 절차, 제출 서류, 처리 과정과 주의사항을 안내하는 검증용 본문입니다. ".repeat(8);
+  return new Response(`<html><body>${excerpt} 적용 기준 ${value}. ${filler}</body></html>`, { status: 200, headers: { "content-type": "text/html" } });
 }
 
 async function run(sources: readonly unknown[], fetcher: (url: string | URL) => Promise<Response>, claims: readonly VerificationClaimSpec[] = [claim]): Promise<{ result: ApprovalSourcePreflightResult; provider: FixtureProvider }> {
@@ -55,7 +57,7 @@ describe("runApprovalSourcePreflight explicit integration", () => {
   });
 
   it("verifies a current money Claim from three independent institutions when each Claim excerpt owns an active period", async () => {
-    const excerpt = "지원 금액 50만원의 적용 기간은 2020-01-01부터 2099-12-31까지입니다.";
+    const excerpt = "공식 안내에 따르면 지원 금액 50만원의 적용 기간은 2020-01-01부터 2099-12-31까지입니다.";
     const { result, provider } = await run(urls.map((url) => source(url, "50만원", excerpt)), async () => page("50만원", excerpt), [currentClaim]);
     expect(provider.calls).toBe(1);
     expect(result.verificationSnapshot?.results[0]).toMatchObject({ status: "verified", independentInstitutionCount: 3, primarySourceFound: true, freshnessPassed: true });
@@ -64,18 +66,21 @@ describe("runApprovalSourcePreflight explicit integration", () => {
   });
 
   it("does not count multiple URLs from one institution toward a current high-risk Claim", async () => {
-    const excerpt = "지원 금액 50만원의 적용 기간은 2020-01-01부터 2099-12-31까지입니다.";
+    const excerpt = "공식 안내에 따르면 지원 금액 50만원의 적용 기간은 2020-01-01부터 2099-12-31까지입니다.";
     const same = await run([source(urls[0], "50만원", excerpt), source("https://www.gov.kr/amount-2", "50만원", excerpt), source(urls[1], "50만원", excerpt)], async () => page("50만원", excerpt), [currentClaim]);
     expect(same.result.verificationSnapshot?.results[0]?.independentInstitutionCount).toBe(2);
     expect(same.result.verificationSnapshot?.results[0]?.status).toBe("insufficient");
   });
 
   it("preserves fetched-page diagnostics for missing value, excerpt, and raw mismatch", async () => {
-    const missingValue = await run([source(urls[0], "50만원")], async () => page("100만원", "지원 금액은 100만원입니다."));
+    const missingValueExcerpt = "공식 안내에 따르면 지원 금액은 50만원이며 대상 조건을 반드시 확인해야 합니다.";
+    const missingValue = await run([source(urls[0], "50만원", missingValueExcerpt)], async () => page("100만원", "공식 안내에 따르면 지원 금액은 100만원이며 대상 조건을 반드시 확인해야 합니다."));
     expect(missingValue.result.verificationSnapshot?.results[0]?.diagnostics).toContain("claim_value_not_found");
-    const missingExcerpt = await run([source(urls[0], "50만원", "없는 문구")], async () => page());
+    const missingExcerptText = "공식 페이지에는 존재하지 않는 긴 근거 문구이며 검증 실패를 확인하기 위한 문장입니다.";
+    const missingExcerpt = await run([source(urls[0], "50만원", missingExcerptText)], async () => page());
     expect(missingExcerpt.result.verificationSnapshot?.results[0]?.diagnostics).toContain("claim_evidence_excerpt_not_found");
-    const mismatch = await run([source(urls[0], "100만원")], async () => page("100만원", "지원 금액은 100만원입니다."));
+    const mismatchExcerpt = "공식 안내에 따르면 지원 금액은 100만원이며 대상 조건을 반드시 확인해야 합니다.";
+    const mismatch = await run([source(urls[0], "100만원", mismatchExcerpt)], async () => page("100만원", mismatchExcerpt));
     expect(mismatch.result.verificationSnapshot?.results[0]?.diagnostics).toContain("claim_raw_value_mismatch");
     expect(mismatch.result.verificationSnapshot?.results[0]?.status).not.toBe("verified");
   });
@@ -88,45 +93,38 @@ describe("runApprovalSourcePreflight explicit integration", () => {
 
   it("does not crash on unknown claim IDs and keeps same-field claim identities separate", async () => {
     const plan = opportunity([{ ...claim, claimId: "claim-a" }, { ...claim, claimId: "claim-b", rawValue: undefined }]);
-    const provider = new FixtureProvider([{ url: urls[0], title: "공식", evidenceExcerpt: "지원 금액은 50만원입니다.", claims: [{ claimId: "unknown", value: "50만원", evidenceExcerpt: "지원 금액은 50만원입니다." }, { claimId: "claim-a", value: "50만원", evidenceExcerpt: "지원 금액은 50만원입니다." }] }]);
+    const provider = new FixtureProvider([{ url: urls[0], title: "공식", evidenceExcerpt: defaultExcerpt, claims: [{ claimId: "unknown", value: "50만원", evidenceExcerpt: defaultExcerpt }, { claimId: "claim-a", value: "50만원", evidenceExcerpt: defaultExcerpt }] }]);
     const result = await runApprovalSourcePreflight({ provider, snapshot, opportunity: plan, platform: "wordpress", contentType: "article", fetcher: async () => page() });
     expect(result.verificationSnapshot?.results.map((item) => item.claimId)).toEqual(["claim-a", "claim-b"]);
     expect(result.verificationSnapshot?.results[1]?.sourceAssessments).toEqual([]);
   });
 
   it("treats an expired current Claim as stale when no fresh proof remains", async () => {
-    const excerpt = "지원 금액 50만원의 적용 기간은 2020-01-01부터 2021-12-31까지입니다.";
+    const excerpt = "공식 안내에 따르면 지원 금액 50만원의 적용 기간은 2020-01-01부터 2021-12-31까지입니다.";
     const result = await run(urls.map((url) => source(url, "50만원", excerpt)), async () => page("50만원", excerpt), [currentClaim]);
     expect(result.result.verificationSnapshot?.results[0]?.status).toBe("stale");
     expect(result.result.verificationSnapshot?.results[0]?.sourceAssessments.every((item) => item.freshnessStatus === "stale")).toBe(true);
   });
 
   it("does not let one stale source contaminate complete fresh evidence", async () => {
-    const freshExcerpt = "지원 금액 50만원의 적용 기간은 2020-01-01부터 2099-12-31까지입니다.";
-    const staleExcerpt = "지원 금액 50만원의 적용 기간은 2020-01-01부터 2021-12-31까지입니다.";
+    const freshExcerpt = "공식 안내에 따르면 지원 금액 50만원의 적용 기간은 2020-01-01부터 2099-12-31까지입니다.";
+    const staleExcerpt = "공식 안내에 따르면 지원 금액 50만원의 적용 기간은 2020-01-01부터 2021-12-31까지입니다.";
     const fourth = "https://www.moel.go.kr/amount";
-    const sources = [
-      ...urls.map((url) => source(url, "50만원", freshExcerpt)),
-      source(fourth, "50만원", staleExcerpt),
-    ];
+    const sources = [...urls.map((url) => source(url, "50만원", freshExcerpt)), source(fourth, "50만원", staleExcerpt)];
     const result = await run(sources, async (url) => String(url) === fourth ? page("50만원", staleExcerpt) : page("50만원", freshExcerpt), [currentClaim]);
     expect(result.result.verificationSnapshot?.results[0]?.status).toBe("verified");
     expect(result.result.verificationSnapshot?.results[0]?.sourceAssessments.some((item) => item.freshnessStatus === "stale")).toBe(true);
   });
 
   it("does not treat an unknown-freshness primary source as a usable primary", async () => {
-    const unknownExcerpt = "지원 금액은 50만원입니다.";
-    const freshExcerpt = "지원 금액 50만원의 적용 기간은 2020-01-01부터 2099-12-31까지입니다.";
-    const result = await run([
-      source(urls[0], "50만원", unknownExcerpt),
-      source(urls[1], "50만원", freshExcerpt),
-      source(urls[2], "50만원", freshExcerpt),
-    ], async (url) => String(url) === urls[0] ? page("50만원", unknownExcerpt) : page("50만원", freshExcerpt), [currentClaim]);
+    const unknownExcerpt = defaultExcerpt;
+    const freshExcerpt = "공식 안내에 따르면 지원 금액 50만원의 적용 기간은 2020-01-01부터 2099-12-31까지입니다.";
+    const result = await run([source(urls[0], "50만원", unknownExcerpt), source(urls[1], "50만원", freshExcerpt), source(urls[2], "50만원", freshExcerpt)], async (url) => String(url) === urls[0] ? page("50만원", unknownExcerpt) : page("50만원", freshExcerpt), [currentClaim]);
     expect(result.result.verificationSnapshot?.results[0]).toMatchObject({ status: "insufficient", primarySourceFound: false, independentInstitutionCount: 2 });
   });
 
   it("keeps trusted fixture freshness compatibility but never makes effectiveUntil alone fresh", () => {
-    const base = { requestedUrl: urls[0], pageText: "지원 금액은 50만원입니다.", evidenceExcerpt: "지원 금액은 50만원입니다.", claims: [{ claimId: "claim-amount", value: "50만원", evidenceExcerpt: "지원 금액은 50만원입니다." }], role: "primaryOfficial" as const, authoritative: true };
+    const base = { requestedUrl: urls[0], pageText: defaultExcerpt, evidenceExcerpt: defaultExcerpt, claims: [{ claimId: "claim-amount", value: "50만원", evidenceExcerpt: defaultExcerpt }], role: "primaryOfficial" as const, authoritative: true };
     const trustedFresh = assessmentsFromExplicitDiscovery({ claims: [claim], sources: [{ ...base, fresh: true }] })[0]!;
     const stale = assessmentsFromExplicitDiscovery({ claims: [claim], sources: [{ ...base, observedAt: "2026-02-01T00:00:00.000Z", effectiveUntil: "2026-01-01" }] })[0]!;
     const noObservation = assessmentsFromExplicitDiscovery({ claims: [claim], sources: [{ ...base, effectiveUntil: "2099-01-01" }] })[0]!;
