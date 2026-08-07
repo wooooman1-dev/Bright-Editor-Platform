@@ -63,8 +63,8 @@ function verifiedResult(
     claimId,
     status: "verified",
     normalizedValue: {
-      kind: "money",
-      value: { amount: 500_000, currency: "KRW", basis: "total" },
+      kind: "money" as const,
+      value: { amount: 500_000, currency: "KRW", basis: "total" as const },
     },
     sourceAssessments: Object.freeze([...assessments]),
     independentInstitutionCount: assessments.filter((item) => item.fresh).length,
