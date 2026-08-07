@@ -19,6 +19,7 @@ import {
   type ApprovalSourcePreflightClaimSource,
 } from "./ApprovalSourcePreflight";
 import { appendAIUsageToDocument } from "./AIUsageCost";
+import { requireExplicitVerificationGenerationBundle } from "./VerificationGenerationBundle";
 
 export type PlatformId = string & { readonly __platformId: unique symbol };
 export type ContentTypeId = string & { readonly __contentTypeId: unique symbol };
@@ -89,16 +90,25 @@ export class AIWorkflow {
             contentType: input.contentType,
           })
         : undefined;
+      const generationPreflight = sourcePreflight
+        && input.contentOpportunity?.verificationPlan
+        ? requireExplicitVerificationGenerationBundle({
+            plan: input.contentOpportunity.verificationPlan,
+            snapshot: sourcePreflight.verificationSnapshot,
+            sources: sourcePreflight.sources,
+            claimSources: sourcePreflight.claimSources,
+          })
+        : sourcePreflight;
       const request = this.strategy.createRequest(input);
       const canonicalInstruction = withCanonicalEditorialContext(
         request.instruction,
         input.editorialContext,
       );
-      const instruction = sourcePreflight
+      const instruction = generationPreflight
         ? withApprovalSourcePreflightInstruction(
             canonicalInstruction,
-            sourcePreflight.sources,
-            sourcePreflight.claimSources,
+            generationPreflight.sources,
+            generationPreflight.claimSources,
           )
         : withApprovalEvidenceSearchInstruction(
             canonicalInstruction,
@@ -140,9 +150,9 @@ export class AIWorkflow {
       const evidenceDocument = withApprovalEvidenceMetadata(
         policyDocument,
         input.editorialContext,
-        sourcePreflight?.sources ?? response.diagnostics?.webSources ?? [],
+        generationPreflight?.sources ?? response.diagnostics?.webSources ?? [],
         undefined,
-        sourcePreflight?.claimSources,
+        generationPreflight?.claimSources,
       );
       const preflightUsageDocument = appendAIUsageToDocument(
         evidenceDocument,
