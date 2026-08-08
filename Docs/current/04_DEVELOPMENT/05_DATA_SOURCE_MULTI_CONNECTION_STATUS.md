@@ -1,6 +1,6 @@
 # Data Source Multi-Connection Development Status
 
-Last updated: 2026-08-04
+Last updated: 2026-08-08
 
 ## Scope
 
@@ -14,6 +14,14 @@ PR state: Open / Draft / Unmerged
 ```
 
 The base branch remains unchanged until explicit user approval and merge. No publishing, WordPress Draft save or public write is part of this work.
+
+The Source Preflight / Verification Claim work that grew out of the Bright Finance source incident is now tracked in the dedicated status document:
+
+```text
+Docs/current/04_DEVELOPMENT/07_VERIFICATION_CLAIM_SOURCE_STATUS.md
+```
+
+This file remains authoritative for Data Source ownership, Project scoping, Evidence ingestion and Opportunity Intelligence. The verification status file is authoritative for factual Claim scope, Source Preflight, VerificationSnapshot, Generation Gate, Generated Claim binding, persistence and Quality/publishing verification linkage.
 
 ## Problems reproduced from real local data and UI
 
@@ -239,6 +247,19 @@ Next.js production build: passed
 Job conclusion: success
 ```
 
+The later Verification Claim and Source Preflight integration is verified separately in `07_VERIFICATION_CLAIM_SOURCE_STATUS.md`. At the latest verified code HEAD before these documentation-only commits:
+
+```text
+HEAD: 88efad926c49b1f7ab3bcd011ad7562ffb98122a
+GitHub Actions run: 31235886063
+Typecheck: passed
+Lint: passed
+Test: passed
+Build: passed
+Test Files: 292 passed | 8 skipped
+Tests: 1629 passed | 20 skipped
+```
+
 ## Remaining local external verification
 
 Automated verification does not prove the newly rendered local UI. Local verification still requires:
@@ -271,3 +292,38 @@ Read-only inspection of the next real finance Today’s Content (`content-msg4b4
 The confirmed scoring defect was the classifier expression `min(AI candidate confidence, matched Evidence confidence average)`. The Planning parser normalizes a missing, non-numeric or explicit zero AI confidence to zero, so valid server-owned Evidence could never raise the result above zero. Candidate confidence is now derived from the mean confidence of matched verified, usable Evidence. The no-match user-specified fallback remains unchanged, and Workspace, Project, Connection and candidate-relevance filters are untouched.
 
 The stored Evidence/provider/type contracts remain unchanged. `PrimaryKeywordConfirmation` now uses a deterministic presentation formatter for confidence percentage, content depth, topic complexity, provider, Evidence type, metric, unit, freshness, platform and known limitation text. Duplicate NAVER statements are collapsed after translation. NAVER remains a relative trend rather than absolute search volume, rising trend alone does not establish market size, GSC remains site performance, and no AI translation call was added.
+
+## Bright Finance Source Preflight follow-up (2026-08-08)
+
+The real Bright Finance Source Preflight 400 investigation produced a second, separate correction after the Data Source and Opportunity Evidence issues above.
+
+Confirmed behavior:
+
+- the HTTP 400 was an internal `APPROVAL_SOURCE_NOT_READY` workflow rejection, not an OpenAI transport 400;
+- a related-content/internal-link mention of `예금자보호` activated an unrelated specialized Claim bundle in the legacy Claim derivation path;
+- conceptual amount/rate language could over-scope generic scalar Claims without a concrete planned value;
+- approval-content explicit Verification Planning existed but could still remain disabled when only the environment flag controlled rollout;
+- the existing explicit Planning schema required correction before automatic rollout because strict Structured Outputs must have a complete required-field contract.
+
+Implemented correction:
+
+```text
+approval policy context
+→ explicit Verification Planning automatically enabled
+→ concrete/scoped Claims persisted on the confirmed Opportunity
+→ Source Preflight only for Claims actually required by the primary topic
+→ VerificationSnapshot
+→ Generation Verification Gate
+→ Generated Claim Binding
+→ canonical verification persistence
+→ deterministic Quality integrity check
+→ shared publishing readiness consumption
+```
+
+The full contract, limitations, tests and remaining live Provider Gate are documented in:
+
+```text
+Docs/current/04_DEVELOPMENT/07_VERIFICATION_CLAIM_SOURCE_STATUS.md
+```
+
+The source/verification architecture remains Core-shared. WordPress and Tistory do not maintain separate factual-source truth systems.
