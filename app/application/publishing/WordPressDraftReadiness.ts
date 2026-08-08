@@ -91,7 +91,7 @@ export function calculateWordPressDraftReadiness(input: Readonly<{
           : Object.freeze([]),
       });
   const approvalIntegrity = content.document
-    ? evaluateApprovalDraftIntegrity(content.document)
+    ? evaluateApprovalDraftIntegrity(content.document, Boolean(content.opportunity?.verificationPlan))
     : Object.freeze({ passed: false, reasons: Object.freeze(["기준 원고가 없습니다."]) });
   const policy = resolveWorkspaceSettings(data).publishing;
   const localImageCount = content.document?.blocks.filter((block) => block.type === "image"

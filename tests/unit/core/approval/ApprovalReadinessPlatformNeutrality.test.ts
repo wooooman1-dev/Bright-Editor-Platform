@@ -41,9 +41,7 @@ describe("platform-neutral approval readiness", () => {
     const check = report.checks.find((item) => item.key === "internal_links");
 
     expect(check).toMatchObject({
-      status: "blocked",
-      message: expect.stringContaining("발행 카테고리"),
-      action: expect.stringContaining("실제 발행 카테고리"),
+      status: "passed",
     });
     expect(`${check?.message} ${check?.action}`).not.toMatch(/Tistory|티스토리/u);
   });

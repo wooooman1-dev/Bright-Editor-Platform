@@ -44,8 +44,11 @@ export function evaluateApprovalPreparationText(
   ]);
 }
 
-export function evaluateApprovalDraftIntegrity(document: ContentDocument): ApprovalDraftIntegrity {
-  const base = baseEvaluateApprovalDraftIntegrity(document);
+export function evaluateApprovalDraftIntegrity(
+  document: ContentDocument,
+  verificationRequired = true,
+): ApprovalDraftIntegrity {
+  const base = baseEvaluateApprovalDraftIntegrity(document, verificationRequired);
   const snapshot = document.metadata?.approvalPolicy;
   if (!snapshot) return base;
   const evidence = document.metadata?.approvalEvidence;

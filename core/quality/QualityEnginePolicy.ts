@@ -54,7 +54,12 @@ export class QualityEngine extends BaseQualityEngine {
       },
     );
     const standardQualityApproved = isBaseStandardQualityApproved(report);
-    const approvalReadiness = evaluateApprovalReadiness(document, issues, standardQualityApproved);
+    const approvalReadiness = evaluateApprovalReadiness(
+      document,
+      issues,
+      standardQualityApproved,
+      Boolean(context.opportunity?.verificationPlan),
+    );
 
     return Object.freeze({
       ...report,

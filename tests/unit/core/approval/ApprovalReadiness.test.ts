@@ -86,14 +86,23 @@ describe("ApprovalReadiness", () => {
     expect(report.checks).toContainEqual(expect.objectContaining({
       key: "internal_links",
       status: "passed",
-      message: expect.stringContaining("강제로 넣지 않았습니다"),
+      message: expect.stringContaining("기존 공개 글 후보가 없어"),
     }));
   });
 
-  it("blocks internal links when category resolution was skipped", () => {
+  it("does not block internal links when no existing candidate is available", () => {
     const report = evaluateApprovalReadiness(document({
       internalLinkCatalogStatus: "category_missing",
       availableRelatedContentCandidates: 0,
+    }), [], true);
+
+    expect(report.checks).toContainEqual(expect.objectContaining({ key: "internal_links", status: "passed" }));
+  });
+
+  it("blocks internal links when candidates exist but no link was placed", () => {
+    const report = evaluateApprovalReadiness(document({
+      internalLinkCatalogStatus: "evaluated",
+      availableRelatedContentCandidates: 1,
     }), [], true);
 
     expect(report.status).toBe("blocked");
@@ -169,5 +178,43 @@ describe("ApprovalReadiness", () => {
     expect(report.applicationReady).toBe(true);
     expect(report.status).toBe("ready");
     expect(report.checks.every((check) => check.status === "passed")).toBe(true);
+  });
+
+  it("does not require official evidence when explicit verification is not required", () => {
+    const report = evaluateApprovalReadiness(document({
+      approvalDuplicateCheck: duplicate,
+      siteApprovalReadiness: site,
+      internalLinkCatalogStatus: "evaluated",
+      availableRelatedContentCandidates: 0,
+    }), [], true, false);
+
+    expect(report.applicationReady).toBe(true);
+    expect(report.checks).toContainEqual(expect.objectContaining({ key: "evidence", status: "passed" }));
+  });
+
+  it("requires official evidence when explicit verification is required", () => {
+    const report = evaluateApprovalReadiness(document({
+      approvalEvidence: { ...evidence, status: "missing", sources: [] },
+      approvalDuplicateCheck: duplicate,
+      siteApprovalReadiness: site,
+      internalLinkCatalogStatus: "evaluated",
+      availableRelatedContentCandidates: 0,
+    }), [], true, true);
+
+    expect(report.applicationReady).toBe(false);
+    expect(report.checks).toContainEqual(expect.objectContaining({ key: "evidence", status: "blocked" }));
+  });
+
+  it("passes required official evidence when a verified HTTPS source is present", () => {
+    const report = evaluateApprovalReadiness(document({
+      approvalEvidence: evidence,
+      approvalDuplicateCheck: duplicate,
+      siteApprovalReadiness: site,
+      internalLinkCatalogStatus: "evaluated",
+      availableRelatedContentCandidates: 0,
+    }), [], true, true);
+
+    expect(report.applicationReady).toBe(true);
+    expect(report.checks).toContainEqual(expect.objectContaining({ key: "evidence", status: "passed" }));
   });
 });

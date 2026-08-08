@@ -183,7 +183,12 @@ export class ApprovalReadinessApplicationService {
           },
         )
       : Object.freeze([]);
-    const approvalReadiness = evaluateApprovalReadiness(nextDocument, policyIssues, true);
+    const approvalReadiness = evaluateApprovalReadiness(
+      nextDocument,
+      policyIssues,
+      true,
+      Boolean(content.opportunity?.verificationPlan),
+    );
     const quality = Object.freeze({
       ...content.quality,
       approvalReadiness,

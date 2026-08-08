@@ -152,7 +152,10 @@ export type ApprovalDraftIntegrity = Readonly<{
   reasons: readonly string[];
 }>;
 
-export function evaluateApprovalDraftIntegrity(document: ContentDocument): ApprovalDraftIntegrity {
+export function evaluateApprovalDraftIntegrity(
+  document: ContentDocument,
+  verificationRequired = true,
+): ApprovalDraftIntegrity {
   if (!document.metadata?.approvalPolicy) {
     return Object.freeze({ passed: true, reasons: Object.freeze([]) });
   }
@@ -167,11 +170,11 @@ export function evaluateApprovalDraftIntegrity(document: ContentDocument): Appro
       reviewedAt: evidence?.reviewedAt,
     },
   );
-  const readiness = evaluateApprovalReadiness(document, issues, true);
+  const readiness = evaluateApprovalReadiness(document, issues, true, verificationRequired);
   const requiredKeys = new Set<ApprovalReadinessCheckKey>([
     "approval_policy",
-    "evidence",
     "duplicate",
+    ...(verificationRequired ? ["evidence" as const] : []),
   ]);
   const failed = readiness.checks.filter((check) =>
     requiredKeys.has(check.key) && check.status !== "passed");
@@ -193,11 +196,12 @@ export function evaluateApprovalReadiness(
   document: ContentDocument,
   policyIssues: readonly ApprovalPreparationIssue[],
   standardQualityApproved: boolean,
+  verificationRequired = true,
 ): ApprovalReadinessReport {
   const checks: ApprovalReadinessCheck[] = [
     standardQualityCheck(standardQualityApproved),
     approvalPolicyCheck(policyIssues),
-    evidenceCheck(document),
+    evidenceCheck(document, verificationRequired),
     duplicateCheck(document),
     internalLinkCheck(document),
     siteReadinessCheck(document),
@@ -233,7 +237,7 @@ function approvalPolicyCheck(issues: readonly ApprovalPreparationIssue[]): Appro
   });
 }
 
-function evidenceCheck(document: ContentDocument): ApprovalReadinessCheck {
+function evidenceCheck(document: ContentDocument, verificationRequired: boolean): ApprovalReadinessCheck {
   const pack = document.metadata?.approvalEvidence;
   const verifiedSources = pack?.sources.filter(validVerifiedSource) ?? [];
   if (pack?.presentationStatus === "conflict") {
@@ -243,6 +247,9 @@ function evidenceCheck(document: ContentDocument): ApprovalReadinessCheck {
       message: "수동·AI 출처 섹션과 시스템 Evidence projection이 충돌합니다.",
       action: pack.presentationReasons?.join(" ") || "중복 출처 섹션의 소유권을 확인하세요.",
     });
+  }
+  if (!verificationRequired) {
+    return Object.freeze({ key: "evidence", status: "passed", message: "현재 원고에는 explicit Verification Claim Gate가 필요하지 않아 공식 출처 검사를 적용하지 않았습니다." });
   }
   if (pack?.status === "verified" && pack.coverageStatus !== "needs_review" && pack.reviewedAt && verifiedSources.length > 0) {
     return Object.freeze({ key: "evidence", status: "passed", message: `공식 출처 ${verifiedSources.length}개와 최종 검토일을 확인했습니다.` });
@@ -290,11 +297,14 @@ function internalLinkCheck(document: ContentDocument): ApprovalReadinessCheck {
   const related = document.blocks.filter((block) => block.type === "button" && block.purpose === "related_post").length;
   const placed = contextual + related;
 
+  if (status === "catalog_unavailable") {
+    return Object.freeze({ key: "internal_links", status: "blocked", message: "공개 글 목록을 불러오지 못해 내부 링크를 평가하지 못했습니다.", action: "발행 플랫폼 연결과 공개 글 동기화 상태를 확인해 주세요." });
+  }
+  if ((status === "evaluated" || status === "category_missing") && candidates === 0) {
+    return Object.freeze({ key: "internal_links", status: "passed", message: "연결할 수 있는 기존 공개 글 후보가 없어 내부 링크를 강제하지 않았습니다." });
+  }
   if (status === "category_missing") {
     return Object.freeze({ key: "internal_links", status: "blocked", message: "발행 카테고리가 없어 내부 링크 후보를 평가하지 못했습니다.", action: "실제 발행 카테고리를 선택한 뒤 공개 글 후보를 다시 불러오세요." });
-  }
-  if (status === "catalog_unavailable") {
-    return Object.freeze({ key: "internal_links", status: "blocked", message: "공개 글 목록을 불러오지 못해 내부 링크를 평가하지 못했습니다.", action: "발행 플랫폼 연결과 공개 글 동기화를 확인하세요." });
   }
   if (status === "evaluated") {
     if ((candidates ?? 0) === 0) {

@@ -34,8 +34,11 @@ export function evaluateApprovalPreparationText(
   );
 }
 
-export function evaluateApprovalDraftIntegrity(document: ContentDocument): ApprovalDraftIntegrity {
-  const base = baseEvaluateApprovalDraftIntegrity(document);
+export function evaluateApprovalDraftIntegrity(
+  document: ContentDocument,
+  verificationRequired = true,
+): ApprovalDraftIntegrity {
+  const base = baseEvaluateApprovalDraftIntegrity(document, verificationRequired);
   const snapshot = document.metadata?.approvalPolicy;
   if (!snapshot || !hasConciseApplicabilityQualification(documentText(document), snapshot)) return base;
   const reasons = base.reasons.filter((reason) => reason !== strictDefinitionMessage);
