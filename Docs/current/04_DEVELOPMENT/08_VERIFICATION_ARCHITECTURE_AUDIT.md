@@ -4,30 +4,35 @@ Last updated: 2026-08-08
 
 ## 1. Purpose
 
-This document records a static architecture audit of the Verification Claim, Source Preflight, Generated Claim Binding, Quality and publishing-readiness chain on Draft PR `#42`.
+This document records the current static architecture audit of the Verification Claim, Source Preflight, Generated Claim Binding, Quality and publishing-readiness chain on Draft PR `#42`.
 
-Audit basis:
+Current verified implementation basis:
 
 ```text
 Repository: woooooman1-dev/Bright-Editor-Platform
 Branch: feat/data-source-multi-connections
 PR: #42
-Audited ref: 052ddcb39c0d547d1e7780d6c48126fedf87f2d9
-PR state at audit start: Open / Draft / Unmerged
+Latest implementation HEAD verified by CI: fc2f9e5b5efdfed5e338cef2e7e697bc807ef634
+GitHub Actions run: 31240664253
+Job: 93060958310
+Typecheck: passed
+Lint: passed
+Test: passed
+Build: passed
 ```
 
-This is a read-only architecture audit of actual repository code and existing automated tests. No production Provider call, local `.bright-studio` mutation, WordPress Draft write, Tistory Draft write or public publishing was performed.
+No production Provider call, local `.bright-studio` mutation, WordPress Draft write, Tistory Draft write or public publishing was performed by this audit/update.
 
-This document does not declare the workstream complete. It identifies what is already protected and what still has contract gaps.
+This document distinguishes resolved findings from still-open semantic or publishing-boundary work. A successful automated fixture is not treated as live external verification.
 
 ## 2. Audited Pipeline
-
-The implemented verification pipeline is currently:
 
 ```text
 Approval-aware Planning
 → explicit verificationPlan
-→ Source Preflight
+→ Source Preflight discovery
+→ fetched-page validation
+→ typed source normalization
 → VerificationSnapshot
 → Verification Generation Gate
 → filtered Generation evidence bundle
@@ -39,7 +44,7 @@ Approval-aware Planning
 → external Draft / schedule execution
 ```
 
-The audit checked the following implementation boundaries:
+Primary audited implementation boundaries include:
 
 - `app/application/PlanningContracts.ts`
 - `app/application/ContentPlanningStrategy.ts`
@@ -53,185 +58,141 @@ The audit checked the following implementation boundaries:
 - `core/approval/GeneratedClaimBinding.ts`
 - `core/approval/GeneratedClaimVerificationIntegrity.ts`
 - `core/quality/QualityEnginePolicy.ts`
-- `app/application/publishing/WordPressDraftReadiness.ts`
-- `app/application/publishing/WordPressDraftApplicationService.ts`
-- `app/application/publishing/TistoryPublishingPreparation.ts`
-- `app/api/tistory/route.ts`
-- `app/application/publishing/TistoryScheduleReadiness.ts`
-- `app/api/publishing/schedules/create/route.ts`
-- `app/application/publishing/TistoryScheduleCreateApplicationService.ts`
+- WordPress/Tistory publishing readiness and registered execution routes.
 
 ## 3. Verified Architecture Strengths
 
 ### 3.1 Explicit Planning is server-owned before Generation
 
-Approval-aware Planning automatically enables explicit Verification Planning from canonical approval-policy context.
+Approval-aware Content automatically enables explicit Verification Planning from canonical approval-policy context. The Planning response defines factual Claims before Generation, while the server owns Claim IDs and fingerprints.
 
-The Planning schema supports explicit Claim definitions before Generation and the server assigns deterministic Claim IDs and a Verification Plan fingerprint.
+### 3.2 Generation revalidates Verification state
 
-The plan is not inferred from generated prose after the fact.
-
-### 3.2 Generation does not trust a stored status string
-
-`VerificationGenerationGate` recomputes the plan fingerprint, verifies the Snapshot fingerprint, rejects unknown or duplicate result Claim IDs, re-evaluates Claim policy, and only exposes fresh supporting normalized assessments.
+`VerificationGenerationGate` recomputes the Plan fingerprint, checks Snapshot integrity, rejects unknown/duplicate result Claim IDs, re-evaluates Claim policy and exposes only fresh supporting normalized assessments.
 
 Required Claims that do not remain verified block Generation.
 
-### 3.3 Generated verification state is server-owned
+### 3.3 Generated verification state is canonical server state
 
-Generation creates canonical `generatedClaimVerification` metadata only after the Verification Generation Gate passes.
-
-The stored record contains the `VerificationSnapshot`, current binding information and the editorial revision at which the binding was calculated.
+Generation creates `generatedClaimVerification` only after the Generation Gate passes. The stored record contains the VerificationSnapshot, current bindings and bound editorial revision.
 
 ### 3.4 Quality rechecks the current manuscript
 
-Quality does not trust the old stored binding as sufficient authority.
+`evaluateGeneratedClaimVerificationIntegrity()` does not treat a historical binding as sufficient authority. It re-evaluates the Gate and re-runs deterministic binding against the current canonical manuscript.
 
-`evaluateGeneratedClaimVerificationIntegrity()` re-evaluates the Generation Gate and re-runs deterministic Generated Claim Binding against the current canonical manuscript.
+### 3.5 Registered publishing paths consume the shared Core result
 
-A changed unsupported detected scalar can therefore block the current Quality result even when an older revision was approved.
+Confirmed current behavior:
 
-### 3.5 WordPress Draft execution is gated before external write
+- WordPress Draft execution calculates readiness inside `WordPressDraftApplicationService` before external Draft creation.
+- normal Tistory Draft execution asserts Generated Claim integrity at the registered API boundary before Playwright execution.
+- Tistory schedule readiness inherits the general Tistory `generated_claim_verification` check before schedule reservation/execution.
 
-`WordPressDraftApplicationService.execute()` calls its own `prepare()` path before any external Draft creation. `prepare()` calculates `WordPressDraftReadiness`, which includes `generated_claim_verification`.
+No WordPress-specific or Tistory-specific factual-source truth engine is required or desired.
 
-External media and Draft operations are not reached when readiness is not executable.
+## 4. Finding V-01 — Planning / Source Normalization Kind Mismatch
 
-### 3.6 Tistory Draft execution has an explicit route-level verification assertion
+Status: **Resolved at source-normalization boundary**
 
-`app/api/tistory/route.ts` calls `assertGeneratedClaimVerificationIntegrity()` before the Tistory Draft Application Service is allowed to execute the registered Playwright workflow.
+Original finding:
 
-The route also rechecks stored Quality, calculates current rule Quality, and asserts approval-article integrity.
+Planning allowed nine Claim kinds while explicit fetched-source normalization handled only `money`, `ratio` and `general`.
 
-### 3.7 Tistory scheduling currently inherits the shared Claim Gate
-
-`calculateTistoryScheduleReadiness()` calls `calculateTistoryReadiness()` and removes only the draft-specific Permission Gate and final-confirmation checks before adding schedule-specific checks.
-
-Because `calculateTistoryReadiness()` currently contains `generated_claim_verification`, schedule readiness also inherits that check.
-
-The registered schedule-create route requires `readiness.executable === true` before reservation and Playwright execution.
-
-This means scheduling is currently protected indirectly even though the original Phase 5D implementation scope did not add a separate schedule-specific Generated Claim Gate.
-
-## 4. Finding V-01 — Planning Supports 9 Claim Kinds, Explicit Source Normalization Handles Only 3
-
-Severity: **P1 — correctness / availability blocker before broad live rollout**
-
-Confirmed code contract:
+Planning-supported kinds are:
 
 ```text
-Planning VerificationClaimKind:
-- money
-- ratio
-- date
-- dateRange
-- duration
-- location
-- eligibility
-- legal
-- general
+money
+ratio
+date
+dateRange
+duration
+location
+eligibility
+legal
+general
 ```
 
-However, `assessmentsFromExplicitDiscovery()` currently normalizes discovered source values through `normalizeExplicitScalar()`, whose implemented branches are only:
+Current `ExplicitVerificationPreflight` now has deterministic normalization branches for all nine kinds.
+
+The server also compares Planning `rawValue` and discovered source values by canonical normalized representation instead of plain display-string equality where supported. Examples protected by automated fixtures include:
 
 ```text
-- general
-- money
-- ratio
+50만원 == 500,000원
+3% == 3퍼센트
+2026-08-01 == 2026년 8월 1일
+예금자보호법 제32조 == 예금자보호법 제 32 조
 ```
 
-For the other Planning-supported kinds, normalization returns `undefined`:
+The all-kind regression fixture is in:
 
 ```text
-- date
-- dateRange
-- duration
-- location
-- eligibility
-- legal
+tests/unit/core/approval/ExplicitVerificationPreflight.test.ts
 ```
 
-The support condition requires a normalized value. Therefore a required Claim of one of these kinds can receive a real fetched official page and still fail with `claim_normalization_failed`.
+Important boundary: this resolution means all nine kinds can be source-normalized into typed Verification assessments. It does **not** mean Generated Claim semantic re-verification is complete for all nine kinds.
 
-The current explicit Source Preflight integration tests are concentrated on money Claims and do not protect all nine Planning-supported kinds.
+## 5. Finding V-02 — Proposition-changing Money / Ratio Semantics
 
-### Impact
+Status: **Partially Resolved**
 
-This is fail-closed rather than fail-open: unsupported normalization tends to block Generation instead of silently authorizing the Claim.
+### Resolved source-side behavior
 
-That protects against publishing an unverified required Claim, but it can create false `APPROVAL_SOURCE_NOT_READY` failures for valid approval content whose Planning contains dates, eligibility, legal provisions, locations or durations.
+Money source normalization now preserves deterministic basis/comparator semantics where explicitly represented or safely derivable from the confirmed Claim context.
 
-### Required correction
-
-Create one deterministic source-value normalization contract that supports every `VerificationClaimKind` allowed by Planning.
-
-Do not add an AI normalization call.
-
-The same normalization semantics must be reused by:
-
-- explicit Source Preflight;
-- Snapshot creation;
-- Generation Gate recheck;
-- Generated Claim equivalent-value matching where applicable.
-
-## 5. Finding V-02 — Current Money and Ratio Normalization Loses Important Claim Semantics
-
-Severity: **P1 — factual integrity gap**
-
-The typed canonical contracts support richer semantics:
-
-Money can contain:
-
-- comparator;
-- basis such as one-time, daily, monthly, annual, total, per-person or per-household;
-- tax inclusion.
-
-Ratio can contain:
-
-- comparator;
-- representation;
-- meaning such as rate, share or change.
-
-The current explicit source-text normalizer does not derive those semantics.
-
-For money it currently creates a normalized value equivalent to:
+Supported money basis includes:
 
 ```text
-amount + currency + basis: total
+oneTime
+daily
+monthly
+annual
+total
+perPerson
+perHousehold
 ```
 
-For a percent ratio it currently creates a normalized value equivalent to:
+Common Korean forms such as the following are normalized:
 
 ```text
-value + representation: percent + meaning: rate
+월 50만원
+500,000원/월
+연 600만원
+1인당 10만원
+가구당 20만원
+1회 5만원
 ```
 
-It does not deterministically compare the Planning Claim qualifiers or statement semantics against those normalized fields.
+The Finance Matrix specifically verifies that:
 
-### Example risk
+```text
+planned: 월 50만원
+source: 500,000원
+→ same monthly Claim when the confirmed Claim context supplies monthly basis
+```
 
-A Claim whose editorial meaning is "월 50만원" and a generated statement whose meaning becomes "연 50만원" can share the same scalar token `50만원`.
+and:
 
-Likewise, a Claim about an upper limit can share the same scalar value with a generated statement that changes the comparator.
+```text
+planned: 월 50만원
+source: 연 500,000원
+→ claim_raw_value_mismatch
+```
 
-The current scalar binder is value-token based and cannot by itself prove that the surrounding basis/comparator meaning is unchanged.
+Money and ratio comparator forms such as `최대`, `최소`, `이상`, `이하`, `미만`, `초과` are also deterministically represented where the canonical type supports them.
 
-### Required correction
+Ratio normalization preserves percent vs percentage-point representation and derives the current canonical `rate/share/change` meaning from the confirmed Claim context.
 
-The source-value normalizer and generated-value matcher must preserve and compare semantic qualifiers that materially change the factual proposition.
+### Still open
 
-At minimum, normalized source verification must deterministically account for the applicable:
+`GeneratedClaimBinding` remains primarily token/scalar based. It cannot yet prove that every generated surrounding proposition preserves comparator, basis, subject, scope and all other material qualifiers.
 
-- comparator;
-- basis;
-- ratio meaning;
-- subject/scope qualifiers when they change the proposition.
+Therefore V-02 is not fully resolved end-to-end until the Generation output / Generated Claim representation preserves those semantics deterministically.
 
-## 6. Finding V-03 — Generated Claim Detection is Intentionally Partial but the High-Risk Policy is Broader
+## 6. Finding V-03 — Generated Claim Detection Coverage
 
-Severity: **P1 — guarantee boundary must be closed or explicitly constrained**
+Status: **Open — P1 semantic integrity boundary**
 
-`VerificationClaimPolicy` treats the following as high-risk:
+High-risk Verification kinds include:
 
 ```text
 money
@@ -243,7 +204,7 @@ eligibility
 legal
 ```
 
-`GeneratedClaimBinding` currently has deterministic unsupported-value detection for:
+Current deterministic unsupported-value detection in `GeneratedClaimBinding` is strongest for scalar/text-token forms including:
 
 ```text
 money
@@ -253,40 +214,15 @@ duration
 legal article numbers
 ```
 
-It does not provide general semantic unsupported-value detection for:
+It is not universal semantic fact extraction. In particular, semantic edits to location, eligibility or legal propositions may not always create a new independently detectable scalar token.
 
-```text
-location
-eligibility
-legal proposition semantics
-general free-form propositions
-```
+A future implementation must not solve this by adding another Quality AI call. Preferred direction is a structured generated factual-claim representation returned inside the existing Generation response so the server can compare it to the verified Plan/Snapshot deterministically.
 
-The development status document already states that the detector is not universal semantic fact extraction. The static audit confirms that this is a real implementation boundary, not only conservative wording.
+## 7. Finding V-04 — Generation Bundle Still Uses Legacy Compatibility Projection
 
-### Impact
+Status: **Open — P2 architecture ambiguity**
 
-A generated unsupported money/date scalar is likely to be surfaced as `unverifiedDetected`.
-
-A generated semantically different eligibility rule or location proposition may not be surfaced when it does not contain a separately detectable unsupported scalar.
-
-### Required correction options
-
-One of the following must be made explicit before broad approval-content rollout:
-
-1. implement deterministic canonical representations for every high-risk kind and require generated claims to emit those representations; or
-2. narrow the guaranteed high-risk Claim kinds to those that the deterministic binder can actually re-verify; or
-3. introduce a structured generated factual-claim section inside the existing Generation response schema so the server can compare generated propositions to the verified Plan without adding another AI call.
-
-Option 3 best matches the project's cost rule because it can reuse the existing single Generation call.
-
-## 7. Finding V-04 — Explicit Generation Bundle Downgrades Claim Identity to Legacy Field/Value Projection
-
-Severity: **P2 — architecture ambiguity / future regression risk**
-
-The canonical explicit verification model is Claim-ID based.
-
-However, the Generation prompt compatibility bundle currently projects verified Claim evidence into the legacy shape:
+The canonical Verification model is Claim-ID based, but the current reader-facing Generation evidence instruction is still built from a legacy compatibility projection shaped mainly as:
 
 ```text
 field
@@ -294,30 +230,22 @@ value
 evidenceExcerpt
 ```
 
-It does not carry the canonical:
+That projection can lose semantics already present in the canonical Claim definition, including Claim identity and qualifiers.
 
-- `claimId`;
-- Claim statement;
-- qualifiers;
-- temporal requirement.
+Required direction:
 
-The repository already supports two different Claims with the same field while keeping their Claim IDs separate. The compatibility projection can therefore lose information that distinguishes those Claims when constructing the Generation evidence prompt.
+- make `claimId` the primary Generation evidence identity;
+- preserve normalized verified value and material qualifiers;
+- require every `gate.verifiedClaimId` to own at least one trusted source projection;
+- keep legacy field/value projection only as non-authoritative compatibility output.
 
-`requireExplicitVerificationGenerationBundle()` also checks that the filtered source and Claim-source arrays are non-empty globally when verified Claims exist, rather than asserting a complete Claim-ID-to-source projection for every verified Claim.
+No extra AI call is required.
 
-### Required correction
+## 8. Finding V-05 — Schedule Verification Regression Coverage
 
-Create an explicit Generation evidence bundle whose primary identity is `claimId` rather than the legacy field-only compatibility type.
+Status: **Open — P2 regression gap**
 
-For every `gate.verifiedClaimId`, require at least one trusted source projection containing the matching `claimId`, normalized verified value and the semantic qualifiers needed to preserve the factual proposition.
-
-Legacy field/value projection may remain only at a compatibility boundary where it cannot authorize Generation by itself.
-
-## 8. Finding V-05 — Schedule Inheritance is Real but Not Regression-Protected as a Verification Integration
-
-Severity: **P2 — regression coverage gap**
-
-Current code behavior is safe through composition:
+Current Tistory schedule readiness is protected by composition:
 
 ```text
 TistoryScheduleReadiness
@@ -325,142 +253,147 @@ TistoryScheduleReadiness
 → generated_claim_verification
 ```
 
-However, `TistoryScheduleReadiness.test.ts` mocks `calculateTistoryReadiness()` and therefore does not prove that an actual changed Generated Claim causes schedule readiness to fail.
-
-The current Generated Claim publishing integration tests cover WordPress and normal Tistory readiness, not the schedule-create route with a real verification record.
-
-### Required correction
-
-Add a deterministic schedule regression fixture:
+However, the schedule-specific test mocks the lower readiness function and does not yet prove the full integration case:
 
 ```text
-verified 50만원
-→ canonical manuscript edited to 70만원
-→ old Quality kept deliberately current-looking in fixture
-→ schedule readiness must expose generated_claim_verification=false
-→ schedule create route must not reserve or execute Playwright
+verified manuscript
+→ factual edit
+→ generated_claim_verification fails
+→ schedule readiness false
+→ schedule route does not reserve or execute Playwright
 ```
 
-No external Tistory call is needed for this regression test.
+This can be tested offline without a real Tistory write.
 
-## 9. Finding V-06 — Tistory Execution Services Rely on Registered Upstream Readiness for Canonical Verification
+## 9. Finding V-06 — Execution Services Depend on Registered Upstream Verification
 
-Severity: **P2 — defense-in-depth boundary**
+Status: **Open — P2 defense-in-depth boundary**
 
-Normal Tistory Draft and schedule routes protect the registered product path before external execution.
+No current registered public route bypass was found.
 
-The low-level `TistoryDraftApplicationService` and `TistoryScheduleCreateApplicationService` themselves do not own the full canonical Opportunity / Verification / Quality context. They mainly enforce publishing target, platform, Permission Gate, session and worker-specific execution constraints.
+However, low-level Tistory execution services do not themselves own the full canonical Opportunity / Verification / Quality context. Their safety depends on the registered readiness/API boundary remaining mandatory.
 
-A future internal caller that bypasses the registered API/readiness boundary could therefore invoke those services without the same canonical Verification check.
+Do not duplicate factual verification inside platform workers. If stronger defense in depth is needed, use a platform-neutral server-owned verified publishing execution ticket/artifact produced after canonical Core checks.
 
-No current public registered route bypass was found in this audit.
+## 10. Bright Finance Regression Matrix
 
-### Required correction
-
-Do not add duplicate verification logic into platform-specific workers.
-
-Instead, define one platform-neutral verified publishing execution ticket or readiness artifact produced only after canonical Core checks pass. Tistory execution services should require that server-owned ticket in addition to Permission Gate authorization.
-
-This keeps Core truth shared while preventing future internal call sites from accidentally bypassing readiness composition.
-
-## 10. Test Coverage Audit
-
-### Existing strong coverage
-
-Existing tests directly cover:
-
-- Planning strict explicit schema;
-- explicit plan persistence;
-- money Claim Source Preflight;
-- source identity and institution grouping;
-- temporal policy;
-- Snapshot fingerprinting;
-- Generation Verification Gate;
-- filtered Generation evidence bundle;
-- generated money value binding;
-- changed unsupported money detection;
-- canonical verification persistence;
-- Quality blocking after an unsupported scalar edit;
-- WordPress Draft readiness;
-- Tistory Draft readiness;
-- route-level approval Planning activation.
-
-### Missing matrix confirmed by this audit
-
-The repository does not currently have one end-to-end deterministic matrix covering all Planning-supported Claim kinds through:
+A dedicated offline Matrix now protects common Bright Finance factual shapes:
 
 ```text
-Planning Claim
-→ explicit source text normalization
-→ source assessment
+tests/unit/core/approval/BrightFinanceVerificationMatrix.test.ts
+```
+
+Current scenarios:
+
+1. 지원금 — amount, eligibility, application period, location
+2. 예금·적금 — ratio, duration, general verification principle
+3. 세금·공제 — ratio, reference date, legal basis
+4. 대출 — amount, ratio, duration
+5. a required planned amount changed by one source must fail closed
+6. monthly planned amount must not equal an explicitly annual source amount
+
+The Matrix exercises:
+
+```text
+explicit discovered source records
+→ source assessments
+→ typed normalization
+→ temporal/freshness policy
 → VerificationSnapshot
-→ Generation Gate
-→ Generation bundle
-→ Generated Claim binding
-→ Quality integrity
-→ Draft/schedule readiness
+→ VerificationGenerationGate
 ```
 
-The next regression matrix should include at least:
+It deliberately uses fixture values and does not encode current real-world policy amounts as product truth.
 
-| Kind | Source normalization | Generated equivalent | Unsupported edit | Quality block | Draft block | Schedule block |
-|---|---|---|---|---|---|---|
-| money | required | required | required | required | required | required |
-| ratio | required | required | required | required | required | required |
-| date | missing today | required | required | required | required | required |
-| dateRange | missing today | required | required | required | required | required |
-| duration | missing today | required | required | required | required | required |
-| location | missing today | semantic design required | semantic design required | required | required | required |
-| eligibility | missing today | semantic design required | semantic design required | required | required | required |
-| legal | missing today | partial article-number support only | semantic design required | required | required | required |
-| general | source normalization exists | semantic guarantee limited | semantic guarantee limited | policy-dependent | policy-dependent | policy-dependent |
+### What the Matrix found during development
 
-## 11. Recommended Implementation Order
+The first Matrix run exposed a real Production gap: `월 50만원` could not be normalized against an equivalent `500,000원` source value because the money basis wrapper was not represented. The Production normalizer was corrected rather than weakening the test.
+
+A later failing run exposed a contradictory test fixture whose discovered date-range value did not literally appear in the fixture page text. The server correctly rejected it with the existing page-value requirement; the fixture was corrected rather than relaxing verification.
+
+This is evidence that the Matrix is exercising fail-closed behavior instead of only happy-path assertions.
+
+## 11. Current Test Coverage Boundary
+
+Now covered strongly:
+
+- strict explicit Planning schema;
+- automatic approval-context explicit Planning;
+- Bright Finance legacy false-positive regression;
+- all nine source-normalization kinds;
+- canonical raw-value equivalence for covered representations;
+- money basis semantics and monthly/annual mismatch;
+- source identity and institution grouping;
+- temporal/freshness policy;
+- VerificationSnapshot and fingerprints;
+- Generation Verification Gate;
+- current Generation evidence filtering;
+- Generated Claim scalar binding;
+- persistence and current-manuscript integrity recheck;
+- WordPress/Tistory Draft readiness consumption of shared verification state;
+- common Bright Finance source/Snapshot/Gate combinations.
+
+Still missing or incomplete:
+
+- structured generated semantic representation for every high-risk Claim kind;
+- deterministic end-to-end qualifier preservation after Generation;
+- Claim-ID-owned Generation evidence bundle;
+- schedule-specific changed-Claim integration regression;
+- verified publishing execution artifact/ticket if required after call-site hardening;
+- latest real Bright Finance Provider run.
+
+## 12. Recommended Next Implementation Order
 
 Do not add another AI call.
 
-Recommended next implementation sequence:
-
 ```text
-V-01
-Complete deterministic source normalization for all Planning-supported Claim kinds
-    ↓
-V-02
-Preserve comparator / basis / meaning / material qualifiers
-    ↓
 V-04
-Replace field-only Generation compatibility projection with claimId-owned explicit bundle
+Create Claim-ID-owned Generation evidence bundle
     ↓
-V-03
-Define structured generated factual-claim representation inside the existing Generation response
+V-03 / remaining V-02
+Define structured generated factual-claim representation in the existing Generation response
+    ↓
+Rebind/Quality
+Compare generated structured Claims against verified Claim semantics
     ↓
 V-05
-Add full claim-kind and schedule regression matrix
+Add schedule changed-Claim integration regression
     ↓
 V-06
-Add server-owned verified publishing execution ticket / artifact if needed after call-site audit
+Add verified publishing execution artifact only if call-site hardening requires it
+    ↓
+Live Bright Finance verification
+Planning → real Source Preflight → Generation 1x → Quality Review 1x
 ```
 
-The order is deliberate. Expanding tests before the canonical normalization and explicit Generation bundle contracts are corrected would lock in incomplete semantics.
+## 13. Current Audit Conclusion
 
-## 12. Current Audit Conclusion
-
-The repository has a real shared Verification architecture and the currently registered WordPress/Tistory Draft paths are not missing the Generated Claim Gate.
-
-However, the workstream must not yet be described as semantically complete for all declared `VerificationClaimKind` values.
-
-Current accurate status:
+Accurate current status:
 
 ```text
-Verification architecture skeleton: Implemented
-Plan/Snapshot/Gate/persistence/publishing linkage: Implemented
-Current money-focused automated path: Verified by existing fixtures
-All 9 Claim kinds source-normalized end-to-end: Not implemented
-Semantic qualifier preservation: Incomplete
-Non-scalar generated Claim re-verification: Incomplete
-Schedule Generated Claim integration regression: Missing
+Verification architecture: Implemented
+Approval explicit Planning rollout: Implemented
+All 9 Claim kinds source-normalized: Implemented and automated-regression verified
+Money basis/comparator source semantics: Implemented and automated-regression verified
+Bright Finance source/Snapshot/Gate Matrix: Implemented and automated-regression verified
+Plan/Snapshot/Generation Gate/persistence/Quality/publishing linkage: Implemented
+Generated semantic Claim re-verification for every high-risk kind: Incomplete
+Claim-ID-owned Generation evidence bundle: Not implemented
+Schedule changed-Claim integration regression: Missing
 Latest real Bright Finance Provider run: Pending
 External WordPress/Tistory write for this workstream: Not performed
+```
+
+Latest implementation verification:
+
+```text
+HEAD: fc2f9e5b5efdfed5e338cef2e7e697bc807ef634
+GitHub Actions run: 31240664253
+Job: 93060958310
+Typecheck: passed
+Lint: passed
+Test: passed
+Build: passed
 ```
 
 No merge or Ready transition is authorized by this audit.
