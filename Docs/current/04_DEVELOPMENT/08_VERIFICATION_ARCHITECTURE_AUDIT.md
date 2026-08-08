@@ -12,9 +12,9 @@ Current verified implementation basis:
 Repository: woooooman1-dev/Bright-Editor-Platform
 Branch: feat/data-source-multi-connections
 PR: #42
-Latest implementation HEAD verified by CI: fc2f9e5b5efdfed5e338cef2e7e697bc807ef634
-GitHub Actions run: 31240664253
-Job: 93060958310
+Latest implementation HEAD verified by CI: 084f84b04832701021f3b81ca96b066df187fb45
+GitHub Actions run: 31245532260
+Job: 93073396332
 Typecheck: passed
 Lint: passed
 Test: passed
@@ -35,7 +35,7 @@ Approval-aware Planning
 → typed source normalization
 → VerificationSnapshot
 → Verification Generation Gate
-→ filtered Generation evidence bundle
+→ Claim-ID-owned Generation evidence bundle
 → Generation
 → Generated Claim Binding
 → canonical generatedClaimVerification metadata
@@ -54,6 +54,7 @@ Primary audited implementation boundaries include:
 - `core/approval/VerificationClaim.ts`
 - `core/approval/VerificationClaimPolicy.ts`
 - `core/approval/VerificationGenerationGate.ts`
+- `core/approval/VerificationGenerationEvidence.ts`
 - `core/ai/VerificationGenerationBundle.ts`
 - `core/approval/GeneratedClaimBinding.ts`
 - `core/approval/GeneratedClaimVerificationIntegrity.ts`
@@ -184,9 +185,9 @@ Ratio normalization preserves percent vs percentage-point representation and der
 
 ### Still open
 
-`GeneratedClaimBinding` remains primarily token/scalar based. It cannot yet prove that every generated surrounding proposition preserves comparator, basis, subject, scope and all other material qualifiers.
+The Generation evidence bundle now preserves canonical basis, comparator and other Claim qualifiers before Generation, but `GeneratedClaimBinding` remains primarily token/scalar based after Generation. It cannot yet prove that every generated surrounding proposition preserves comparator, basis, subject, scope and all other material qualifiers.
 
-Therefore V-02 is not fully resolved end-to-end until the Generation output / Generated Claim representation preserves those semantics deterministically.
+Therefore V-02 is not fully resolved end-to-end until the Generation output / Generated Claim representation preserves those semantics deterministically after Generation.
 
 ## 6. Finding V-03 — Generated Claim Detection Coverage
 
@@ -218,28 +219,65 @@ It is not universal semantic fact extraction. In particular, semantic edits to l
 
 A future implementation must not solve this by adding another Quality AI call. Preferred direction is a structured generated factual-claim representation returned inside the existing Generation response so the server can compare it to the verified Plan/Snapshot deterministically.
 
-## 7. Finding V-04 — Generation Bundle Still Uses Legacy Compatibility Projection
+## 7. Finding V-04 — Claim-ID-owned Generation Evidence Bundle
 
-Status: **Open — P2 architecture ambiguity**
+Status: **Resolved**
 
-The canonical Verification model is Claim-ID based, but the current reader-facing Generation evidence instruction is still built from a legacy compatibility projection shaped mainly as:
+The explicit Generation evidence boundary no longer treats the legacy `field/value/evidenceExcerpt` projection as authoritative Generation truth.
+
+A Core contract now builds source-owned projections from the confirmed Verification Plan, verified `VerificationSnapshot`, and validated explicit Source Preflight records:
 
 ```text
-field
-value
-evidenceExcerpt
+core/approval/VerificationGenerationEvidence.ts
 ```
 
-That projection can lose semantics already present in the canonical Claim definition, including Claim identity and qualifiers.
+Each canonical Generation Claim preserves:
 
-Required direction:
+```text
+claimId
+field
+kind
+statement
+required
+normalizedValue
+qualifiers
+temporalRequirement
+sources[]
+  sourceId
+  canonicalUrl
+  role
+  authoritative
+  evidenceExcerpt
+  temporalEvidence
+```
 
-- make `claimId` the primary Generation evidence identity;
-- preserve normalized verified value and material qualifiers;
-- require every `gate.verifiedClaimId` to own at least one trusted source projection;
-- keep legacy field/value projection only as non-authoritative compatibility output.
+`requireExplicitVerificationGenerationBundle()` now rebinds every source projection to the same verified Claim result and trusted source assessment. It validates Claim contract identity, source ID, canonical URL, source role, authority, freshness and canonical normalized value before the projection reaches Generation.
 
-No extra AI call is required.
+The boundary fails closed when any `gate.verifiedClaimId` has no trusted Claim-ID-owned projection. A source URL being present in the global allowed URL set is no longer sufficient to authorize an unrelated Claim.
+
+The explicit Generation prompt consumes the Claim-ID-owned canonical projection and treats `normalizedValue` plus material Claim qualifiers as the factual authority. It also instructs Generation not to transfer evidence between Claims merely because fields look similar.
+
+The older `field/value/evidenceExcerpt` projection remains only for compatibility with the existing Approval Evidence metadata path. It is not the authoritative explicit Generation representation.
+
+No additional Planning, Source Preflight, Generation or Quality AI call was added.
+
+Regression coverage includes:
+
+```text
+tests/unit/core/approval/VerificationGenerationEvidence.test.ts
+tests/unit/core/ai/VerificationGenerationBundle.test.ts
+tests/unit/core/ai/AIWorkflowVerificationGenerationGate.test.ts
+tests/unit/core/ai/AIWorkflowGeneratedClaimBinding.test.ts
+```
+
+Covered failure/identity cases include:
+
+- same-field Claims remain distinct by `claimId`;
+- monthly and annual canonical money semantics remain distinct;
+- stale or rejected source projections do not reach Generation;
+- a verified Claim with legacy-only evidence fails closed;
+- a forged canonical normalized value is rejected;
+- Generation receives Claim ID, normalized value and qualifiers while still executing only once.
 
 ## 8. Finding V-05 — Schedule Verification Regression Coverage
 
@@ -327,7 +365,9 @@ Now covered strongly:
 - temporal/freshness policy;
 - VerificationSnapshot and fingerprints;
 - Generation Verification Gate;
-- current Generation evidence filtering;
+- Claim-ID-owned Generation evidence filtering and source ownership;
+- Generation prompt preservation of canonical normalized values and qualifiers;
+- legacy-only explicit evidence fails closed;
 - Generated Claim scalar binding;
 - persistence and current-manuscript integrity recheck;
 - WordPress/Tistory Draft readiness consumption of shared verification state;
@@ -337,7 +377,6 @@ Still missing or incomplete:
 
 - structured generated semantic representation for every high-risk Claim kind;
 - deterministic end-to-end qualifier preservation after Generation;
-- Claim-ID-owned Generation evidence bundle;
 - schedule-specific changed-Claim integration regression;
 - verified publishing execution artifact/ticket if required after call-site hardening;
 - latest real Bright Finance Provider run.
@@ -347,9 +386,6 @@ Still missing or incomplete:
 Do not add another AI call.
 
 ```text
-V-04
-Create Claim-ID-owned Generation evidence bundle
-    ↓
 V-03 / remaining V-02
 Define structured generated factual-claim representation in the existing Generation response
     ↓
@@ -377,8 +413,8 @@ All 9 Claim kinds source-normalized: Implemented and automated-regression verifi
 Money basis/comparator source semantics: Implemented and automated-regression verified
 Bright Finance source/Snapshot/Gate Matrix: Implemented and automated-regression verified
 Plan/Snapshot/Generation Gate/persistence/Quality/publishing linkage: Implemented
+Claim-ID-owned Generation evidence bundle: Implemented and automated-regression verified
 Generated semantic Claim re-verification for every high-risk kind: Incomplete
-Claim-ID-owned Generation evidence bundle: Not implemented
 Schedule changed-Claim integration regression: Missing
 Latest real Bright Finance Provider run: Pending
 External WordPress/Tistory write for this workstream: Not performed
@@ -387,9 +423,9 @@ External WordPress/Tistory write for this workstream: Not performed
 Latest implementation verification:
 
 ```text
-HEAD: fc2f9e5b5efdfed5e338cef2e7e697bc807ef634
-GitHub Actions run: 31240664253
-Job: 93060958310
+HEAD: 084f84b04832701021f3b81ca96b066df187fb45
+GitHub Actions run: 31245532260
+Job: 93073396332
 Typecheck: passed
 Lint: passed
 Test: passed
