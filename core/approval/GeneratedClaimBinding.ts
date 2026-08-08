@@ -1,5 +1,6 @@
 import type { ContentDocument } from "../content/ContentDocument";
 import { serializeStructuredList, serializeStructuredTable } from "../content/StructuredText";
+import type { GeneratedFactualClaim } from "./GeneratedFactualClaim";
 import type {
   GeneratedClaimReference,
   VerificationClaimSpec,
@@ -36,6 +37,8 @@ export type GeneratedClaimVerificationRecord = Readonly<{
   bindings: readonly GeneratedClaimBinding[];
   verifiedClaimIds: readonly string[];
   unverifiedDetectedCount: number;
+  semanticContractVersion?: 1;
+  semanticClaims?: readonly GeneratedFactualClaim[];
 }>;
 
 /**
@@ -138,6 +141,7 @@ export function createGeneratedClaimVerificationRecord(input: Readonly<{
   plan: VerificationGenerationPlan;
   snapshot: VerificationSnapshot;
   boundEditorialRevisionId: string;
+  semanticClaims?: readonly GeneratedFactualClaim[];
 }>): GeneratedClaimVerificationRecord {
   const gate = evaluateVerificationGenerationGate({
     plan: input.plan,
@@ -159,6 +163,12 @@ export function createGeneratedClaimVerificationRecord(input: Readonly<{
     bindings: result.bindings,
     verifiedClaimIds: result.verifiedClaimIds,
     unverifiedDetectedCount: result.unverifiedDetectedCount,
+    ...(input.semanticClaims
+      ? {
+          semanticContractVersion: 1 as const,
+          semanticClaims: Object.freeze([...input.semanticClaims]),
+        }
+      : {}),
   });
 }
 
