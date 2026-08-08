@@ -14,9 +14,13 @@ import type { AIWebSource } from "../../../../core/ai/AIProvider";
 import { ApprovalSourcePreflightError } from "../../../../core/ai/ApprovalSourcePreflight";
 import { requireExplicitVerificationGenerationBundle } from "../../../../core/ai/VerificationGenerationBundle";
 
-const claim = (claimId: string, required = true): VerificationClaimSpec => ({
+const claim = (
+  claimId: string,
+  required = true,
+  field = claimId,
+): VerificationClaimSpec => ({
   claimId,
-  field: claimId,
+  field,
   kind: "money",
   statement: `${claimId} claim`,
   rawValue: "50만원",
@@ -52,7 +56,10 @@ const completeAssessments = (claimId: string): readonly VerificationSourceAssess
 ]);
 
 function plan(claims: readonly VerificationClaimSpec[]) {
-  return Object.freeze({ claims: Object.freeze([...claims]), fingerprint: verificationPlanFingerprint(claims) });
+  return Object.freeze({
+    claims: Object.freeze([...claims]),
+    fingerprint: verificationPlanFingerprint(claims),
+  });
 }
 
 function verifiedResult(
@@ -102,7 +109,9 @@ function snapshot(
     claimDefinitionFingerprint,
     sourceSnapshotFingerprint: sourceFingerprint,
     results: Object.freeze([...results]),
-    overallStatus: results.every((item) => item.status === "verified") ? "verified" : "insufficient",
+    overallStatus: results.every((item) => item.status === "verified")
+      ? "verified"
+      : "insufficient",
     createdAt: "2026-08-08T00:00:00.000Z",
     updatedAt: "2026-08-08T00:00:00.000Z",
     verificationSnapshotFingerprint: verificationSnapshotFingerprint({
@@ -120,17 +129,51 @@ const webSource = (sourceId: string): AIWebSource => ({
   provenance: "citation",
 });
 
-const claimSource = (sourceId: string, field = "required") => ({
+const claimSource = (
+  sourceId: string,
+  spec: VerificationClaimSpec,
+  includeCanonical = true,
+) => ({
   url: `https://${sourceId}.example/claim`,
   claims: Object.freeze([{
-    field,
+    field: spec.field,
     value: "50만원",
     evidenceExcerpt: "지원 금액 50만원의 적용 기간은 2026-01-01부터 2026-12-31까지입니다.",
   }]),
+  ...(includeCanonical
+    ? {
+        verificationClaims: Object.freeze([Object.freeze({
+          claimId: spec.claimId,
+          field: spec.field,
+          kind: spec.kind,
+          statement: spec.statement,
+          required: spec.required,
+          normalizedValue: {
+            kind: "money" as const,
+            value: {
+              amount: 500_000,
+              currency: "KRW",
+              basis: "total" as const,
+            },
+          },
+          qualifiers: spec.qualifiers,
+          temporalRequirement: spec.temporalRequirement,
+          source: Object.freeze({
+            sourceId,
+            canonicalUrl: `https://${sourceId}.example/claim`,
+            role: sourceId === "primary"
+              ? "primaryOfficial" as const
+              : "officialCorroborating" as const,
+            authoritative: true,
+            evidenceExcerpt: "지원 금액 50만원의 적용 기간은 2026-01-01부터 2026-12-31까지입니다.",
+          }),
+        })]),
+      }
+    : {}),
 });
 
 describe("Verification Generation bundle", () => {
-  it("keeps only fresh sources supporting verified Claims", () => {
+  it("keeps only fresh Claim-ID-owned sources supporting verified Claims", () => {
     const required = claim("required");
     const optional = claim("optional", false);
     const fresh = completeAssessments("required");
@@ -153,11 +196,11 @@ describe("Verification Generation bundle", () => {
         webSource("rejected"),
       ],
       claimSources: [
-        claimSource("primary"),
-        claimSource("official-a"),
-        claimSource("official-b"),
-        claimSource("stale"),
-        claimSource("optional", "optional"),
+        claimSource("primary", required),
+        claimSource("official-a", required),
+        claimSource("official-b", required),
+        claimSource("stale", required),
+        claimSource("optional", optional),
       ],
     });
 
@@ -172,6 +215,20 @@ describe("Verification Generation bundle", () => {
       "https://official-a.example/claim",
       "https://official-b.example/claim",
     ]);
+    expect(bundle.verificationClaims).toHaveLength(1);
+    expect(bundle.verificationClaims[0]).toMatchObject({
+      claimId: "required",
+      field: "required",
+      normalizedValue: {
+        kind: "money",
+        value: { amount: 500_000, currency: "KRW", basis: "total" },
+      },
+    });
+    expect(bundle.verificationClaims[0]?.sources.map((source) => source.sourceId)).toEqual([
+      "primary",
+      "official-a",
+      "official-b",
+    ]);
   });
 
   it("allows an intact explicit empty plan without adding evidence", () => {
@@ -185,6 +242,7 @@ describe("Verification Generation bundle", () => {
     expect(bundle.gate.ready).toBe(true);
     expect(bundle.sources).toEqual([]);
     expect(bundle.claimSources).toEqual([]);
+    expect(bundle.verificationClaims).toEqual([]);
   });
 
   it("throws the existing preflight error before Generation when a required Claim is insufficient", () => {
@@ -195,5 +253,88 @@ describe("Verification Generation bundle", () => {
       sources: [webSource("rejected")],
       claimSources: [],
     })).toThrow(ApprovalSourcePreflightError);
+  });
+
+  it("fails closed when verified URLs have only the legacy field/value projection", () => {
+    const required = claim("required");
+    const fresh = completeAssessments("required");
+    const currentPlan = plan([required]);
+    const currentSnapshot = snapshot(
+      [required],
+      [verifiedResult("required", fresh)],
+    );
+
+    expect(() => requireExplicitVerificationGenerationBundle({
+      plan: currentPlan,
+      snapshot: currentSnapshot,
+      sources: [
+        webSource("primary"),
+        webSource("official-a"),
+        webSource("official-b"),
+      ],
+      claimSources: [
+        claimSource("primary", required, false),
+        claimSource("official-a", required, false),
+        claimSource("official-b", required, false),
+      ],
+    })).toThrow(/미연결 Claim: required/);
+  });
+
+  it("rejects a forged canonical Claim contract even when the source URL is trusted", () => {
+    const required = claim("required");
+    const fresh = completeAssessments("required");
+    const currentPlan = plan([required]);
+    const currentSnapshot = snapshot(
+      [required],
+      [verifiedResult("required", fresh)],
+    );
+    const forged = claimSource("primary", required);
+    const forgedProjection = {
+      ...forged,
+      verificationClaims: Object.freeze([Object.freeze({
+        ...forged.verificationClaims![0]!,
+        normalizedValue: {
+          kind: "money" as const,
+          value: {
+            amount: 700_000,
+            currency: "KRW",
+            basis: "total" as const,
+          },
+        },
+      })]),
+    };
+
+    expect(() => requireExplicitVerificationGenerationBundle({
+      plan: currentPlan,
+      snapshot: currentSnapshot,
+      sources: [
+        webSource("primary"),
+        webSource("official-a"),
+        webSource("official-b"),
+      ],
+      claimSources: [
+        forgedProjection,
+        claimSource("official-a", required),
+        claimSource("official-b", required),
+      ],
+    })).not.toThrow();
+    const bundle = requireExplicitVerificationGenerationBundle({
+      plan: currentPlan,
+      snapshot: currentSnapshot,
+      sources: [
+        webSource("primary"),
+        webSource("official-a"),
+        webSource("official-b"),
+      ],
+      claimSources: [
+        forgedProjection,
+        claimSource("official-a", required),
+        claimSource("official-b", required),
+      ],
+    });
+    expect(bundle.verificationClaims[0]?.sources.map((source) => source.sourceId)).toEqual([
+      "official-a",
+      "official-b",
+    ]);
   });
 });
