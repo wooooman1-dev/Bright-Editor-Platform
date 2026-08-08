@@ -1,4 +1,10 @@
 import { canonicalizeApprovalEvidenceUrl } from "../approval";
+import {
+  groupVerificationGenerationClaimEvidence,
+  verificationGenerationClaimContractMatches,
+  type VerificationGenerationClaimEvidence,
+  type VerificationGenerationClaimSourceProjection,
+} from "../approval/VerificationGenerationEvidence";
 import type { VerificationSnapshot } from "../approval/VerificationClaim";
 import {
   evaluateVerificationGenerationGate,
@@ -15,6 +21,7 @@ export type VerificationGenerationBundle = Readonly<{
   gate: VerificationGenerationGateResult;
   sources: readonly AIWebSource[];
   claimSources: readonly ApprovalSourcePreflightClaimSource[];
+  verificationClaims: readonly VerificationGenerationClaimEvidence[];
 }>;
 
 /**
@@ -40,19 +47,140 @@ export function requireExplicitVerificationGenerationBundle(input: Readonly<{
     );
   }
 
+  const snapshot = input.snapshot!;
   const allowedUrls = new Set(
     gate.verifiedCanonicalUrls.map(canonicalizeApprovalEvidenceUrl),
   );
+  const allowedSourceIds = new Set(gate.verifiedSourceIds);
+  const verifiedClaimIds = new Set(gate.verifiedClaimIds);
+  const planById = new Map(input.plan.claims.map((claim) => [
+    claim.claimId,
+    claim,
+  ]));
+  const resultById = new Map(snapshot.results.map((result) => [
+    result.claimId,
+    result,
+  ]));
+
   const sources = Object.freeze(input.sources.filter((source) =>
     allowedUrls.has(canonicalizeApprovalEvidenceUrl(source.url))));
-  const claimSources = Object.freeze(input.claimSources.filter((source) =>
-    allowedUrls.has(canonicalizeApprovalEvidenceUrl(source.url))));
+  const sourceUrls = new Set(sources.map((source) =>
+    canonicalizeApprovalEvidenceUrl(source.url)));
 
-  if (gate.verifiedClaimIds.length > 0 && (!sources.length || !claimSources.length)) {
+  const claimSources = Object.freeze(input.claimSources.flatMap((source) => {
+    const url = canonicalizeApprovalEvidenceUrl(source.url);
+    if (!allowedUrls.has(url) || !sourceUrls.has(url)) return [];
+    const verificationClaims = Object.freeze((source.verificationClaims ?? [])
+      .filter((projection) => trustedProjection({
+        projection,
+        parentUrl: url,
+        allowedSourceIds,
+        verifiedClaimIds,
+        planById,
+        resultById,
+      })));
+    return [Object.freeze({
+      url: source.url,
+      claims: source.claims,
+      ...(verificationClaims.length ? { verificationClaims } : {}),
+    })];
+  }));
+
+  const projections = Object.freeze(claimSources.flatMap((source) =>
+    source.verificationClaims ?? []));
+  const verificationClaims = groupVerificationGenerationClaimEvidence(
+    projections,
+  );
+  const projectedClaimIds = new Set(
+    verificationClaims.map((claim) => claim.claimId),
+  );
+  const missingClaimIds = gate.verifiedClaimIds.filter((claimId) =>
+    !projectedClaimIds.has(claimId));
+
+  if (missingClaimIds.length) {
+    throw new ApprovalSourcePreflightError(
+      `검증된 Claim과 Claim-ID Generation 근거의 연결이 일치하지 않아 원고 생성을 시작하지 않았습니다. 미연결 Claim: ${missingClaimIds.join(", ")}.`,
+    );
+  }
+
+  if (gate.verifiedClaimIds.length > 0
+    && (!sources.length || !claimSources.length || !verificationClaims.length)) {
     throw new ApprovalSourcePreflightError(
       "검증된 Claim과 Generation 근거 bundle의 연결이 일치하지 않아 원고 생성을 시작하지 않았습니다.",
     );
   }
 
-  return Object.freeze({ gate, sources, claimSources });
+  return Object.freeze({
+    gate,
+    sources,
+    claimSources,
+    verificationClaims,
+  });
+}
+
+function trustedProjection(input: Readonly<{
+  projection: VerificationGenerationClaimSourceProjection;
+  parentUrl: string;
+  allowedSourceIds: ReadonlySet<string>;
+  verifiedClaimIds: ReadonlySet<string>;
+  planById: ReadonlyMap<string, VerificationGenerationPlan["claims"][number]>;
+  resultById: ReadonlyMap<string, VerificationSnapshot["results"][number]>;
+}>): boolean {
+  const projection = input.projection;
+  const projectionUrl = canonicalizeApprovalEvidenceUrl(
+    projection.source.canonicalUrl,
+  );
+  if (!projection.source.evidenceExcerpt.trim()
+    || projectionUrl !== input.parentUrl
+    || !input.allowedSourceIds.has(projection.source.sourceId)
+    || !input.verifiedClaimIds.has(projection.claimId)) {
+    return false;
+  }
+
+  const spec = input.planById.get(projection.claimId);
+  const result = input.resultById.get(projection.claimId);
+  if (!spec
+    || !result
+    || result.status !== "verified"
+    || !result.normalizedValue
+    || !verificationGenerationClaimContractMatches(
+      projection,
+      spec,
+      result.normalizedValue,
+    )) {
+    return false;
+  }
+
+  const assessment = result.sourceAssessments.find((candidate) =>
+    candidate.sourceId === projection.source.sourceId
+    && Boolean(candidate.canonicalUrl)
+    && canonicalizeApprovalEvidenceUrl(candidate.canonicalUrl!) === projectionUrl
+    && candidate.supports === true
+    && candidate.fresh === true
+    && candidate.freshnessStatus === "fresh"
+    && Boolean(candidate.normalizedValue));
+  if (!assessment || !assessment.normalizedValue) return false;
+
+  return assessment.role === projection.source.role
+    && assessment.authoritative === projection.source.authoritative
+    && canonicalJson(assessment.normalizedValue)
+      === canonicalJson(result.normalizedValue)
+    && canonicalJson(assessment.temporalEvidence)
+      === canonicalJson(projection.source.temporalEvidence);
+}
+
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(sortValue(value));
+}
+
+function sortValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, item]) => [key, sortValue(item)]),
+    );
+  }
+  return value;
 }
