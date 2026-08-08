@@ -1,4 +1,5 @@
 import type { AIProvider, AIUsageRecord } from "../../core/ai";
+import { approvalPolicySnapshotFromEditorialContext } from "../../core/approval";
 import type { ContentPlanningResult, WorkspacePlatform } from "../user-flow/user-data";
 import {
   ContentPlanningStrategy as BaseContentPlanningStrategy,
@@ -30,7 +31,11 @@ export class ContentPlanningStrategy extends BaseContentPlanningStrategy {
     context: ContentPlanningContext = { projectId: "planning-project", selectionMode: "userSpecified" },
   ): Promise<ContentPlanningResult> {
     this.usageBox.value = undefined;
-    const plan = await super.analyze(naturalLanguageRequest, enabledPlatforms, context);
+    const approvalSnapshot = approvalPolicySnapshotFromEditorialContext(context.projectContext);
+    const planningContext = approvalSnapshot
+      ? Object.freeze({ ...context, explicitVerificationPlanningEnabled: true })
+      : context;
+    const plan = await super.analyze(naturalLanguageRequest, enabledPlatforms, planningContext);
     return this.usageBox.value
       ? Object.freeze({ ...plan, aiUsage: this.usageBox.value }) as ContentPlanningResult
       : plan;
