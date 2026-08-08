@@ -4,6 +4,7 @@ import {
   type GeneratedClaimBinding,
   type GeneratedClaimLocation,
 } from "./GeneratedClaimBinding";
+import { evaluateStoredGeneratedFactualClaims } from "./GeneratedFactualClaim";
 import {
   evaluateVerificationGenerationGate,
   type VerificationGenerationPlan,
@@ -65,6 +66,21 @@ export function evaluateGeneratedClaimVerificationIntegrity(input: Readonly<{
     reasons.push(
       `검증되지 않은 고위험 사실이 원고에 남아 있습니다: ${binding.matchedText} (${bindingLocation(binding.location)}).`,
     );
+  }
+
+  if (stored.semanticContractVersion === 1) {
+    if (!stored.semanticClaims) {
+      reasons.push("구조화 Generated Claim semantic contract가 canonical metadata에서 누락되었습니다.");
+    } else {
+      const semantic = evaluateStoredGeneratedFactualClaims({
+        document: input.document,
+        plan: input.plan,
+        snapshot: stored.verificationSnapshot,
+        gate,
+        claims: stored.semanticClaims,
+      });
+      reasons.push(...semantic.reasons);
+    }
   }
 
   if (
