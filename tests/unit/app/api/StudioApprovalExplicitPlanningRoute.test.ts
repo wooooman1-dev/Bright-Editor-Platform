@@ -36,6 +36,32 @@ function approvalPlanningData(): UserData {
   );
   if (!snapshot) throw new Error("WordPress approval profile snapshot is required.");
 
+  const content = {
+    id: "content-bright-finance",
+    workspaceId: "workspace-bright-finance",
+    projectId: "project-bright-finance",
+    title: "예금과 적금 차이 비교 및 선택 기준",
+    body: "",
+    status: "planning",
+    contentPurpose: snapshot.contentPurpose,
+    approvalPolicyId: snapshot.policyId,
+    approvalPolicyVersion: snapshot.policyVersion,
+    approvalProfileId: snapshot.profileId,
+    approvalProfileVersion: snapshot.profileVersion,
+    planningWorkflow: {
+      status: "planning",
+      request: "예금과 적금 차이 비교 및 선택 기준 글을 작성해줘",
+      selectionMode: "userSpecified",
+      operationId: "planning-operation-bright-finance",
+      revision: 1,
+      createdAt: "2026-08-05T00:00:00.000Z",
+      updatedAt: "2026-08-05T00:00:00.000Z",
+      lastSuccessfulStep: "request",
+    },
+    createdAt: "2026-08-05T00:00:00.000Z",
+    updatedAt: "2026-08-05T00:00:00.000Z",
+  } as UserData["contents"][number];
+
   return {
     workspace: {
       id: "workspace-bright-finance",
@@ -61,33 +87,9 @@ function approvalPlanningData(): UserData {
       createdAt: "2026-08-05T00:00:00.000Z",
       updatedAt: "2026-08-05T00:00:00.000Z",
     }],
-    contents: [{
-      id: "content-bright-finance",
-      workspaceId: "workspace-bright-finance",
-      projectId: "project-bright-finance",
-      title: "예금과 적금 차이 비교 및 선택 기준",
-      body: "",
-      status: "planning",
-      contentPurpose: snapshot.contentPurpose,
-      approvalPolicyId: snapshot.policyId,
-      approvalPolicyVersion: snapshot.policyVersion,
-      approvalProfileId: snapshot.profileId,
-      approvalProfileVersion: snapshot.profileVersion,
-      planningWorkflow: {
-        status: "planning",
-        request: "예금과 적금 차이 비교 및 선택 기준 글을 작성해줘",
-        selectionMode: "userSpecified",
-        operationId: "planning-operation-bright-finance",
-        revision: 1,
-        createdAt: "2026-08-05T00:00:00.000Z",
-        updatedAt: "2026-08-05T00:00:00.000Z",
-        lastSuccessfulStep: "request",
-      },
-      createdAt: "2026-08-05T00:00:00.000Z",
-      updatedAt: "2026-08-05T00:00:00.000Z",
-    }],
+    contents: [content],
     qualityReports: [],
-  } as UserData;
+  };
 }
 
 function openAIRequestBody(fetchSpy: ReturnType<typeof vi.spyOn>) {
