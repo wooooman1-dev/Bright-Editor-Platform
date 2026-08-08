@@ -8,6 +8,7 @@ import { normalizeVerificationValue } from "./VerificationClaimNormalizer";
 import type {
   VerificationClaimKind,
   VerificationClaimQualifiers,
+  VerificationClaimSpec,
   VerificationNormalizedValue,
   VerificationSnapshot,
   VerificationTemporalRequirement,
@@ -112,6 +113,11 @@ export function validateGeneratedFactualClaimDrafts(input: Readonly<{
       continue;
     }
 
+    if (!semanticAnchorOwnsClaimContext(surfaceText, spec)) {
+      reasons.push(`Generation 구조화 Claim의 원고 anchor가 canonical Claim의 subject/scope 문맥을 소유하지 않습니다: ${claimId}.`);
+      continue;
+    }
+
     const locations = segments
       .filter((segment) => normalizeComparableText(segment.text).includes(normalizeComparableText(surfaceText)))
       .map((segment) => segment.location);
@@ -147,13 +153,14 @@ export function validateGeneratedFactualClaimDrafts(input: Readonly<{
     gate: input.gate,
   });
   for (const binding of rebound.bindings) {
-    if (binding.reference.referenceType !== "verified") continue;
+    const reference = binding.reference;
+    if (reference.referenceType !== "verified") continue;
     const covered = claims.some((claim) =>
-      claim.claimId === binding.reference.verificationClaimId
+      claim.claimId === reference.verificationClaimId
       && claim.locations.some((location) => sameLocation(location, binding.location))
       && normalizeComparableText(claim.surfaceText).includes(normalizeComparableText(binding.matchedText)));
     if (!covered) {
-      reasons.push(`검증 factual token이 같은 Claim의 구조화 semantic anchor에 포함되지 않았습니다: ${binding.reference.verificationClaimId} / ${binding.matchedText}.`);
+      reasons.push(`검증 factual token이 같은 Claim의 구조화 semantic anchor에 포함되지 않았습니다: ${reference.verificationClaimId} / ${binding.matchedText}.`);
     }
   }
 
@@ -259,6 +266,40 @@ function compactQualifiers(value: VerificationClaimQualifiers | GeneratedFactual
     if (item) output[key] = item;
   }
   return Object.freeze(output);
+}
+
+function semanticAnchorOwnsClaimContext(
+  surfaceText: string,
+  spec: VerificationClaimSpec,
+): boolean {
+  const rawTokens = new Set(lexicalTokens(spec.rawValue ?? ""));
+  const contextTokens = lexicalTokens([
+    spec.statement,
+    spec.qualifiers.subject ?? "",
+    spec.qualifiers.scope ?? "",
+    spec.qualifiers.note ?? "",
+  ].join(" ")).filter((token) =>
+    !rawTokens.has(token)
+    && !genericContextTokens.has(token));
+  if (!contextTokens.length) return true;
+  const surfaceTokens = new Set(lexicalTokens(surfaceText));
+  return contextTokens.some((token) => surfaceTokens.has(token));
+}
+
+const genericContextTokens = new Set([
+  "현재",
+  "관련",
+  "해당",
+  "기준",
+  "정보",
+  "내용",
+  "사항",
+  "경우",
+  "대한",
+]);
+
+function lexicalTokens(value: string): string[] {
+  return (value.normalize("NFKC").toLocaleLowerCase("ko-KR").match(/[가-힣a-z]{2,}/gu) ?? []);
 }
 
 function sameLocation(left: GeneratedClaimLocation, right: GeneratedClaimLocation): boolean {
