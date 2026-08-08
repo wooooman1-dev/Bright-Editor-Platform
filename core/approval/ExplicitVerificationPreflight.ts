@@ -30,11 +30,16 @@ export function assessmentsFromExplicitDiscovery(input: Readonly<{ claims: reado
     for (const claim of source.claims) {
       const spec = specs.get(claim.claimId);
       if (!spec) continue;
-      const normalized = normalizeExplicitScalar(spec.kind, claim.value);
+      const normalized = normalizeExplicitClaimValue(spec, claim.value);
+      const plannedRawValue = spec.rawValue ? normalizeExplicitClaimValue(spec, spec.rawValue) : undefined;
       const page = (source.pageText ?? "").replace(/\s+/gu, " ").normalize("NFKC");
       const excerptFound = page.includes(claim.evidenceExcerpt.replace(/\s+/gu, " ").normalize("NFKC"));
       const valueFound = page.includes(claim.value.replace(/\s+/gu, " ").normalize("NFKC"));
-      const rawMatches = !spec.rawValue || normalizeScalarText(spec.rawValue) === normalizeScalarText(claim.value);
+      const rawMatches = !spec.rawValue || Boolean(
+        normalized
+        && plannedRawValue
+        && canonicalValue(normalized) === canonicalValue(plannedRawValue),
+      );
       const supports = Boolean(claim.evidenceExcerpt.trim() && excerptFound && valueFound && rawMatches && normalized);
       const temporal = spec.temporalRequirement
         ? evaluateVerificationTemporalEvidence({
@@ -70,7 +75,6 @@ export function assessmentsFromExplicitDiscovery(input: Readonly<{ claims: reado
   }
   return Object.freeze(output);
 }
-function normalizeScalarText(value: string): string { return value.replace(/,/gu, "").replace(/\s+/gu, "").normalize("NFKC").toLocaleLowerCase("en-US"); }
 
 function legacyFixtureFreshness(source: ExplicitDiscoveredSource): ReturnType<typeof evaluateVerificationTemporalEvidence> {
   if (source.fresh === true) return Object.freeze({ freshnessStatus: "fresh" as const, fresh: true, ...(source.observedAt ? { observedAt: source.observedAt } : {}), diagnostics: Object.freeze([] as string[]) });
@@ -115,27 +119,231 @@ function freezeAssessments(values: readonly VerificationSourceAssessment[]): rea
   return Object.freeze(values.map((value) => Object.freeze({ ...value, diagnostics: Object.freeze([...value.diagnostics]) })));
 }
 
-function normalizeExplicitScalar(kind: VerificationClaimSpec["kind"], value: string): VerificationSourceAssessment["normalizedValue"] {
+function normalizeExplicitClaimValue(spec: VerificationClaimSpec, value: string): VerificationSourceAssessment["normalizedValue"] {
   const text = value.normalize("NFKC").replace(/\s+/gu, " ").trim();
   if (!text) return undefined;
-  if (kind === "general") return { kind, value: { statement: text } };
-  if (kind === "money") return normalizeExplicitMoney(text);
-  if (kind === "ratio") {
-    const match = text.match(/^(-?\d+(?:\.\d+)?)\s*%$/u);
-    return match ? { kind, value: { value: Number(match[1]), representation: "percent", meaning: "rate" } } : undefined;
-  }
+  if (spec.kind === "general") return { kind: "general", value: { statement: text } };
+  if (spec.kind === "money") return normalizeExplicitMoney(text, spec);
+  if (spec.kind === "ratio") return normalizeExplicitRatio(text, spec);
+  if (spec.kind === "date") return normalizeExplicitDate(text, spec);
+  if (spec.kind === "dateRange") return normalizeExplicitDateRange(text);
+  if (spec.kind === "duration") return normalizeExplicitDuration(text);
+  if (spec.kind === "location") return normalizeExplicitLocation(text);
+  if (spec.kind === "eligibility") return normalizeExplicitEligibility(text, spec);
+  if (spec.kind === "legal") return normalizeExplicitLegal(text, spec);
   return undefined;
 }
 
-function normalizeExplicitMoney(text: string): VerificationSourceAssessment["normalizedValue"] {
-  const match = text.replace(/,/gu, "").match(/^(-?\d+(?:\.\d+)?)\s*(억원|만원|천원|원|KRW|달러|USD)$/iu);
+function normalizeExplicitMoney(text: string, spec: VerificationClaimSpec): VerificationSourceAssessment["normalizedValue"] {
+  const match = text.replace(/,/gu, "").match(/^(?:(최대|최소|이상|이하|미만|초과)\s*)?(-?\d+(?:\.\d+)?)\s*(억원|만원|천원|원|KRW|달러|USD)(?:\s*(이상|이하|미만|초과))?$/iu);
   if (!match) return undefined;
-  const numeric = Number(match[1]);
+  const numeric = Number(match[2]);
   if (!Number.isFinite(numeric)) return undefined;
-  const unit = (match[2] ?? "").toLocaleLowerCase("en-US");
+  const unit = (match[3] ?? "").toLocaleLowerCase("en-US");
   const koreanFactor = unit === "억원" ? 100_000_000 : unit === "만원" ? 10_000 : unit === "천원" ? 1_000 : 1;
   const currency = unit === "달러" || unit === "usd" ? "USD" : "KRW";
-  return { kind: "money", value: { amount: numeric * koreanFactor, currency, basis: "total" } };
+  const comparator = scalarComparator(match[1] ?? match[4]);
+  return {
+    kind: "money",
+    value: {
+      amount: numeric * koreanFactor,
+      currency,
+      basis: moneyBasis(spec),
+      ...(comparator ? { comparator } : {}),
+    },
+  };
+}
+
+function normalizeExplicitRatio(text: string, spec: VerificationClaimSpec): VerificationSourceAssessment["normalizedValue"] {
+  const match = text.match(/^(?:(최대|최소|이상|이하|미만|초과)\s*)?(-?\d+(?:\.\d+)?)\s*(%p|%|퍼센트포인트|퍼센트)(?:\s*(이상|이하|미만|초과))?$/iu);
+  if (!match) return undefined;
+  const numeric = Number(match[2]);
+  if (!Number.isFinite(numeric)) return undefined;
+  const unit = (match[3] ?? "").toLocaleLowerCase("ko-KR");
+  const comparator = scalarComparator(match[1] ?? match[4]);
+  return {
+    kind: "ratio",
+    value: {
+      value: numeric,
+      representation: unit === "%p" || unit === "퍼센트포인트" ? "percentagePoint" : "percent",
+      meaning: ratioMeaning(spec),
+      ...(comparator ? { comparator } : {}),
+    },
+  };
+}
+
+function normalizeExplicitDate(text: string, spec: VerificationClaimSpec): VerificationSourceAssessment["normalizedValue"] {
+  const tokens = dateTokens(text);
+  if (tokens.length !== 1) return undefined;
+  const token = tokens[0]!;
+  return {
+    kind: "date",
+    value: {
+      value: token.value,
+      precision: token.precision,
+      role: dateRole(spec, text),
+    },
+  };
+}
+
+function normalizeExplicitDateRange(text: string): VerificationSourceAssessment["normalizedValue"] {
+  const tokens = dateTokens(text);
+  if (tokens.length !== 2 || tokens[0]!.precision !== tokens[1]!.precision) return undefined;
+  const start = tokens[0]!.value;
+  const end = tokens[1]!.value;
+  if (start > end) return undefined;
+  return { kind: "dateRange", value: { start, end, inclusive: true, locale: "ko-KR" } };
+}
+
+function normalizeExplicitDuration(text: string): VerificationSourceAssessment["normalizedValue"] {
+  const match = text.match(/^(?:(최대|최소|이상|이하|이내)\s*)?(\d+(?:\.\d+)?)\s*(일간?|주간?|개월(?:간)?|달|년간?)(?:\s*(이상|이하|이내))?$/u);
+  if (!match) return undefined;
+  const value = Number(match[2]);
+  if (!Number.isFinite(value) || value < 0) return undefined;
+  const rawUnit = match[3] ?? "";
+  const unit = rawUnit.startsWith("일") ? "day" as const
+    : rawUnit.startsWith("주") ? "week" as const
+      : rawUnit.startsWith("년") ? "year" as const
+        : "month" as const;
+  const comparator = durationComparator(match[1] ?? match[4]);
+  return { kind: "duration", value: { value, unit, ...(comparator ? { comparator } : {}) } };
+}
+
+function normalizeExplicitLocation(text: string): VerificationSourceAssessment["normalizedValue"] {
+  if (text.length > 300) return undefined;
+  if (/^(?:전국|대한민국|한국)$/u.test(text)) return { kind: "location", value: { country: text, scope: "national" } };
+  if (/(?:특별시|광역시|특별자치시|특별자치도|도)$/u.test(text)) return { kind: "location", value: { region: text, scope: "regional" } };
+  if (/(?:시|군|구)$/u.test(text)) return { kind: "location", value: { city: text, scope: "local" } };
+  if (/\d|(?:로|길)\s*\d/u.test(text)) return { kind: "location", value: { address: text, scope: "specific" } };
+  return { kind: "location", value: { venue: text, scope: "specific" } };
+}
+
+function normalizeExplicitEligibility(text: string, spec: VerificationClaimSpec): VerificationSourceAssessment["normalizedValue"] {
+  if (text.length > 500) return undefined;
+  return {
+    kind: "eligibility",
+    value: {
+      predicate: {
+        field: spec.field.trim() || "eligibility",
+        operator: "textEquals",
+        value: text,
+      },
+    },
+  };
+}
+
+function normalizeExplicitLegal(text: string, spec: VerificationClaimSpec): VerificationSourceAssessment["normalizedValue"] {
+  const articleMatch = text.match(/제\s*(\d+)\s*조(?:의\s*(\d+))?/u);
+  const paragraphMatch = text.match(/제\s*(\d+)\s*항/u);
+  const lawName = legalName(text) ?? legalName(spec.statement);
+  if (!lawName || !spec.statement.trim()) return undefined;
+  const sourceClass = /(?:시행령|시행규칙)/u.test(lawName)
+    ? "regulation" as const
+    : /(?:고시|지침|가이드|안내)/u.test(`${lawName} ${spec.statement}`)
+      ? "officialGuidance" as const
+      : /(?:판결|대법원|법원)/u.test(`${lawName} ${spec.statement}`)
+        ? "caseLaw" as const
+        : /(?:해석|유권해석)/u.test(`${lawName} ${spec.statement}`)
+          ? "interpretation" as const
+          : "statute" as const;
+  return {
+    kind: "legal",
+    value: {
+      lawName,
+      ...(articleMatch ? { article: `제${articleMatch[1]}조${articleMatch[2] ? `의${articleMatch[2]}` : ""}` } : {}),
+      ...(paragraphMatch ? { paragraph: `제${paragraphMatch[1]}항` } : {}),
+      proposition: spec.statement.replace(/\s+/gu, " ").trim(),
+      sourceClass,
+    },
+  };
+}
+
+function scalarComparator(value: string | undefined): "lt" | "lte" | "gt" | "gte" | undefined {
+  if (value === "미만") return "lt";
+  if (value === "이하" || value === "최대") return "lte";
+  if (value === "초과") return "gt";
+  if (value === "이상" || value === "최소") return "gte";
+  return undefined;
+}
+
+function durationComparator(value: string | undefined): "upTo" | "atLeast" | undefined {
+  if (value === "이하" || value === "이내" || value === "최대") return "upTo";
+  if (value === "이상" || value === "최소") return "atLeast";
+  return undefined;
+}
+
+function moneyBasis(spec: VerificationClaimSpec): "oneTime" | "daily" | "monthly" | "annual" | "total" | "perPerson" | "perHousehold" {
+  const context = `${spec.field} ${spec.statement} ${spec.qualifiers.basis ?? ""}`;
+  if (/(?:1인|인당|개인당|per\s*person)/iu.test(context)) return "perPerson";
+  if (/(?:가구당|세대당|per\s*household)/iu.test(context)) return "perHousehold";
+  if (/(?:매월|월간|월별|monthly)/iu.test(context)) return "monthly";
+  if (/(?:연간|연별|매년|annual)/iu.test(context)) return "annual";
+  if (/(?:매일|일일|하루|daily)/iu.test(context)) return "daily";
+  if (/(?:1회|일회|한\s*번|one[-\s]*time)/iu.test(context)) return "oneTime";
+  return "total";
+}
+
+function ratioMeaning(spec: VerificationClaimSpec): "rate" | "share" | "change" {
+  const context = `${spec.field} ${spec.statement} ${spec.qualifiers.basis ?? ""}`;
+  if (/(?:증가|감소|증감|변동|변화|change)/iu.test(context)) return "change";
+  if (/(?:비중|점유|구성비|share)/iu.test(context)) return "share";
+  return "rate";
+}
+
+function dateRole(spec: VerificationClaimSpec, value: string): "announced" | "effective" | "applicationStart" | "applicationEnd" | "reference" {
+  const context = `${spec.field} ${spec.statement} ${value}`;
+  if (/(?:신청|접수).{0,10}(?:시작|개시|부터)|(?:신청|접수)\s*시작/iu.test(context)) return "applicationStart";
+  if (/(?:신청|접수).{0,10}(?:마감|종료|까지)|(?:신청|접수)\s*마감/iu.test(context)) return "applicationEnd";
+  if (/(?:시행|적용|효력|발효)/iu.test(context)) return "effective";
+  if (/(?:발표|공표|공고)/iu.test(context)) return "announced";
+  return "reference";
+}
+
+type DateToken = Readonly<{ value: string; precision: "day" | "month" | "year"; start: number; end: number }>;
+
+function dateTokens(value: string): readonly DateToken[] {
+  const found: DateToken[] = [];
+  const add = (token: DateToken | undefined) => {
+    if (!token || found.some((item) => token.start < item.end && token.end > item.start)) return;
+    found.push(token);
+  };
+  for (const match of value.matchAll(/\b(20\d{2})[-./](\d{1,2})[-./](\d{1,2})\b/gu)) add(dayToken(match));
+  for (const match of value.matchAll(/(20\d{2})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일/gu)) add(dayToken(match));
+  for (const match of value.matchAll(/\b(20\d{2})[-./](\d{1,2})(?![-./]\d)/gu)) add(monthToken(match));
+  for (const match of value.matchAll(/(20\d{2})\s*년\s*(\d{1,2})\s*월(?!\s*\d)/gu)) add(monthToken(match));
+  for (const match of value.matchAll(/\b(20\d{2})\b|(?<!\d)(20\d{2})\s*년/gu)) {
+    if (typeof match.index !== "number") continue;
+    const year = match[1] ?? match[2];
+    if (!year) continue;
+    add(Object.freeze({ value: year, precision: "year", start: match.index, end: match.index + match[0].length }));
+  }
+  return Object.freeze(found.sort((left, right) => left.start - right.start));
+}
+
+function dayToken(match: RegExpMatchArray): DateToken | undefined {
+  if (typeof match.index !== "number") return undefined;
+  const value = dateParts(match[1], match[2], match[3]);
+  return value ? Object.freeze({ value, precision: "day", start: match.index, end: match.index + match[0].length }) : undefined;
+}
+
+function monthToken(match: RegExpMatchArray): DateToken | undefined {
+  if (typeof match.index !== "number") return undefined;
+  const year = Number(match[1]), month = Number(match[2]);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) return undefined;
+  return Object.freeze({ value: `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}`, precision: "month", start: match.index, end: match.index + match[0].length });
+}
+
+function dateParts(yearValue: string | undefined, monthValue: string | undefined, dayValue: string | undefined): string | undefined {
+  const year = Number(yearValue), month = Number(monthValue), day = Number(dayValue);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return undefined;
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return undefined;
+  return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function legalName(value: string): string | undefined {
+  const match = value.match(/([가-힣A-Za-z0-9·]+(?:법률|법|시행령|시행규칙|고시|지침))/u);
+  return match?.[1]?.trim() || undefined;
 }
 
 function hasNormalizedConflict(assessments: readonly VerificationSourceAssessment[]): boolean {
