@@ -332,7 +332,12 @@ function editorialOutputPolicy(metadata?: Readonly<Record<string, string>>) {
   }
   if (metadata?.task === "content-generation") {
     const target = parseQualityTarget(metadata.qualityTarget);
-    return { maxOutputTokens: outputTokenBudget(target), verbosity: "medium" as const, format: structuredGenerationFormat(target) };
+    const verificationClaims = metadata.verificationGenerationMode === "structured_claims_v1";
+    return {
+      maxOutputTokens: outputTokenBudget(target),
+      verbosity: "medium" as const,
+      format: structuredGenerationFormat(target, { verificationClaims }),
+    };
   }
   if (metadata?.task === "quality-final-edit" || metadata?.task === "quality-auto-improvement") return { maxOutputTokens: 12_000, verbosity: "high" as const, format: editorialDocumentFormat };
   if (/tistory|blog|article|long-form|guide|아티클|장문/i.test(`${metadata?.platform ?? ""} ${metadata?.contentType ?? ""}`)) return { maxOutputTokens: 12_000, verbosity: "medium" as const, format: editorialDocumentFormat };
@@ -409,61 +414,124 @@ export const explicitApprovalSourcePreflightFormat = {
   },
 } as const;
 
-export function structuredGenerationFormat(target: ContentPlanQualityTarget = determineContentPlanQualityTarget({ contentType: "article" })) {
-  return {
-  type: "json_schema",
-  name: `structured_${target.contentDepth}_generation`,
-  strict: true,
-  schema: {
+const structuredGenerationRequired = Object.freeze([
+  "title",
+  "seoTitle",
+  "metaDescription",
+  "primarySearchIntent",
+  "secondaryIntent",
+  "secondaryKeywords",
+  "relatedTerms",
+  "tags",
+  "introduction",
+  "sections",
+  "conclusion",
+  "images",
+  "cta",
+]);
+
+const generatedFactualClaimSchema = {
+  type: "array",
+  maxItems: 48,
+  items: {
     type: "object",
     additionalProperties: false,
-    required: ["title", "seoTitle", "metaDescription", "primarySearchIntent", "secondaryIntent", "secondaryKeywords", "relatedTerms", "tags", "introduction", "sections", "conclusion", "images", "cta"],
+    required: [
+      "claimId",
+      "surfaceText",
+      "kind",
+      "normalizedValueJson",
+      "qualifiers",
+      "temporalRequirementJson",
+    ],
     properties: {
-      title: { type: "string" },
-      seoTitle: { type: "string" },
-      metaDescription: { type: "string" },
-      primarySearchIntent: { type: "string" },
-      secondaryIntent: { type: "string" },
-      secondaryKeywords: { type: "array", items: { type: "string" } },
-      relatedTerms: { type: "array", items: { type: "string" } },
-      tags: { type: "array", items: { type: "string" } },
-      introduction: { type: "array", minItems: 1, maxItems: 8, items: { type: "string" } },
-      sections: { type: "array", minItems: 1, maxItems: 12, items: {
+      claimId: { type: "string" },
+      surfaceText: { type: "string" },
+      kind: {
+        type: "string",
+        enum: ["money", "ratio", "date", "dateRange", "duration", "location", "eligibility", "legal", "general"],
+      },
+      normalizedValueJson: { type: "string" },
+      qualifiers: {
         type: "object",
         additionalProperties: false,
-        required: ["heading", "sectionType", "paragraphs"],
+        required: ["subject", "scope", "basis", "note"],
         properties: {
-          heading: { type: "string" },
-          sectionType: { type: "string", enum: contentSectionTypes },
-          paragraphs: { type: "array", minItems: 1, maxItems: 12, items: { type: "string" } },
+          subject: { type: "string" },
+          scope: { type: "string" },
+          basis: { type: "string" },
+          note: { type: "string" },
         },
-      } },
-      conclusion: { type: "array", minItems: 1, maxItems: 8, items: { type: "string" } },
-      images: { type: "array", maxItems: 1, items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["afterSection", "purpose", "alt", "prompt"],
-        properties: {
-          afterSection: { type: "integer", enum: [0] },
-          purpose: { type: "string", enum: ["hero"] },
-          alt: { type: "string" },
-          prompt: { type: "string" },
-        },
-      } },
-      cta: { type: "array", items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["afterSection", "purpose", "label", "targetUrl", "target"],
-        properties: {
-          afterSection: { type: "integer" },
-          purpose: { type: "string", enum: ["cta"] },
-          label: { type: "string" },
-          targetUrl: { type: "string" },
-          target: { type: "string", enum: ["_self", "_blank"] },
-        },
-      } },
+      },
+      temporalRequirementJson: { type: "string" },
     },
   },
+} as const;
+
+export function structuredGenerationFormat(
+  target: ContentPlanQualityTarget = determineContentPlanQualityTarget({ contentType: "article" }),
+  options: Readonly<{ verificationClaims?: boolean }> = {},
+) {
+  const required = options.verificationClaims
+    ? Object.freeze([...structuredGenerationRequired, "verificationClaimsUsed"])
+    : structuredGenerationRequired;
+  return {
+    type: "json_schema",
+    name: `structured_${target.contentDepth}${options.verificationClaims ? "_verified" : ""}_generation`,
+    strict: true,
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      required,
+      properties: {
+        title: { type: "string" },
+        seoTitle: { type: "string" },
+        metaDescription: { type: "string" },
+        primarySearchIntent: { type: "string" },
+        secondaryIntent: { type: "string" },
+        secondaryKeywords: { type: "array", items: { type: "string" } },
+        relatedTerms: { type: "array", items: { type: "string" } },
+        tags: { type: "array", items: { type: "string" } },
+        introduction: { type: "array", minItems: 1, maxItems: 8, items: { type: "string" } },
+        sections: { type: "array", minItems: 1, maxItems: 12, items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["heading", "sectionType", "paragraphs"],
+          properties: {
+            heading: { type: "string" },
+            sectionType: { type: "string", enum: contentSectionTypes },
+            paragraphs: { type: "array", minItems: 1, maxItems: 12, items: { type: "string" } },
+          },
+        } },
+        conclusion: { type: "array", minItems: 1, maxItems: 8, items: { type: "string" } },
+        images: { type: "array", maxItems: 1, items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["afterSection", "purpose", "alt", "prompt"],
+          properties: {
+            afterSection: { type: "integer", enum: [0] },
+            purpose: { type: "string", enum: ["hero"] },
+            alt: { type: "string" },
+            prompt: { type: "string" },
+          },
+        } },
+        cta: { type: "array", items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["afterSection", "purpose", "label", "targetUrl", "target"],
+          properties: {
+            afterSection: { type: "integer" },
+            purpose: { type: "string", enum: ["cta"] },
+            label: { type: "string" },
+            targetUrl: { type: "string" },
+            target: { type: "string", enum: ["_self", "_blank"] },
+          },
+        } },
+        ...(options.verificationClaims
+          ? { verificationClaimsUsed: generatedFactualClaimSchema }
+          : {}),
+      },
+    },
   } as const;
 }
 
