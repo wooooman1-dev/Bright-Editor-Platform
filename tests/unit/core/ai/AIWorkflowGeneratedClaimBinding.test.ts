@@ -121,6 +121,17 @@ const input: GenerationInput = {
   structuredLongFormOutput: true,
 };
 
+const generationContent = JSON.stringify({
+  verificationClaimsUsed: [{
+    claimId: claim.claimId,
+    surfaceText: "현재 지원 금액은 50만원입니다.",
+    kind: claim.kind,
+    normalizedValueJson: JSON.stringify(normalizedValue),
+    qualifiers: { subject: "", scope: "", basis: "", note: "" },
+    temporalRequirementJson: JSON.stringify(claim.temporalRequirement),
+  }],
+});
+
 class RecordingProvider implements AIProvider {
   calls = 0;
   request?: AIRequest;
@@ -128,7 +139,7 @@ class RecordingProvider implements AIProvider {
   async generate(request: AIRequest) {
     this.calls += 1;
     this.request = request;
-    return { content: "generated", model: "test" };
+    return { content: generationContent, model: "test" };
   }
 }
 
@@ -233,10 +244,16 @@ describe("AIWorkflow Generated Claim binding", () => {
     expect(result.verificationSnapshot?.verificationSnapshotFingerprint).toBe(snapshot.verificationSnapshotFingerprint);
     expect(result.document.metadata?.generatedClaimVerification).toMatchObject({
       schemaVersion: 1,
+      semanticContractVersion: 1,
       boundEditorialRevisionId: editorialRevisionId(result.document),
       verifiedClaimIds: [claim.claimId],
       unverifiedDetectedCount: 0,
     });
+    expect(result.document.metadata?.generatedClaimVerification?.semanticClaims).toContainEqual(expect.objectContaining({
+      claimId: claim.claimId,
+      surfaceText: "현재 지원 금액은 50만원입니다.",
+      normalizedValue,
+    }));
     expect(result.document.metadata?.generatedClaimVerification?.verificationSnapshot.verificationSnapshotFingerprint).toBe(snapshot.verificationSnapshotFingerprint);
     expect(result.document.metadata?.generatedClaimVerification?.bindings).toEqual(result.generatedClaimBindings);
   });
