@@ -18,6 +18,37 @@ The preflight applies only when all of the following are true:
 
 Standard content and legacy non-structured calls remain unchanged.
 
+## Explicit Verification Planning Input
+
+Approval-preparation Planning uses an explicit Verification Plan as the preferred factual-input contract.
+
+The confirmed Content Opportunity may persist:
+
+```text
+verificationPlan
+├── schemaVersion
+├── mode: explicit
+├── claims[]
+│   ├── deterministic claimId
+│   ├── field
+│   ├── kind
+│   ├── statement
+│   ├── optional normalized/raw value inputs
+│   ├── qualifiers
+│   ├── temporalRequirement
+│   ├── required
+│   └── optional policyId
+└── fingerprint
+```
+
+For canonical approval-policy context, Bright Studio enables explicit Verification Planning automatically. The approval path must not depend solely on a developer-local feature flag.
+
+The Planning provider response uses a strict Structured Output schema. All object fields are represented in the strict required-field contract, while semantically optional values use deterministic empty representations that are normalized by the server parser. Malformed explicit Claim output is rejected rather than silently downgraded to legacy behavior.
+
+An explicit empty Claim list is valid and is distinct from an absent legacy plan. If the scoped confirmed topic requires no factual Source Preflight Claim, the workflow may skip Source Preflight without inventing a placeholder Claim.
+
+Legacy Claim derivation remains a compatibility path. It must not override or broaden a valid explicit Verification Plan.
+
 ## Claim Scope Boundary
 
 Required Claims are derived from the factual scope of the primary topic, not from every phrase stored in Planning.
@@ -50,6 +81,7 @@ Internal-link strategy remains editorial navigation context. Mentioning a verifi
 
 ```text
 Confirmed Content Opportunity
+→ explicit Verification Plan when approval context applies
 → required factual Claim derivation
 → primary-topic Claim scope
 → official source discovery when Claims remain
@@ -61,9 +93,13 @@ Confirmed Content Opportunity
 → source-level evidence excerpt match
 → Claim field/value/evidenceExcerpt verification
 → normalized date/amount/ratio/duration/unit comparison
+→ temporal/freshness policy
 → complete Claim Coverage Gate
+→ VerificationSnapshot
+→ Generation Verification Gate
 → manuscript Generation 1 call
-→ deterministic Claim verification
+→ Generated Claim Binding
+→ deterministic current-manuscript Claim verification
 → Quality Review 1 call
 ```
 
@@ -104,6 +140,16 @@ The source-level `evidenceExcerpt` proves that the direct page is relevant. Each
 
 Known URL-to-Claim mappings are optional diagnostics. They do not authorize a Claim and are not required for a newly discovered official URL. A new official URL passes only from its actual submitted Claim data and fetched page content.
 
+## Source Identity and New Sources
+
+Source handling is not a closed exact-URL allow-list.
+
+A previously unseen public HTTPS URL can receive deterministic canonical source identity and institution grouping. Common host variants such as `www`, mobile and AMP forms are normalized so several pages from one institution are not counted as independent institutions merely because the host spelling differs.
+
+Redirect handling evaluates the safe final URL. A newly discovered source still must pass the active official-source profile, source-content, Claim-support, temporal and freshness rules before it may enter the verified Generation bundle.
+
+An unusable new source should produce a controlled rejection/insufficient result, not silent authorization and not an unrelated application crash.
+
 ## Source Readiness Gate
 
 A source may enter the Generation bundle only when all checks pass:
@@ -118,8 +164,9 @@ A source may enter the Generation bundle only when all checks pass:
 8. Every submitted Claim has field, value, and Claim evidence excerpt.
 9. Every Claim value and excerpt passes server verification against the fetched final page.
 10. All required Planning Claim fields are covered across the accepted source set.
+11. Required temporal/freshness policy is satisfied for the Claim.
 
-Search-result pages, navigation pages, secondary blogs, copied articles, community posts, inaccessible pages, unsupported binary documents, empty pages, malformed documents, unofficial pages, fabricated values, fabricated excerpts, and incomplete Claim sets are excluded.
+Search-result pages, navigation pages, secondary blogs, copied articles, community posts, inaccessible pages, unsupported binary documents, empty pages, malformed documents, unofficial pages, fabricated values, fabricated excerpts, stale required evidence and incomplete Claim sets are excluded.
 
 Several official sources may divide the required Claims. Generation starts only when their combined verified Coverage is complete.
 
@@ -144,11 +191,14 @@ The following conditions always block before Generation:
 - Claim value absent from the fetched page;
 - fabricated Claim excerpt;
 - different date, amount, ratio, duration, or unit;
+- stale required evidence under policy;
 - partial Claim Coverage.
+
+`APPROVAL_SOURCE_NOT_READY` is a controlled Bright Studio workflow state. An API route may map it to an HTTP client-error response; that must not be described as proof that the upstream OpenAI transport itself returned HTTP 400.
 
 ## Generation Boundary
 
-Generation receives only the server-verified preflight bundle, including the exact accepted Claim field, value, and evidence excerpt for each source.
+Generation receives only the server-verified preflight bundle, including the exact accepted Claim field, value and evidence excerpt for each source.
 
 Generation must not:
 
@@ -157,7 +207,23 @@ Generation must not:
 - change a verified date, amount, percentage, duration, unit, institution, artwork metadata value, eligibility rule, threshold, quotation, or legal requirement;
 - assert a factual value unsupported by the bundle.
 
+The server recomputes and verifies the Verification Plan/Snapshot contract before the Generation call. Optional nonverified Claims are excluded from the verified bundle; missing/nonverified required Claims block Generation.
+
 Bright Studio does not ask Generation to create the final reader-visible source section. The deterministic Evidence and Claim verification path owns final source adoption and projection.
+
+## Post-Generation Verification Boundary
+
+Generation output is not trusted merely because the input bundle was verified.
+
+After Generation, deterministic server logic binds supported generated values back to verified Claim IDs and trusted source IDs. High-risk scalar detection currently covers deterministic money, ratio, date, duration and legal-article patterns.
+
+Unsupported detected values are recorded as unverified diagnostics rather than being self-labeled verified by the AI.
+
+Verification state is persisted as server-owned canonical Content metadata. Quality evaluates the **current manuscript** against the persisted VerificationSnapshot and confirmed Verification Plan so an older verified binding cannot survive a later unsupported edit unchanged.
+
+When current-manuscript verification fails, standard Quality approval is blocked. Platform publishing readiness consumes this shared Core result rather than implementing a separate WordPress or Tistory source-truth system.
+
+Deterministic scalar binding is not claimed to be universal semantic extraction of every arbitrary prose fact.
 
 ## AI Call and Cost Policy
 
@@ -169,7 +235,7 @@ For approval-preparation content:
 
 The preflight usage record is stored separately as `source_preflight` so the cost ledger reflects the real call count.
 
-No additional AI call is introduced for Claim verification. URL, Fetch, extraction, value, excerpt, normalization, and Coverage checks are deterministic server logic.
+No additional AI call is introduced for Claim verification. URL, Fetch, extraction, source identity, value, excerpt, normalization, temporal/freshness evaluation, Coverage, binding, edit integrity and publishing-readiness checks are deterministic server logic.
 
 ## Architecture Ownership
 
@@ -177,6 +243,20 @@ The Source Readiness Gate belongs to Core AI and Core Approval policies. It is n
 
 Platform-specific source profiles may define their own official institutions, but the sequence and failure contract remain shared across WordPress, Tistory, YouTube, Naver Cafe, Blog, and Shopping applications.
 
+The appropriate variation boundary is Project/content-domain/Claim-risk policy, not a duplicate factual-verification engine per publishing platform.
+
+## Current Verification Status
+
+As of 2026-08-08, the Verification Claim / Source implementation is automated-verified on the active PR branch. Detailed implementation status, regression inventory, CI evidence and remaining live Bright Finance Provider Gate are tracked in:
+
+```text
+Docs/current/04_DEVELOPMENT/07_VERIFICATION_CLAIM_SOURCE_STATUS.md
+```
+
+The latest Bright Finance live external Provider run after the current correction remains pending. Automated tests must not be reported as that external verification.
+
 ## Non-goals
 
 Preflight does not replace final deterministic Claim verification. It proves that every Planning-required factual Claim has usable official Evidence before writing; final verification still confirms that every factual Claim in the completed manuscript remains supported by the adopted source pages.
+
+This policy also does not mean every newly discovered website is automatically trustworthy. New sources may be processed dynamically, but they still must pass official-source, Claim-support, freshness and conflict policy before adoption.
