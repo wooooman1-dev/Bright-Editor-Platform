@@ -11,9 +11,9 @@ Repository: woooooman1-dev/Bright-Editor-Platform
 Base branch: fix/wordpress-full-audit
 Feature branch: feat/data-source-multi-connections
 Pull request: #42
-Latest implementation HEAD verified by CI: fc2f9e5b5efdfed5e338cef2e7e697bc807ef634
-GitHub Actions run: 31240664253
-Job: 93060958310
+Latest implementation HEAD verified by CI: 084f84b04832701021f3b81ca96b066df187fb45
+GitHub Actions run: 31245532260
+Job: 93073396332
 Typecheck: passed
 Lint: passed
 Test: passed
@@ -124,7 +124,7 @@ source: 연 500,000원
 
 Ratio source normalization preserves percent / percentage-point representation, comparator and the current canonical rate/share/change meaning where deterministically derivable from the confirmed Claim.
 
-This source-side improvement does not yet make Generated Claim prose a universal semantic representation. Generated surrounding qualifiers remain an open end-to-end item.
+The canonical Generation evidence bundle now preserves these supported semantics before Generation. Generated surrounding qualifiers remain an open end-to-end item because the post-Generation binding layer is not yet a universal semantic representation.
 
 ## 6. New Source Handling
 
@@ -173,7 +173,7 @@ Generation does not start when a required Claim is insufficient, conflicted, sta
 
 Source Preflight rejection remains a controlled workflow state and must not create a manuscript or trigger publishing.
 
-## 8. Generation Verification Gate
+## 8. Generation Verification Gate and Claim-ID Evidence
 
 Before the Generation provider call, the server:
 
@@ -182,15 +182,38 @@ Before the Generation provider call, the server:
 - recomputes Snapshot integrity;
 - re-evaluates Claim policy;
 - requires every required Claim to remain verified;
-- filters Generation evidence to trusted supporting fresh assessments.
+- filters Generation evidence to trusted supporting fresh assessments;
+- binds each explicit Generation source projection back to the same verified `claimId`;
+- validates the canonical Claim contract and source identity before prompt construction;
+- requires every `gate.verifiedClaimId` to own at least one trusted canonical source projection.
 
-No extra AI call is added by this Gate.
+The authoritative explicit Generation evidence is now Claim-ID owned and preserves:
 
-### Remaining Generation evidence limitation
+```text
+claimId
+field
+kind
+statement
+required
+normalizedValue
+qualifiers
+temporalRequirement
+trusted sources
+```
 
-The canonical model is Claim-ID based, but the current Generation prompt still uses a legacy field/value compatibility projection for part of the evidence bundle.
+The Generation prompt uses this canonical projection rather than the legacy field/value projection as factual authority. Same-field Claims are not merged merely because their display fields match.
 
-The next architecture correction is to make the Generation evidence bundle primarily Claim-ID owned and preserve the normalized verified value plus material qualifiers.
+The older `field/value/evidenceExcerpt` structure remains only as a compatibility projection for existing Approval Evidence metadata.
+
+No extra AI call is added by this Gate or evidence projection.
+
+Core implementation:
+
+```text
+core/approval/VerificationGenerationEvidence.ts
+core/ai/VerificationGenerationBundle.ts
+core/ai/ApprovalSourcePreflight.ts
+```
 
 ## 9. Generated Claim Binding and Persistence
 
@@ -282,9 +305,9 @@ It also confirmed that page-value verification rejects a source value that does 
 Latest implementation verification:
 
 ```text
-HEAD: fc2f9e5b5efdfed5e338cef2e7e697bc807ef634
-GitHub Actions run: 31240664253
-Job: 93060958310
+HEAD: 084f84b04832701021f3b81ca96b066df187fb45
+GitHub Actions run: 31245532260
+Job: 93073396332
 Typecheck: passed
 Lint: passed
 Test: passed
@@ -303,6 +326,11 @@ Automated coverage now verifies:
 - temporal/freshness policy;
 - VerificationSnapshot;
 - Generation Gate;
+- Claim-ID-owned Generation evidence and source ownership;
+- same-field Claim identity separation;
+- canonical normalized value and qualifier preservation in the Generation prompt;
+- legacy-only explicit evidence fails closed;
+- forged canonical Claim value projection is rejected;
 - Bright Finance source/Snapshot/Gate combinations;
 - Generated Claim scalar binding;
 - canonical verification persistence;
@@ -313,23 +341,20 @@ Automated fixture success does not prove the latest real external Bright Finance
 
 ## 14. Remaining Architecture Work
 
-The source-side nine-kind mismatch found by the static audit is resolved.
+The source-side nine-kind mismatch and Claim-ID Generation evidence ambiguity found by the static audit are resolved.
 
 Remaining confirmed architecture items are:
 
-1. **Claim-ID-owned Generation evidence bundle**
-   - replace field-only authoritative semantics with canonical Claim ownership.
-
-2. **Generated semantic Claim representation**
+1. **Generated semantic Claim representation**
    - preserve comparator, basis, subject, scope, eligibility/location/legal proposition meaning after Generation without another AI call.
 
-3. **Non-scalar edit re-verification**
+2. **Non-scalar edit re-verification**
    - current token detector is not universal semantic extraction for eligibility, location and legal propositions.
 
-4. **Tistory schedule changed-Claim integration regression**
+3. **Tistory schedule changed-Claim integration regression**
    - current protection exists through readiness composition, but the full changed-Claim schedule fixture is still missing.
 
-5. **Publishing execution defense in depth**
+4. **Publishing execution defense in depth**
    - low-level Tistory execution services depend on the registered upstream readiness/API boundary. A platform-neutral verified execution artifact can be considered if call-site hardening requires it.
 
 Authoritative detailed findings:
@@ -371,10 +396,10 @@ All 9 Claim kinds source-normalized: Implemented and automated-regression verifi
 Money basis/comparator source semantics: Implemented and automated-regression verified
 New-source dynamic identity handling: Implemented and automated-regression verified
 VerificationSnapshot / Generation Gate: Implemented
+Claim-ID-owned Generation evidence bundle: Implemented and automated-regression verified
 Generated Claim persistence / Quality linkage: Implemented
 Bright Finance source/Snapshot/Gate Matrix: Implemented and automated-regression verified
 Generated semantic re-verification for every high-risk proposition: Incomplete
-Claim-ID-owned Generation evidence bundle: Not implemented
 Schedule changed-Claim integration regression: Missing
 Latest Bright Finance live Provider run: Pending
 WordPress/Tistory external write verification for this workstream: Not performed
