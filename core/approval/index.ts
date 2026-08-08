@@ -39,6 +39,7 @@ export * from "./VerificationClaimFingerprint";
 export * from "./VerificationClaimPolicy";
 export * from "./VerificationTemporalPolicy";
 export * from "./VerificationGenerationGate";
+export * from "./VerificationGenerationEvidence";
 export * from "./ExplicitVerificationPreflight";
 export * from "./GeneratedClaimBinding";
 export * from "./GeneratedClaimVerificationIntegrity";
