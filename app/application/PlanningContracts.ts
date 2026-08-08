@@ -15,29 +15,46 @@ export type PlanningVerificationClaimDraft = Readonly<{
 const temporalRequirement = {
   type: "object",
   additionalProperties: false,
-  required: ["mode"],
+  required: ["mode", "date", "start", "end"],
   properties: {
     mode: { type: "string", enum: ["current", "asOf", "period", "notRequired", "unknown"] },
-    date: { type: "string" },
-    start: { type: "string" },
-    end: { type: "string" },
+    date: { type: "string", description: "Use YYYY-MM-DD only for mode=asOf; otherwise return an empty string." },
+    start: { type: "string", description: "Use YYYY-MM-DD only for mode=period; otherwise return an empty string." },
+    end: { type: "string", description: "Use YYYY-MM-DD only for mode=period; otherwise return an empty string." },
   },
+} as const;
+
+const qualifierProperties = {
+  subject: { type: "string", description: "Claim subject when explicitly known; otherwise return an empty string." },
+  scope: { type: "string", description: "Claim scope when explicitly known; otherwise return an empty string." },
+  basis: { type: "string", description: "Claim basis when explicitly known; otherwise return an empty string." },
+  note: { type: "string", description: "Claim qualifier note when explicitly needed; otherwise return an empty string." },
+} as const;
+
+const verificationClaimProperties = {
+  field: { type: "string" },
+  kind: { type: "string", enum: ["money", "ratio", "date", "dateRange", "duration", "location", "eligibility", "legal", "general"] },
+  statement: { type: "string" },
+  rawValue: { type: "string", description: "Exact concrete value when the Claim has one; otherwise return an empty string." },
+  qualifiers: {
+    type: "object",
+    additionalProperties: false,
+    required: ["subject", "scope", "basis", "note"],
+    properties: qualifierProperties,
+  },
+  temporalRequirement,
+  required: { type: "boolean" },
+  policyId: { type: "string", description: "Explicit policy identifier when supplied by Planning context; otherwise return an empty string." },
 } as const;
 
 const verificationClaims = {
   type: "array",
   maxItems: planningVerificationClaimMaximum,
   items: {
-    type: "object", additionalProperties: false,
-    required: ["field", "kind", "statement", "qualifiers", "temporalRequirement", "required"],
-    properties: {
-      field: { type: "string" },
-      kind: { type: "string", enum: ["money", "ratio", "date", "dateRange", "duration", "location", "eligibility", "legal", "general"] },
-      statement: { type: "string" }, rawValue: { type: "string" },
-      qualifiers: { type: "object", additionalProperties: false, properties: { subject: { type: "string" }, scope: { type: "string" }, basis: { type: "string" }, note: { type: "string" } } },
-      temporalRequirement,
-      required: { type: "boolean" }, policyId: { type: "string" },
-    },
+    type: "object",
+    additionalProperties: false,
+    required: ["field", "kind", "statement", "rawValue", "qualifiers", "temporalRequirement", "required", "policyId"],
+    properties: verificationClaimProperties,
   },
 } as const;
 
@@ -67,13 +84,22 @@ export function extendPlanningSchemaWithVerificationClaims<T extends typeof plan
   const schema = existingSchema.schema;
   const candidates = schema.properties.opportunityCandidates;
   const item = candidates.items;
+  const explicitCandidateProperties = Object.freeze({ ...item.properties, verificationClaims });
   return Object.freeze({
     ...existingSchema,
     schema: Object.freeze({
       ...schema,
+      required: Object.freeze(Object.keys(schema.properties)),
       properties: Object.freeze({
         ...schema.properties,
-        opportunityCandidates: Object.freeze({ ...candidates, items: Object.freeze({ ...item, required: Object.freeze([...item.required, "verificationClaims"]), properties: Object.freeze({ ...item.properties, verificationClaims }) }) }),
+        opportunityCandidates: Object.freeze({
+          ...candidates,
+          items: Object.freeze({
+            ...item,
+            required: Object.freeze(Object.keys(explicitCandidateProperties)),
+            properties: explicitCandidateProperties,
+          }),
+        }),
       }),
     }),
   });
