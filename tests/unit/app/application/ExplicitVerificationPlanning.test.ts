@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { approvalPolicyPromptContext, resolveApprovalPolicySnapshot } from "../../../../core/approval";
 import { explicitPlanningFormat, extendPlanningSchemaWithVerificationClaims, planningOutputFormat } from "../../../../app/application/PlanningContracts";
 import { OpenAIProvider } from "../../../../app/application/OpenAIProvider";
 import { ContentPlanningStrategy, parsePlanningResult } from "../../../../app/application/ContentPlanningStrategy";
@@ -7,18 +8,23 @@ const candidate = { selectedTopic: "서울 청년 지원", primaryKeyword: "서�
 const planning = { interpretedIntent: "지원 정보", domain: "생활경제", targetAudience: "청년", contentGoal: "조건 안내", recommendedPlatforms: [], suggestedTitleAngles: ["서울 청년 지원"], contentCluster: [], recommendationReason: "주제", confidence: 0.5, estimateDisclosure: "AI estimate", opportunityCandidates: [candidate] };
 
 describe("explicit planning contract", () => {
-  it("extends the complete planning schema without mutating the base", () => {
+  it("extends the complete planning schema without mutating the base and satisfies strict required fields", () => {
     const before = JSON.stringify(planningOutputFormat);
     const extended = extendPlanningSchemaWithVerificationClaims(planningOutputFormat);
     expect(JSON.stringify(planningOutputFormat)).toBe(before);
     expect(extended.schema.properties).toHaveProperty("interpretedIntent");
     expect(extended.schema.properties.opportunityCandidates.items.properties).toHaveProperty("verificationClaims");
-    expect(extended.schema.properties.opportunityCandidates.items.required).toEqual(expect.arrayContaining([...planningOutputFormat.schema.properties.opportunityCandidates.items.required]));
-    expect(extended.schema.properties.opportunityCandidates.items.required).toContain("verificationClaims");
-    expect(Object.keys(extended.schema.properties.opportunityCandidates.items.properties)).toEqual([...Object.keys(planningOutputFormat.schema.properties.opportunityCandidates.items.properties), "verificationClaims"]);
-    expect(extended.schema.properties.opportunityCandidates.items.properties.verificationClaims.items.required).toContain("temporalRequirement");
+    expect(extended.schema.required).toEqual(Object.keys(extended.schema.properties));
+    expect(extended.schema.properties.opportunityCandidates.items.required)
+      .toEqual(Object.keys(extended.schema.properties.opportunityCandidates.items.properties));
+    expect(extended.schema.properties.opportunityCandidates.items.properties.verificationClaims.items.required)
+      .toEqual(["field", "kind", "statement", "rawValue", "qualifiers", "temporalRequirement", "required", "policyId"]);
+    expect(extended.schema.properties.opportunityCandidates.items.properties.verificationClaims.items.properties.qualifiers.required)
+      .toEqual(["subject", "scope", "basis", "note"]);
+    expect(extended.schema.properties.opportunityCandidates.items.properties.verificationClaims.items.properties.temporalRequirement.required)
+      .toEqual(["mode", "date", "start", "end"]);
     expect(extended.schema.properties.opportunityCandidates.items.properties.verificationClaims.items.properties.temporalRequirement.properties.mode.enum).toEqual(["current", "asOf", "period", "notRequired", "unknown"]);
-    expect(extended.schema.required).toEqual(planningOutputFormat.schema.required);
+    expect(Object.keys(extended.schema.properties.opportunityCandidates.items.properties)).toEqual([...Object.keys(planningOutputFormat.schema.properties.opportunityCandidates.items.properties), "verificationClaims"]);
     expect(extended.schema.properties).toHaveProperty("recommendedPrimaryKeyword");
     expect(extended.schema.properties).toHaveProperty("keywordCandidates");
     expect(extended.schema.properties).toHaveProperty("recommendedContentType");
@@ -79,5 +85,24 @@ describe("explicit planning contract", () => {
     await strategy.analyze("서울 청년 지원", undefined, { projectId: "p", selectionMode: "automatic", explicitVerificationPlanningEnabled: false });
     expect(generate.mock.calls[0]?.[0].instruction).not.toContain("Verification claims rule");
     expect(generate.mock.calls[0]?.[0].metadata).not.toHaveProperty("explicitVerificationPlanning");
+  });
+
+  it("forces explicit verification Planning when canonical approval context is present", async () => {
+    const generate = vi.fn(async (request: { instruction: string; metadata?: Readonly<Record<string, string>> }) => { void request; return { content: JSON.stringify(planning), diagnostics: {} }; });
+    const strategy = new ContentPlanningStrategy({ generate } as never);
+    const approvalPolicy = approvalPolicyPromptContext(resolveApprovalPolicySnapshot("adsense_approval", "wordpress_life_economy_v1")!);
+    const projectContext = JSON.stringify({ projectStrategy: { approvalPolicy } });
+
+    const result = await strategy.analyze("서울 청년 지원", undefined, {
+      projectId: "p",
+      selectionMode: "automatic",
+      projectContext,
+      explicitVerificationPlanningEnabled: false,
+    });
+
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(generate.mock.calls[0]?.[0].instruction).toContain("Verification claims rule");
+    expect(generate.mock.calls[0]?.[0].metadata?.explicitVerificationPlanning).toBe("1");
+    expect(result.opportunityCandidates?.[0].verificationPlan?.mode).toBe("explicit");
   });
 });
