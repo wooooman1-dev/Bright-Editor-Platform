@@ -134,21 +134,30 @@ function normalizeExplicitClaimValue(spec: VerificationClaimSpec, value: string)
   return undefined;
 }
 
+type MoneyBasis = "oneTime" | "daily" | "monthly" | "annual" | "total" | "perPerson" | "perHousehold";
+
 function normalizeExplicitMoney(text: string, spec: VerificationClaimSpec): VerificationSourceAssessment["normalizedValue"] {
-  const match = text.replace(/,/gu, "").match(/^(?:(최대|최소|이상|이하|미만|초과)\s*)?(-?\d+(?:\.\d+)?)\s*(억원|만원|천원|원|KRW|달러|USD)(?:\s*(이상|이하|미만|초과))?$/iu);
+  const compact = text.replace(/,/gu, "");
+  const match = compact.match(/^(?:(최대|최소|이상|이하|미만|초과)\s*)?(?:(월|매월|월간|월별|연|연간|연별|매년|일|일일|매일|하루|1인당|인당|개인당|가구당|세대당|1회|일회|한\s*번)\s+)?(?:(최대|최소|이상|이하|미만|초과)\s*)?(-?\d+(?:\.\d+)?)\s*(억원|만원|천원|원|KRW|달러|USD)(?:\s*(이상|이하|미만|초과))?(?:\s*(?:\/\s*)?(월|매월|월간|월별|연|연간|연별|매년|일|일일|매일|하루|1인당|인당|개인당|가구당|세대당|1회|일회|한\s*번))?$/iu);
   if (!match) return undefined;
-  const numeric = Number(match[2]);
+  const numeric = Number(match[4]);
   if (!Number.isFinite(numeric)) return undefined;
-  const unit = (match[3] ?? "").toLocaleLowerCase("en-US");
+  const unit = (match[5] ?? "").toLocaleLowerCase("en-US");
   const koreanFactor = unit === "억원" ? 100_000_000 : unit === "만원" ? 10_000 : unit === "천원" ? 1_000 : 1;
   const currency = unit === "달러" || unit === "usd" ? "USD" : "KRW";
-  const comparator = scalarComparator(match[1] ?? match[4]);
+  const comparators = [match[1], match[3], match[6]].map(scalarComparator).filter((value): value is NonNullable<ReturnType<typeof scalarComparator>> => Boolean(value));
+  if (new Set(comparators).size > 1) return undefined;
+  const comparator = comparators[0];
+  const prefixBasis = explicitMoneyBasis(match[2]);
+  const suffixBasis = explicitMoneyBasis(match[7]);
+  if (prefixBasis && suffixBasis && prefixBasis !== suffixBasis) return undefined;
+  const basis = prefixBasis ?? suffixBasis ?? moneyBasis(spec);
   return {
     kind: "money",
     value: {
       amount: numeric * koreanFactor,
       currency,
-      basis: moneyBasis(spec),
+      basis,
       ...(comparator ? { comparator } : {}),
     },
   };
@@ -272,13 +281,25 @@ function durationComparator(value: string | undefined): "upTo" | "atLeast" | und
   return undefined;
 }
 
-function moneyBasis(spec: VerificationClaimSpec): "oneTime" | "daily" | "monthly" | "annual" | "total" | "perPerson" | "perHousehold" {
+function explicitMoneyBasis(value: string | undefined): MoneyBasis | undefined {
+  if (!value) return undefined;
+  const normalized = value.replace(/\s+/gu, " ").trim().toLocaleLowerCase("ko-KR");
+  if (["월", "매월", "월간", "월별"].includes(normalized)) return "monthly";
+  if (["연", "연간", "연별", "매년"].includes(normalized)) return "annual";
+  if (["일", "일일", "매일", "하루"].includes(normalized)) return "daily";
+  if (["1인당", "인당", "개인당"].includes(normalized)) return "perPerson";
+  if (["가구당", "세대당"].includes(normalized)) return "perHousehold";
+  if (["1회", "일회", "한 번"].includes(normalized)) return "oneTime";
+  return undefined;
+}
+
+function moneyBasis(spec: VerificationClaimSpec): MoneyBasis {
   const context = `${spec.field} ${spec.statement} ${spec.qualifiers.basis ?? ""}`;
-  if (/(?:1인|인당|개인당|per\s*person)/iu.test(context)) return "perPerson";
+  if (/(?:1인당|인당|개인당|per\s*person)/iu.test(context)) return "perPerson";
   if (/(?:가구당|세대당|per\s*household)/iu.test(context)) return "perHousehold";
-  if (/(?:매월|월간|월별|monthly)/iu.test(context)) return "monthly";
-  if (/(?:연간|연별|매년|annual)/iu.test(context)) return "annual";
-  if (/(?:매일|일일|하루|daily)/iu.test(context)) return "daily";
+  if (/(?:매월|월간|월별|(?:^|\s)월(?=\s*[-+]?\d)|monthly)/iu.test(context)) return "monthly";
+  if (/(?:연간|연별|매년|(?:^|\s)연(?=\s*[-+]?\d)|annual)/iu.test(context)) return "annual";
+  if (/(?:매일|일일|하루|(?:^|\s)일(?=\s*[-+]?\d)|daily)/iu.test(context)) return "daily";
   if (/(?:1회|일회|한\s*번|one[-\s]*time)/iu.test(context)) return "oneTime";
   return "total";
 }
@@ -356,4 +377,4 @@ function hasNormalizedConflict(assessments: readonly VerificationSourceAssessmen
 }
 
 function canonicalValue(value: VerificationSourceAssessment["normalizedValue"]): string { return JSON.stringify(sortValue(value)); }
-function sortValue(value: unknown): unknown { if (Array.isArray(value)) return value.map(sortValue).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))); if (value && typeof value === "object") return Object.fromEntries(Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => [key, sortValue(item)])); return value; }
+function sortValue(value: unknown): unknown { if (Array.isArray(value)) return value.map(sortValue).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))); if (value && typeof value === "object") return Object.fromEntries(Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(JSON.stringify(b)) ? 1 : a.localeCompare(b)).map(([key, item]) => [key, sortValue(item)])); return value; }
