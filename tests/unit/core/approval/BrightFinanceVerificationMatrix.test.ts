@@ -6,7 +6,6 @@ import {
   evaluateVerificationGenerationGate,
   type ExplicitDiscoveredClaim,
   type VerificationClaimSpec,
-  type VerificationSourceAssessment,
 } from "../../../../core/approval";
 import { createContentOpportunityVerificationPlan } from "../../../../core/content";
 
@@ -199,7 +198,6 @@ describe("Bright Finance explicit verification matrix", () => {
 
   it("fails closed when one required finance Claim changes to an unsupported source value", () => {
     const scenario = scenarios[0]!;
-    const plan = createContentOpportunityVerificationPlan(scenario.claims);
     const sources = institutions.map((institution, sourceIndex) => {
       const claims = scenario.claims.map((claim): ExplicitDiscoveredClaim => {
         const changed = sourceIndex === 0 && claim.claimId === "support-money";
@@ -229,6 +227,33 @@ describe("Bright Finance explicit verification matrix", () => {
 
     expect(changedPrimary?.supports).toBe(false);
     expect(changedPrimary?.diagnostics).toContain("claim_raw_value_mismatch");
+  });
+
+  it("does not equate a monthly planned amount with an explicitly annual source amount", () => {
+    const monthly = currentClaim(
+      "monthly-support",
+      "지원 금액",
+      "money",
+      "지원 금액은 월 50만원이다.",
+      "월 50만원",
+    );
+    const evidenceExcerpt = `연 지원 금액 500,000원의 ${ACTIVE_PERIOD}`;
+    const [assessment] = assessmentsFromExplicitDiscovery({
+      claims: [monthly],
+      sources: [{
+        requestedUrl: "https://www.gov.kr/money-basis-fixture",
+        role: "primaryOfficial",
+        authoritative: true,
+        pageText: evidenceExcerpt,
+        evidenceExcerpt,
+        observedAt: OBSERVED_AT,
+        claims: [{ claimId: monthly.claimId, value: "연 500,000원", evidenceExcerpt }],
+      }],
+      now: () => OBSERVED_AT,
+    });
+
+    expect(assessment?.supports).toBe(false);
+    expect(assessment?.diagnostics).toContain("claim_raw_value_mismatch");
   });
 });
 
