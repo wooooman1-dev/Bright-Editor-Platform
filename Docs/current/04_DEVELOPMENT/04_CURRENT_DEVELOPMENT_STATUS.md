@@ -1,6 +1,6 @@
 # Bright Studio Current Development Status
 
-Last updated: 2026-07-29
+Last updated: 2026-08-08
 
 ## 1. Baseline
 
@@ -526,3 +526,146 @@ External WordPress Draft: not verified
 - Project/Connection 기본 Category는 제안값이고, Content에 명시적으로 적용된 Category만 적용 완료로 취급한다.
 - 실제 브라우저 화면, 외부 WordPress Draft re-read, GeneratePress 시각 일치와 WordPress KSES sanitizer는 아직 검증하지 않았다.
 - `next-env.d.ts`의 generated routes import가 build 환경에 따라 변경되는 문제는 제품 변경과 분리된 환경 이슈로 남아 있다.
+
+## 15. PR #42 Current Development Update (2026-08-08)
+
+This section supersedes Sections 3, 8, 10, 11, 13 and 14 only where their older branch/status statements conflict with the current PR #42 repository state. Historical implementation and verification evidence in those sections remains preserved.
+
+### 15.1 Current branch and PR
+
+```text
+Base branch: fix/wordpress-full-audit
+Active feature branch: feat/data-source-multi-connections
+Pull request: #42
+PR state: Open / Draft / Unmerged
+Latest automated-verified code HEAD before documentation-only sync: 88efad926c49b1f7ab3bcd011ad7562ffb98122a
+GitHub Actions run: 31235886063
+```
+
+The branch is no longer accurately described by the older `feat/wordpress-draft-publishing` current-branch statements.
+
+No Ready transition, merge, force push, public publishing or external Draft write has been authorized by this documentation update.
+
+### 15.2 Data Source and Opportunity Intelligence status
+
+The Data Source foundation remains only one part of Sprint 7, but the implementation has advanced beyond the older Foundation snapshot.
+
+Current PR #42 includes and regression-protects:
+
+- one DataSourceConnection owned by zero or one Project;
+- reusable provider credentials through separate resource Connections;
+- Workspace-unassigned projection shown once rather than repeated under every Project;
+- immutable established resource identity;
+- current Google resource refresh on credential reuse;
+- duplicate Project identity persistence protection and verified migration tooling;
+- Project-scoped GSC/NAVER Evidence delivery to Opportunity Planning;
+- correction of the lexical filter that previously removed valid finance NAVER Evidence;
+- server-owned Evidence confidence derivation and Korean Evidence presentation corrections;
+- stale-result and cross-Project/Workspace isolation guards.
+
+Detailed evidence remains in:
+
+```text
+Docs/current/04_DEVELOPMENT/05_DATA_SOURCE_MULTI_CONNECTION_STATUS.md
+```
+
+Sprint 7 as a whole remains Partially Implemented because Project DNA, the complete Content Library/registry and the full memory/cannibalization/internal-link system are not completed merely by this foundation.
+
+### 15.3 Bright Finance Verification Claim and Source status
+
+The Bright Finance Source Preflight incident produced a Core-shared verification workstream.
+
+Implemented and automated-verified behavior now includes:
+
+```text
+approval-aware Planning
+→ explicit Verification Plan
+→ scoped required Claims
+→ Source Preflight when required
+→ VerificationSnapshot
+→ Generation Verification Gate
+→ verified Generation bundle
+→ Generated Claim Binding
+→ server-owned canonical verification persistence
+→ deterministic current-manuscript verification in Quality
+→ shared publishing-readiness verification consumption
+```
+
+The original Bright Finance failure was an internal `APPROVAL_SOURCE_NOT_READY` mapped to HTTP 400, not an OpenAI transport 400. The false-positive Claim scope caused by an internal-link/related-content mention of `예금자보호` is now protected by a real failure-shape regression test.
+
+Approval-context Planning now automatically selects explicit Verification Planning rather than depending only on a local feature flag. The strict Structured Output schema was corrected before this rollout so the explicit path itself does not introduce a schema-contract Provider 400.
+
+Source identity is dynamic rather than a closed exact-URL list. Previously unseen public HTTPS sources can receive deterministic identity and institution grouping, while unsafe, unofficial, unsupported, stale, conflicting or mismatched sources are rejected without authorizing unsupported Claims.
+
+Detailed contract and limitations:
+
+```text
+Docs/current/04_DEVELOPMENT/07_VERIFICATION_CLAIM_SOURCE_STATUS.md
+Docs/current/01_PRODUCT/20_APPROVAL_SOURCE_PREFLIGHT.md
+```
+
+The earlier conceptual phrase `Phase 6 — Quality Review Claim Linkage` must not be treated as a separate unfinished implementation phase. In the actual repository, current-manuscript Claim integrity is already connected to Quality as part of the completed persistence/Quality integration work.
+
+### 15.4 WordPress status correction
+
+The older statement `Integrated WordPress Draft MVP status: Not implemented` is no longer a sufficient description of the repository.
+
+The current branch contains WordPress publishing-readiness integration and shared Generated Claim verification consumption on top of the earlier WordPress connection/publishing foundation. However, this does **not** prove the latest Source/Verification changes against a real WordPress Draft.
+
+The current factual status is:
+
+```text
+WordPress implementation foundation: Implemented beyond the older primitive-only snapshot
+Shared verification/readiness linkage: Implemented and automated-verified
+Latest Bright Finance live Provider run after Source correction: Pending
+Real WordPress Draft using that latest verified-content path: Not performed
+Public publish: Not authorized
+```
+
+Do not mark Sprint 8 complete from this update alone.
+
+### 15.5 Current automated verification baseline
+
+Latest automated-verified code HEAD before these documentation-only commits:
+
+```text
+HEAD: 88efad926c49b1f7ab3bcd011ad7562ffb98122a
+GitHub Actions run: 31235886063
+Conclusion: success
+
+Typecheck: passed
+Lint: passed
+Test: passed
+Build: passed
+
+Test Files: 292 passed | 8 skipped
+Tests: 1629 passed | 20 skipped
+```
+
+This is repository automated evidence only. It does not replace live local/provider verification.
+
+### 15.6 Current highest-priority external Gate
+
+For the active Bright Finance source work, the next real Gate is:
+
+```text
+new Bright Finance Content
+→ Planning 1 call
+→ verify explicit Verification Plan
+→ inspect scoped Claims
+→ Source Preflight
+→ inspect real source URLs and VerificationSnapshot
+→ only if valid: Generation 1 call
+→ Quality Review 1 call
+→ inspect final HTML and verification metadata
+```
+
+Manual harness:
+
+```text
+tests/manual/bright-finance-source-live-verification.test.ts
+```
+
+The harness does not perform WordPress Draft save or public publishing.
+
+Until the user's local environment is available, this live Gate remains pending. Automated success must not be reported as external verification.
