@@ -16,6 +16,7 @@ import {
 } from "../../../../core/ai/AIWorkflow";
 import {
   runApprovalSourcePreflight,
+  type ApprovalSourcePreflightClaimSource,
   type ApprovalSourcePreflightResult,
 } from "../../../../core/ai/ApprovalSourcePreflight";
 import {
@@ -41,9 +42,9 @@ const claim: VerificationClaimSpec = Object.freeze({
   claimId: "claim-amount",
   field: "amount",
   kind: "money",
-  statement: "현재 지원 금액은 50만원이다.",
-  rawValue: "50만원",
-  qualifiers: {},
+  statement: "현재 지원 금액은 월 50만원이다.",
+  rawValue: "월 50만원",
+  qualifiers: Object.freeze({ basis: "monthly" }),
   temporalRequirement: { mode: "current" as const },
   required: true,
 });
@@ -135,7 +136,7 @@ function assessment(
     supports: true,
     normalizedValue: {
       kind: "money" as const,
-      value: { amount: 500_000, currency: "KRW", basis: "total" as const },
+      value: { amount: 500_000, currency: "KRW", basis: "monthly" as const },
     },
     freshnessStatus,
     fresh: freshnessStatus === "fresh",
@@ -157,7 +158,7 @@ function verifiedSnapshot() {
       claimId: claim.claimId,
       normalizedValue: {
         kind: "money",
-        value: { amount: 500_000, currency: "KRW", basis: "total" },
+        value: { amount: 500_000, currency: "KRW", basis: "monthly" },
       },
       sourceAssessments: assessments,
       unresolvedConflict: false,
@@ -168,7 +169,7 @@ function verifiedSnapshot() {
 }
 
 function insufficientSnapshot() {
-  const input: ExplicitVerificationInput = {
+  const snapshotInput: ExplicitVerificationInput = {
     plan,
     assessments: [],
     results: [{
@@ -179,7 +180,7 @@ function insufficientSnapshot() {
       diagnostics: ["freshness_unknown"],
     }],
   };
-  return createVerificationSnapshot(input);
+  return createVerificationSnapshot(snapshotInput);
 }
 
 const claimEvidence = Object.freeze([{
@@ -187,6 +188,42 @@ const claimEvidence = Object.freeze([{
   value: "50만원",
   evidenceExcerpt: "지원 금액 50만원의 적용 기간은 2026-01-01부터 2026-12-31까지입니다.",
 }]);
+
+function claimSource(
+  sourceId: string,
+  url: string,
+): ApprovalSourcePreflightClaimSource {
+  return Object.freeze({
+    url,
+    claims: claimEvidence,
+    verificationClaims: Object.freeze([Object.freeze({
+      claimId: claim.claimId,
+      field: claim.field,
+      kind: claim.kind,
+      statement: claim.statement,
+      required: claim.required,
+      normalizedValue: {
+        kind: "money" as const,
+        value: {
+          amount: 500_000,
+          currency: "KRW",
+          basis: "monthly" as const,
+        },
+      },
+      qualifiers: claim.qualifiers,
+      temporalRequirement: claim.temporalRequirement,
+      source: Object.freeze({
+        sourceId,
+        canonicalUrl: url,
+        role: sourceId === "primary"
+          ? "primaryOfficial" as const
+          : "officialCorroborating" as const,
+        authoritative: true,
+        evidenceExcerpt: claimEvidence[0]!.evidenceExcerpt,
+      }),
+    })]),
+  });
+}
 
 const emptyCoverage: ApprovalSourcePreflightResult["coverage"] = Object.freeze({
   status: "not_required",
@@ -206,10 +243,10 @@ function preflightResult(snapshot: ReturnType<typeof verifiedSnapshot>): Approva
       { url: "https://rejected.example/claim", title: "rejected", excerpt: "rejected", provenance: "citation" as const },
     ]),
     claimSources: Object.freeze([
-      { url: "https://primary.example/claim", claims: claimEvidence },
-      { url: "https://official-a.example/claim", claims: claimEvidence },
-      { url: "https://official-b.example/claim", claims: claimEvidence },
-      { url: "https://stale.example/claim", claims: claimEvidence },
+      claimSource("primary", "https://primary.example/claim"),
+      claimSource("official-a", "https://official-a.example/claim"),
+      claimSource("official-b", "https://official-b.example/claim"),
+      claimSource("stale", "https://stale.example/claim"),
     ]),
     coverage: emptyCoverage,
     verificationSnapshot: snapshot,
@@ -235,13 +272,18 @@ describe("AIWorkflow explicit Verification Generation Gate", () => {
     expect(provider.calls).toBe(0);
   });
 
-  it("calls Generation once and exposes only verified fresh URLs to the prompt and Evidence metadata", async () => {
+  it("calls Generation once with Claim-ID-owned canonical evidence and only verified fresh URLs", async () => {
     vi.mocked(runApprovalSourcePreflight).mockResolvedValue(preflightResult(verifiedSnapshot()));
     const provider = new RecordingProvider();
 
     const generated = await new AIWorkflow(provider, strategy).generate(input);
 
     expect(provider.calls).toBe(1);
+    expect(provider.request?.instruction).toContain("Explicit verification Generation bundle");
+    expect(provider.request?.instruction).toContain('"claimId":"claim-amount"');
+    expect(provider.request?.instruction).toContain('"basis":"monthly"');
+    expect(provider.request?.instruction).toContain('"qualifiers":{"basis":"monthly"}');
+    expect(provider.request?.instruction).not.toContain("Claim field:");
     expect(provider.request?.instruction).toContain("https://primary.example/claim");
     expect(provider.request?.instruction).toContain("https://official-a.example/claim");
     expect(provider.request?.instruction).toContain("https://official-b.example/claim");
