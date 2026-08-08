@@ -377,4 +377,4 @@ function hasNormalizedConflict(assessments: readonly VerificationSourceAssessmen
 }
 
 function canonicalValue(value: VerificationSourceAssessment["normalizedValue"]): string { return JSON.stringify(sortValue(value)); }
-function sortValue(value: unknown): unknown { if (Array.isArray(value)) return value.map(sortValue).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))); if (value && typeof value === "object") return Object.fromEntries(Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(JSON.stringify(b)) ? 1 : a.localeCompare(b)).map(([key, item]) => [key, sortValue(item)])); return value; }
+function sortValue(value: unknown): unknown { if (Array.isArray(value)) return value.map(sortValue).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))); if (value && typeof value === "object") return Object.fromEntries(Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => [key, sortValue(item)])); return value; }
