@@ -2,10 +2,12 @@ import {
   approvalPolicySnapshotFromEditorialContext,
   canonicalizeApprovalEvidenceUrl,
   createGeneratedClaimVerificationRecord,
+  validateGeneratedFactualClaimDrafts,
   type ApprovalEvidenceFact,
   type ApprovalEvidenceSource,
   type ApprovalPolicySnapshot,
   type GeneratedClaimBinding,
+  type GeneratedFactualClaim,
   type VerificationSnapshot,
 } from "../approval";
 import {
@@ -23,6 +25,10 @@ import {
   type ApprovalSourcePreflightClaimSource,
 } from "./ApprovalSourcePreflight";
 import { appendAIUsageToDocument } from "./AIUsageCost";
+import {
+  parseGeneratedFactualClaimDrafts,
+  withGeneratedFactualClaimResponseInstruction,
+} from "./GeneratedFactualClaimResponse";
 import { requireExplicitVerificationGenerationBundle } from "./VerificationGenerationBundle";
 
 export type PlatformId = string & { readonly __platformId: unique symbol };
@@ -105,12 +111,18 @@ export class AIWorkflow {
             claimSources: sourcePreflight.claimSources,
           })
         : sourcePreflight;
+      const explicitVerificationGeneration = Boolean(
+        generationPreflight
+        && "gate" in generationPreflight
+        && input.contentOpportunity?.verificationPlan
+        && sourcePreflight?.verificationSnapshot,
+      );
       const request = this.strategy.createRequest(input);
       const canonicalInstruction = withCanonicalEditorialContext(
         request.instruction,
         input.editorialContext,
       );
-      const instruction = generationPreflight
+      const preflightInstruction = generationPreflight
         ? withApprovalSourcePreflightInstruction(
             canonicalInstruction,
             generationPreflight.sources,
@@ -120,6 +132,9 @@ export class AIWorkflow {
             canonicalInstruction,
             approvalSnapshot,
           );
+      const instruction = explicitVerificationGeneration
+        ? withGeneratedFactualClaimResponseInstruction(preflightInstruction)
+        : preflightInstruction;
       const response = await this.provider.generate({
         ...request,
         instruction,
@@ -128,6 +143,9 @@ export class AIWorkflow {
           platform: input.platform,
           ...(input.structuredLongFormOutput
             ? { task: "content-generation" }
+            : {}),
+          ...(explicitVerificationGeneration
+            ? { verificationGenerationMode: "structured_claims_v1" }
             : {}),
           ...(input.contentOpportunity?.qualityTarget
             ? {
@@ -169,6 +187,29 @@ export class AIWorkflow {
         response.diagnostics?.aiUsage,
       );
       assertGeneratedDocumentOwnedIdentityPolicy(generatedDocument, input);
+
+      let semanticClaims: readonly GeneratedFactualClaim[] | undefined;
+      if (
+        generationPreflight
+        && "gate" in generationPreflight
+        && input.contentOpportunity?.verificationPlan
+        && sourcePreflight?.verificationSnapshot
+      ) {
+        const semanticValidation = validateGeneratedFactualClaimDrafts({
+          document: generatedDocument,
+          plan: input.contentOpportunity.verificationPlan,
+          snapshot: sourcePreflight.verificationSnapshot,
+          gate: generationPreflight.gate,
+          drafts: parseGeneratedFactualClaimDrafts(response.content),
+        });
+        if (!semanticValidation.passed) {
+          throw new Error(
+            `Generated factual Claim semantic verification failed. ${semanticValidation.reasons.join(" ")}`,
+          );
+        }
+        semanticClaims = semanticValidation.claims;
+      }
+
       const generatedClaimVerification = generationPreflight
         && "gate" in generationPreflight
         && input.contentOpportunity?.verificationPlan
@@ -178,6 +219,7 @@ export class AIWorkflow {
             plan: input.contentOpportunity.verificationPlan,
             snapshot: sourcePreflight.verificationSnapshot,
             boundEditorialRevisionId: editorialRevisionId(generatedDocument),
+            semanticClaims,
           })
         : undefined;
       const canonicalGeneratedDocument = generatedClaimVerification
