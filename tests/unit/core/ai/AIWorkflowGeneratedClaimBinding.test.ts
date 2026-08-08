@@ -156,6 +156,39 @@ const strategy: ContentGenerationStrategy = {
   }),
 };
 
+function claimSource(
+  sourceId: string,
+  role: VerificationSourceAssessment["role"],
+) {
+  const url = `https://${sourceId}.example/claim`;
+  const evidenceExcerpt = "지원 금액은 50만원입니다.";
+  return Object.freeze({
+    url,
+    claims: Object.freeze([{
+      field: claim.field,
+      value: "50만원",
+      evidenceExcerpt,
+    }]),
+    verificationClaims: Object.freeze([Object.freeze({
+      claimId: claim.claimId,
+      field: claim.field,
+      kind: claim.kind,
+      statement: claim.statement,
+      required: claim.required,
+      normalizedValue,
+      qualifiers: claim.qualifiers,
+      temporalRequirement: claim.temporalRequirement,
+      source: Object.freeze({
+        sourceId,
+        canonicalUrl: url,
+        role,
+        authoritative: true,
+        evidenceExcerpt,
+      }),
+    })]),
+  });
+}
+
 const preflight: ApprovalSourcePreflightResult = Object.freeze({
   sources: Object.freeze([
     { url: "https://primary.example/claim", title: "primary", excerpt: "verified", provenance: "citation" as const },
@@ -163,9 +196,9 @@ const preflight: ApprovalSourcePreflightResult = Object.freeze({
     { url: "https://official-b.example/claim", title: "official-b", excerpt: "verified", provenance: "citation" as const },
   ]),
   claimSources: Object.freeze([
-    { url: "https://primary.example/claim", claims: Object.freeze([{ field: "amount", value: "50만원", evidenceExcerpt: "지원 금액은 50만원입니다." }]) },
-    { url: "https://official-a.example/claim", claims: Object.freeze([{ field: "amount", value: "50만원", evidenceExcerpt: "지원 금액은 50만원입니다." }]) },
-    { url: "https://official-b.example/claim", claims: Object.freeze([{ field: "amount", value: "50만원", evidenceExcerpt: "지원 금액은 50만원입니다." }]) },
+    claimSource("primary", "primaryOfficial"),
+    claimSource("official-a", "officialCorroborating"),
+    claimSource("official-b", "officialCorroborating"),
   ]),
   coverage: Object.freeze({
     status: "not_required" as const,
