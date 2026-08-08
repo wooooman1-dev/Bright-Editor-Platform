@@ -55,7 +55,7 @@ const scenarios: readonly FinanceScenario[] = Object.freeze([
     excerpts: Object.freeze({
       "support-money": `월 지원 금액 500,000원의 ${ACTIVE_PERIOD}`,
       "support-eligibility": `신청 연령 만 19세 이상의 ${ACTIVE_PERIOD}`,
-      "support-period": "신청 기준 기간은 2026-08-01부터 2026-08-31까지입니다.",
+      "support-period": "신청 기준 기간은 2026년 8월 1일부터 2026년 8월 31일까지입니다.",
       "support-location": `대상 지역 서울특별시의 ${ACTIVE_PERIOD}`,
     }),
   }),
