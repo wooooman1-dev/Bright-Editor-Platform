@@ -89,6 +89,20 @@ const input: GenerationInput = {
   structuredLongFormOutput: true,
 };
 
+const generationContent = JSON.stringify({
+  verificationClaimsUsed: [{
+    claimId: claim.claimId,
+    surfaceText: "현재 지원 금액은 월 50만원입니다.",
+    kind: claim.kind,
+    normalizedValueJson: JSON.stringify({
+      kind: "money",
+      value: { amount: 500_000, currency: "KRW", basis: "monthly" },
+    }),
+    qualifiers: { subject: "", scope: "", basis: "monthly", note: "" },
+    temporalRequirementJson: JSON.stringify(claim.temporalRequirement),
+  }],
+});
+
 class RecordingProvider implements AIProvider {
   calls = 0;
   request?: AIRequest;
@@ -96,7 +110,7 @@ class RecordingProvider implements AIProvider {
   async generate(request: AIRequest) {
     this.calls += 1;
     this.request = request;
-    return { content: "generated", model: "test" };
+    return { content: generationContent, model: "test" };
   }
 }
 
@@ -105,7 +119,13 @@ const strategy: ContentGenerationStrategy = {
   parse: () => ({
     id: "content-1",
     title: "지원 금액 확인 방법",
-    blocks: [],
+    blocks: [
+      {
+        id: "p1",
+        type: "paragraph" as const,
+        text: "현재 지원 금액은 월 50만원입니다.",
+      },
+    ],
     metadata: {
       buttonCount: 0,
       createdAt: "2026-08-08T00:00:00.000Z",
@@ -117,7 +137,7 @@ const strategy: ContentGenerationStrategy = {
       updatedAt: "2026-08-08T00:00:00.000Z",
       version: 1,
       videoCount: 0,
-      wordCount: 0,
+      wordCount: 6,
     },
   }),
 };
@@ -279,7 +299,9 @@ describe("AIWorkflow explicit Verification Generation Gate", () => {
     const generated = await new AIWorkflow(provider, strategy).generate(input);
 
     expect(provider.calls).toBe(1);
+    expect(provider.request?.metadata?.verificationGenerationMode).toBe("structured_claims_v1");
     expect(provider.request?.instruction).toContain("Explicit verification Generation bundle");
+    expect(provider.request?.instruction).toContain("Structured generated factual-Claim contract");
     expect(provider.request?.instruction).toContain('"claimId":"claim-amount"');
     expect(provider.request?.instruction).toContain('"basis":"monthly"');
     expect(provider.request?.instruction).toContain('"qualifiers":{"basis":"monthly"}');
@@ -289,6 +311,15 @@ describe("AIWorkflow explicit Verification Generation Gate", () => {
     expect(provider.request?.instruction).toContain("https://official-b.example/claim");
     expect(provider.request?.instruction).not.toContain("https://stale.example/claim");
     expect(provider.request?.instruction).not.toContain("https://rejected.example/claim");
+    expect(generated.document.metadata?.generatedClaimVerification?.semanticContractVersion).toBe(1);
+    expect(generated.document.metadata?.generatedClaimVerification?.semanticClaims?.[0]).toMatchObject({
+      claimId: claim.claimId,
+      surfaceText: "현재 지원 금액은 월 50만원입니다.",
+      normalizedValue: {
+        kind: "money",
+        value: { amount: 500_000, currency: "KRW", basis: "monthly" },
+      },
+    });
     expect(generated.document.metadata?.approvalEvidence?.sources.map((source) => source.url)).toEqual([
       "https://primary.example/claim",
       "https://official-a.example/claim",
