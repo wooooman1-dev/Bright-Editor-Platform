@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { runApprovalSourcePreflight, type ApprovalSourcePreflightResult } from "../../../../core/ai/ApprovalSourcePreflight";
 import { assessmentsFromExplicitDiscovery } from "../../../../core/approval/ExplicitVerificationPreflight";
 import { resolveApprovalPolicySnapshot } from "../../../../core/approval";
@@ -71,6 +71,66 @@ describe("runApprovalSourcePreflight explicit integration", () => {
     expect(result.verificationSnapshot?.results[0]?.sourceAssessments.every((item) => item.freshnessStatus === "fresh")).toBe(true);
   });
 
+  it("processes three synthetic public-sector institutions invariantly to source order", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-08T00:00:00.000Z"));
+    try {
+    const syntheticSources = [
+      "https://future-agency.gov/amount",
+      "https://public-office.gov/amount",
+      "https://national-service.gov/amount",
+    ].map((url) => source(url));
+    const activeExcerpt = `${defaultExcerpt} Effective period 2020-01-01 through 2099-12-31.`;
+    const verificationSources = syntheticSources.map((item) => ({
+      ...item,
+      observedAt: "2026-08-08T00:00:00.000Z",
+      evidenceExcerpt: activeExcerpt,
+      claims: item.claims.map((claim) => ({ ...claim, evidenceExcerpt: activeExcerpt })),
+    }));
+    const stablePublicSectorPage = () => new Response(`<html><head><meta property="og:site_name" content="Synthetic Public Agency"></head><body>${activeExcerpt} ${"Synthetic official notice with application guidance, eligibility criteria, submission documents, processing steps, and review notes. ".repeat(8)}</body></html>`, { status: 200, headers: { "content-type": "text/html" } });
+    const first = await run(verificationSources, async () => stablePublicSectorPage(), [currentClaim]);
+    const second = await run([...verificationSources].reverse(), async () => stablePublicSectorPage(), [currentClaim]);
+    expect(first.result.verificationSnapshot?.results[0]).toMatchObject({
+      status: "verified",
+      independentInstitutionCount: 3,
+      primarySourceFound: true,
+    });
+    expect(second.result.verificationSnapshot?.results[0]).toMatchObject({
+      status: "verified",
+      independentInstitutionCount: 3,
+      primarySourceFound: true,
+    });
+    expect(first.result.verificationSnapshot?.results[0]?.sourceAssessments).toHaveLength(3);
+    expect(second.result.verificationSnapshot?.results[0]?.sourceAssessments).toHaveLength(3);
+    expect(second.result.verificationSnapshot?.sourceSnapshotFingerprint)
+      .toBe(first.result.verificationSnapshot?.sourceSnapshotFingerprint);
+    expect(second.result.verificationSnapshot?.verificationSnapshotFingerprint)
+      .toBe(first.result.verificationSnapshot?.verificationSnapshotFingerprint);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("isolates malformed and fetch-failed sources when a valid source remains", async () => {
+    const validUrl = "https://future-agency.gov/amount";
+    const failedUrl = "https://unavailable-office.gov/amount";
+    const result = await run([
+      source(validUrl),
+      source("not-a-url"),
+      source(failedUrl),
+    ], async (url) => {
+      if (String(url) === failedUrl) throw new Error("synthetic fetch failure");
+      return page();
+    });
+
+    expect(result.result.verificationSnapshot?.overallStatus).toBe("insufficient");
+    expect(result.result.verificationSnapshot?.results[0]?.sourceAssessments)
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({ sourceId: expect.stringContaining("approval-source-") }),
+        expect.objectContaining({ supports: false, diagnostics: expect.arrayContaining(["source_fetch_failed"]) }),
+      ]));
+  });
+
   it("does not count multiple URLs from one institution toward a current high-risk Claim", async () => {
     const excerpt = "공식 안내에 따르면 지원 금액 50만원의 적용 기간은 2020-01-01부터 2099-12-31까지입니다.";
     const same = await run([source(urls[0], "50만원", excerpt), source("https://www.gov.kr/amount-2", "50만원", excerpt), source(urls[1], "50만원", excerpt)], async () => page("50만원", excerpt), [currentClaim]);
@@ -138,7 +198,7 @@ describe("runApprovalSourcePreflight explicit integration", () => {
     const unknownExcerpt = defaultExcerpt;
     const freshExcerpt = "공식 안내에 따르면 지원 금액 50만원의 적용 기간은 2020-01-01부터 2099-12-31까지입니다.";
     const result = await run([source(urls[0], "50만원", unknownExcerpt), source(urls[1], "50만원", freshExcerpt), source(urls[2], "50만원", freshExcerpt)], async (url) => String(url) === urls[0] ? page("50만원", unknownExcerpt) : page("50만원", freshExcerpt), [currentClaim]);
-    expect(result.result.verificationSnapshot?.results[0]).toMatchObject({ status: "insufficient", primarySourceFound: false, independentInstitutionCount: 2 });
+    expect(result.result.verificationSnapshot?.results[0]).toMatchObject({ status: "insufficient", primarySourceFound: true, independentInstitutionCount: 2 });
   });
 
   it("keeps trusted fixture freshness compatibility but never makes effectiveUntil alone fresh", () => {

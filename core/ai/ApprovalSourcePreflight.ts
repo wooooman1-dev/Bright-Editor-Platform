@@ -271,13 +271,28 @@ async function runExplicitPreflight(input: Readonly<Parameters<typeof runApprova
       pageText: page.text,
       publisherId: page.publisher,
       authoritative: officialSourceAllowed(input.snapshot.profileId, page),
-      role: accepted.length ? "officialCorroborating" : "primaryOfficial",
       diagnostics: [],
     });
   }
+  const orderedAccepted = [...accepted].sort((left, right) =>
+    (left.finalUrl ?? left.requestedUrl).localeCompare(
+      right.finalUrl ?? right.requestedUrl,
+    ),
+  );
+  const primaryIndex = orderedAccepted.findIndex((source) =>
+    source.authoritative === true && source.diagnostics?.length === 0,
+  );
+  const classifiedAccepted = orderedAccepted.map((source, index) => Object.freeze({
+    ...source,
+    role: index === primaryIndex
+      ? "primaryOfficial" as const
+      : source.authoritative && source.diagnostics?.length === 0
+        ? "officialCorroborating" as const
+        : "independentCorroborating" as const,
+  }));
   const assessments = assessmentsFromExplicitDiscovery({
     claims: plan.claims,
-    sources: accepted,
+    sources: classifiedAccepted,
   });
   const results = plan.claims.map((claim) => {
     const claimAssessments = assessments.filter((assessment) =>
@@ -305,11 +320,11 @@ async function runExplicitPreflight(input: Readonly<Parameters<typeof runApprova
   });
   const claimSources = explicitClaimSources(
     plan.claims,
-    accepted,
+    classifiedAccepted,
     verificationSnapshot,
   );
   return Object.freeze({
-    sources: Object.freeze(accepted.map((source) => Object.freeze({
+    sources: Object.freeze(classifiedAccepted.map((source) => Object.freeze({
       url: source.finalUrl ?? source.requestedUrl,
       title: source.title,
       excerpt: source.evidenceExcerpt,

@@ -54,8 +54,8 @@ const eligibilityValue: VerificationNormalizedValue = Object.freeze({
   value: Object.freeze({
     predicate: Object.freeze({
       all: Object.freeze([
-        Object.freeze({ field: "residence", operator: "eq", value: "서울특별시" }),
         Object.freeze({ field: "age", operator: "gte", value: 19 }),
+        Object.freeze({ field: "residence", operator: "eq", value: "서울특별시" }),
       ]),
     }),
   }),

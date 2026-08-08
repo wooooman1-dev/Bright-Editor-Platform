@@ -64,6 +64,14 @@ describe("Verification source identity", () => {
     expect(new Set([bare?.sourceId, www?.sourceId, mobile?.sourceId]).size).toBe(3);
   });
 
+  it("groups mobile and AMP URL variants with the same unseen institution", () => {
+    const identities = ["https://m.future-agency.gov/policy", "https://mobile.future-agency.gov/policy", "https://amp.future-agency.gov/policy"]
+      .map((requestedUrl) => canonicalizeVerificationSourceIdentity({ requestedUrl, role: "officialCorroborating", authoritative: true }));
+
+    expect(new Set(identities.map((identity) => identity?.institutionGroupId)).size).toBe(1);
+    expect(new Set(identities.map((identity) => identity?.sourceId)).size).toBe(3);
+  });
+
   it("uses the final redirected URL as the canonical source identity", () => {
     const redirected = canonicalizeVerificationSourceIdentity({
       requestedUrl: "https://legacy-agency.go.kr/old-policy",

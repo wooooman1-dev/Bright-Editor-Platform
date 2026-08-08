@@ -21,6 +21,7 @@ import {
 import {
   approvalOfficialDomains,
   officialDomainAllowed,
+  publicSectorDomainAllowed,
 } from "./ApprovalOfficialSourcePolicy";
 
 export type ApprovalSourcePage = Readonly<{
@@ -486,7 +487,8 @@ export function officialSourceAllowed(
 
   if (profileId === "wordpress_life_economy_v1") {
     const domains = approvalOfficialDomains(profileId);
-    return Boolean(domains && officialDomainAllowed(host, domains));
+    if (domains && officialDomainAllowed(host, domains)) return true;
+    return publicSectorDomainAllowed(host) && Boolean(page.publisher.trim());
   }
 
   if (vivaRainDeniedDomains.some((domain) =>

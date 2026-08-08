@@ -259,6 +259,21 @@ describe("ApprovalEvidenceVerification", () => {
     expect(officialSourceAllowed("wordpress_life_economy_v1", officialPage)).toBe(false);
   });
 
+  it("accepts an unseen public-sector domain with extracted publisher identity without broadening to arbitrary sites", () => {
+    expect(officialSourceAllowed("wordpress_life_economy_v1", {
+      ...officialPage,
+      requestedUrl: "https://future-agency.gov/notice/2026",
+      finalUrl: "https://future-agency.gov/notice/2026",
+      publisher: "Future Agency",
+    })).toBe(true);
+    expect(officialSourceAllowed("wordpress_life_economy_v1", {
+      ...officialPage,
+      requestedUrl: "https://future-agency.example/notice/2026",
+      finalUrl: "https://future-agency.example/notice/2026",
+      publisher: "Future Agency",
+    })).toBe(false);
+  });
+
   it("verifies the three linked continuing-transaction Claims without treating HTTP 200 and an official host as sufficient", () => {
     const lawUrl = "https://law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1025033501";
     const claimText = "계속거래 등에 관한 계약에서는 사업자가 계약 내용을 적은 계약서를 소비자에게 발급해야 하며, 해지·해제로 생기는 손실을 현저히 초과하는 위약금을 청구하거나 실제 공급분을 초과해 받은 대금의 환급을 부당하게 거부해서는 안 된다는 기준이 규정되어 있습니다. (law.go.kr)";

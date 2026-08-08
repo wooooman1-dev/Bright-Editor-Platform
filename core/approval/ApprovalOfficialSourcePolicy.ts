@@ -40,3 +40,10 @@ export function officialDomainAllowed(
   return domains.some((domain) =>
     normalized === domain || normalized.endsWith(`.${domain}`));
 }
+
+export function publicSectorDomainAllowed(host: string): boolean {
+  const normalized = host.toLocaleLowerCase("en-US").replace(/\.$/, "");
+  return /(?:^|\.)gov(?:\.[a-z]{2,})?$/u.test(normalized)
+    || /(?:^|\.)mil(?:\.[a-z]{2,})?$/u.test(normalized)
+    || /(?:^|\.)(?:go|gob)\.[a-z]{2,}$/u.test(normalized);
+}
