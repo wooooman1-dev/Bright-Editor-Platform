@@ -14,7 +14,8 @@ Base branch: fix/wordpress-full-audit
 Feature branch: feat/data-source-multi-connections
 Pull request: #42
 PR state: Open / Draft / Unmerged
-Current verified HEAD: 88efad926c49b1f7ab3bcd011ad7562ffb98122a
+Implementation verification baseline: 88efad926c49b1f7ab3bcd011ad7562ffb98122a
+Documentation validation baseline before the static audit: 052ddcb39c0d547d1e7780d6c48126fedf87f2d9
 ```
 
 No merge, Ready-for-review transition, public publishing or external WordPress/Tistory write is authorized by this status document.
@@ -105,6 +106,8 @@ An absent plan remains legacy-compatible. An explicit empty plan is distinct fro
 
 Invalid explicit plans do not silently downgrade to legacy behavior.
 
+The type system declares nine `VerificationClaimKind` values, but the current live explicit source-text normalization path does not yet implement all nine kinds. The exact gap is recorded in `08_VERIFICATION_ARCHITECTURE_AUDIT.md` and must be resolved before this workstream is described as semantically complete.
+
 ## 6. Source Identity and New Source Handling
 
 Source identity is not implemented as a closed list of exact URLs.
@@ -146,7 +149,7 @@ Confirmed explicit Verification Plan
 → VerificationSnapshot
 ```
 
-Generation is not called when a required Claim remains uncovered, conflicted, stale under policy, or otherwise not verified.
+Generation is not called when a required Claim remains uncovered, conflicted, stale under policy, otherwise not verified, or unsupported by the currently implemented deterministic normalizer.
 
 Source Preflight failure is a controlled workflow state. It must not create a manuscript or trigger publishing.
 
@@ -168,6 +171,8 @@ The blocked path uses the existing approval-source-not-ready failure contract.
 
 No extra AI call is added by this Gate.
 
+The static audit found that the explicit Generation prompt still uses a legacy field/value compatibility projection rather than preserving the full canonical Claim-ID semantics. This is an open architecture item, not a completed guarantee.
+
 ## 9. Generated Claim Binding
 
 Generated Claim Binding is implemented as deterministic server logic after Generation.
@@ -188,6 +193,8 @@ Unsupported detected high-risk scalar values are recorded as `unverifiedDetected
 
 This detector is intentionally not described as universal semantic fact extraction. Arbitrary unstructured facts that have no deterministic representation are outside the guarantee of the scalar detector.
 
+The static audit also confirmed that current money/ratio binding can preserve the scalar while missing a changed comparator, basis or other proposition-changing qualifier. That semantic gap is open and must not be described as fully verified factual equivalence.
+
 ## 10. Canonical Persistence and Edit Safety
 
 Verification state is persisted as server-owned canonical Content metadata.
@@ -202,13 +209,15 @@ Client snapshot writes cannot delete or replace the server-owned verification re
 
 Stored bindings are not trusted blindly after an edit. Quality verification evaluates the current manuscript against the persisted Snapshot and confirmed Verification Plan.
 
-Therefore a manuscript that originally used a verified value but is later changed to an unsupported high-risk value cannot retain approval from an older binding.
+Therefore a manuscript that originally used a verified value but is later changed to an unsupported detected high-risk value cannot retain approval from an older binding.
+
+This guarantee is limited to facts the current deterministic binding layer can actually detect and compare. It is not a universal semantic comparison guarantee.
 
 ## 11. Quality Review Linkage
 
 The current Quality Engine applies deterministic Generated Claim verification in addition to the normal editorial Quality review.
 
-When the current manuscript violates the persisted verification state, the Quality result is forced to:
+When the current manuscript violates the persisted verification state in a way detected by the current binding/integrity contract, the Quality result is forced to:
 
 ```text
 approved: false
@@ -220,7 +229,7 @@ The Quality report adds blocking findings/tasks instructing the workflow to remo
 
 This deterministic check does not add another Quality AI call.
 
-The prior conceptual plan sometimes referred to a separate "Phase 6 — Quality Review Claim Linkage". In the actual repository, that responsibility is already implemented inside the completed persistence/Quality integration work and is not an outstanding separate code phase.
+The prior conceptual plan sometimes referred to a separate "Phase 6 — Quality Review Claim Linkage". In the actual repository, that integration responsibility exists inside the current persistence/Quality path and is not an outstanding separate code phase. Its semantic coverage is still constrained by the open normalization and Generated Claim findings in the static audit.
 
 ## 12. Publishing Readiness Linkage
 
@@ -236,7 +245,13 @@ Core Planning / Verification / Generation / Quality
 
 WordPress/Tistory may differ in transport, category, media and rendering details, but they must not have separate factual-source truth systems.
 
-A stored historical Quality approval is insufficient if the current manuscript no longer matches its verified Claim state.
+A stored historical Quality approval is insufficient if the current manuscript no longer matches its verified Claim state under the current deterministic integrity contract.
+
+The static audit confirmed:
+
+- WordPress Draft execution calculates readiness inside its Application Service before external Draft creation;
+- normal Tistory Draft execution asserts Generated Claim integrity at the registered API boundary before Playwright execution;
+- Tistory schedule readiness currently inherits the general Tistory `generated_claim_verification` check before schedule reservation/execution.
 
 No public publishing capability was enabled by this work.
 
@@ -251,9 +266,11 @@ Approval-preparation content uses:
 
 The project rule of avoiding unnecessary AI calls remains intact.
 
+The recommended corrections in the static audit do not require another AI review call. Any structured generated factual-claim representation should be returned inside the existing Generation response rather than through a new agent or retry.
+
 ## 14. Automated Verification
 
-Latest verified remote HEAD at the time of this document:
+Implementation verification baseline:
 
 ```text
 HEAD: 88efad926c49b1f7ab3bcd011ad7562ffb98122a
@@ -269,36 +286,40 @@ Test Files: 292 passed | 8 skipped
 Tests: 1629 passed | 20 skipped
 ```
 
+The subsequent documentation-only synchronization at `052ddcb39c0d547d1e7780d6c48126fedf87f2d9` also passed Typecheck, Lint, the full automated Test suite and Build with the same `292 passed | 8 skipped` files and `1629 passed | 20 skipped` tests.
+
 Relevant regression coverage includes:
 
 - explicit Verification Planning contract and automatic approval-context rollout;
 - strict Planning schema structure;
 - Bright Finance Source Preflight false-positive regression;
-- Claim normalization and fingerprints;
+- money-focused explicit Source Preflight integration;
+- Claim fingerprints;
 - temporal policy;
 - dynamic source identity;
-- explicit Source Preflight integration;
 - Generation Verification Gate;
 - Generation verified bundle;
-- Generated Claim Binding;
+- Generated Claim Binding for current deterministic scalar fixtures;
 - canonical verification persistence;
-- Quality blocking after unsupported factual edits;
+- Quality blocking after a detected unsupported factual edit;
 - WordPress/Tistory publishing readiness consumption of the shared verification state;
 - route-level Studio approval Planning using explicit Verification Planning.
 
-Automated verification proves repository behavior under the test fixtures. It does not prove the live external Provider path for the latest Bright Finance content.
+The static architecture audit confirmed that this suite does not yet provide an end-to-end matrix for all nine Planning-supported Claim kinds or a real schedule Generated Claim regression fixture.
+
+Automated verification proves repository behavior under the covered fixtures. It does not prove unimplemented semantic coverage and does not prove the live external Provider path for the latest Bright Finance content.
 
 ## 15. Remaining External Verification Gate
 
-The remaining live verification requires a new Bright Finance Content on the user's local environment with the real configured provider and persisted Project state.
+The live Bright Finance verification remains pending, but the static audit found deterministic architecture gaps that should be resolved before treating one successful live run as evidence of complete Claim coverage.
 
-Required sequence:
+The eventual live sequence remains:
 
 ```text
 new Bright Finance Content
 → Planning 1 call
 → confirm verificationPlan.mode = explicit
-→ inspect scoped Claims
+→ inspect scoped Claims and their kinds
 → Source Preflight
 → inspect real newly discovered source URLs and VerificationSnapshot
 → only when the plan/snapshot are valid: Generation 1 call
@@ -314,11 +335,15 @@ tests/manual/bright-finance-source-live-verification.test.ts
 
 The harness does not perform WordPress Draft save or public publishing.
 
-Until this live Gate is completed, status is:
+The current status statement is corrected to:
 
 ```text
-Verification architecture: Implemented
-Automated regression: Verified
+Verification architecture skeleton: Implemented
+Plan/Snapshot/Gate/persistence/publishing linkage: Implemented
+Covered automated regression paths: Verified
+All 9 Claim kinds normalized end-to-end: Not implemented
+Semantic qualifier preservation: Incomplete
+Non-scalar Generated Claim re-verification: Incomplete
 Latest Bright Finance live Provider run: Pending
 WordPress/Tistory external write verification for this workstream: Not performed
 ```
@@ -335,4 +360,27 @@ This workstream does not authorize or claim completion of:
 - WordPress-specific or Tistory-specific source truth systems;
 - external verification without actual Provider and local persisted-state evidence.
 
-The expected behavior for an unusable new source is controlled rejection or insufficient verification, not silent acceptance and not an unrelated application crash.
+The expected behavior for an unusable or currently unsupported Claim/source combination is controlled rejection or insufficient verification, not silent acceptance and not an unrelated application crash.
+
+## 17. Static Architecture Audit Correction
+
+A repository-level static audit was completed after the original status text above was written.
+
+The authoritative finding record is:
+
+```text
+Docs/current/04_DEVELOPMENT/08_VERIFICATION_ARCHITECTURE_AUDIT.md
+```
+
+That audit supersedes any earlier wording in this document that could be read as saying all declared Verification Claim semantics are complete.
+
+Confirmed open items are:
+
+1. Planning can declare nine Claim kinds while explicit source-text normalization currently handles only money, ratio and general.
+2. Current money/ratio source normalization and generated-value binding do not preserve every proposition-changing comparator/basis/meaning qualifier.
+3. Generated Claim unsupported-value detection is scalar-focused and is not complete semantic re-verification for location, eligibility or legal propositions.
+4. The explicit Generation bundle still projects verified Claim evidence through a legacy field/value shape that drops canonical Claim-ID semantics.
+5. Tistory scheduling inherits the current verification Gate by composition, but the schedule-specific Generated Claim regression is not present.
+6. Tistory execution services rely on their registered upstream readiness/API boundary for canonical Verification state and should not become independently callable publishing entry points without a server-owned verified execution artifact.
+
+No production code was changed as part of this static audit.
