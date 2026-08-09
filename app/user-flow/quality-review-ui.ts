@@ -161,8 +161,15 @@ function normalizeApprovalReadinessCheck(value: unknown): ApprovalReadinessCheck
     key: value.key as ApprovalReadinessCheck["key"],
     status: value.status as ApprovalReadinessCheck["status"],
     message: value.message.trim(),
+    ...(value.applicable === false ? { applicable: false } : {}),
     ...(typeof value.action === "string" && value.action.trim() ? { action: value.action.trim() } : {}),
   })];
+}
+
+export function visibleApprovalReadinessChecks(
+  report: ApprovalReadinessReport,
+): readonly ApprovalReadinessCheck[] {
+  return Object.freeze(report.checks.filter((check) => check.applicable !== false));
 }
 
 function normalizeReasons(category: QualityCategory, value: unknown, evidence: readonly unknown[]): string[] {

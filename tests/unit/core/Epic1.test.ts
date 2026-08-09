@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { AIWorkflow, type ContentGenerationStrategy } from "../../../core/ai";
+import { AIWorkflow, type ContentGenerationStrategy } from "../../../core/ai/AIWorkflow";
 import type { ContentDocument } from "../../../core/content";
 import {
   BrandRepository,

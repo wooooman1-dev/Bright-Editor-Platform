@@ -4,7 +4,7 @@ import type { ContentDocument } from "../../../../../core/content";
 import { TistoryHtmlRenderer } from "../../../../../apps/tistory/publishing/TistoryHtmlRenderer";
 
 describe("Tistory free body visuals", () => {
-  it("renders two deterministic body cards for an existing long-form draft", () => {
+  it("does not synthesize public cards by copying canonical prose", () => {
     const prose = "운동 강도는 몸의 반응을 확인하며 조절해야 합니다. 숨이 너무 차면 속도를 낮추고 자세가 무너지면 즉시 쉬어야 합니다. 다음 운동에서는 기록을 참고해 강도를 다시 선택합니다.";
     const document: ContentDocument = {
       id: "visual-draft",
@@ -20,12 +20,12 @@ describe("Tistory free body visuals", () => {
 
     const html = new TistoryHtmlRenderer().render(document);
 
-    expect(html.match(/data-free-visual="true"/g)).toHaveLength(2);
+    expect(html).not.toContain('data-free-visual="true"');
     expect(html).toContain("중단해야 하는 신호");
     expect(html).not.toContain('class="bright-image-placeholder"');
   });
 
-  it("keeps a generic source-empty image as an upload placeholder", () => {
+  it("omits a source-empty planned image from public HTML", () => {
     const document: ContentDocument = {
       id: "generic-image",
       title: "일반 이미지",
@@ -34,7 +34,7 @@ describe("Tistory free body visuals", () => {
 
     const html = new TistoryHtmlRenderer().render(document);
 
-    expect(html).toContain('class="bright-image-placeholder" data-image-required="true"');
+    expect(html).toBe("");
     expect(html).not.toContain('data-free-visual="true"');
   });
 });

@@ -11,6 +11,7 @@ import {
   type UserContent,
   type UserData,
 } from "../../../../../app/user-flow/user-data";
+import { contentRevisionId } from "../../../../../core/quality";
 
 function projectData(): UserData {
   const workspace = createWorkspace(emptyUserData, "Studio", "workspace-1");
@@ -178,6 +179,198 @@ describe("ApprovalAwarePersistenceStore", () => {
       status: "blocked",
       matchedContentId: "content-1",
       highestSimilarity: 1,
+    });
+
+    const snapshots = saved.contents.map((content) => content.document?.metadata?.approvalDuplicateCheck);
+    await store.set("application", "user-data", {
+      ...saved,
+      contents: saved.contents.map((content, index) => index === 0 ? {
+        ...content,
+        platform: "tistory",
+        publishingAccountId: "tistory-1",
+        publishingPreparation: {
+          tistory: {
+            publishingAccountId: "tistory-1",
+            categoryId: "art",
+            categoryName: "미술",
+            updatedAt: "2026-07-27T10:00:00.000Z",
+          },
+        },
+        updatedAt: "2026-07-27T10:00:00.000Z",
+      } : content),
+    });
+
+    const publishingContextOnly = (await store.get<UserData>("application", "user-data"))!;
+    expect(publishingContextOnly.contents.map((content) => content.document?.metadata?.approvalDuplicateCheck)).toEqual(snapshots);
+  });
+
+  it.each(["missing", "needs_review"] as const)(
+    "preserves a current %s Evidence review and site diagnostics across a stale same-Revision write",
+    async (status) => {
+      const store = new ApprovalAwarePersistenceStore(new InMemoryPersistenceStore());
+      await store.set("application", "user-data", approvalProject());
+      await store.update<UserData>("application", "user-data", (current) => planning(current!));
+      const planned = (await store.get<UserData>("application", "user-data"))!;
+      const paragraph = status === "needs_review"
+        ? "공식 자료 후보 https://www.moma.org/collection/works/79802"
+        : "공식 자료를 추가로 확인해야 합니다.";
+      const documented = {
+        ...planned,
+        contents: [withDocument(planned.contents[0]!, "작품 감상 가이드", "작품을 보는 순서", paragraph)],
+      };
+      await store.set("application", "user-data", documented);
+      const candidate = (await store.get<UserData>("application", "user-data"))!;
+      const content = candidate.contents[0]!;
+      const revisionId = contentRevisionId(content.document!);
+      const sources = status === "needs_review"
+        ? content.document!.metadata!.approvalEvidence!.sources.map((source) => ({
+            ...source,
+            verificationStatus: "unreachable" as const,
+            failureReason: "공식 출처가 일시적으로 응답하지 않았습니다.",
+            checkedAt: "2026-07-28T02:00:00.000Z",
+          }))
+        : [];
+      const reviewed: UserData = {
+        ...candidate,
+        contents: [{
+          ...content,
+          document: {
+            ...content.document!,
+            metadata: {
+              ...content.document!.metadata!,
+              approvalEvidence: {
+                version: "1.0",
+                status,
+                reviewedAt: "2026-07-28T02:00:00.000Z",
+                reviewedRevisionId: revisionId,
+                sources,
+              },
+              siteApprovalReadiness: {
+                version: "1.0",
+                status: "needs_review",
+                checkedAt: "2026-07-28T02:00:00.000Z",
+                checks: [{ key: "privacy", passed: false, message: "개인정보처리방침을 확인하지 못했습니다." }],
+              },
+              approvalReadinessExecution: {
+                version: "1.0",
+                key: "stored-execution",
+                editorialRevisionId: revisionId,
+                publishingContextKey: "context",
+                evidenceFingerprint: "evidence-old",
+                status: "completed",
+                checkedAt: "2026-07-28T02:00:00.000Z",
+              },
+            },
+          },
+        }],
+      };
+
+      await store.set("application", "user-data", reviewed);
+      const afterReview = (await store.get<UserData>("application", "user-data"))!;
+      expect(afterReview.contents[0]?.document?.metadata?.approvalEvidence).toMatchObject({
+        status,
+        reviewedRevisionId: revisionId,
+      });
+      if (status === "needs_review") {
+        expect(afterReview.contents[0]?.document?.metadata?.approvalEvidence?.sources[0]).toMatchObject({
+          verificationStatus: "unreachable",
+          failureReason: "공식 출처가 일시적으로 응답하지 않았습니다.",
+        });
+      }
+
+      await store.set("application", "user-data", candidate);
+      const afterStaleWrite = (await store.get<UserData>("application", "user-data"))!;
+      expect(afterStaleWrite.contents[0]?.document?.metadata?.approvalEvidence).toMatchObject({
+        status,
+        reviewedRevisionId: revisionId,
+      });
+      expect(afterStaleWrite.contents[0]?.document?.metadata?.siteApprovalReadiness).toMatchObject({
+        status: "needs_review",
+        checkedAt: "2026-07-28T02:00:00.000Z",
+      });
+      expect(afterStaleWrite.contents[0]?.document?.metadata?.approvalReadinessExecution?.key).toBe("stored-execution");
+
+      if (status === "needs_review") {
+        const latestContent = afterStaleWrite.contents[0]!;
+        const latestMetadata = { ...latestContent.document!.metadata! };
+        delete latestMetadata.approvalReadinessExecution;
+        const changedEvidence: UserData = {
+          ...afterStaleWrite,
+          contents: [{
+            ...latestContent,
+            document: {
+              ...latestContent.document!,
+              metadata: {
+                ...latestMetadata,
+                approvalEvidence: {
+                  ...latestMetadata.approvalEvidence!,
+                  sources: latestMetadata.approvalEvidence!.sources.map((source) => ({
+                    ...source,
+                    citationExcerpt: "변경된 Claim 연결 문맥",
+                  })),
+                },
+              },
+            },
+          }],
+        };
+        await store.set("application", "user-data", changedEvidence);
+        const afterEvidenceChange = (await store.get<UserData>("application", "user-data"))!;
+        expect(afterEvidenceChange.contents[0]?.document?.metadata?.approvalReadinessExecution).toBeUndefined();
+      }
+    },
+  );
+
+  it("collects the explicit law URL as a linked document source without treating a domain placeholder as Evidence", async () => {
+    const store = new ApprovalAwarePersistenceStore(new InMemoryPersistenceStore());
+    const wordpressApproval = updateProjectApprovalSettings(projectData(), "project-1", {
+      contentPurpose: "adsense_approval",
+      approvalProfileId: "wordpress_life_economy_v1",
+    }, "2026-08-01T00:00:00.000Z");
+    await store.set("application", "user-data", wordpressApproval);
+    await store.update<UserData>("application", "user-data", (current) => planning(current!));
+    const planned = (await store.get<UserData>("application", "user-data"))!;
+    const content = planned.contents[0]!;
+    const now = "2026-08-01T01:00:00.000Z";
+    const lawUrl = "https://www.law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1025033501";
+    const documented: UserData = {
+      ...planned,
+      contents: [{
+        ...content,
+        document: {
+          id: content.id,
+          title: "고정지출 줄이는 방법",
+          metadata: {
+            buttonCount: 0,
+            createdAt: now,
+            generator: "test",
+            imageCount: 0,
+            language: "ko",
+            readingTime: 1,
+            source: "test",
+            updatedAt: now,
+            version: 1,
+            videoCount: 0,
+            wordCount: 80,
+          },
+          blocks: [
+            { id: "claim", type: "paragraph", text: "계속거래 계약에서는 계약서를 소비자에게 발급해야 하며, 해지로 생기는 손실을 현저히 초과하는 위약금과 실제 공급분을 초과해 받은 금액의 환급 거부를 제한합니다. (law.go.kr)" },
+            { id: "source", type: "paragraph", text: `정보 기준일은 2026년 8월 1일입니다.\n출처: ${lawUrl}` },
+          ],
+        },
+      }],
+    };
+
+    await store.set("application", "user-data", documented);
+    const evidence = (await store.get<UserData>("application", "user-data"))
+      ?.contents[0]?.document?.metadata?.approvalEvidence;
+
+    expect(evidence?.sources).toHaveLength(1);
+    expect(evidence?.sources[0]).toMatchObject({
+      canonicalUrl: "https://law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1025033501",
+      provenance: "document_link",
+      selected: false,
+      linkedBlockIds: ["claim", "source"],
+      citationExcerpt: expect.stringContaining(`출처: ${lawUrl}`),
     });
   });
 });

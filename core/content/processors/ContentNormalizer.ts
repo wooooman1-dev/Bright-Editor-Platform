@@ -1,23 +1,30 @@
 import type { ContentBlock } from "../ContentBlock";
+import { normalizeContentBlockOwnership } from "../ContentBlockOwnership";
 import type { ContentBlockType } from "../ContentBlockType";
 import type { ContentDocument } from "../ContentDocument";
+import { normalizeEditorialMarkupDocument } from "../EditorialMarkupIntegrity";
 import type { HeadingLevel } from "../blocks/HeadingBlock";
 import {
   normalizeStructuredTable,
   normalizeStructuredText,
+  parseStructuredList,
   parseStructuredText,
 } from "../StructuredText";
 
 export class ContentNormalizer {
   normalize(document: ContentDocument): ContentDocument {
     try {
+      const markupNormalized = normalizeEditorialMarkupDocument({
+        ...document,
+        blocks: Object.freeze(document.blocks.map(normalizeContentBlockOwnership)),
+      });
       const usedIds = new Set(
-        document.blocks.map((block) => block.id).filter(Boolean),
+        markupNormalized.blocks.map((block) => block.id).filter(Boolean),
       );
       const remappedIds = new Map<string, readonly string[]>();
       let previousHeadingLevel: HeadingLevel | undefined;
 
-      const blocks = document.blocks.flatMap((block, index) => {
+      const blocks = markupNormalized.blocks.flatMap((block, index) => {
         const id = block.id || createBlockId(block.type, index, usedIds);
         if (block.type === "paragraph") {
           const normalized = normalizeParagraph(block, id, usedIds);
@@ -34,6 +41,16 @@ export class ContentNormalizer {
           if (block.id) remappedIds.set(block.id, Object.freeze([id]));
           return [normalized];
         }
+        if (block.type === "list") {
+          const items = block.items.map((item) => normalizeStructuredText(item)).filter(Boolean);
+          if (!items.length) {
+            if (block.id) remappedIds.set(block.id, Object.freeze([]));
+            return [];
+          }
+          const normalized = Object.freeze({ ...block, id, items: Object.freeze(items) });
+          if (block.id) remappedIds.set(block.id, Object.freeze([id]));
+          return [normalized];
+        }
 
         const normalizedBlock = normalizeHeading(block, previousHeadingLevel, id);
         if (normalizedBlock.type === "heading") previousHeadingLevel = normalizedBlock.level;
@@ -41,9 +58,9 @@ export class ContentNormalizer {
         return [normalizedBlock];
       });
 
-      const metadata = remapLongFormStructure(document.metadata, remappedIds);
+      const metadata = remapLongFormStructure(markupNormalized.metadata, remappedIds);
       return Object.freeze({
-        ...document,
+        ...markupNormalized,
         blocks: Object.freeze(blocks),
         ...(metadata ? { metadata } : {}),
       });
@@ -59,18 +76,35 @@ function normalizeParagraph(
   usedIds: Set<string>,
 ): ContentBlock[] {
   const segments = parseStructuredText(block.text);
-  return segments.map((segment, index) => {
+  return segments.flatMap<ContentBlock>((segment, index) => {
     const segmentId = index === 0 ? id : createDerivedBlockId(id, segment.type, index + 1, usedIds);
     if (segment.type === "table") {
-      return Object.freeze({
+      return [Object.freeze({
         ...segment.table,
+        ...(block.ownership ? { ownership: block.ownership } : {}),
         id: segmentId,
         type: "table" as const,
-      });
+      })];
+    }
+    const list = parseStructuredList(segment.text);
+    if (list) {
+      const listId = list.prefix
+        ? createDerivedBlockId(segmentId, "list", index + 1, usedIds)
+        : segmentId;
+      return [
+        ...(list.prefix ? [Object.freeze({ ...block, id: segmentId, text: list.prefix })] : []),
+        Object.freeze({
+          id: listId,
+          type: "list" as const,
+          style: list.style,
+          items: list.items,
+          ...(block.ownership ? { ownership: block.ownership } : {}),
+        }),
+      ];
     }
     return segmentId === block.id && segment.text === block.text
-      ? block
-      : Object.freeze({ ...block, id: segmentId, text: segment.text });
+      ? [block]
+      : [Object.freeze({ ...block, id: segmentId, text: segment.text })];
   });
 }
 
@@ -115,15 +149,16 @@ function remapLongFormStructure(
 
 function createDerivedBlockId(
   base: string,
-  type: "text" | "table",
+  type: "text" | "table" | "list",
   sequence: number,
   usedIds: Set<string>,
 ): string {
   let suffix = sequence;
-  let candidate = `${base}-${type === "text" ? "paragraph" : "table"}-${suffix}`;
+  const label = type === "text" ? "paragraph" : type;
+  let candidate = `${base}-${label}-${suffix}`;
   while (usedIds.has(candidate)) {
     suffix += 1;
-    candidate = `${base}-${type === "text" ? "paragraph" : "table"}-${suffix}`;
+    candidate = `${base}-${label}-${suffix}`;
   }
   usedIds.add(candidate);
   return candidate;

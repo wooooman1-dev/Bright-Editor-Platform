@@ -2,6 +2,7 @@ import {
   confirmContentOpportunity,
   createContentOpportunityCandidate,
   hasCurrentContentOpportunityFingerprint,
+  serializeStructuredList,
   type ConfirmedContentOpportunity,
   type ContentDocument,
   type ContentOpportunityCandidate,
@@ -10,6 +11,8 @@ import {
   type LongFormDiagnostic,
 } from "../../core/content";
 import type { QualityReport } from "../../core/quality";
+import type { ApprovalSourcePreflightDiagnostic } from "../../core/approval";
+import type { AIResponse } from "../../core/ai";
 
 export type ThemePreference = "system" | "light" | "dark";
 export const supportedWorkspacePlatforms = ["tistory", "wordpress", "youtube", "naver_cafe"] as const;
@@ -35,6 +38,20 @@ export type UserWorkspace = Readonly<{
 }>;
 export type UserBrand = Readonly<{ id: string; workspaceId: string; name: string }>;
 
+export type WordPressDefaultCategory = Readonly<{
+  publishingAccountId: string;
+  id: string;
+  name: string;
+}>;
+
+export type WordPressPublishingPreparation = Readonly<{
+  publishingAccountId: string;
+  categoryIds: readonly string[];
+  categoryNames: readonly string[];
+  featuredImageAssetId?: string;
+  updatedAt: string;
+}>;
+
 export type UserProject = Readonly<{
   id: string;
   workspaceId: string;
@@ -54,6 +71,7 @@ export type ProjectContentStrategy = Readonly<{
   internalLinkPolicy: string; relatedPostPolicy: string; ctaPolicy: string; imageStrategy: string; seoPolicy: string;
   defaultPublishingAccountId?: string;
   defaultTistoryCategory?: Readonly<{ publishingAccountId: string; id: string | null; name: string | null }>;
+  defaultWordPressCategories?: readonly WordPressDefaultCategory[];
 }>;
 
 export type ContentPlanningResult = Readonly<{
@@ -105,6 +123,8 @@ export type ContentPlanningWorkflow = Readonly<{
   createdAt: string;
   updatedAt: string;
   longFormDiagnostic?: LongFormDiagnostic;
+  approvalSourcePreflightDiagnostic?: ApprovalSourcePreflightDiagnostic;
+  aiProviderDiagnostic?: AIResponse["diagnostics"];
 }>;
 
 export type UserContentStatus = "planning" | "configuration_required" | "draft" | "in_review" | "ready" | "draft_saved";
@@ -155,6 +175,7 @@ export type UserContent = Readonly<{
       platformCategoryName: string | null;
       updatedAt: string;
     }>;
+    wordpress?: WordPressPublishingPreparation;
   }>;
 }>;
 
@@ -167,13 +188,7 @@ export type UserHistoryEntry = Readonly<{
   version: number;
 }>;
 
-export type UserPublishingRecord = Readonly<{
-  id: string;
-  contentId: string;
-  platformConnectionId: string;
-  status: "saved" | "partially_verified" | "failed";
-  createdAt: string;
-}>;
+export type UserPublishingRecord = import("../../core/publishing").PublishingRecord;
 
 export type UserData = Readonly<{
   workspace?: UserWorkspace;
@@ -375,6 +390,8 @@ export function failContentPlanning(data: UserData, input: Readonly<{
   error: string;
   retryFrom: "planning" | "generation" | "review";
   diagnostic?: LongFormDiagnostic;
+  approvalSourcePreflightDiagnostic?: ApprovalSourcePreflightDiagnostic;
+  aiProviderDiagnostic?: AIResponse["diagnostics"];
   now: string;
 }>): UserData {
   try {
@@ -389,6 +406,12 @@ export function failContentPlanning(data: UserData, input: Readonly<{
           retryFrom: input.retryFrom,
           failedStep: input.retryFrom,
           ...(input.diagnostic ? { longFormDiagnostic: input.diagnostic } : {}),
+          ...(input.approvalSourcePreflightDiagnostic
+            ? { approvalSourcePreflightDiagnostic: input.approvalSourcePreflightDiagnostic }
+            : {}),
+          ...(input.aiProviderDiagnostic
+            ? { aiProviderDiagnostic: input.aiProviderDiagnostic }
+            : {}),
         }),
         generationError: input.retryFrom === "generation" ? input.error : content.generationError,
         reviewError: input.retryFrom === "review" ? input.error : content.reviewError,
@@ -475,10 +498,9 @@ export function createContentFromPlan(data: UserData, input: Readonly<{
     targetAudience: opportunity.audience, contentGoal: opportunity.contentAngle, contentType: opportunity.contentType,
     qualityTarget: opportunity.qualityTarget,
     selectedPublishingAccountIds: [...new Set(input.selectedPublishingAccountIds)],
-    ...(input.selectedPublishingAccountIds.length === 1 ? { publishingAccountId: input.selectedPublishingAccountIds[0], platform: "tistory" } : {}),
+    ...(input.selectedPublishingAccountIds.length === 1 ? { publishingAccountId: input.selectedPublishingAccountIds[0], platform: resolveProjectStrategy(project).defaultPlatform } : {}),
     title: opportunity.selectedTopic,
     body: existing?.body ?? "", status: "planning", creationMethod: "natural_language", createdAt: existing?.createdAt ?? input.now, updatedAt: input.now,
-    ...(project.strategy?.defaultTistoryCategory ? { publishingPreparation: { tistory: { publishingAccountId: project.strategy.defaultTistoryCategory.publishingAccountId, platformCategoryId: project.strategy.defaultTistoryCategory.id, platformCategoryName: project.strategy.defaultTistoryCategory.name, updatedAt: input.now } } } : {}),
   };
   return { ...data, contents: existing ? data.contents.map((item) => item.id === existing.id ? content : item) : [...data.contents, content] };
 }
@@ -574,6 +596,17 @@ export function renameProject(data: UserData, projectId: string, name: string, n
   return { ...data, projects };
 }
 export function resolveProjectStrategy(project: UserProject): ProjectContentStrategy { return project.strategy ?? defaultProjectStrategy(project.name, project.description); }
+export function buildAutomaticContentPlanningRequest(strategy: ProjectContentStrategy): string {
+  const contentScope = strategy.subtopics
+    .map(normalizeRequiredName)
+    .filter(Boolean)
+    .join(", ") || normalizeRequiredName(strategy.primaryTopic) || "설정된 주제 없음";
+  const excludedTopics = strategy.excludedTopics
+    .map(normalizeRequiredName)
+    .filter(Boolean)
+    .join(", ") || "없음";
+  return `현재 Project에서 아직 다루지 않은 주제를 선정해 ${normalizeRequiredName(strategy.targetAudience)}을 위한 ${normalizeRequiredName(strategy.defaultContentType)} 원고를 작성해줘. 콘텐츠 범위: ${contentScope}. 제외 주제: ${excludedTopics}.`;
+}
 function defaultProjectStrategy(name: string, description: string): ProjectContentStrategy { return { primaryTopic: name, subtopics: description ? [description] : [], excludedTopics: [], defaultContentType: "Google SEO 정보 콘텐츠", defaultPlatform: "tistory", targetAudience: "주제에 관심 있는 일반 독자", tone: "친절하고 신뢰할 수 있는 설명", internalLinkPolicy: "본문 중간 실제 공개 글 1개 자동 배치", relatedPostPolicy: "문서 마지막 실제 공개 글 최대 3개 자동 배치", ctaPolicy: "필요한 경우 최대 1~2개", imageStrategy: "주요 섹션에 설명적인 ALT가 있는 이미지 placeholder", seoPolicy: "Helpful · Reliable · People-first" }; }
 
 export function updateProjectTargets(data: UserData, projectId: string, accountIds: readonly string[], now: string): UserData {
@@ -634,7 +667,7 @@ export function parseStoredUserData(raw: string | null): UserData {
 
 function bodyToDocument(content: UserContent, title: string, body: string): ContentDocument {
   const editable = editableTextToBlocks(content.id, body);
-  const nonTextBlocks = content.document?.blocks.filter((block) => block.type !== "heading" && block.type !== "paragraph") ?? [];
+  const nonTextBlocks = content.document?.blocks.filter((block) => block.type !== "heading" && block.type !== "paragraph" && block.type !== "list") ?? [];
   return Object.freeze({ id: content.document?.id ?? content.id, title, blocks: Object.freeze([...editable, ...nonTextBlocks]) });
 }
 
@@ -642,6 +675,7 @@ export function documentToEditableText(document: ContentDocument): string {
   return document.blocks.flatMap((block) => {
     if (block.type === "heading") return [`${"#".repeat(block.level)} ${block.text}`];
     if (block.type === "paragraph") return [block.text];
+    if (block.type === "list") return [serializeStructuredList(block)];
     return [];
   }).join("\n\n");
 }

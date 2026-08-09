@@ -1,6 +1,6 @@
 import type { PlatformConnection } from "../../../core/connections";
 import { normalizeContentPurpose } from "../../../core/approval";
-import { contentRevisionId, isApprovalApplicationReady } from "../../../core/quality";
+import { editorialRevisionId, isApprovalApplicationReady } from "../../../core/quality";
 import {
   assertValidScheduleTime,
   hasActiveScheduledPublication,
@@ -108,7 +108,7 @@ export async function calculateTistoryScheduleReadiness(input: Readonly<{
       : "이 콘텐츠에는 이미 활성 티스토리 예약이 있습니다. 기존 예약을 확인해 주세요.",
   });
 
-  const revisionId = input.content.document ? contentRevisionId(input.content.document) : undefined;
+  const revisionId = input.content.document ? editorialRevisionId(input.content.document) : undefined;
   const approvalContent = input.content as ApprovalAwareContent;
   const approvalMode = normalizeContentPurpose(approvalContent.contentPurpose) === "adsense_approval";
   const approvalReportCurrent = Boolean(

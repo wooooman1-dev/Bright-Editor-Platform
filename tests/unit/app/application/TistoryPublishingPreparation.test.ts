@@ -6,7 +6,7 @@ vi.mock("node:fs/promises", () => ({ access: mocks.access }));
 import { applyTistoryPublishingAccount, applyTistoryPublishingCategory, calculateTistoryReadiness, resolveTistoryDefaultCategory, usableTistoryConnections } from "../../../../app/application/publishing/TistoryPublishingPreparation";
 import { QualityEngine } from "../../../../core/quality";
 import { safeDraftPermissions, type PlatformConnection } from "../../../../core/connections";
-import { determineContentPlanQualityTarget, type ContentDocument } from "../../../../core/content";
+import { confirmContentOpportunity, createContentOpportunityCandidate, determineContentPlanQualityTarget, type ContentDocument } from "../../../../core/content";
 import type { UserData } from "../../../../app/user-flow/user-data";
 
 const qualityTarget = determineContentPlanQualityTarget({
@@ -45,7 +45,7 @@ const document: ContentDocument = {
     { id: "p3", type: "paragraph", text: "먼저 가벼운 동작으로 몸 상태를 확인합니다. 다음으로 가능한 범위에서 실행 방법을 적용합니다. 중간에 불편함이 생기면 멈춥니다. 마지막으로 결과를 점검해 다음 단계를 선택합니다." },
     { id: "h4", type: "heading", level: 2, text: "주의할 예외와 중단 신호" },
     { id: "p4", type: "paragraph", text: "갑작스러운 통증은 주의해야 할 신호입니다. 평소와 다른 증상이 있으면 임의로 계속하지 않습니다. 필요한 경우 전문가에게 확인한 뒤 다음 행동을 정합니다." },
-    { id: "image", type: "image", source: "", alt: "건강운동 방법의 안전한 실행 순서", prompt: "갑작스러운 통증과 평소와 다른 증상을 확인하고 운동을 중단한 뒤 전문가에게 확인하는 안전 절차 인포그래픽" },
+    { id: "image", type: "image", source: "", purpose: "infographic", alt: "건강운동 방법의 안전한 실행 순서", prompt: "갑작스러운 통증과 평소와 다른 증상을 확인하고 운동을 중단한 뒤 전문가에게 확인하는 안전 절차 인포그래픽" },
     { id: "internal", type: "button", purpose: "internal_link", label: "건강 기록", targetUrl: "https://bright-healthy.tistory.com/entry/health-log" },
     ...Array.from({ length: 3 }, (_, index) => ({ id: `related-${index}`, type: "button" as const, purpose: "related_post" as const, label: `관련 건강 글 ${index + 1}`, targetUrl: `https://bright-healthy.tistory.com/entry/related-${index + 1}` })),
     { id: "conclusion", type: "paragraph", text: "건강운동 방법의 핵심은 현재 상태에 맞는 기준으로 시작하는 것입니다. 오늘은 안전 신호를 확인한 뒤 가능한 첫 동작을 선택하고, 예외가 있으면 전문가에게 확인합니다." },
@@ -103,5 +103,49 @@ describe("Tistory publishing preparation", () => {
     expect(readiness.checks.find((check) => check.key === "category")?.message).toContain("건강운동");
     expect(readiness.checks.find((check) => check.key === "quality")?.message).toContain(`${quality.overallScore}점`);
     expect(readiness.checks.find((check) => check.key === "final_confirmation")?.passed).toBe(false);
+  });
+
+  it("blocks a legacy automatic Planning keyword prefixed by the Project identity", async () => {
+    let next = applyTistoryPublishingAccount(base, "project", "content", "account", "later");
+    const quality = new QualityEngine().review(document, { contentType: "long-form blog article", platform: "tistory", primaryKeyword: "건강운동 방법", searchIntent: "건강운동 방법" });
+    const opportunity = confirmContentOpportunity(createContentOpportunityCandidate({
+      sourceRequest: "밝은재테크 프로젝트에서 아직 다루지 않은 주제를 선정해줘",
+      selectionMode: "automatic",
+      selectedTopic: "밝은재테크 통장 쪼개기 방법",
+      primaryKeyword: "밝은재테크 통장 쪼개기",
+      secondaryKeywords: ["생활비 통장"],
+      searchIntent: "통장 역할 결정",
+      audience: "직장인",
+      contentType: "article",
+      contentAngle: "계좌 역할과 선택 기준",
+      readerProblem: "계좌 역할을 정하지 못함",
+      expectedCoverage: ["계좌 역할"],
+      selectionRationale: "콘텐츠 공백",
+      opportunityEvidence: [{ source: "unknown", summary: "검색량 미검증" }],
+      confidence: 0.7,
+      cautions: [],
+      projectId: "project",
+    }), { workspaceId: "workspace", projectId: "project", contentId: "content", confirmedAt: "now" });
+    next = {
+      ...next,
+      projects: next.projects.map((project) => ({
+        ...project,
+        name: "밝은재테크",
+        strategy: { ...project.strategy!, defaultTistoryCategory: { publishingAccountId: "account", id: "1057542", name: "건강운동" } },
+      })),
+      contents: next.contents.map((content) => ({
+        ...content,
+        title: opportunity.selectedTopic,
+        primaryKeyword: opportunity.primaryKeyword,
+        relatedKeywords: opportunity.secondaryKeywords,
+        opportunity,
+        publishingPreparation: { tistory: { publishingAccountId: "account", platformCategoryId: "1057542", platformCategoryName: "건강운동", updatedAt: "later" } },
+        quality,
+      })),
+    };
+
+    const readiness = await calculateTistoryReadiness({ data: next, project: next.projects[0], content: next.contents[0], connection, selectedTarget: true, finalConfirmation: false, root: "root" });
+    expect(readiness.checks.find((check) => check.key === "planning_identity")).toMatchObject({ passed: false });
+    expect(readiness.ready).toBe(false);
   });
 });

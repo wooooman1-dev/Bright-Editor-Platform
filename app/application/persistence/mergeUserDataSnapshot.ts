@@ -34,7 +34,8 @@ export function mergeUserDataSnapshot(current: UserData | undefined, input: unkn
       contentType: serverContent.opportunity.contentType,
     }) : planningProtectedContent;
     const validatedContent = validatePlanningContent(opportunityProtectedContent, serverContent);
-    const protectedContent = preserveServerPublishingContent(serverContent, validatedContent);
+    const publishingProtectedContent = preserveServerPublishingContent(serverContent, validatedContent);
+    const protectedContent = preserveServerGeneratedClaimVerification(serverContent, publishingProtectedContent);
     if (serverContent?.quality) return Object.freeze({ ...protectedContent, quality: serverContent.quality });
     const { quality: _clientQuality, ...withoutClientQuality } = protectedContent;
     void _clientQuality;
@@ -69,20 +70,23 @@ export function mergeServerMutationSnapshot(current: UserData | undefined, base:
 function preserveServerPublishingProject(server: UserProject | undefined, incoming: UserProject): UserProject {
   const serverStrategy = server?.strategy;
   const defaultTistoryCategory = serverStrategy?.defaultTistoryCategory;
-  if (!serverStrategy || !defaultTistoryCategory) return incoming;
+  const defaultWordPressCategories = serverStrategy?.defaultWordPressCategories;
+  if (!serverStrategy || (!defaultTistoryCategory && defaultWordPressCategories === undefined)) return incoming;
   const strategy = incoming.strategy ?? serverStrategy;
   return Object.freeze({
     ...incoming,
     strategy: Object.freeze({
       ...strategy,
-      defaultTistoryCategory,
+      ...(defaultTistoryCategory ? { defaultTistoryCategory } : {}),
+      ...(defaultWordPressCategories !== undefined ? { defaultWordPressCategories } : {}),
     }),
   });
 }
 
 function preserveServerPublishingContent(server: UserContent | undefined, incoming: UserContent): UserContent {
   const tistoryPreparation = server?.publishingPreparation?.tistory;
-  if (!tistoryPreparation) return incoming;
+  const wordpressPreparation = server?.publishingPreparation?.wordpress;
+  if (!tistoryPreparation && !wordpressPreparation) return incoming;
   return Object.freeze({
     ...incoming,
     platform: server.platform ?? incoming.platform,
@@ -90,7 +94,26 @@ function preserveServerPublishingContent(server: UserContent | undefined, incomi
     selectedPublishingAccountIds: server.selectedPublishingAccountIds ?? incoming.selectedPublishingAccountIds,
     publishingPreparation: Object.freeze({
       ...incoming.publishingPreparation,
-      tistory: tistoryPreparation,
+      ...(tistoryPreparation ? { tistory: tistoryPreparation } : {}),
+      ...(wordpressPreparation ? { wordpress: wordpressPreparation } : {}),
+    }),
+  });
+}
+
+function preserveServerGeneratedClaimVerification(server: UserContent | undefined, incoming: UserContent): UserContent {
+  const record = server?.document?.metadata?.generatedClaimVerification;
+  const inventory = server?.document?.metadata?.generatedFactualClaimInventory;
+  if ((!record && !inventory) || !incoming.document || !server?.document?.metadata) return incoming;
+  return Object.freeze({
+    ...incoming,
+    document: Object.freeze({
+      ...incoming.document,
+      metadata: Object.freeze({
+        ...server.document.metadata,
+        ...incoming.document.metadata,
+        ...(record ? { generatedClaimVerification: record } : {}),
+        ...(inventory ? { generatedFactualClaimInventory: inventory } : {}),
+      }),
     }),
   });
 }
@@ -102,7 +125,17 @@ function preserveNewerPlanningWorkflow(server: UserContent | undefined, incoming
   if (incomingWorkflow?.status === "failed") {
     return Object.freeze({
       ...incoming,
-      planningWorkflow: incomingWorkflow,
+      planningWorkflow: Object.freeze({
+        ...incomingWorkflow,
+        ...(currentWorkflow.approvalSourcePreflightDiagnostic
+          && !incomingWorkflow.approvalSourcePreflightDiagnostic
+          ? { approvalSourcePreflightDiagnostic: currentWorkflow.approvalSourcePreflightDiagnostic }
+          : {}),
+        ...(currentWorkflow.aiProviderDiagnostic
+          && !incomingWorkflow.aiProviderDiagnostic
+          ? { aiProviderDiagnostic: currentWorkflow.aiProviderDiagnostic }
+          : {}),
+      }),
       planning: server?.planning,
       naturalLanguageRequest: server?.naturalLanguageRequest ?? incoming.naturalLanguageRequest,
     });

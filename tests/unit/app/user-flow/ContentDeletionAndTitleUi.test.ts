@@ -2,7 +2,11 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const editorSource = readFileSync(join(process.cwd(), "app/user-flow/EditorWorkspace.tsx"), "utf8");
+const editorSource = [
+  readFileSync(join(process.cwd(), "app/user-flow/EditorWorkspace.tsx"), "utf8"),
+  readFileSync(join(process.cwd(), "app/user-flow/EditorWorkspaceImplementation.tsx"), "utf8"),
+  readFileSync(join(process.cwd(), "app/user-flow/AIUsageCostSummary.tsx"), "utf8"),
+].join("\n");
 const titleSource = readFileSync(join(process.cwd(), "app/user-flow/ContentSeoTitleStatus.tsx"), "utf8");
 const dangerSource = readFileSync(join(process.cwd(), "app/user-flow/ContentDangerZone.tsx"), "utf8");
 const projectActionsSource = readFileSync(join(process.cwd(), "app/user-flow/ProjectCardActions.tsx"), "utf8");
@@ -12,9 +16,12 @@ describe("Editor content title and deletion UX", () => {
   it("shows exact primary-keyword title status and one-click correction", () => {
     expect(editorSource).toContain("<ContentSeoTitleStatus");
     expect(editorSource).toContain("primaryKeyword={content.primaryKeyword}");
-    expect(titleSource).toContain("대표 키워드가 제목에 없습니다.");
-    expect(titleSource).toContain("대표 키워드로 제목 보정");
+    expect(titleSource).toContain("대표 키워드가 SEO 제목에 없습니다.");
+    expect(titleSource).toContain("SEO 제목 보정");
     expect(titleSource).toContain("buildReadableSeoTitle(currentTitle, keyword)");
+    expect(editorSource).toContain("currentTitle={liveDocument?.metadata?.seoTitle ?? title}");
+    expect(editorSource).toContain("metadata: Object.freeze({ ...liveDocument.metadata, seoTitle })");
+    expect(editorSource).not.toContain("commitDocument({ ...liveDocument, title: seoTitle }");
   });
 
   it("synchronizes a server-corrected Quality Review document into the editor", () => {
@@ -22,6 +29,12 @@ describe("Editor content title and deletion UX", () => {
     expect(editorSource).toContain("await onPersist(response.data)");
     expect(editorSource).toContain("setDocumentDraft(response.document); setTitle(response.document.title)");
     expect(editorSource).toContain("대표 키워드를 포함하도록 제목을 보정하고 품질 검토를 완료했습니다.");
+  });
+
+  it("shows total AI usage cost in the Editor", () => {
+    expect(editorSource).toContain("총 AI 비용");
+    expect(editorSource).toContain("totalAIUsageCostUsd");
+    expect(editorSource).toContain("호출별 비용 보기");
   });
 
   it("shows backup-first content deletion without exact-title confirmation", () => {

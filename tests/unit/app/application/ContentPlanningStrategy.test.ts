@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { ContentPlanningStrategy, createManualPlanningResult, filterPlanningPlatforms, parsePlanningResult, projectStrategyAIContext } from "../../../../app/application/ContentPlanningStrategy";
+import { ContentPlanningStrategy, createManualPlanningResult, filterPlanningPlatforms, normalizePlanningPrimaryKeyword, parsePlanningResult, projectStrategyAIContext } from "../../../../app/application/ContentPlanningStrategy";
+import { createOpportunityEvidence } from "../../../../core/intelligence";
 
 const result = { interpretedIntent: "혈당 관리 글", domain: "health", targetAudience: "50대", contentGoal: "실천 안내", recommendedPrimaryKeyword: "50대 혈당 관리", keywordCandidates: ["50대 혈당 관리", "식후 걷기"], searchIntent: "informational", recommendedContentType: "guide", recommendedPlatforms: ["tistory"], suggestedTitleAngles: ["50대 혈당 관리 가이드"], relatedKeywords: ["식후 혈당"], contentCluster: ["운동", "식단"], recommendationReason: "요청과 독자에 적합", confidence: 0.86, estimateDisclosure: "AI estimate" };
 
@@ -42,6 +43,35 @@ describe("natural-language content planning", () => {
     expect(strategy.targetLength).toBe("4,500~6,000자");
   });
 
+  it("separates the WordPress brand, content domain, Category, and stable profile ID in Planning context", () => {
+    const context = projectStrategyAIContext({
+      primaryTopic: "밝은재테크",
+      subtopics: ["생활경제·생활금융 콘텐츠 운영"],
+      excludedTopics: [],
+      defaultContentType: "Google SEO 정보 콘텐츠",
+      defaultPlatform: "wordpress",
+      targetAudience: "생활경제 정보를 찾는 일반 독자",
+      tone: "친절하고 신뢰할 수 있는 설명",
+      internalLinkPolicy: "검증된 공개 글만 사용",
+      relatedPostPolicy: "관련 글 최대 3개",
+      ctaPolicy: "필요한 경우만 사용",
+      imageStrategy: "설명 목적 이미지",
+      seoPolicy: "Helpful · Reliable · People-first",
+      defaultContentPurpose: "adsense_approval",
+      approvalProfileId: "wordpress_life_economy_v1",
+    } as Parameters<typeof projectStrategyAIContext>[0] & {
+      defaultContentPurpose: "adsense_approval";
+      approvalProfileId: "wordpress_life_economy_v1";
+    });
+    const serialized = JSON.stringify(context);
+
+    expect(serialized).toContain("Approval profile: WordPress · 밝은재테크@1.0");
+    expect(serialized).toContain("Site and brand identity (metadata only): 밝은재테크");
+    expect(serialized).toContain("Content domain: 생활경제, 생활금융, 정부지원, 세금, 주거 정보");
+    expect(serialized).toContain("Required publishing categories: 생활재테크");
+    expect(serialized).not.toContain("wordpress_life_economy_v1");
+  });
+
   it("uses exactly one provider request and returns structured recommendations", async () => {
     const provider = { generate: vi.fn().mockResolvedValue({ content: JSON.stringify(result), model: "test" }) };
     const plan = await new ContentPlanningStrategy(provider).analyze("50대를 위한 혈당 관리 글을 만들고 싶어");
@@ -52,10 +82,103 @@ describe("natural-language content planning", () => {
     expect(instruction).toContain("preserve all of the keyword's core concepts");
     expect(instruction).toContain("not only a classification label");
     expect(instruction).toContain("missing/mentioned/sufficient");
+    expect(instruction).toContain("Project-owned labels that are identity, not default search keywords");
+    expect(instruction).toContain("Topic-selection policy: prefer a specific reader problem");
+    expect(instruction).toContain("Do not choose a topic merely because search volume, trend, scarcity, or low competition appears attractive");
+    expect(instruction).toContain("Prefer claims that can be defended with the existing VERIFY/CRITICAL policy");
     expect(instruction).not.toContain("targetLengthRange");
-    expect(plan.recommendedPrimaryKeyword).toBe("50대 혈당 관리");
+    expect(plan.recommendedPrimaryKeyword).toBe("50대 혈당 관리 가이드");
     expect(plan.estimateDisclosure).toContain("not measured");
   });
+
+  it("passes GSC site performance and NAVER relative trend Evidence to the single Planning prompt without changing their meaning", async () => {
+    const provider = { generate: vi.fn().mockResolvedValue({ content: JSON.stringify(result), model: "test" }) };
+    const gsc = createOpportunityEvidence({ workspaceId: "workspace-1", connectionId: "gsc-1", projectId: null, provider: "googleSearchConsole", evidenceType: "searchPerformance", metric: "impressions", keyword: "휴면예금", observedAt: "2026-08-05", syncedAt: "2026-08-05T00:00:00.000Z", freshness: "fresh", verified: true, value: 12, unit: "siteImpressions", confidence: 1, limitations: ["Search Console impressions are site performance, not total market demand."], sourceReference: "snapshot-gsc:row-0:impressions", resourceScope: "query" });
+    const naver = createOpportunityEvidence({ workspaceId: "workspace-1", connectionId: "naver-1", projectId: null, provider: "naverSearchTrend", evidenceType: "relativeTrend", metric: "searchTrendRatio", keyword: "예금", observedAt: "2026-08-05", syncedAt: "2026-08-05T00:01:00.000Z", freshness: "fresh", verified: true, value: 65.2, relativeValue: 65.2, unit: "relativeRatio", confidence: 1, limitations: ["NAVER ratio is relative and is not absolute search volume."], sourceReference: "snapshot-naver:row-0", resourceScope: "query" });
+
+    await new ContentPlanningStrategy(provider).analyze("오늘의 생활경제 글을 골라줘", ["wordpress"], {
+      projectId: "project-finance",
+      selectionMode: "automatic",
+      hasVerifiedKeywordData: true,
+      evidenceBundle: [gsc, naver],
+    });
+
+    expect(provider.generate).toHaveBeenCalledOnce();
+    const instruction = provider.generate.mock.calls[0]?.[0].instruction as string;
+    expect(instruction).toContain(`"evidenceId":"${gsc.evidenceId}"`);
+    expect(instruction).toContain('"provider":"googleSearchConsole"');
+    expect(instruction).toContain('"unit":"siteImpressions"');
+    expect(instruction).toContain(`"evidenceId":"${naver.evidenceId}"`);
+    expect(instruction).toContain('"provider":"naverSearchTrend"');
+    expect(instruction).toContain('"unit":"relativeRatio"');
+    expect(instruction).toContain("NAVER/Trends ratios are relative");
+    expect(instruction).toContain("Search Console impressions are site impressions");
+  });
+
+  it("removes unrequested project branding and preserves the concrete search task", () => {
+    const plan = parsePlanningResult(JSON.stringify({
+      ...result,
+      interpretedIntent: "통장 쪼개기 방법 안내",
+      domain: "생활경제",
+      targetAudience: "통장 구조를 단순화하려는 직장인",
+      contentGoal: "생활패턴에 맞는 계좌 역할과 선택 기준 안내",
+      suggestedTitleAngles: ["밝은재테크 통장 쪼개기 방법"],
+      opportunityCandidates: [{
+        selectedTopic: "밝은재테크 통장 쪼개기 방법",
+        primaryKeyword: "밝은재테크 통장 쪼개기",
+        secondaryKeywords: ["목적별 통장", "생활비 통장"],
+        searchIntent: "자신의 소비 구조에 맞는 통장 쪼개기 방법과 계좌 역할을 결정",
+        audience: "통장 구조를 단순화하려는 직장인",
+        contentType: "guide",
+        contentAngle: "계좌 수보다 생활패턴별 역할과 선택 기준",
+        readerProblem: "필요한 계좌 수와 역할을 정하지 못함",
+        expectedCoverage: ["계좌 역할", "선택 기준", "자동이체 순서"],
+        selectionRationale: "콘텐츠 공백 추론",
+        opportunityEvidence: [{ source: "inferred", summary: "현재 Project 안에서 중복이 적음" }],
+        confidence: 0.7,
+        cautions: ["외부 검색량 미검증"],
+      }],
+    }), {
+      projectId: "project-1",
+      selectionMode: "automatic",
+      sourceRequest: "밝은재테크 프로젝트에서 아직 다루지 않은 주제를 선정해 주제에 관심 있는 일반 독자를 위한 Google SEO 정보 콘텐츠 원고를 작성해줘. 세부 주제: 생활경제·재테크 콘텐츠 운영. 제외 주제: 없음.",
+      projectContext: JSON.stringify({
+        projectStrategy: {
+          projectIdentity: { projectName: "밝은재테크", brandName: "밝은재테크" },
+        },
+      }),
+    });
+
+    expect(plan.recommendedPrimaryKeyword).toBe("통장 쪼개기 방법");
+    expect(plan.suggestedTitleAngles[0]).toBe("통장 쪼개기 방법");
+    expect(plan.opportunityCandidates?.[0]).toMatchObject({
+      selectedTopic: "통장 쪼개기 방법",
+      primaryKeyword: "통장 쪼개기 방법",
+    });
+  });
+
+  it("keeps explicitly requested or third-party brand terms", () => {
+    expect(normalizePlanningPrimaryKeyword(
+      "밝은재테크 통장 쪼개기",
+      "밝은재테크 통장 쪼개기 방법",
+      "밝은재테크 통장 쪼개기 글을 작성해줘",
+      ["밝은재테크"],
+    )).toBe("밝은재테크 통장 쪼개기 방법");
+    expect(normalizePlanningPrimaryKeyword(
+      "밝은재테크 통장 쪼개기",
+      "밝은재테크 통장 쪼개기 방법",
+      "밝은재테크 프로젝트에서 아직 다루지 않은 주제를 선정해줘",
+      ["밝은재테크"],
+      false,
+    )).toBe("통장 쪼개기 방법");
+    expect(normalizePlanningPrimaryKeyword(
+      "카카오뱅크 통장 쪼개기",
+      "카카오뱅크 통장 쪼개기 방법",
+      "오늘의 생활경제 글을 골라줘",
+      ["밝은재테크"],
+    )).toBe("카카오뱅크 통장 쪼개기 방법");
+  });
+
   it("supports a manual fallback without fabricated metrics", () => {
     const plan = createManualPlanningResult("테슬라 실적을 분석하는 블로그 글");
     expect(plan.confidence).toBe(0);

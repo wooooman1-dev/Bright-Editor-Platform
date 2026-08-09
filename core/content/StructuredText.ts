@@ -12,6 +12,45 @@ export type StructuredTextSegment =
   | Readonly<{ text: string; type: "text" }>
   | Readonly<{ table: StructuredTableData; type: "table" }>;
 
+export type StructuredListData = Readonly<{
+  prefix?: string;
+  style: "ordered" | "unordered";
+  items: readonly string[];
+}>;
+
+/**
+ * Recognizes only an explicit, line-delimited list. A single plain-text prefix
+ * may precede the list and is returned separately; prose with embedded list
+ * markers is never guessed into a list.
+ */
+export function parseStructuredList(value: string): StructuredListData | undefined {
+  const lines = normalizePlainText(value).split("\n").map((line) => line.trim()).filter(Boolean);
+  if (lines.length < 2) return undefined;
+  const firstListIndex = lines.findIndex((line) => listLine(line) !== undefined);
+  if (firstListIndex < 0 || firstListIndex > 1) return undefined;
+  const prefix = firstListIndex === 1 ? lines[0] : undefined;
+  const parsed = lines.slice(firstListIndex).map(listLine);
+  if (parsed.some((item) => item === undefined) || parsed.length < 2) return undefined;
+  const items = parsed as Array<Readonly<{ marker: string; text: string }>>;
+  const ordered = /^\d+[.)]$/u.test(items[0]!.marker);
+  if (items.some((item) => /^\d+[.)]$/u.test(item.marker) !== ordered)) return undefined;
+  if (ordered && items.some((item, index) => Number.parseInt(item.marker, 10) !== index + 1)) return undefined;
+  return Object.freeze({
+    ...(prefix ? { prefix } : {}),
+    style: ordered ? "ordered" as const : "unordered" as const,
+    items: Object.freeze(items.map((item) => item.text)),
+  });
+}
+
+export function serializeStructuredList(input: Readonly<{
+  style: "ordered" | "unordered";
+  items: readonly string[];
+}>): string {
+  return input.items.map((item, index) => input.style === "ordered"
+    ? `${index + 1}. ${item}`
+    : `- ${item}`).join("\n");
+}
+
 export function parseStructuredText(value: string): readonly StructuredTextSegment[] {
   const source = value.normalize("NFKC");
   const segments: StructuredTextSegment[] = [];
@@ -169,6 +208,11 @@ function parseMarkdownRow(value: string): string[] {
   if (escaped) current += "\\";
   cells.push(normalizeCell(current));
   return cells;
+}
+
+function listLine(value: string): Readonly<{ marker: string; text: string }> | undefined {
+  const match = /^\s*((?:[-*•])|(?:\d+[.)]))\s+(.+?)\s*$/u.exec(value);
+  return match?.[2]?.trim() ? Object.freeze({ marker: match[1]!, text: match[2].trim() }) : undefined;
 }
 
 function normalizeColumns(cells: readonly string[], columnCount: number): string[] {

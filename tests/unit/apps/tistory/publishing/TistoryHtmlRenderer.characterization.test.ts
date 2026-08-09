@@ -42,13 +42,13 @@ describe("TistoryHtmlRenderer characterization baseline", () => {
     expect(html).toContain('<p>시작 &amp; 안내<br>다음 줄</p>');
   });
 
-  it("keeps actual images, captions, ALT text, placeholders, and attribute escaping", () => {
+  it("keeps actual images, captions, ALT text, and attribute escaping while omitting planned images", () => {
     const html = renderer.render(document);
     expect(html).toContain('src="https://cdn.example.com/a&quot;b.png?x=1&amp;y=2"');
     expect(html).toContain('alt="A &amp; B &lt;개념&gt;"');
     expect(html).toContain('<figcaption>설명 &amp; 캡션</figcaption>');
-    expect(html).toContain('class="bright-image-placeholder" data-image-required="true"');
-    expect(html).toContain('업로드가 필요한 이미지');
+    expect(html).not.toContain('class="bright-image-placeholder"');
+    expect(html).not.toContain('업로드가 필요한 이미지');
   });
 
   it("keeps video, CTA, monetization, missing-link output and highlights the contextual internal link", () => {

@@ -1,4 +1,5 @@
-import { withCanonicalEditorialContext } from "../../../core/ai";
+import { withCanonicalEditorialContext } from "../../../core/ai/AIWorkflow";
+import { normalizeApprovalDateOwnership } from "../../../core/approval";
 import type { ContentDocument } from "../../../core/content";
 import { projectStrategyAIContext } from "../ContentPlanningStrategy";
 import {
@@ -6,6 +7,7 @@ import {
   type UserContent,
   type UserData,
 } from "../../user-flow/user-data";
+import { withApprovalGenerationTrace } from "./ApprovalGenerationTrace";
 import {
   contentBoundEditorialContext,
   resolveContentApprovalSnapshot,
@@ -19,8 +21,19 @@ export function contentEditorialContext(
     item.id === content.projectId
     && (!data.workspace || item.workspaceId === data.workspace.id));
   if (!project) throw new Error("Content approval context requires its owning Project.");
+  const brandName = project.brandId
+    ? data.brands.find((brand) =>
+        brand.id === project.brandId
+        && brand.workspaceId === project.workspaceId)?.name
+    : undefined;
   return contentBoundEditorialContext(
-    projectStrategyAIContext(resolveProjectStrategy(project)),
+    {
+      ...projectStrategyAIContext(resolveProjectStrategy(project)),
+      projectIdentity: Object.freeze({
+        projectName: project.name,
+        ...(brandName ? { brandName } : {}),
+      }),
+    },
     content,
   );
 }
@@ -53,11 +66,13 @@ export function preserveContentApprovalPolicy(
   if (!metadata) {
     throw new Error("Approval preparation content requires canonical document metadata.");
   }
-  return Object.freeze({
+  const protectedDocument = Object.freeze({
     ...document,
     metadata: Object.freeze({
       ...metadata,
       approvalPolicy,
     }),
   });
+  const normalizedDocument = normalizeApprovalDateOwnership(protectedDocument);
+  return withApprovalGenerationTrace(normalizedDocument, content.document);
 }

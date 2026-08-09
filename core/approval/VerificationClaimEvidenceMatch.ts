@@ -1,0 +1,136 @@
+import type { VerificationClaimSpec } from "./VerificationClaim";
+
+export type VerificationClaimEvidenceMatch = Readonly<{
+  matched: boolean;
+  diagnostics: readonly string[];
+}>;
+
+/**
+ * Binds an untrusted discovered Claim to the server-owned Planning Claim.
+ * Scalar Claims remain exact-value contracts. Proposition Claims may use a
+ * provider paraphrase, but only when the verbatim Claim excerpt contains the
+ * Planning Claim's concrete subject concepts and every explicit literal.
+ */
+export function evaluateVerificationClaimEvidenceMatch(input: Readonly<{
+  spec: VerificationClaimSpec;
+  submittedValue: string;
+  evidenceExcerpt: string;
+  pageText: string;
+  normalizedValuePresent: boolean;
+  normalizedValueMatchesPlanned: boolean;
+}>): VerificationClaimEvidenceMatch {
+  const excerpt = normalizeWhitespace(input.evidenceExcerpt);
+  const page = normalizeWhitespace(input.pageText);
+  const submitted = normalizeWhitespace(input.submittedValue);
+  const excerptFound = Boolean(excerpt) && compact(page).includes(compact(excerpt));
+  const exactValueFound = Boolean(submitted) && compact(page).includes(compact(submitted));
+  const scalar = scalarClaim(input.spec);
+  const literalMatch = scalar || explicitLiterals(input.spec).every((literal) =>
+    compact(excerpt).includes(compact(literal)));
+  const semanticMatch = !scalar
+    && propositionConceptMatch(input.spec, excerpt);
+  const valueSupported = exactValueFound || semanticMatch;
+  const matched = Boolean(
+    excerptFound
+    && input.normalizedValuePresent
+    && input.normalizedValueMatchesPlanned
+    && literalMatch
+    && valueSupported,
+  );
+
+  return Object.freeze({
+    matched,
+    diagnostics: Object.freeze([
+      ...(excerptFound ? [] : ["claim_evidence_excerpt_not_found"]),
+      ...(valueSupported ? [] : ["claim_value_not_found"]),
+      ...(literalMatch ? [] : ["claim_explicit_literal_mismatch"]),
+      ...(input.normalizedValueMatchesPlanned ? [] : ["claim_raw_value_mismatch"]),
+      ...(input.normalizedValuePresent ? [] : ["claim_normalization_failed"]),
+    ]),
+  });
+}
+
+function scalarClaim(spec: VerificationClaimSpec): boolean {
+  return Boolean(spec.rawValue?.trim())
+    || ["money", "ratio", "date", "dateRange", "duration"].includes(spec.kind);
+}
+
+function propositionConceptMatch(
+  spec: VerificationClaimSpec,
+  evidenceExcerpt: string,
+): boolean {
+  const evidence = compact(evidenceExcerpt);
+  const identityConcepts = concepts([
+    spec.field,
+    spec.qualifiers.subject ?? "",
+    spec.qualifiers.scope ?? "",
+  ].join(" "));
+  const propositionConcepts = concepts([
+    spec.statement,
+    spec.qualifiers.basis ?? "",
+  ].join(" "));
+  const identityMatches = identityConcepts.filter((token) => conceptPresent(evidence, token));
+  const distinctiveIdentityConcepts = identityConcepts.filter((token) => !genericIdentityConcepts.has(token));
+  const distinctiveIdentityMatches = distinctiveIdentityConcepts.filter((token) => conceptPresent(evidence, token));
+  const propositionMatches = propositionConcepts.filter((token) => conceptPresent(evidence, token));
+  const identityMatched = distinctiveIdentityConcepts.length > 0
+    ? distinctiveIdentityMatches.length >= 1
+    : identityMatches.length >= 1;
+  return identityMatched
+    && new Set(propositionMatches).size >= (distinctiveIdentityMatches.length > 0 ? 1 : 2);
+}
+
+function concepts(value: string): readonly string[] {
+  const tokens = value.normalize("NFKC").toLocaleLowerCase("ko-KR")
+    .match(/[0-9a-z\p{Script=Hangul}]{2,}/gu) ?? [];
+  return Object.freeze([...new Set(tokens
+    .map(stripKoreanSuffix)
+    .filter((token) => token.length >= 2 && !conceptStopWords.has(token)))]
+    .slice(0, 40));
+}
+
+function conceptPresent(compactEvidence: string, token: string): boolean {
+  if (compactEvidence.includes(token)) return true;
+  if (token.length < 4) return false;
+  const stem = token.slice(0, Math.max(3, token.length - 1));
+  return compactEvidence.includes(stem);
+}
+
+function explicitLiterals(spec: VerificationClaimSpec): readonly string[] {
+  const value = [spec.rawValue ?? "", spec.statement].join(" ").normalize("NFKC");
+  const found = new Set<string>();
+  for (const match of value.matchAll(/20\d{2}(?:[-./년]\s*\d{1,2}(?:[-./월]\s*\d{1,2}일?)?)?/gu)) {
+    if (match[0]) found.add(match[0]);
+  }
+  for (const match of value.matchAll(/\d+(?:[.,]\d+)?\s*(?:%|퍼센트|%p|원|만원|천원|억원|일|주|개월|년|시간|분)/giu)) {
+    if (match[0]) found.add(match[0]);
+  }
+  for (const match of value.matchAll(/제\s*\d+\s*조(?:의\s*\d+)?(?:\s*제\s*\d+\s*항)?/gu)) {
+    if (match[0]) found.add(match[0]);
+  }
+  return Object.freeze([...found]);
+}
+
+function stripKoreanSuffix(value: string): string {
+  return value.replace(/(?:으로|에서|에게|까지|부터|마다|처럼|보다|이라면|이면|이며|이고|한다|된다|있는|없는|따라|대한|관한|관련|여부|경우|기준|방법|확인|적용|법적|현행|요건|사실관계|법령|그리고|또는|및|의|은|는|이|가|을|를|에|로|와|과)$/u, "");
+}
+
+function normalizeWhitespace(value: string): string {
+  return value.normalize("NFKC").replace(/\s+/gu, " ").trim();
+}
+
+function compact(value: string): string {
+  return normalizeWhitespace(value)
+    .toLocaleLowerCase("ko-KR")
+    .replace(/[\s\p{P}\p{S}]+/gu, "");
+}
+
+const conceptStopWords = new Set([
+  "공식", "자료", "안내", "페이지", "정보", "내용", "관련", "기준", "방법",
+  "확인", "적용", "법적", "현행", "요건", "사실관계", "법령", "경우", "따라",
+  "the", "and", "official", "information", "guide", "page",
+]);
+
+const genericIdentityConcepts = new Set([
+  "대한민국", "법령", "범위", "주택", "임대차계약", "계약", "조건", "대상", "절차",
+]);

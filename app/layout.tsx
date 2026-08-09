@@ -1,8 +1,7 @@
-﻿import type { Metadata } from "next";
+import type { Metadata } from "next";
 import "./globals.css";
 
 import { TistoryDraftOutcomeOverlay } from "./user-flow/TistoryDraftOutcomeOverlay";
-import { TistoryScheduleOverlay } from "./user-flow/TistoryScheduleOverlay";
 
 export const metadata: Metadata = {
   title: "Bright Studio",
@@ -19,7 +18,6 @@ export default function RootLayout({
       <body>
         {children}
         <TistoryDraftOutcomeOverlay />
-        <TistoryScheduleOverlay />
       </body>
     </html>
   );

@@ -792,6 +792,34 @@ WordPress 구현은 공통 Content Model과 Publishing Pipeline을 재사용해�
 
 WordPress 전용 요구사항은 Adapter 내부에 위치한다.
 
+WordPress는 WordPress Core REST API를 사용하는 REST API Adapter이며 Playwright를 사용하지 않는다.
+
+WordPress Draft MVP의 플랫폼별 연결, Category, Media, Draft 생성과 외부 재조회 Verification은 Apps/WordPress가 담당한다. Quality, Permission, Idempotency와 Audit 정책은 플랫폼 공통 Core/Application 경계를 재사용한다.
+
+WordPress Draft MVP 실행 흐름은 다음과 같다.
+
+```text
+UI
+→ Application Service
+→ Publishing Service
+→ Permission Gate
+→ WordPress Adapter
+→ WordPress REST API
+→ External Re-read Verification
+→ Persistence and Audit
+→ Completion UI
+```
+
+Category는 PlatformConnection별 WordPress 실제 목록을 동적으로 조회한다. 현재 AdSense 승인 준비 정책은 Core 프로필에 정의된 `생활재테크` 하나만 선택하지만 데이터 구조와 REST Payload는 복수 Category를 지원한다. 외부 Category ID는 코드에 하드코딩하지 않으며 Draft 실행 직전에 저장된 ID를 실제 목록으로 재검증한다. 정책 이름은 앞뒤 공백 제거와 안전한 Unicode 정규화 후 정확히 비교하고 유사 이름은 자동 매칭하지 않는다.
+
+Category 적용 우선순위는 Content 직접 선택, Project `defaultWordPressCategories`, `WordPressConnectionProfile.defaultCategoryIds` 순서다. 각 ID는 실제 WordPress 목록으로 재검증하며 유효한 Category가 없으면 Readiness를 차단한다. `미분류`로 자동 대체하지 않는다.
+
+WordPress Draft MVP는 Media Upload, ALT와 Featured Image를 지원한다. 로컬 이미지가 있는 경우에만 `media.upload` Permission이 필요하며, 해당 WordPress Connection에서 사용자가 이 Permission을 명시적으로 허용한 경우에만 실행한다. 이미지가 없는 Draft는 `media.upload` Permission 없이 생성할 수 있다.
+
+Preview와 Draft는 동일한 WordPress Renderer 결과를 사용해야 한다. Media Upload와 WordPress URL 교체는 Renderer가 아니라 WordPress Media Adapter와 Application Service가 담당한다.
+
+Review First와 Draft Only는 유지한다. Public Publish, Schedule, Existing Post Update와 Existing Post Delete는 비활성 상태로 유지한다.
+
 WordPress의 기본 Theme 기반은 GeneratePress로 표준화한다.
 
 GeneratePress는 Header, Footer, Navigation, Sidebar, Archive와 같은 사이트 외곽 구조를 담당한다.
@@ -801,6 +829,8 @@ GeneratePress는 Header, Footer, Navigation, Sidebar, Archive와 같은 사이�
 Bright Theme는 Project별 Theme Skin을 지원할 수 있으며, Theme Skin은 시각 표현만 변경하고 Canonical Content Model과 Bright Component의 의미 구조를 변경해서는 안 된다.
 
 GeneratePress Base Theme를 직접 수정하지 않는다. WordPress 전용 확장은 Child Theme, CSS, Hook 및 WordPress Adapter를 통해 구현한다.
+
+WordPress Draft MVP 승인은 위 GeneratePress와 Bright Theme 원칙을 변경하지 않는다.
 
 
 

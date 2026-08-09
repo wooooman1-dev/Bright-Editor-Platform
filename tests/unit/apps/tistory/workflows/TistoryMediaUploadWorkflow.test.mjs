@@ -71,6 +71,9 @@ describe("Tistory media upload workflow", () => {
     await page.setContent("<main id=editor></main>");
     await page.evaluate(() => {
       window.tinymce = { activeEditor: { getBody: () => document.querySelector("#editor") } };
+    });
+    const before = await collectEditorMediaSnapshot(page);
+    await page.evaluate(() => {
       setTimeout(() => {
         const figure = document.createElement("figure");
         figure.className = "imageblock alignCenter";
@@ -83,7 +86,7 @@ describe("Tistory media upload workflow", () => {
         document.querySelector("#editor").append(figure);
       }, 20);
     });
-    await expect(waitForNewTrustedEditorImage(page, await collectEditorMediaSnapshot(page), 2000)).resolves.toContain("blog.kakaocdn.net");
+    await expect(waitForNewTrustedEditorImage(page, before, 2000)).resolves.toContain("blog.kakaocdn.net");
     await page.close();
   });
 
@@ -92,6 +95,9 @@ describe("Tistory media upload workflow", () => {
     await page.setContent("<main id=editor></main>");
     await page.evaluate(() => {
       window.tinymce = { activeEditor: { getBody: () => document.querySelector("#editor") } };
+    });
+    const before = await collectEditorMediaSnapshot(page);
+    await page.evaluate(() => {
       setTimeout(() => {
         const image = document.createElement("img");
         image.src = "data:image/png;base64,AA==";
@@ -99,7 +105,7 @@ describe("Tistory media upload workflow", () => {
         document.querySelector("#editor").append(image);
       }, 20);
     });
-    await expect(waitForNewTrustedEditorImage(page, await collectEditorMediaSnapshot(page), 2000)).resolves.toContain("mce.png");
+    await expect(waitForNewTrustedEditorImage(page, before, 2000)).resolves.toContain("mce.png");
     await page.close();
   });
 

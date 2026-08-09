@@ -1,3 +1,6 @@
+import type { AIUsageRecord } from "../ai/AIUsageCost";
+import type { GeneratedClaimVerificationRecord } from "../approval/GeneratedClaimBinding";
+import type { GeneratedFactualClaimInventoryRecord } from "../approval/GeneratedFactualClaimInventory";
 import type {
   ApprovalDuplicateCheckSnapshot,
   ApprovalEvidencePack,
@@ -19,18 +22,32 @@ export type ContentMetadata = Readonly<{
   version: number;
   videoCount: number;
   wordCount: number;
+  seoTitle?: string;
   metaDescription?: string;
   primarySearchIntent?: string;
   secondaryIntent?: string;
   secondaryKeywords?: readonly string[];
   relatedTerms?: readonly string[];
   tags?: readonly string[];
+  aiUsage?: readonly AIUsageRecord[];
   availableRelatedContentCandidates?: number;
   internalLinkCatalogStatus?: "evaluated" | "category_missing" | "catalog_unavailable";
+  internalLinkCatalogContextKey?: string;
   approvalPolicy?: ApprovalPolicySnapshot;
   approvalEvidence?: ApprovalEvidencePack;
   approvalDuplicateCheck?: ApprovalDuplicateCheckSnapshot;
   siteApprovalReadiness?: SiteApprovalReadinessSnapshot;
+  generatedClaimVerification?: GeneratedClaimVerificationRecord;
+  generatedFactualClaimInventory?: GeneratedFactualClaimInventoryRecord;
+  approvalReadinessExecution?: Readonly<{
+    version: "1.0" | "2.0" | "3.0" | "4.0";
+    key: string;
+    editorialRevisionId: string;
+    publishingContextKey: string;
+    evidenceFingerprint: string;
+    status: "completed";
+    checkedAt: string;
+  }>;
   qualityTarget?: ContentPlanQualityTarget;
   generationDiagnostic?: LongFormDiagnostic;
   reviewDiagnostic?: LongFormDiagnostic;

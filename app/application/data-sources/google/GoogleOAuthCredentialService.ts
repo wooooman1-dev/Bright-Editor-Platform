@@ -1,7 +1,13 @@
 import type { SecretStore } from "../../../../core/connections";
-import type { DataSourceConnection } from "../../../../core/intelligence";
+import type { DataSourceConnection, DataSourceProvider } from "../../../../core/intelligence";
 import { DataSourceError } from "../DataSourceErrors";
-import { GOOGLE_SEARCH_CONSOLE_READONLY_SCOPE, type GoogleOAuthClient, type GoogleOAuthClientFactory } from "./GoogleOAuthClientFactory";
+import {
+  GOOGLE_SEARCH_CONSOLE_READONLY_SCOPE,
+  GOOGLE_YOUTUBE_ANALYTICS_READONLY_SCOPE,
+  GOOGLE_YOUTUBE_READONLY_SCOPE,
+  type GoogleOAuthClient,
+  type GoogleOAuthClientFactory,
+} from "./GoogleOAuthClientFactory";
 
 export type StoredGoogleOAuthCredential = Readonly<{
   kind: "googleOAuth";
@@ -36,7 +42,7 @@ export class GoogleOAuthCredentialService {
     } catch { /* Local credential removal remains authoritative even if Google revoke fails. */ }
   }
 
-  async exchangeCode(code: string, priorSecretReference?: string): Promise<Readonly<{ client: GoogleOAuthClient; credential: StoredGoogleOAuthCredential }>> {
+  async exchangeCode(code: string, priorSecretReference?: string, provider: DataSourceProvider = "googleSearchConsole"): Promise<Readonly<{ client: GoogleOAuthClient; credential: StoredGoogleOAuthCredential }>> {
     const client = this.clients.create();
     try {
       const { tokens } = await client.getToken(code);
@@ -46,7 +52,7 @@ export class GoogleOAuthCredentialService {
       if (!accessToken || !refreshToken) throw new DataSourceError("Google에서 장기 연결용 인증 정보를 받지 못했습니다. 다시 동의해 주세요.", "GOOGLE_OAUTH_TOKEN_EXCHANGE_FAILED", 401);
       client.setCredentials({ ...tokens, access_token: accessToken, refresh_token: refreshToken });
       const grantedScopes = await grantedScopesFor(client, accessToken, tokens.scope);
-      requireSearchConsoleScope(grantedScopes);
+      requireProviderScopes(grantedScopes, provider);
       return Object.freeze({ client, credential: freezeCredential({ accessToken, refreshToken, expiryDate: tokens.expiry_date ?? undefined, tokenType: tokens.token_type ?? undefined, grantedScopes }) });
     } catch (error) {
       if (error instanceof DataSourceError) throw error;
@@ -55,12 +61,13 @@ export class GoogleOAuthCredentialService {
   }
 
   async authorized(connection: DataSourceConnection): Promise<AuthorizedGoogleSession> {
-    if (!connection.secretReference) throw reconnectRequired();
+    if (!connection.secretReference) throw reconnectRequired(connection.provider);
     let stored: string;
     try { stored = await this.secrets.readSecret(connection.secretReference); }
-    catch { throw reconnectRequired(); }
+    catch { throw reconnectRequired(connection.provider); }
     const credential = parseStoredCredential(stored);
-    if (!credential) throw reconnectRequired();
+    if (!credential) throw reconnectRequired(connection.provider);
+    requireProviderScopes(credential.grantedScopes, connection.provider);
     const client = this.clients.create();
     let current = credential, persistence = Promise.resolve();
     client.on("tokens", (tokens) => {
@@ -95,6 +102,19 @@ async function grantedScopesFor(client: GoogleOAuthClient, accessToken: string, 
   try { return Object.freeze([...new Set((await client.getTokenInfo(accessToken)).scopes)].sort()); }
   catch { throw new DataSourceError("승인된 Google 권한을 확인하지 못했습니다. 연결을 다시 시작해 주세요.", "GOOGLE_OAUTH_SCOPE_MISSING", 401); }
 }
-function requireSearchConsoleScope(scopes: readonly string[]) { if (!scopes.includes(GOOGLE_SEARCH_CONSOLE_READONLY_SCOPE)) throw new DataSourceError("Search Console 읽기 권한이 승인되지 않았습니다. Google 계정을 다시 연결해 주세요.", "GOOGLE_OAUTH_SCOPE_MISSING", 403); }
+
+function requireProviderScopes(scopes: readonly string[], provider: DataSourceProvider) {
+  const required = provider === "googleSearchConsole"
+    ? [GOOGLE_SEARCH_CONSOLE_READONLY_SCOPE]
+    : provider === "youtubeAnalytics"
+      ? [GOOGLE_YOUTUBE_READONLY_SCOPE, GOOGLE_YOUTUBE_ANALYTICS_READONLY_SCOPE]
+      : [];
+  const missing = required.filter((scope) => !scopes.includes(scope));
+  if (!missing.length) return;
+  const message = provider === "youtubeAnalytics"
+    ? "YouTube 및 YouTube Analytics 읽기 권한이 승인되지 않았습니다. Google 계정을 다시 연결해 주세요."
+    : "Search Console 읽기 권한이 승인되지 않았습니다. Google 계정을 다시 연결해 주세요.";
+  throw new DataSourceError(message, "GOOGLE_OAUTH_SCOPE_MISSING", 403);
+}
 function freezeCredential(value: Omit<StoredGoogleOAuthCredential, "kind">): StoredGoogleOAuthCredential { return Object.freeze({ kind: "googleOAuth", accessToken: value.accessToken, refreshToken: value.refreshToken, ...(value.expiryDate ? { expiryDate: value.expiryDate } : {}), ...(value.tokenType ? { tokenType: value.tokenType } : {}), grantedScopes: Object.freeze([...value.grantedScopes]) }); }
-function reconnectRequired() { return new DataSourceError("기존 수동 token 연결입니다. Google 계정으로 다시 연결해 주세요.", "DATA_SOURCE_AUTHENTICATION_ERROR", 401); }
+function reconnectRequired(provider: DataSourceProvider) { return new DataSourceError(provider === "youtubeAnalytics" ? "YouTube Analytics Google 계정을 다시 연결해 주세요." : "기존 수동 token 연결입니다. Google 계정으로 다시 연결해 주세요.", "DATA_SOURCE_AUTHENTICATION_ERROR", 401); }

@@ -26,6 +26,17 @@ describe("Google Search Console OAuth completion", () => {
     expect(secrets.deleteSecret).toHaveBeenCalledWith("old-secret");
   });
 
+  it("keeps an old credential while another active resource Connection still references it", async () => {
+    const connections = new DurableDataSourceConnectionRepository(new InMemoryPersistenceStore()), secrets = secretStore();
+    const common = { workspaceId: "workspace-1", provider: "googleSearchConsole" as const, status: "ready" as const, secretReference: "shared-old-secret", credentialMode: "googleOAuth" as const, availableResources: [{ siteUrl: "sc-domain:one.example" }, { siteUrl: "sc-domain:two.example" }], enabled: true, createdAt: "created", updatedAt: "old", version: 1 };
+    await connections.save({ ...common, id: "connection-1", displayName: "One", resourceConfiguration: { siteProperty: "sc-domain:one.example" } });
+    await connections.save({ ...common, id: "connection-2", displayName: "Two", resourceConfiguration: { siteProperty: "sc-domain:two.example" } });
+    const flow = new GoogleSearchConsoleOAuthFlow(connections, secrets, { exchangeCode: vi.fn().mockResolvedValue({ client: {}, credential }) } as never, { listSites: vi.fn().mockResolvedValue(common.availableResources) } as never);
+    await flow.complete({ workspaceId: "workspace-1", connectionId: "connection-1", code: "code" });
+    expect(secrets.deleteSecret).not.toHaveBeenCalledWith("shared-old-secret");
+    expect(await connections.findById("connection-2")).toMatchObject({ secretReference: "shared-old-secret", status: "ready" });
+  });
+
   it("requires a new selection when the prior site is unavailable and handles an empty site list without 500", async () => {
     const connections = new DurableDataSourceConnectionRepository(new InMemoryPersistenceStore()), secrets = secretStore();
     await connections.save({ id: "connection-1", workspaceId: "workspace-1", provider: "googleSearchConsole", displayName: "Existing", status: "ready", secretReference: "old-secret", credentialMode: "googleOAuth", resourceConfiguration: { siteProperty: "sc-domain:old.example" }, enabled: true, createdAt: "created", updatedAt: "old", version: 1 });
@@ -46,10 +57,13 @@ describe("Google Search Console OAuth completion", () => {
 });
 
 describe("Google Search Console resource service", () => {
-  it("projects sites.list resources and permission levels", async () => {
+  it("projects sites.list resources with stable IDs, display names, and permission levels", async () => {
     const api = { sites: { list: vi.fn().mockResolvedValue({ data: { siteEntry: [{ siteUrl: "https://example.com/", permissionLevel: "siteFullUser" }, { siteUrl: "sc-domain:example.com", permissionLevel: "siteOwner" }] } }) }, searchanalytics: { query: vi.fn() } };
     const service = new GoogleSearchConsoleService({ authorized: vi.fn() } as never, (() => api) as never);
-    await expect(service.listSites({} as never)).resolves.toEqual([{ siteUrl: "https://example.com/", permissionLevel: "siteFullUser" }, { siteUrl: "sc-domain:example.com", permissionLevel: "siteOwner" }]);
+    await expect(service.listSites({} as never)).resolves.toEqual([
+      { resourceId: "https://example.com/", displayName: "https://example.com/", siteUrl: "https://example.com/", permissionLevel: "siteFullUser" },
+      { resourceId: "sc-domain:example.com", displayName: "sc-domain:example.com", siteUrl: "sc-domain:example.com", permissionLevel: "siteOwner" },
+    ]);
   });
 
   it("rejects a client-invented site property before any Provider call", async () => {

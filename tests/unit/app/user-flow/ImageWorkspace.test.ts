@@ -25,7 +25,8 @@ const freeVisualSource = readFileSync(join(process.cwd(), "core/media/BrightBody
     expect(imageEditorSource).toContain("대표이미지 AI 생성");
     expect(imageEditorSource).toContain("대표이미지 중복 방지");
     expect(imageEditorSource).toContain("미사용 대표이미지 재사용");
-    expect(imageEditorSource).toContain("Tistory 임시저장에 보내지 않았고 현재 다른 원고에도 연결되지 않은 대표이미지만 표시");
+    expect(imageEditorSource).toContain("publishingDraftDestinationLabel");
+    expect(imageEditorSource).not.toContain('"Tistory 임시저장에 보내지 않았고 현재 다른 원고에도 연결되지 않은 대표이미지만 표시');
     expect(imageEditorSource).toContain("AI 이미지로 교체 · 유료");
     expect(documentEditorSource).toContain("Project 이미지·파일·AI로 교체");
     expect(mediaRouteSource).toContain('owner.block.purpose !== "hero"');
@@ -34,12 +35,12 @@ const freeVisualSource = readFileSync(join(process.cwd(), "core/media/BrightBody
     expect(imageCostPolicySource).toContain('"infographic"');
   });
 
-  it("shows up to two zero-cost body visual cards in the existing editor", () => {
-    expect(documentEditorSource).toContain("ensureFreeBodyVisuals");
+  it("renders only explicitly stored zero-cost body visual cards in the editor", () => {
+    expect(documentEditorSource).not.toContain("ensureFreeBodyVisuals");
     expect(documentEditorSource).toContain("FreeBodyVisualCard");
     expect(documentEditorSource).toContain('data-free-visual="true"');
     expect(documentEditorSource).toContain("Project 이미지·파일·AI로 교체");
-    expect(freeVisualSource).toContain("const bodyVisualLimit = 2");
+    expect(freeVisualSource).toContain("Bright Studio no longer synthesizes cards");
     expect(freeVisualSource).toContain("renderBrightBodyVisualHtml");
   });
 

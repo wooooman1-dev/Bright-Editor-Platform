@@ -67,6 +67,7 @@ function documentToPreview(document: ContentDocument) {
   return document.blocks.map((block, index) => {
     if (block.type === "heading") return `${index + 1}번째 블록 · ${"#".repeat(block.level)} ${block.text}`;
     if (block.type === "paragraph") return `${index + 1}번째 블록 · ${block.text}`;
+    if (block.type === "list") return `${index + 1}번째 목록 · ${block.items.join(" / ")}`;
     if (block.type === "image") return `${index + 1}번째 블록 · [이미지: ${block.alt}]`;
     if (block.type === "button") return `${index + 1}번째 블록 · [${block.purpose ?? "button"}: ${block.label}]`;
     if (block.type === "video") return `${index + 1}번째 블록 · [동영상]`;

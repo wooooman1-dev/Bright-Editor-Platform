@@ -3,25 +3,28 @@
 import { Fragment, useMemo, useState, type ReactNode } from "react";
 
 import { ContentNormalizer, createContentOutline, type ContentBlock, type ContentDocument, type ContentOutlineEntry, type PublicPostCandidate } from "../../core/content";
-import { brightBodyVisualContent, ensureFreeBodyVisuals, isFreeBodyVisualBlock } from "../../core/media";
+import { brightBodyVisualContent, isFreeBodyVisualBlock } from "../../core/media";
 import { ImageBlockEditor } from "./ImageBlockEditor";
+import type { EditorPublishingPlatform } from "./editor-publishing-platform";
 
-type ButtonPurpose = "cta" | "internal_link" | "monetization" | "related_post";
+type ButtonPurpose = "cta" | "internal_link" | "monetization" | "related_post" | "source";
 
 export function ContentDocumentEditor({
   document: inputDocument,
   candidates,
   disabled,
   onChange,
+  publishingPlatform,
 }: {
   document: ContentDocument;
   candidates: readonly PublicPostCandidate[];
   disabled: boolean;
   onChange: (document: ContentDocument, message: string) => Promise<void>;
+  publishingPlatform?: EditorPublishingPlatform;
 }) {
   const [draggedId, setDraggedId] = useState<string>();
   const document = useMemo(
-    () => ensureFreeBodyVisuals(new ContentNormalizer().normalize(inputDocument)),
+    () => new ContentNormalizer().normalize(inputDocument),
     [inputDocument],
   );
   const outline = useMemo(() => createContentOutline(document), [document]);
@@ -77,6 +80,7 @@ export function ContentDocumentEditor({
       targetUrl: candidate.publishedUrl,
       target: "_self",
       sourceExternalPostId: candidate.externalPostId,
+      ownership: "user_manual",
     };
     if (purpose === "related_post") return onChange({ ...document, blocks: [...document.blocks, block] }, `관련 글을 추가했습니다: ${candidate.title}`);
     const headingIndexes = document.blocks
@@ -97,7 +101,7 @@ export function ContentDocumentEditor({
     </details>
 
     <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
-      <div><h2 className="text-lg font-semibold">원고</h2><p className="mt-1 text-sm text-[#77777f]">본문을 클릭해 바로 수정하세요. 대표이미지는 AI 생성이 가능하고, 본문에는 비용 없는 Bright 시각 카드가 자동 표시됩니다.</p></div>
+      <div><h2 className="text-lg font-semibold">원고</h2><p className="mt-1 text-sm text-[#77777f]">본문을 클릭해 바로 수정하세요. 대표이미지는 AI 생성이 가능하고, 명시적으로 저장된 Bright 시각 카드는 본문 블록으로 표시됩니다.</p></div>
       <details className="relative">
         <summary className="cursor-pointer rounded-lg border px-3 py-2 text-sm font-semibold">요소 추가</summary>
         <div className="absolute right-0 z-20 mt-2 flex w-48 flex-col gap-1 rounded-xl border bg-white p-2 shadow-xl">
@@ -123,10 +127,11 @@ export function ContentDocumentEditor({
 
         {block.type === "heading" ? <div className="flex items-start gap-2"><select aria-label="제목 단계" className="mt-2 rounded-md border border-transparent bg-transparent px-1 py-1 text-xs text-[#92929a] opacity-0 group-focus-within:opacity-100 group-hover:opacity-100" onChange={(event) => void replace(block.id, { ...block, level: Number(event.target.value) as 2 | 3 })} value={block.level === 3 ? 3 : 2}><option value="2">H2</option><option value="3">H3</option></select><input className={`w-full border-0 bg-transparent px-1 py-2 outline-none ${block.level === 3 ? "mt-3 text-xl font-semibold" : "mt-7 text-3xl font-bold tracking-[-0.035em]"}`} defaultValue={block.text} onBlur={(event) => event.target.value !== block.text && void replace(block.id, { ...block, text: event.target.value })} /></div> : null}
         {block.type === "paragraph" ? <textarea className="w-full resize-none overflow-hidden border-0 bg-transparent px-1 py-2 text-[17px] leading-8 outline-none" defaultValue={block.text} onBlur={(event) => event.target.value !== block.text && void replace(block.id, { ...block, text: event.target.value })} rows={Math.max(2, Math.ceil(block.text.length / 55) + block.text.split("\n").length - 1)} /> : null}
+        {block.type === "list" ? <div className="flex items-start gap-2"><select aria-label="목록 종류" className="mt-2 rounded-md border bg-white px-2 py-1 text-xs" disabled={disabled} onChange={(event) => void replace(block.id, { ...block, style: event.target.value as "ordered" | "unordered" })} value={block.style}><option value="ordered">순서 목록</option><option value="unordered">글머리 목록</option></select><textarea className="w-full resize-none overflow-hidden border-0 bg-transparent px-1 py-2 text-[17px] leading-8 outline-none" defaultValue={block.items.join("\n")} onBlur={(event) => { const items = event.target.value.split("\n").map((item) => item.trim()).filter(Boolean); if (items.join("\n") !== block.items.join("\n")) void replace(block.id, { ...block, items }); }} rows={Math.max(2, block.items.length)} /></div> : null}
         {block.type === "table" ? <TableEditor block={block} disabled={disabled} onChange={(next) => replace(block.id, next)} /> : null}
         {block.type === "image" ? block.source || !isFreeBodyVisualBlock(block)
-          ? <ImageBlockEditor key={`${block.id}:${block.alt}:${block.prompt ?? ""}:${block.purpose ?? ""}`} block={block} contentId={document.id} disabled={disabled} onChange={(next) => replace(block.id, next)} />
-          : <FreeBodyVisualCard block={block} contentId={document.id} disabled={disabled} onChange={(next) => replace(block.id, next)} />
+          ? <ImageBlockEditor key={`${block.id}:${block.alt}:${block.prompt ?? ""}:${block.purpose ?? ""}`} block={block} contentId={document.id} disabled={disabled} onChange={(next) => replace(block.id, next)} publishingPlatform={publishingPlatform} />
+          : <FreeBodyVisualCard block={block} contentId={document.id} disabled={disabled} onChange={(next) => replace(block.id, next)} publishingPlatform={publishingPlatform} />
           : null}
         {block.type === "button" ? <ButtonEditor block={block} disabled={disabled} onChange={(next) => replace(block.id, next)} /> : null}
         {block.type === "video" ? <p className="rounded-lg bg-[#f8f8fa] p-3 text-sm">비디오: {block.source}</p> : null}
@@ -148,11 +153,12 @@ function DerivedTableOfContents({ outline }: { outline: readonly ContentOutlineE
   </nav>;
 }
 
-function FreeBodyVisualCard({ block, contentId, disabled, onChange }: {
+function FreeBodyVisualCard({ block, contentId, disabled, onChange, publishingPlatform }: {
   block: Extract<ContentBlock, { type: "image" }>;
   contentId: string;
   disabled: boolean;
   onChange: (block: Extract<ContentBlock, { type: "image" }>) => Promise<void>;
+  publishingPlatform?: EditorPublishingPlatform;
 }) {
   const content = brightBodyVisualContent(block);
   const tone = content.purpose === "warning"
@@ -171,7 +177,7 @@ function FreeBodyVisualCard({ block, contentId, disabled, onChange }: {
     </aside>
     <details className="mt-3 rounded-xl border bg-white p-4">
       <summary className="cursor-pointer text-sm font-semibold">Project 이미지·파일·AI로 교체</summary>
-      <div className="mt-4"><ImageBlockEditor block={block} contentId={contentId} disabled={disabled} onChange={onChange} /></div>
+      <div className="mt-4"><ImageBlockEditor block={block} contentId={contentId} disabled={disabled} onChange={onChange} publishingPlatform={publishingPlatform} /></div>
     </details>
   </div>;
 }
@@ -202,7 +208,7 @@ function ButtonEditor({ block, disabled, onChange }: { block: Extract<ContentBlo
   if (!editing) return <button className={`block w-full rounded-xl p-4 text-left ${value.purpose === "related_post" ? "bg-sky-50" : value.purpose === "internal_link" ? "border border-sky-100 bg-white" : value.purpose === "monetization" ? "bg-violet-50" : "bg-[#fff0f0]"}`} onClick={() => setEditing(true)} type="button"><span className="block text-xs font-semibold text-[#77777f]">{purposeLabel(value.purpose ?? "cta")}{value.targetUrl ? "" : " · 링크 입력 필요"}</span><span className={`${value.purpose === "cta" || value.purpose === "monetization" ? "mt-2 inline-flex rounded-lg bg-[#ff6b6b] px-5 py-3 font-semibold text-white" : "mt-1 block font-semibold text-sky-900"}`}>{value.label || "버튼 문구 입력"}</span></button>;
   return <div className={`rounded-xl p-4 ${value.purpose === "monetization" ? "bg-violet-50" : value.purpose === "related_post" ? "bg-sky-50" : "bg-[#fff0f0]"}`}>
     <div className="grid gap-3 sm:grid-cols-2">
-      <Field label="유형"><select className="input" onChange={(event) => setValue({ ...value, purpose: event.target.value as ButtonPurpose, target: event.target.value === "monetization" ? "_blank" : "_self" })} value={value.purpose ?? "cta"}><option value="cta">CTA</option><option value="internal_link">내부 링크</option><option value="monetization">수익 링크</option><option value="related_post">관련 글</option></select></Field>
+      <Field label="유형"><select className="input" onChange={(event) => setValue({ ...value, purpose: event.target.value as ButtonPurpose, target: event.target.value === "monetization" ? "_blank" : "_self" })} value={value.purpose ?? "cta"}><option value="cta">CTA</option><option value="internal_link">내부 링크</option><option value="monetization">수익 링크</option><option value="related_post">관련 글</option><option value="source">공식 출처</option></select></Field>
       <Field label="열기 방식"><select className="input" onChange={(event) => setValue({ ...value, target: event.target.value as "_self" | "_blank" })} value={value.target ?? "_self"}><option value="_self">현재 창</option><option value="_blank">새 창</option></select></Field>
       <Field label="버튼 문구"><input className="input" onChange={(event) => setValue({ ...value, label: event.target.value })} value={value.label} /></Field>
       <Field label={`URL ${value.targetUrl ? "" : "· 입력 필요"}`}><input className="input" onChange={(event) => setValue({ ...value, targetUrl: event.target.value })} value={value.targetUrl} /></Field>
@@ -219,5 +225,5 @@ function RelatedPosts({ candidates, current, disabled, onAdd }: { candidates: re
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) { return <label className="text-sm font-semibold">{label}{children}</label>; }
-function blockLabel(block: ContentBlock) { if (block.type === "heading") return `H${block.level}`; if (block.type === "paragraph") return "문단"; if (block.type === "table") return "표"; if (block.type === "image") return block.source ? "이미지" : isFreeBodyVisualBlock(block) ? "무료 시각 카드" : "추천 이미지"; if (block.type === "button") return purposeLabel(block.purpose ?? "cta"); return "비디오"; }
-function purposeLabel(value: ButtonPurpose) { return ({ cta: "CTA", internal_link: "내부 링크", monetization: "수익 링크", related_post: "관련 글" })[value]; }
+function blockLabel(block: ContentBlock) { if (block.type === "heading") return `H${block.level}`; if (block.type === "paragraph") return "문단"; if (block.type === "list") return "목록"; if (block.type === "table") return "표"; if (block.type === "image") return block.source ? "이미지" : isFreeBodyVisualBlock(block) ? "무료 시각 카드" : "추천 이미지"; if (block.type === "button") return purposeLabel(block.purpose ?? "cta"); return "비디오"; }
+function purposeLabel(value: ButtonPurpose) { return ({ cta: "CTA", internal_link: "내부 링크", monetization: "수익 링크", related_post: "관련 글", source: "공식 출처" })[value]; }

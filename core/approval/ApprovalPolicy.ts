@@ -14,10 +14,13 @@ export type ApprovalPolicySnapshot = Readonly<{
   policyDocumentPath: "Docs/current/01_PRODUCT/15_ADSENSE_APPROVAL_MODE.md";
   profileId: ApprovalPolicyProfileId;
   profileVersion: "1.0";
+  profileDisplayName: string;
   profileDocumentPath:
     | "Docs/current/01_PRODUCT/14_ADSENSE_APPROVAL_CONTENT_POLICY.md"
     | "Docs/current/01_PRODUCT/16_TISTORY_VIVARAIN_ADSENSE_APPROVAL_PROFILE.md";
   siteIdentity: string;
+  contentDomain: string;
+  requiredPublishingCategoryNames?: readonly string[];
   requiredPrinciples: readonly string[];
   prohibitedClaims: readonly string[];
   sourceRequirements: readonly string[];
@@ -38,6 +41,26 @@ export type ApprovalPreparationIssue = Readonly<{
   message: string;
   blocking: true;
 }>;
+
+export type ApprovalPreparationEvidenceContext = Readonly<{
+  evidenceRequired?: boolean;
+  timeSensitiveEvidenceRequired?: boolean;
+  sourceUrls?: readonly string[];
+  reviewedAt?: string;
+  coverageStatus?: "verified" | "needs_review" | "missing" | "not_required";
+  requiredFactFields?: readonly string[];
+  verifiedFactFields?: readonly string[];
+  unverifiedFactFields?: readonly string[];
+}>;
+
+export function approvalProfileSourceRequirementApplicable(
+  snapshot: ApprovalPolicySnapshot,
+): boolean {
+  return snapshot.sourceRequirements.length > 0;
+}
+
+export const peopleFirstValueAndTrustPrinciple =
+  "애드센스 승인 준비 콘텐츠는 Google 심사 시스템이나 검색 알고리즘을 공략하기 위한 문서가 아니라, 실제 독자의 검색 의도와 문제를 완결적으로 해결하는 독창적이고 검증 가능하며 신뢰할 수 있는 사람 중심 콘텐츠로 작성한다.";
 
 const sharedPrinciples = Object.freeze([
   "사이트와 Project의 주제 및 목적에 일관되게 속한다.",
@@ -69,11 +92,11 @@ const sharedQualityChecks = Object.freeze([
   "기존 콘텐츠 중복 위험",
   "얇은 콘텐츠 위험",
   "공식 Evidence와 원고 사실의 일치",
-  "출처 URL과 정보 기준일·최종 검토일",
+  "출처 URL과 기준일·검토일의 역할 명확성",
   "과장 및 보장 표현",
   "독자 문제 해결",
   "공개 준비 완결성",
-  "내부 탐색과 사이트 전체 승인 준비 상태",
+  "내부 링크 진단 및 사이트 준비 상태와 원고 품질의 분리",
 ]);
 
 const profileSnapshots: Readonly<Record<ApprovalPolicyProfileId, ApprovalPolicySnapshot>> = Object.freeze({
@@ -84,14 +107,28 @@ const profileSnapshots: Readonly<Record<ApprovalPolicyProfileId, ApprovalPolicyS
     policyDocumentPath: "Docs/current/01_PRODUCT/15_ADSENSE_APPROVAL_MODE.md",
     profileId: "wordpress_life_economy_v1",
     profileVersion: "1.0",
+    profileDisplayName: "WordPress · 밝은재테크",
     profileDocumentPath: "Docs/current/01_PRODUCT/14_ADSENSE_APPROVAL_CONTENT_POLICY.md",
-    siteIdentity: "복잡한 정부지원, 세금, 주거, 생활금융 기초 제도를 일반 독자가 공식 확인처에서 스스로 확인할 수 있도록 쉽게 설명한다.",
+    siteIdentity: "밝은재테크",
+    contentDomain: "생활경제, 생활금융, 정부지원, 세금, 주거 정보",
+    requiredPublishingCategoryNames: Object.freeze(["생활재테크"]),
     requiredPrinciples: Object.freeze([
       ...sharedPrinciples,
+      peopleFirstValueAndTrustPrinciple,
+      "독자가 가진 구체적인 질문이나 문제를 먼저 정의하고 서론에서 핵심 답변을 불필요하게 미루지 않는다.",
+      "검색 의도를 해결하는 데 필요한 판단 기준과 실행 방법을 빠짐없이 제공한다.",
+      "다른 문서를 단순 요약·재작성하지 않고, 주제에 적합한 고유한 설명·비교·사례·계산·체크리스트·주의점·선택 기준 중 필요한 요소로 독창적인 기여를 만든다.",
+      "독창성은 확인되지 않은 새로운 사실, 수치, 경험담, 성공 사례 또는 전문가 자격을 발명하는 것이 아니다.",
+      "확인 가능한 사실과 편집 해석을 구분하고, 변동 가능한 정보에는 기준일 또는 확인 시점을 표시하며 중요한 주장은 공식 또는 신뢰할 수 있는 출처로 뒷받침한다.",
+      "조건에 따라 달라지거나 불확실한 내용은 적용 범위와 한계를 명시한다.",
+      "제목과 소제목은 실제 내용을 정확히 설명하고, 키워드 반복·문장 부풀리기·의미 없는 서론과 결론 없이 정보 밀도를 유지하면서 중복과 불필요한 장문을 제거한다.",
+      "관련성이 검증된 공개 글만 내부 링크로 사용한다.",
+      "승인 보장, 수익 보장, 반드시 통과 또는 100% 승인이라는 표현을 사용하지 않는다.",
+      "생활경제 분야의 주제와 대상 독자에게 일관된 원고를 작성한다.",
       "변경 가능한 대상, 기간, 금액, 소득 기준, 금리와 세율은 공식 출처로 확인한다.",
-      "정보 기준일, 최종 검토일과 공식 확인 경로를 제공한다.",
+      "본문에는 정보 기준일과 공식 재확인 경로를 제공한다. 출처 확인일과 Claim 최종 검토일은 Bright Studio가 Evidence 검증 후 별도로 기록한다.",
       "공식 문서를 단순 요약하지 않고 독자가 자신의 적용 여부를 판단할 조건, 예외, 확인 순서와 다음 행동을 제공한다.",
-      "초기 Category는 생활경제 하나만 사용하고 초기 Tag를 만들지 않는다.",
+      "초기 Category는 생활재테크 하나만 사용하고 초기 Tag를 만들지 않는다.",
     ]),
     prohibitedClaims: Object.freeze([
       ...sharedProhibitedClaims,
@@ -105,10 +142,18 @@ const profileSnapshots: Readonly<Record<ApprovalPolicyProfileId, ApprovalPolicyS
       "국세청·법령정보·금융위원회·금융감독원 자료",
       "공공기관 공식 공고와 공식 신청 페이지",
       "공식 HTTPS URL",
-      "정보 기준일과 최종 검토일",
+      "본문 정보 기준일과 시스템 Evidence 검토일의 역할 분리",
     ]),
     qualityChecks: Object.freeze([
       ...sharedQualityChecks,
+      "Reader Value: 독자의 구체적인 질문을 먼저 정의하고 핵심 답변, 판단 기준과 실행 방법을 실제로 제공하는지 평가한다.",
+      "Original Contribution: 단순 요약·재작성이 아니라 주제에 적합한 설명, 비교, 사례, 계산, 체크리스트, 주의점 또는 선택 기준으로 고유한 가치를 더하는지 평가한다.",
+      "Factual Reliability: 사실과 해석을 구분하고, 변동 정보의 기준일과 신뢰 가능한 출처를 제시하며 확인하지 않은 수치·경험·성공 사례·자격을 만들지 않는지 평가한다.",
+      "Completeness: 검색 의도에 필요한 핵심 질문, 조건, 예외, 판단 기준, 실행 방법과 다음 행동을 빠짐없이 충분히 설명하는지 평가한다.",
+      "Transparency: 정보의 적용 범위, 불확실성, 한계, 확인 시점과 최종 확인 경로를 독자가 이해할 수 있게 밝히는지 평가한다.",
+      "Readability: 제목과 소제목이 실제 내용을 정확히 설명하고, 핵심 답변을 미루거나 키워드를 반복하거나 문장을 부풀리지 않으며 정보 밀도를 유지하는지 평가한다.",
+      "Search Intent Satisfaction: 원고 전체가 생활경제 독자의 실제 검색 질문과 문제를 완결적으로 해결하는지 평가한다.",
+      "Policy Safety: 승인·수익 보장, 반드시 통과, 100% 승인과 그 밖의 과장·미검증 주장을 차단하되 외부 승인 가능성을 점수화하지 않는다.",
       "변경 가능한 생활경제 정보의 최신성",
       "공식 출처와 신청·확인 경로",
       "독자가 자신의 상황을 판단할 수 있는 조건과 예외",
@@ -122,8 +167,10 @@ const profileSnapshots: Readonly<Record<ApprovalPolicyProfileId, ApprovalPolicyS
     policyDocumentPath: "Docs/current/01_PRODUCT/15_ADSENSE_APPROVAL_MODE.md",
     profileId: "tistory_vivarain_art_v1",
     profileVersion: "1.0",
+    profileDisplayName: "Tistory · 비바레인 미술",
     profileDocumentPath: "Docs/current/01_PRODUCT/16_TISTORY_VIVARAIN_ADSENSE_APPROVAL_PROFILE.md",
-    siteIdentity: "미술 초보 일반 독자가 서양미술의 화가와 작품을 시대적 배경, 시각적 특징, 감상 포인트와 확인 가능한 자료를 통해 쉽게 이해하도록 돕는다.",
+    siteIdentity: "비바레인",
+    contentDomain: "서양미술 화가와 작품 감상 정보",
     requiredPrinciples: Object.freeze([
       ...sharedPrinciples,
       "작품이나 화가를 이해하는 데 필요한 시대적 배경과 실제 관찰 포인트를 제공한다.",
@@ -177,17 +224,26 @@ export function resolveApprovalPolicySnapshot(
   return profileSnapshots[profileId];
 }
 
+export function approvalPolicyProfileDisplayName(profileId: ApprovalPolicyProfileId): string {
+  return profileSnapshots[profileId].profileDisplayName;
+}
+
 export function approvalPolicyPromptContext(snapshot: ApprovalPolicySnapshot): string {
   return [
     `Content purpose: ${snapshot.contentPurpose}`,
     `Approval policy: ${snapshot.policyId}@${snapshot.policyVersion}`,
-    `Approval profile: ${snapshot.profileId}@${snapshot.profileVersion}`,
+    `Approval profile: ${snapshot.profileDisplayName}@${snapshot.profileVersion}`,
     `Policy documents reviewed: ${snapshot.policyDocumentPath} | ${snapshot.profileDocumentPath} | Docs/current/01_PRODUCT/17_ADSENSE_APPROVAL_READINESS_BLUEPRINT.md`,
-    `Site identity: ${snapshot.siteIdentity}`,
+    `Site and brand identity (metadata only): ${snapshot.siteIdentity}`,
+    `Content domain: ${snapshot.contentDomain}`,
+    ...(snapshot.requiredPublishingCategoryNames?.length
+      ? [`Required publishing categories: ${snapshot.requiredPublishingCategoryNames.join(" | ")}`]
+      : []),
     `Required principles: ${snapshot.requiredPrinciples.join(" | ")}`,
     `Prohibited claims: ${snapshot.prohibitedClaims.join(" | ")}`,
     `Source requirements: ${snapshot.sourceRequirements.join(" | ")}`,
     `Approval quality checks: ${snapshot.qualityChecks.join(" | ")}`,
+    "Identity and publishing category boundary: site or brand identity, approval profile display names, and publishing Category labels are metadata, not default search keywords. Do not insert them into the title, body, meta description, image prompt or ALT, tags, or CTA merely because they appear in this policy.",
     "Approval writing strategy: produce people-first, unique, non-commodity content that gives the reader a usable observation order, decision criteria, exceptions, comparison, or next action unavailable from a generic summary.",
     "Evidence integrity: use only verified official Evidence supplied by the server. Never invent a source URL, citation, institution, date, quote, artwork fact, eligibility rule, amount, rate, or deadline. If verified Evidence is unavailable, preserve the limitation instead of fabricating certainty.",
     "Duplicate integrity: the new article must have a distinct role, search intent, structure, claims, and reader value compared with existing Project content. Do not create a template clone with only names or keywords changed.",
@@ -205,8 +261,11 @@ export function approvalPolicySnapshotFromEditorialContext(
   if (!editorialContext.includes("Approval policy: adsense_approval_mode@1.0")) {
     throw new Error("Canonical editorial context contains an unsupported approval policy version.");
   }
-  const profileId = approvalPolicyProfileIds.find((value) =>
-    editorialContext.includes(`Approval profile: ${value}@1.0`));
+  const profileId = approvalPolicyProfileIds.find((value) => {
+    const snapshot = profileSnapshots[value];
+    return editorialContext.includes(`Approval profile: ${snapshot.profileDisplayName}@${snapshot.profileVersion}`)
+      || editorialContext.includes(`Approval profile: ${value}@${snapshot.profileVersion}`);
+  });
   if (!profileId) {
     throw new Error("Canonical editorial context is missing an approved policy profile.");
   }
@@ -216,9 +275,24 @@ export function approvalPolicySnapshotFromEditorialContext(
 export function evaluateApprovalPreparationText(
   text: string,
   snapshot: ApprovalPolicySnapshot,
+  evidence: ApprovalPreparationEvidenceContext = {},
 ): readonly ApprovalPreparationIssue[] {
   const issues: ApprovalPreparationIssue[] = [];
   const normalized = text.replace(/\s+/g, " ").trim();
+  const evidenceSourceUrls = (evidence.sourceUrls ?? []).filter((value) => {
+    try {
+      return new URL(value).protocol === "https:";
+    } catch {
+      return false;
+    }
+  });
+  const coverageKnown = evidence.coverageStatus !== undefined;
+  const coverageVerified = evidence.coverageStatus === "verified"
+    && (evidence.unverifiedFactFields?.length ?? 0) === 0;
+  // Direct policy callers preserve the conservative legacy default. Runtime
+  // workflow callers always provide applicability from the persisted plan.
+  const evidenceRequired = evidence.evidenceRequired !== false;
+  const timeSensitiveEvidenceRequired = evidence.timeSensitiveEvidenceRequired !== false;
 
   if (/(?:애드센스|AdSense).{0,18}(?:100\s*%|무조건|반드시|확실히).{0,12}(?:승인|통과)|(?:승인|통과).{0,18}(?:보장|확정)/i.test(normalized)) {
     issues.push({ code: "APPROVAL_GUARANTEE_CLAIM", message: "AdSense 승인 또는 통과를 보장하는 표현이 있습니다.", blocking: true });
@@ -233,18 +307,23 @@ export function evaluateApprovalPreparationText(
     issues.push({ code: "FABRICATED_EXPERIENCE", message: "확인할 수 없는 직접 경험 또는 방문 경험을 사실처럼 표현했습니다.", blocking: true });
   }
 
-  const hasSourceSignal = /(?:출처|참고 자료|공식 자료|공식 페이지|소장처|최종 검토일|정보 기준일)/i.test(normalized);
-  if (!hasSourceSignal && snapshot.sourceRequirements.length > 0) {
+  const hasSourceSignal = coverageKnown
+    ? coverageVerified
+    : evidenceSourceUrls.length > 0
+    || /(?:출처|참고 자료|공식 자료|공식 페이지|소장처|최종 검토일|정보 기준일)/i.test(normalized);
+  if (!hasSourceSignal && evidenceRequired) {
     issues.push({ code: "PROFILE_SOURCE_REQUIREMENT_MISSING", message: "적용 프로필이 요구하는 출처 또는 검토 기준 표시가 없습니다.", blocking: true });
   }
 
-  const hasSourceUrl = /https:\/\/[^\s<>)"']+/i.test(normalized);
-  if (!hasSourceUrl && snapshot.sourceRequirements.length > 0) {
+  const hasSourceUrl = evidenceSourceUrls.length > 0
+    || /https:\/\/[^\s<>)"']+/i.test(normalized);
+  if (!hasSourceUrl && evidenceRequired) {
     issues.push({ code: "PROFILE_SOURCE_URL_MISSING", message: "공식 출처를 확인할 수 있는 HTTPS URL이 없습니다.", blocking: true });
   }
 
-  const hasReviewDate = /(?:최종\s*검토일|정보\s*기준일)\s*[:：]?\s*(?:20\d{2}[-./년]\s*\d{1,2}(?:[-./월]\s*\d{1,2})?|20\d{2}[-./]\d{1,2}(?:[-./]\d{1,2})?)/i.test(normalized);
-  if (!hasReviewDate && snapshot.sourceRequirements.length > 0) {
+  const hasReviewDate = Boolean(evidence.reviewedAt && Number.isFinite(Date.parse(evidence.reviewedAt)))
+    || /(?:(?:최종\s*검토일|정보\s*기준일)(?:\s*(?:과|와|및)\s*(?:최종\s*검토일|정보\s*기준일))?)\s*(?:은|는|이|가)?\s*[:：]?\s*(?:20\d{2}[-./년]\s*\d{1,2}(?:[-./월]\s*\d{1,2})?|20\d{2}[-./]\d{1,2}(?:[-./]\d{1,2})?)/i.test(normalized);
+  if (!hasReviewDate && timeSensitiveEvidenceRequired) {
     issues.push({ code: "PROFILE_REVIEW_DATE_MISSING", message: "정보 기준일 또는 최종 검토일을 확인할 수 없습니다.", blocking: true });
   }
 

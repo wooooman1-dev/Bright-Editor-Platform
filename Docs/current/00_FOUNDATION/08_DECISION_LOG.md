@@ -647,6 +647,8 @@ AI는 Evidence를 생성·수정하거나 Provider·metric·Evidence ID를 발�
 - `marketOpportunity`: 검증된 외부 Evidence가 있고 내부 성장 근거가 종합 추천에 충분하지 않으며 동일 gate를 통과
 - `blogGrowth`: 외부 시장성이 확인되지 않았지만 content gap, verified public internal-link 또는 cluster Evidence가 있고 동일 gate를 통과
 
+Content Opportunity의 자동 선택 순서는 편집 가치 우선이다. 서버는 기존 Planning 계약의 reader problem, concrete search task, coverage, decision criteria, exceptions, actions, Project alignment/exclusions와 기존 공개 Content 중복을 사용해 `사용자 도움 가치 → 사실적 방어 가능성 → 검색 의도 해결 → 기존 Content 대비 추가 가치`를 먼저 결정론적으로 평가한다. 검증된 시장 Evidence, 경쟁도, 희소성, trend와 recommendation type은 이 편집 가치 gate를 통과한 후보 사이에서만 후순위 정렬 근거가 된다. 검색량 또는 희소성만 있고 구체적인 독자 문제가 없는 후보, Project excluded topic, 근거 없는 보장·확정 표현, 구체적인 search task가 없는 후보는 자동 추천하지 않는다. 이 평가는 새로운 Provider 호출이나 저장 모델 migration을 만들지 않으며 기존 VERIFY/CRITICAL Evidence 정책을 변경하지 않는다.
+
 editorial inference만으로 종합 추천이나 시장 기회 추천을 만들지 않는다. stale 외부 Evidence만으로 강한 종합 추천을 만들지 않는다. Evidence가 부족한 유형과 후보 수를 억지로 채우지 않으며 설명할 수 있는 근거가 없으면 전체 1순위 또는 시장 점수를 표시하지 않는다.
 
 추천 유형, Evidence ID·요약, 시장/내부 상태, freshness, limitation과 classification version은 Opportunity fingerprint에 포함한다. 후보 선택과 확정은 이 필드를 주제·키워드·검색 의도와 함께 원자적으로 교체·저장·복원한다. Quality Review는 동일 canonical Opportunity를 사용해 근거 없는 검색량·CPC·시장 순위, stale 최신성 주장, 광고 경쟁도와 SEO 난이도 혼동, CPC/RPM 수익 예측을 차단한다.
@@ -670,6 +672,8 @@ Status: Accepted
 통합 Sprint 구현의 Gate 0은 실제 Tistory 계정에서 Draft Save를 실행하고 Draft를 다시 열어 제목, 의미 있는 본문 구조, Category와 비공개 상태를 확인하는 전체 End-to-End 검증이다. 저장 버튼 클릭, 부분 검증 또는 자동 테스트만으로 Gate 0을 통과한 것으로 간주하지 않는다. Gate 0 통과 전에는 통합 Sprint의 Presentation Runtime 또는 Scheduling 구현을 시작하지 않는다.
 
 Workstream A는 Canonical `ContentDocument`에서 deterministic Presentation Resolver, allowlisted Bright Components와 theme-independent semantic HTML을 생성한다. 불변 `RenderArtifact`와 checksum을 저장하고 `PreviewApproval`을 해당 Artifact에 결합한다. Preview와 Tistory Draft는 승인된 동일 Artifact를 사용하며, Draft 재진입 후에는 Tistory가 정규화한 결과의 의미 구조가 일치하는지 검증한다. Presentation Contract Foundation은 구현되었지만 Presentation Runtime은 구현되지 않았다.
+
+Canonical Content의 `longFormStructure.sectionType`과 정규화된 paragraph/list/table block binding은 reader-visible section presentation의 공통 semantic source로 사용할 수 있다. 결정론적 Core projection은 checklist, warning, summary처럼 실제 정보 성격이 명확하고 필요한 구조가 존재할 때만 allowlisted Bright card intent를 만들며, explanation·steps·comparison·table은 의미에 맞는 native semantic HTML을 우선한다. 이 projection은 ContentDocument, factual surfaceText, Claim/Evidence binding 또는 persisted schema를 변경하지 않는다. WordPress와 Tistory renderer는 같은 projection을 각 플랫폼 HTML로 매핑하고, 짧은 label column은 최소 폭·단어 단위 줄바꿈·모바일 horizontal overflow 경계를 적용한다. 전체 RenderArtifact/PreviewApproval Runtime의 나머지 범위는 계속 미구현 상태다.
 
 Workstream B는 `ScheduledPublication`과 `ScheduleJob`을 정의하고 Tistory 자체 예약 기능을 우선 사용한다. 시간대는 `Asia/Seoul`로 고정하며 예약 대상 Content Revision, PlatformConnection Account와 Category를 고정한다. 로컬 Scheduler가 공개 시각까지 대기하거나 자체적으로 공개 작업을 실행하지 않는다.
 
@@ -706,6 +710,148 @@ Quality Engine은 필수 정보 요소를 `missing`, `mentioned`, `sufficient`�
 
 Provider 응답과 구조화 형식이 유효해 canonical `ContentDocument`를 만들 수 있다면, Generation 또는 Quality Review의 품질 기준을 충족하지 못해도 문서와 진단을 보존하고 Content를 `in_review`로 둔다. 사용자는 Editor에서 이 문서를 수정하고 다시 Quality Review를 실행할 수 있다. Provider 오류나 구조화 형식 오류처럼 canonical 문서를 만들 수 없는 기술 실패는 문서가 없는 실패로 구분한다. 품질 미달 문서는 `ready` 또는 발행 가능 상태가 아니며, `approved === true && approvalType === "standard"` 조건은 변경하지 않는다.
 
+# D-036 WordPress Draft Publishing MVP
+
+Status: Accepted
+
+WordPress Draft MVP는 WordPress Core REST API를 사용하는 `server_api` 방식이다. WordPress 외부 실행에 Playwright를 사용하지 않는다.
+
+실행 경계는 다음과 같다.
+
+```text
+UI
+→ Application Service
+→ Publishing Service
+→ Permission Gate
+→ WordPress Adapter
+→ WordPress REST API
+→ External Re-read Verification
+→ Persistence and Audit
+→ Completion UI
+```
+
+안전 정책은 다음과 같다.
+
+- Review First: ON
+- Draft Only: ON
+- Public Publish: OFF
+- Quality Approval과 현재 Content Revision 일치 필수
+- 사용자의 최종 확인 필수
+- WordPress Application Password 원문은 SecretStore에만 저장
+- UI, Content, Project, Audit, Error와 Log에 Application Password 또는 Authorization Header 저장 금지
+
+Category 결정은 다음과 같다.
+
+- WordPress Category ID는 사이트·Connection별 외부 식별자이므로 코드에 하드코딩하지 않는다.
+- 승인 준비에 필요한 Category 이름은 Core 승인 프로필에 단일 정책값으로 둔다.
+- WordPress의 실제 Category 목록을 PlatformConnection별로 동적 조회한다.
+- 데이터 구조와 REST Payload는 처음부터 복수 Category를 지원한다.
+- 현재 AdSense 승인 준비 정책에서는 `생활재테크` Category 하나만 사용한다.
+- 앞뒤 공백 제거와 안전한 Unicode 정규화 후 `생활재테크`와 정확히 일치할 때만 정책을 통과한다. `생활경제`를 포함한 유사 이름은 자동 매칭하지 않는다.
+- 향후 Category가 추가되면 코드 변경 없이 실제 목록에서 선택할 수 있어야 한다.
+- 저장된 Category ID는 Draft 실행 직전에 실제 조회 결과로 재검증한다.
+- Category가 삭제되거나 사용할 수 없으면 Readiness를 차단하고 재선택을 요구한다.
+- 임의의 Category나 `미분류`로 자동 대체하지 않는다.
+- 같은 Workspace라도 WordPress 사이트별 Category 목록과 기본 Category를 독립 관리한다.
+- Category 이름이 변경되고 ID가 유지되면 최신 이름으로 동기화할 수 있다.
+
+사이트 정체성과 승인 프로필 표현은 다음과 같이 분리한다.
+
+- 사이트명과 브랜드명은 `밝은재테크`다.
+- 콘텐츠 분야는 `생활경제`이며 생활금융, 정부지원, 세금과 주거 정보를 포함할 수 있다.
+- WordPress 발행 Category 이름은 `생활재테크`다.
+- 내부 호환 식별자 `wordpress_life_economy_v1`은 기존 Project와 Content 복원을 위해 유지하되 사용자 표시명이나 AI Prompt에 노출하지 않는다.
+- 사용자 표시용 프로필명은 `WordPress · 밝은재테크`다.
+- 브랜드명, 콘텐츠 분야, 발행 Category와 내부 프로필 식별자를 하나의 문자열 의미로 공유하지 않는다.
+
+Category 선택과 기본값 적용 우선순위는 다음과 같다.
+
+1. Content에서 직접 선택한 Category
+2. Project `defaultWordPressCategories`
+3. `WordPressConnectionProfile.defaultCategoryIds`
+4. 유효한 Category가 없으면 Readiness 차단
+
+모든 기본 Category ID는 실제 WordPress 목록으로 재검증한다. 유효하지 않은 값을 `미분류`로 자동 대체하지 않는다.
+
+Media 결정은 다음과 같다.
+
+- WordPress Media Upload Capability는 MVP에서 Supported다.
+- D-021 Safe Draft Mode에 따라 `media.upload` Permission 기본값은 계속 Disabled다.
+- 로컬 이미지가 있는 Draft만 `media.upload` Permission을 요구한다.
+- 사용자가 해당 WordPress Connection에서 `media.upload`를 명시적으로 허용해야 실행한다.
+- 이미지가 없는 글은 `media.upload` Permission 없이 Draft Create가 가능하다.
+- Media Upload는 Renderer 책임이 아니라 WordPress Media Adapter 책임이다.
+- 업로드된 Media ID와 WordPress URL로 본문 이미지를 변환한다.
+- ALT를 저장하고 외부 Media 재조회로 확인한다.
+- 목적성 대표 이미지가 있는 경우 해당 Media ID를 `featured_media`로 지정한다.
+- Featured Image도 외부 Post 재조회로 확인한다.
+- Post 생성 실패 후 이미 업로드된 Media를 자동 삭제하지 않는다.
+- 이 경우 `cleanup_required` 또는 동등한 안전 상태와 Audit을 남긴다.
+
+Tag 결정은 다음과 같다.
+
+- 기술 구조는 향후 Tag 확장이 가능해야 한다.
+- 현재 AdSense 승인 준비 단계에서는 Tag를 보내지 않는다.
+- WordPress에 존재하는 Tag를 자동 생성하거나 추측하지 않는다.
+
+Idempotency Key는 최소한 다음을 포함한다.
+
+```text
+workspaceId
+projectId
+contentId
+current revision 또는 content version
+platformConnectionId
+draft.create
+```
+
+Idempotency 결정은 다음과 같다.
+
+- 동일 Key의 `verified` 결과는 새 Draft를 만들지 않고 기존 결과를 반환한다.
+- 외부 ID를 받은 상태에서는 새 Draft 생성 전 기존 외부 Post를 먼저 재검증한다.
+- 결과가 `unknown`이면 자동으로 새 Draft를 생성하지 않는다.
+- 실패한 요청의 재시도는 사용자 명시 동작으로만 수행한다.
+- Revision이 변경되면 새로운 논리적 Key를 사용한다.
+
+`POST /posts` 응답만으로 완료 처리하지 않는다. 생성된 External Post ID를 다시 조회하고 최소한 다음을 검증한다.
+
+- External Post ID
+- `status=draft`
+- title 일치
+- 의미 있는 본문 존재
+- 선택한 Category ID 적용
+- Tag 미사용 정책
+- 필요한 Media 존재
+- ALT 적용
+- 필요한 Featured Image ID 적용
+
+WordPress HTML 정규화 가능성을 고려해 원문 문자열 완전 일치만 요구하지 않는다.
+
+MVP에서 다음은 제외한다.
+
+- Public Publish
+- Scheduled Publishing
+- Existing Post Update
+- Existing Post Delete
+- 자동 Plugin 설치 또는 수정
+- Theme 수정
+- SEO Plugin 전용 Metadata
+- 여러 플랫폼 동시 실행
+- 자동 Retry
+- 업로드 Media 자동 삭제
+
+
+---
+
+# D-037 Claim-context Source Authority
+
+Status: Accepted
+
+Source Authority는 고정 정부 도메인 여부와 동일한 개념으로 판정하지 않고 Claim의 실제 정보 소유자 또는 권위 주체를 기준으로 판정한다. 법률·세금·정부지원·금융 규제 Claim은 국가법령정보센터, 실제 담당 정부·공공기관, 국세청, 금융위원회·금융감독원 등 해당 공적 권위 주체를 사용하며 기존 승인 프로필 allowlist와 공공기관 검증을 유지한다.
+
+특정 은행·카드사·보험사 또는 그 밖의 사업자가 소유한 상품의 금리, 중도해지, 상품조건, 수수료, 보험조건 Claim은 해당 Claim subject와 동일한 source owner의 HTTPS 공식 홈페이지, 상품공시, 상품설명서 또는 약관을 authoritative primary source로 인정할 수 있다. 특정 사업자 이름이나 도메인을 Core에 하드코딩하지 않고 공통 entity/source-owner matching 정책을 사용한다.
+
+Source Authority와 Claim relevance는 독립 Gate로 유지한다. 다른 사업자의 공식 페이지는 owner mismatch로 거부하고, 올바른 사업자의 공식 페이지라도 Claim과 무관하면 relevance로 거부한다. 모든 채택 Evidence는 기존 exact excerpt anchor, semantic·temporal verification과 CRITICAL Claim 100% Coverage를 통과해야 한다. NONE은 Evidence N/A, VERIFY는 실패 시 전체 Generation을 차단하지 않고 같은 Generation Prompt에서 해당 구체 Claim을 제거하거나 일반화하며, CRITICAL에만 mandatory Source Preflight와 Generation Gate를 적용한다. Generation 1회와 Quality Review 1회 정책은 변경하지 않는다.
 
 ---
 

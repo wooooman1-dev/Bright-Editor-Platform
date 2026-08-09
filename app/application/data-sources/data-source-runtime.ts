@@ -9,12 +9,15 @@ import { GoogleSearchConsoleAdapter } from "./adapters/GoogleSearchConsoleAdapte
 import { GoogleAnalytics4Adapter } from "./adapters/GoogleAnalytics4Adapter";
 import { GoogleAdSenseAdapter } from "./adapters/GoogleAdSenseAdapter";
 import { NaverSearchTrendAdapter } from "./adapters/NaverSearchTrendAdapter";
+import { YouTubeAnalyticsAdapter } from "./adapters/YouTubeAnalyticsAdapter";
 import type { DataSourceProviderAdapter } from "../../../core/intelligence";
 import { GoogleOAuthClientFactory } from "./google/GoogleOAuthClientFactory";
 import { GoogleOAuthCredentialService } from "./google/GoogleOAuthCredentialService";
 import { GoogleOAuthStateStore } from "./google/GoogleOAuthStateStore";
 import { GoogleSearchConsoleService } from "./google/GoogleSearchConsoleService";
 import { GoogleSearchConsoleOAuthFlow } from "./google/GoogleSearchConsoleOAuthFlow";
+import { GoogleYouTubeAnalyticsService } from "./google/GoogleYouTubeAnalyticsService";
+import { GoogleYouTubeAnalyticsOAuthFlow } from "./google/GoogleYouTubeAnalyticsOAuthFlow";
 import { DataSourceDeletionService } from "./DataSourceDeletionService";
 import { LocalSafeBackupWriter } from "../SafeDeletionService";
 
@@ -32,10 +35,13 @@ export const googleOAuthCredentialService = new GoogleOAuthCredentialService(sec
 export const googleOAuthStateStore = new GoogleOAuthStateStore(store);
 export const googleSearchConsoleService = new GoogleSearchConsoleService(googleOAuthCredentialService);
 export const googleSearchConsoleOAuthFlow = new GoogleSearchConsoleOAuthFlow(dataSourceConnectionRepository, secretStore, googleOAuthCredentialService, googleSearchConsoleService);
+export const googleYouTubeAnalyticsService = new GoogleYouTubeAnalyticsService(googleOAuthCredentialService);
+export const googleYouTubeAnalyticsOAuthFlow = new GoogleYouTubeAnalyticsOAuthFlow(dataSourceConnectionRepository, secretStore, googleOAuthCredentialService, googleYouTubeAnalyticsService);
 const adapters = new Map<string, DataSourceProviderAdapter>([
   ["googleSearchConsole", new GoogleSearchConsoleAdapter(googleSearchConsoleService)],
   ["googleAnalytics4", new GoogleAnalytics4Adapter(secretStore)],
   ["googleAdSense", new GoogleAdSenseAdapter(secretStore)],
+  ["youtubeAnalytics", new YouTubeAnalyticsAdapter(googleYouTubeAnalyticsService)],
   ["naverSearchTrend", new NaverSearchTrendAdapter(secretStore)],
 ]);
 export const dataSourceSyncService = new DataSourceSyncService(dataSourceConnectionRepository, dataSourceSnapshotRepository, opportunityEvidenceRepository, rawDataSourceSnapshotStore, secretStore, adapters);

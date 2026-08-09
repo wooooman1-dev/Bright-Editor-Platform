@@ -1,9 +1,15 @@
 import { NextResponse } from "next/server";
 
 import type { UserData } from "../../../user-flow/user-data";
-import { ApprovalReadinessApplicationService } from "../../../application/approval/ApprovalReadinessApplicationService";
-import { connectionRepository } from "../../../application/connections/connection-runtime";
-import { resolveTistoryConnectionId } from "../../../application/publishing/TistoryConnectionSelection";
+import { normalizeApprovalEvidenceCandidates } from "../../../application/approval/ApprovalEvidenceCandidateNormalization";
+import {
+  approvalReadinessExecutionIdentity,
+  ApprovalReadinessApplicationService,
+  executeApprovalReadinessOnce,
+} from "../../../application/approval/ApprovalReadinessApplicationService";
+import { connectionRepository, targetRepository } from "../../../application/connections/connection-runtime";
+import { resolveCanonicalPublishingConnection } from "../../../application/publishing/ProjectPublishingTarget";
+import { isPublishingConnectionSelectedForContent } from "../../../application/publishing/PublishingTargetSelection";
 import { studioStore } from "../../../application/studio-store";
 
 const collection = "application";
@@ -15,25 +21,33 @@ export async function POST(request: Request) {
       workspaceId?: string;
       contentId?: string;
     };
-    const workspaceId = required(body.workspaceId, "Workspace가 필요합니다.");
-    const contentId = required(body.contentId, "Content가 필요합니다.");
-    const data = await studioStore.get<UserData>(collection, stateId);
-    if (!data?.workspace || data.workspace.id !== workspaceId) throw new Error("Workspace를 찾을 수 없습니다.");
+    const workspaceId = required(body.workspaceId, "작업공간이 필요합니다.");
+    const contentId = required(body.contentId, "콘텐츠가 필요합니다.");
+    const stored = await studioStore.get<UserData>(collection, stateId);
+    if (!stored?.workspace || stored.workspace.id !== workspaceId) throw new Error("작업공간을 찾을 수 없습니다.");
+    const data = normalizeApprovalEvidenceCandidates(stored, contentId);
 
     const content = data.contents.find((item) => item.id === contentId && item.workspaceId === workspaceId);
-    if (!content) throw new Error("승인 준비 검사 대상 Content를 찾을 수 없습니다.");
+    if (!content) throw new Error("승인 준비 검사 대상 콘텐츠를 찾을 수 없습니다.");
 
-    const connectionId = content.platform === "tistory" || content.publishingPreparation?.tistory
-      ? resolveTistoryConnectionId(data, content)
-      : undefined;
-    const connection = connectionId ? await connectionRepository.findById(connectionId) : undefined;
-    if (connection && connection.workspaceId !== workspaceId) throw new Error("발행 계정이 현재 Workspace에 속하지 않습니다.");
-
-    const result = await new ApprovalReadinessApplicationService().execute({
-      data,
-      contentId,
-      connection,
-    });
+    const connections = await connectionRepository.listByWorkspace(workspaceId);
+    const connection = resolveCanonicalPublishingConnection(data, content, connections);
+    const targets = targetRepository.listByProject
+      ? await targetRepository.listByProject(content.projectId)
+      : [];
+    const selectedTarget = Boolean(connection
+      && isPublishingConnectionSelectedForContent(data, content, connection.id)
+      && targets.some((target) =>
+        target.platformConnectionId === connection.id
+        && target.platform === connection.platform));
+    const executionIdentity = approvalReadinessExecutionIdentity(content, connection?.id);
+    const result = await executeApprovalReadinessOnce(executionIdentity.key, () =>
+      new ApprovalReadinessApplicationService().execute({
+        data,
+        contentId,
+        connection,
+        selectedTarget,
+      }));
     await studioStore.set(collection, stateId, result.data);
     const saved = await studioStore.get<UserData>(collection, stateId);
 
@@ -43,7 +57,11 @@ export async function POST(request: Request) {
       quality: result.quality,
       evidence: {
         status: result.evidence.pack.status,
+        coverageStatus: result.evidence.pack.coverageStatus,
         reviewedAt: result.evidence.pack.reviewedAt,
+        informationAsOf: result.evidence.pack.informationAsOf,
+        presentationStatus: result.evidence.pack.presentationStatus,
+        presentationReasons: result.evidence.pack.presentationReasons,
         verifiedSourceCount: result.evidence.verifiedSourceCount,
         rejectedSourceCount: result.evidence.rejectedSourceCount,
         reasons: result.evidence.reasons,

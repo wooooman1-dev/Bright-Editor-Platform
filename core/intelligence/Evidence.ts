@@ -3,7 +3,7 @@ import type { DataSourceProvider } from "./DataSourceConnection";
 export const evidenceTypes = [
   "searchPerformance", "searchDemand", "relativeTrend", "risingTrend",
   "keywordCompetition", "commercialIntent", "pageEngagement", "revenuePerformance",
-  "contentGap", "internalLinkOpportunity", "clusterOpportunity", "editorialInference",
+  "videoPerformance", "contentGap", "internalLinkOpportunity", "clusterOpportunity", "editorialInference",
 ] as const;
 
 export type EvidenceType = (typeof evidenceTypes)[number];
@@ -97,6 +97,9 @@ export function assertEvidenceSemantics(evidence: OpportunityEvidenceDraft): voi
   }
   if (evidence.provider === "googleAnalytics4" && evidence.evidenceType === "searchDemand") {
     throw new Error("GA4 engagement cannot be represented as search demand.");
+  }
+  if (evidence.provider === "youtubeAnalytics" && evidence.evidenceType === "searchDemand") {
+    throw new Error("YouTube channel performance cannot be represented as search demand.");
   }
   if (evidence.provider === "googleSearchConsole" && evidence.metric === "impressions" && evidence.evidenceType === "searchDemand") {
     throw new Error("Search Console impressions are site search performance, not total search demand.");

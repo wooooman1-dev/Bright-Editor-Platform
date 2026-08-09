@@ -30,14 +30,14 @@ export function placeRecommendedPosts(document: ContentDocument, ranked: readonl
     const headings = blocks.map((block, index) => block.type === "heading" && (block.level === 2 || block.level === 3) ? index : -1).filter((index) => index >= 0);
     const insertAt = (headings[Math.floor(headings.length / 2)] ?? Math.max(0, blocks.length - 1)) + 1;
     const candidate = available.shift()!;
-    blocks.splice(insertAt, 0, { id: uniqueBlockId([...blocks, ...relatedPosts], "auto-internal-link"), type: "button", purpose: "internal_link", label: candidate.title, targetUrl: candidate.publishedUrl, target: "_self", sourceExternalPostId: candidate.externalPostId });
+    blocks.splice(insertAt, 0, { id: uniqueBlockId([...blocks, ...relatedPosts], "auto-internal-link"), type: "button", ownership: "system_catalog", purpose: "internal_link", label: candidate.title, targetUrl: candidate.publishedUrl, target: "_self", sourceExternalPostId: candidate.externalPostId });
   }
 
   const used = new Set([...blocks, ...relatedPosts].flatMap((block) => block.type === "button" && block.targetUrl ? [normalizeUrl(block.targetUrl)] : []));
   const missingRelatedPosts = Math.max(0, 3 - relatedPosts.length);
 
   for (const item of available.filter((candidate) => !used.has(normalizeUrl(candidate.publishedUrl))).slice(0, missingRelatedPosts)) {
-    relatedPosts.push({ id: uniqueBlockId([...blocks, ...relatedPosts], "auto-related-post"), type: "button", purpose: "related_post", label: item.title, targetUrl: item.publishedUrl, target: "_self", sourceExternalPostId: item.externalPostId });
+    relatedPosts.push({ id: uniqueBlockId([...blocks, ...relatedPosts], "auto-related-post"), type: "button", ownership: "system_catalog", purpose: "related_post", label: item.title, targetUrl: item.publishedUrl, target: "_self", sourceExternalPostId: item.externalPostId });
     used.add(normalizeUrl(item.publishedUrl));
   }
 
@@ -73,7 +73,48 @@ function validPlacedLink(block: ContentDocument["blocks"][number], purpose: "int
 
 function uniqueBlockId(blocks: ContentDocument["blocks"], base: string) { const ids = new Set(blocks.map((block) => block.id)); let id = base, index = 2; while (ids.has(id)) id = `${base}-${index++}`; return id; }
 function normalizeUrl(value: string) { try { const url = new URL(value); url.hash = ""; return url.toString(); } catch { return value; } }
-function validPublicUrl(value: string) { try { const url = new URL(value); return url.protocol === "https:" && /\.tistory\.com$/i.test(url.hostname) && url.pathname.startsWith("/entry/") && !url.pathname.includes("/manage"); } catch { return false; } }
+function validPublicUrl(value: string) {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.username || url.password) return false;
+    if (!isPublicHostname(url.hostname)) return false;
+    if (/\.tistory\.com$/i.test(url.hostname)) {
+      return url.pathname.startsWith("/entry/")
+        && !/(?:^|\/)manage(?:\/|$)/i.test(url.pathname);
+    }
+    return !/(?:^|\/)(?:wp-admin|wp-login\.php|admin|login)(?:\/|$)/i.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
+function isPublicHostname(hostname: string): boolean {
+  const normalized = hostname
+    .toLocaleLowerCase("en-US")
+    .replace(/^\[|\]$/g, "")
+    .replace(/\.$/, "");
+  if (!normalized || normalized === "localhost" || normalized.endsWith(".local")) return false;
+  if (normalized === "::"
+    || normalized === "::1"
+    || normalized === "0:0:0:0:0:0:0:1") return false;
+  if (/^(?:fc|fd)[0-9a-f]{2}:/i.test(normalized)) return false;
+  if (/^fe[89ab][0-9a-f]:/i.test(normalized)) return false;
+
+  const mappedIpv4 = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(normalized)?.[1];
+  const ipv4Candidate = mappedIpv4 ?? normalized;
+  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(ipv4Candidate);
+  if (!ipv4) return true;
+
+  const values = ipv4.slice(1).map(Number);
+  if (values.some((value) => value > 255)) return false;
+  const [first, second] = values;
+  return !(first === 10
+    || first === 127
+    || first === 0
+    || first === 169 && second === 254
+    || first === 172 && second >= 16 && second <= 31
+    || first === 192 && second === 168);
+}
 function publishedTime(value?: string) { const parsed = Date.parse(value ?? ""); return Number.isFinite(parsed) ? parsed : 0; }
 function validViewCount(value?: number) { return Number.isFinite(value) && (value ?? 0) > 0 ? value! : 0; }
 

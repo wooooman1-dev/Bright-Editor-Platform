@@ -31,7 +31,10 @@ export function evaluateQualityReviewReadiness(
   const fatalReasons: string[] = [];
   if (!document.title.trim()) fatalReasons.push("canonical_document_title_missing");
   if (!document.blocks.length) fatalReasons.push("canonical_document_blocks_missing");
-  if (!document.blocks.some((block) => block.type === "paragraph" && block.text.trim())) fatalReasons.push("canonical_document_body_missing");
+  if (!document.blocks.some((block) =>
+    block.type === "paragraph" ? Boolean(block.text.trim()) : block.type === "list" && block.items.some((item) => item.trim()))) {
+    fatalReasons.push("canonical_document_body_missing");
+  }
   if (document.blocks.length !== new Set(document.blocks.map((block) => block.id)).size) fatalReasons.push("canonical_document_duplicate_block_ids");
 
   const opportunity = quality.opportunityReview;

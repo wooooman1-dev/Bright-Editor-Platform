@@ -15,14 +15,14 @@ export class GoogleSearchConsoleService {
   async listSites(client: GoogleOAuthClient): Promise<readonly DataSourceResourceOption[]> {
     try {
       const response = await this.api(client).sites.list();
-      const resources = (response.data.siteEntry ?? []).flatMap((entry) => typeof entry.siteUrl === "string" && entry.siteUrl.trim() ? [Object.freeze({ siteUrl: entry.siteUrl.trim(), ...(typeof entry.permissionLevel === "string" ? { permissionLevel: entry.permissionLevel } : {}) })] : []);
-      return Object.freeze([...new Map(resources.map((value) => [value.siteUrl, value])).values()].sort((a, b) => a.siteUrl.localeCompare(b.siteUrl)));
+      const resources = (response.data.siteEntry ?? []).flatMap((entry) => typeof entry.siteUrl === "string" && entry.siteUrl.trim() ? [Object.freeze({ resourceId: entry.siteUrl.trim(), displayName: entry.siteUrl.trim(), siteUrl: entry.siteUrl.trim(), ...(typeof entry.permissionLevel === "string" ? { permissionLevel: entry.permissionLevel } : {}) })] : []);
+      return Object.freeze([...new Map(resources.map((value) => [value.resourceId, value])).values()].sort((a, b) => (a.displayName ?? a.siteUrl).localeCompare(b.displayName ?? b.siteUrl)));
     } catch (error) { throw providerFailure(error); }
   }
 
   async sync(connection: DataSourceConnection, request: DataSourceSyncRequest): Promise<ProviderSnapshotPayload> {
     const siteProperty = connection.resourceConfiguration.siteProperty?.trim();
-    if (!siteProperty || !connection.availableResources?.some((value) => value.siteUrl === siteProperty)) throw new DataSourceError("선택한 Search Console 속성에 접근할 수 없습니다. 속성을 다시 선택해 주세요.", "GOOGLE_SEARCH_CONSOLE_RESOURCE_NOT_FOUND", 400, "siteProperty");
+    if (!siteProperty || !connection.availableResources?.some((value) => (value.resourceId ?? value.siteUrl) === siteProperty)) throw new DataSourceError("선택한 Search Console 속성에 접근할 수 없습니다. 속성을 다시 선택해 주세요.", "GOOGLE_SEARCH_CONSOLE_RESOURCE_NOT_FOUND", 400, "siteProperty");
     const session = await this.credentials.authorized(connection);
     try {
       const resource = connection.resourceConfiguration;

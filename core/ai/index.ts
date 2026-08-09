@@ -1,15 +1,38 @@
-export type { AIProvider, AIRequest, AIResponse, AIWebSource } from "./AIProvider";
 export {
-  AIWorkflow,
-  withApprovalPolicyMetadata,
-  withCanonicalEditorialContext,
-} from "./AIWorkflow";
+  AIProviderError,
+  aiProviderStages,
+  type AIProvider,
+  type AIRequest,
+  type AIResponse,
+  type AIProviderCompletionStatus,
+  type AIProviderStage,
+  type AIWebSource,
+} from "./AIProvider";
+export {
+  aiUsageStageForTask,
+  aiUsageStages,
+  appendAIUsageRecord,
+  appendAIUsageToDocument,
+  createAIUsageRecord,
+  totalAIUsageCostUsd,
+  totalAIUsageTokens,
+} from "./AIUsageCost";
 export type {
-  AIWorkflowState,
-  AIWorkflowStatus,
+  AIUsageInput,
+  AIUsagePricingStatus,
+  AIUsageRecord,
+  AIUsageStage,
+} from "./AIUsageCost";
+export type {
   ContentGenerationStrategy,
   ContentTypeId,
   GenerationInput,
   GenerationResult,
   PlatformId,
 } from "./AIWorkflow";
+export {
+  hasGeneratedFactualClaimInventoryResponse,
+  parseGeneratedFactualClaimInventoryDrafts,
+  parseGeneratedFactualClaimDrafts,
+  withGeneratedFactualClaimResponseInstruction,
+} from "./GeneratedFactualClaimResponse";

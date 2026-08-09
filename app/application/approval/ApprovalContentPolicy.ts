@@ -138,10 +138,23 @@ export function contentBoundEditorialContext(
     Object.entries(projectContext).filter(([key]) => key !== "approvalPolicy"),
   ));
   const approvalPolicy = contentApprovalPromptContext(content);
+  const sourceRequest = content.opportunity?.sourceRequest
+    ?? content.planningWorkflow?.request
+    ?? content.naturalLanguageRequest
+    ?? "";
+  const selectionMode = content.opportunity?.selectionMode
+    ?? content.planning?.selectionMode
+    ?? content.planningWorkflow?.selectionMode
+    ?? "automatic";
   return JSON.stringify({
     projectStrategy: {
       ...stableProjectContext,
       ...(approvalPolicy ? { approvalPolicy } : {}),
+    },
+    ownedIdentityPolicy: {
+      sourceRequest,
+      selectionMode,
+      editorialRule: "Project and brand identity labels are metadata only. Do not use them as keywords or in the title, body, metadata, image ALT or prompt, tags, or CTA labels unless selectionMode is userSpecified and sourceRequest explicitly names that identity as the editorial subject.",
     },
   });
 }

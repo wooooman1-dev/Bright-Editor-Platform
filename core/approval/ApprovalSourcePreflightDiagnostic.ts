@@ -1,0 +1,82 @@
+import type { ApprovalPolicyProfileId } from "./ApprovalPolicy";
+
+export type ApprovalSourcePreflightDiagnostic = Readonly<{
+  schemaVersion: 1;
+  preflightExecutionId: string;
+  contractId?: string;
+  contractVersion?: number;
+  contentRevisionId?: string;
+  topicScopeFingerprint: string;
+  selectedTopic: string;
+  primaryKeyword: string;
+  requiredClaimId?: string;
+  claimRole?: string;
+  claimKind?: string;
+  canonicalSourceUrl?: string;
+  sourceTitle?: string;
+  institution?: string;
+  evidenceExcerpt?: string;
+  claimEvidenceExcerpt?: string;
+  rejectionCode: string;
+  rejectionStage: "contract" | "source" | "relevance" | "evidence" | "coverage";
+  coverageStatus?: string;
+  sourcePolicyCompliance?: "passed" | "failed" | "not_required";
+  relevanceStatus?: "passed" | "rejected";
+  matchedSignals?: readonly string[];
+  profileId?: ApprovalPolicyProfileId;
+  preflightResponseId?: string;
+  webSearchCalls?: number;
+  webSourceCount?: number;
+  rawWebSourceCount?: number;
+  assistantDeclaredSourceCount?: number;
+  parsedSourceCount?: number;
+  normalizedSourceCount?: number;
+  canonicalUrlValidCount?: number;
+  officialnessEvaluatedCount?: number;
+  officialnessPassCount?: number;
+  policyRetainedCount?: number;
+  relevanceEvaluatedCount?: number;
+  relevancePassCount?: number;
+  fetchAttemptedCount?: number;
+  fetchSucceededCount?: number;
+  extractionAttemptedCount?: number;
+  extractionSucceededCount?: number;
+  evidenceAnchorEvaluatedCount?: number;
+  evidenceAnchorPassCount?: number;
+  semanticVerificationEvaluatedCount?: number;
+  semanticVerificationPassCount?: number;
+  requiredClaimIds?: readonly string[];
+  coveredClaimIds?: readonly string[];
+  missingClaimIds?: readonly string[];
+  coverageSources?: readonly Readonly<{
+    url: string;
+    title?: string;
+    supportingClaimIds: readonly string[];
+    rejectedClaimIds: readonly string[];
+    officialness: "passed" | "rejected" | "unknown";
+    relevance: "passed" | "rejected" | "unknown";
+    anchor: "passed" | "rejected" | "unknown";
+    semantic: "passed" | "rejected" | "unknown";
+    evidenceExcerpt?: string;
+  }>[];
+  rejectionSamples?: readonly Readonly<{
+    url?: string;
+    canonicalUrl?: string;
+    hostname?: string;
+    title?: string;
+    institution?: string;
+    claimId?: string;
+    rejectionStage: "parse" | "normalize" | "officialness" | "policy" | "relevance" | "evidence" | "coverage";
+    rejectionCode?: string;
+    reason?: string;
+    evidenceExcerpt?: string;
+    status?: number;
+    contentType?: string;
+    documentFormat?: string;
+    extractionStatus?: string;
+  }>[];
+}>;
+
+export function createApprovalSourcePreflightDiagnostic(input: Omit<ApprovalSourcePreflightDiagnostic, "schemaVersion">): ApprovalSourcePreflightDiagnostic {
+  return Object.freeze({ schemaVersion: 1, ...input });
+}

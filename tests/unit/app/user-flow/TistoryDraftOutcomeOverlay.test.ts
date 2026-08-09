@@ -8,7 +8,7 @@ const overlaySource = readFileSync(join(process.cwd(), "app/user-flow/TistoryDra
 describe("Tistory draft outcome overlay wiring", () => {
   it("mounts the outcome overlay once at the application root", () => {
     expect(layoutSource).toContain('import { TistoryDraftOutcomeOverlay } from "./user-flow/TistoryDraftOutcomeOverlay";');
-    expect(layoutSource).toContain("<TistoryDraftOutcomeOverlay />");
+    expect(layoutSource.match(/<TistoryDraftOutcomeOverlay \/>/g)).toHaveLength(1);
   });
 
   it("intercepts only the completed Draft save response and preserves the original response", () => {

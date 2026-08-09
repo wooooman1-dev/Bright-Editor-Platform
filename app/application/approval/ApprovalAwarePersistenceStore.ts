@@ -1,17 +1,27 @@
 import type { PersistenceMutation, PersistenceStore } from "../../../core/data";
 import {
+  canonicalizeApprovalEvidenceUrl,
+  createNotRequiredApprovalEvidencePack,
   evaluateApprovalDuplicateRisk,
+  extractProfileApprovalFactsFromText,
   normalizeContentPurpose,
+  resolveApprovalEvidenceRequirement,
   type ApprovalDuplicateCheckSnapshot,
   type ApprovalEvidencePack,
+  type ApprovalEvidenceProvenance,
+  type ApprovalEvidenceSource,
   type ApprovalEvidenceSourceType,
 } from "../../../core/approval";
-import type { ContentDocument } from "../../../core/content";
+import { contentBlockOwnership, serializeStructuredList, type ContentDocument } from "../../../core/content";
+import { editorialRevisionId } from "../../../core/quality";
 import type { UserContent, UserData } from "../../user-flow/user-data";
+import { internalLinkCatalogContextKey } from "../publishing/InternalLinkCatalogPolicy";
 import {
   snapshotApprovalPolicyForPlanning,
   type ApprovalAwareContent,
 } from "./ApprovalContentPolicy";
+import { approvalEvidenceFingerprint } from "./ApprovalReadinessExecutionIdentity";
+import { canonicalSources } from "./ApprovalEvidenceCandidateNormalization";
 
 const USER_DATA_COLLECTION = "application";
 const USER_DATA_ID = "user-data";
@@ -133,7 +143,7 @@ function preserveExistingSnapshot(
       if (priorPurpose === "standard") {
         return { ...sanitized, contentPurpose: "standard" } as UserContent;
       }
-      return {
+      const restored = {
         ...sanitized,
         contentPurpose: "adsense_approval",
         ...(prior.approvalPolicyId ? { approvalPolicyId: prior.approvalPolicyId } : {}),
@@ -141,7 +151,52 @@ function preserveExistingSnapshot(
         ...(prior.approvalProfileId ? { approvalProfileId: prior.approvalProfileId } : {}),
         ...(prior.approvalProfileVersion ? { approvalProfileVersion: prior.approvalProfileVersion } : {}),
       } as UserContent;
+      return preserveCurrentApprovalCheckSnapshots(previous, restored);
     }),
+  };
+}
+
+function preserveCurrentApprovalCheckSnapshots(
+  previous: UserContent,
+  candidate: UserContent,
+): UserContent {
+  if (!previous.document?.metadata || !candidate.document?.metadata) return candidate;
+  const revisionId = editorialRevisionId(candidate.document);
+  if (editorialRevisionId(previous.document) !== revisionId
+    || internalLinkCatalogContextKey(previous) !== internalLinkCatalogContextKey(candidate)) {
+    return candidate;
+  }
+
+  const previousEvidence = previous.document.metadata.approvalEvidence;
+  const candidateEvidence = candidate.document.metadata.approvalEvidence;
+  const approvalEvidence = candidateEvidence?.reviewedRevisionId === revisionId
+    ? candidateEvidence
+    : previousEvidence?.reviewedRevisionId === revisionId
+      ? previousEvidence
+      : candidateEvidence;
+  const siteApprovalReadiness = candidate.document.metadata.siteApprovalReadiness
+    ?? previous.document.metadata.siteApprovalReadiness;
+  const evidenceIdentityIsCurrent = !candidateEvidence
+    || approvalEvidenceFingerprint(previous.document) === approvalEvidenceFingerprint(candidate.document);
+  const approvalReadinessExecution = candidate.document.metadata.approvalReadinessExecution
+    ?? (evidenceIdentityIsCurrent ? previous.document.metadata.approvalReadinessExecution : undefined);
+  const previousQuality = previous.quality as (NonNullable<UserContent["quality"]> & Readonly<{ approvalReadiness?: unknown }>) | undefined;
+  const candidateQuality = candidate.quality;
+
+  return {
+    ...candidate,
+    document: {
+      ...candidate.document,
+      metadata: {
+        ...candidate.document.metadata,
+        ...(approvalEvidence ? { approvalEvidence } : {}),
+        ...(siteApprovalReadiness ? { siteApprovalReadiness } : {}),
+        ...(approvalReadinessExecution ? { approvalReadinessExecution } : {}),
+      },
+    },
+    ...(candidateQuality && previousQuality?.approvalReadiness && evidenceIdentityIsCurrent
+      ? { quality: { ...candidateQuality, approvalReadiness: previousQuality.approvalReadiness } as UserContent["quality"] }
+      : {}),
   };
 }
 
@@ -151,38 +206,33 @@ function attachApprovalEvidenceCandidatePacks(data: UserData): UserData {
     const aware = content as ApprovalAwareContent;
     if (normalizeContentPurpose(aware.contentPurpose) !== "adsense_approval" || !content.document?.metadata) return content;
 
-    const candidates = collectEvidenceCandidates(content.document);
     const existing = content.document.metadata.approvalEvidence;
-    const sourceUrls = candidates.map((candidate) => candidate.url).sort();
-    const existingUrls = existing?.sources.map((source) => normalizeSourceUrl(source.url)).filter(Boolean).sort() ?? [];
-    if (existing?.status === "verified" && JSON.stringify(sourceUrls) === JSON.stringify(existingUrls)) return content;
+    const requirement = resolveApprovalEvidenceRequirement(content.opportunity);
+    if (requirement === "not_required") {
+      const pack = existing && !emptyMissingEvidencePack(existing)
+        ? existing
+        : createNotRequiredApprovalEvidencePack();
+      if (JSON.stringify(existing) === JSON.stringify(pack)) return content;
+      changed = true;
+      return {
+        ...content,
+        document: {
+          ...content.document,
+          metadata: { ...content.document.metadata, approvalEvidence: pack },
+        },
+      } as UserContent;
+    }
+    if (existing?.reviewedRevisionId === editorialRevisionId(content.document)) return content;
 
+    const visibleCandidates = collectEvidenceCandidates(content.document, aware.approvalProfileId);
     const retrievedAt = latestDocumentTimestamp([content], content.updatedAt);
     const sourceType = approvalEvidenceSourceType(aware.approvalProfileId);
-    const pack: ApprovalEvidencePack = candidates.length
-      ? Object.freeze({
-          version: "1.0",
-          status: "needs_review",
-          sources: Object.freeze(candidates.map((candidate) => Object.freeze({
-            sourceId: evidenceSourceId(candidate.url),
-            url: candidate.url,
-            title: candidate.title,
-            publisher: candidate.publisher,
-            sourceType,
-            retrievedAt,
-            verified: false,
-            facts: Object.freeze([Object.freeze({
-              field: "citedContext",
-              value: candidate.context,
-            })]),
-            rights: Object.freeze({ status: "unknown" as const }),
-          }))),
-        })
-      : Object.freeze({
-          version: "1.0",
-          status: "missing",
-          sources: Object.freeze([]),
-        });
+    const pack = mergeApprovalEvidenceCandidatePack(
+      existing,
+      visibleCandidates,
+      sourceType,
+      retrievedAt,
+    );
 
     if (JSON.stringify(existing) === JSON.stringify(pack)) return content;
     changed = true;
@@ -201,35 +251,225 @@ function attachApprovalEvidenceCandidatePacks(data: UserData): UserData {
   return changed ? { ...data, contents } : data;
 }
 
-function collectEvidenceCandidates(document: ContentDocument): readonly Readonly<{
+function mergeApprovalEvidenceCandidatePack(
+  existing: ApprovalEvidencePack | undefined,
+  visibleCandidates: readonly Readonly<{
+    url: string;
+    title: string;
+    publisher: string;
+    context: string;
+    blockId: string;
+    linkedBlockIds: readonly string[];
+    provenance: ApprovalEvidenceProvenance;
+  }>[],
+  defaultSourceType: ApprovalEvidenceSourceType,
+  retrievedAt: string,
+): ApprovalEvidencePack {
+  const sources = new Map<string, ApprovalEvidenceSource>();
+
+  for (const source of existing?.sources ?? []) {
+    const url = normalizeSourceUrl(source.url);
+    if (!url) continue;
+    const normalized = resetEvidenceCandidate(source, url);
+    sources.set(url, mergeEvidenceSources(sources.get(url), normalized));
+  }
+
+  for (const candidate of visibleCandidates) {
+    const next = Object.freeze({
+      sourceId: evidenceSourceId(candidate.url),
+      url: candidate.url,
+      originalUrl: candidate.url,
+      canonicalUrl: candidate.url,
+      title: candidate.title,
+      publisher: candidate.publisher,
+      sourceType: defaultSourceType,
+      retrievedAt,
+      verified: false,
+      provenance: candidate.provenance,
+      cited: candidate.provenance === "citation",
+      selected: candidate.provenance === "citation" || candidate.provenance === "user_selected",
+      citationExcerpt: candidate.context,
+      linkedBlockIds: candidate.linkedBlockIds,
+      facts: Object.freeze([Object.freeze({ field: "citedContext", value: candidate.context })]),
+      rights: Object.freeze({ status: "unknown" as const }),
+    } satisfies ApprovalEvidenceSource);
+    sources.set(candidate.url, mergeEvidenceSources(sources.get(candidate.url), next));
+  }
+
+  const values = canonicalSources([...sources.values()]);
+  return values.length
+      ? Object.freeze({
+        version: "1.0",
+        status: "needs_review",
+        coverageStatus: "needs_review",
+        sources: values,
+      })
+      : Object.freeze({
+        version: "1.0",
+        status: "missing",
+        coverageStatus: "missing",
+        sources: Object.freeze([]),
+      });
+}
+
+function resetEvidenceCandidate(
+  source: ApprovalEvidenceSource,
+  url: string,
+): ApprovalEvidenceSource {
+  const provenance = source.provenance
+    ?? (source.cited === true ? "citation" : source.selected === true ? "user_selected" : "search_candidate");
+  return Object.freeze({
+    ...source,
+    url,
+    canonicalUrl: url,
+    provenance,
+    verified: false,
+    cited: provenance === "citation",
+    selected: provenance === "citation" || provenance === "user_selected",
+    verificationStatus: undefined,
+    accessVerificationStatus: "not_evaluated",
+    officialDomainVerificationStatus: "not_evaluated",
+    claimVerificationStatus: "not_evaluated",
+    failureReason: undefined,
+    matchedFacts: undefined,
+    checkedAt: undefined,
+  });
+}
+
+function mergeEvidenceSources(
+  previous: ApprovalEvidenceSource | undefined,
+  next: ApprovalEvidenceSource,
+): ApprovalEvidenceSource {
+  if (!previous) return next;
+  const provenance = preferredProvenance(previous.provenance, next.provenance);
+  const preferred = provenance === next.provenance ? next : previous;
+  const alternate = preferred === next ? previous : next;
+  const facts = new Map<string, ApprovalEvidenceSource["facts"][number]>();
+  for (const fact of [...previous.facts, ...next.facts]) {
+    const key = `${fact.field}:${fact.value.normalize("NFKC").trim()}`;
+    if (!facts.has(key)) facts.set(key, fact);
+  }
+  return Object.freeze({
+    ...alternate,
+    ...preferred,
+    sourceId: previous.sourceId || next.sourceId,
+    url: next.canonicalUrl ?? next.url,
+    canonicalUrl: next.canonicalUrl ?? next.url,
+    originalUrl: preferred.originalUrl ?? alternate.originalUrl ?? preferred.url,
+    title: usefulSourceLabel(preferred.title, preferred.publisher) ? preferred.title : alternate.title,
+    publisher: usefulSourceLabel(preferred.publisher) ? preferred.publisher : alternate.publisher,
+    provenance,
+    cited: previous.cited === true || next.cited === true || provenance === "citation",
+    selected: provenance === "citation" || provenance === "user_selected",
+    citationExcerpt: preferred.citationExcerpt ?? alternate.citationExcerpt,
+    linkedBlockIds: Object.freeze([...new Set([
+      ...(previous.linkedBlockIds ?? []),
+      ...(next.linkedBlockIds ?? []),
+    ])]),
+    facts: Object.freeze([...facts.values()]),
+  });
+}
+
+function preferredProvenance(
+  first: ApprovalEvidenceProvenance | undefined,
+  second: ApprovalEvidenceProvenance | undefined,
+): ApprovalEvidenceProvenance {
+  const fallback = first ?? second ?? "search_candidate";
+  return provenancePriority(second) > provenancePriority(first) ? second! : fallback;
+}
+
+function provenancePriority(value: ApprovalEvidenceProvenance | undefined): number {
+  if (value === "citation") return 4;
+  if (value === "user_selected") return 3;
+  if (value === "document_link") return 2;
+  if (value === "search_candidate") return 1;
+  return 0;
+}
+
+function usefulSourceLabel(value: string | undefined, publisher?: string): boolean {
+  const label = value?.trim();
+  if (!label) return false;
+  return publisher ? label !== publisher.trim() : !/^www\.|\.[a-z]{2,}$/i.test(label);
+}
+
+function collectEvidenceCandidates(
+  document: ContentDocument,
+  profileId: ApprovalAwareContent["approvalProfileId"],
+): readonly Readonly<{
   url: string;
   title: string;
   publisher: string;
   context: string;
+  blockId: string;
+  linkedBlockIds: readonly string[];
+  provenance: ApprovalEvidenceProvenance;
 }>[] {
-  const found = new Map<string, { url: string; title: string; publisher: string; context: string }>();
-  const texts = document.blocks.flatMap((block) => {
-    if (block.type === "paragraph" || block.type === "heading") return [block.text];
-    if (block.type === "table") return [block.caption ?? "", ...block.headers, ...block.rows.flat()];
-    return [];
-  });
-
-  for (const text of texts) {
+  const found = new Map<string, { url: string; title: string; publisher: string; context: string; blockId: string; linkedBlockIds: readonly string[]; provenance: ApprovalEvidenceProvenance }>();
+  for (const [blockIndex, block] of document.blocks.entries()) {
+    const texts = block.type === "paragraph" || block.type === "heading"
+      ? [block.text]
+      : block.type === "list"
+        ? [serializeStructuredList(block)]
+      : block.type === "table"
+        ? [block.caption ?? "", ...block.headers, ...block.rows.flat()]
+        : [];
+    if (block.type === "button" && block.purpose === "source") {
+      texts.push(block.targetUrl);
+    }
+    for (const text of texts) {
     for (const match of text.matchAll(/https:\/\/[^\s<>)"'\]}]+/gi)) {
       const normalized = normalizeSourceUrl(match[0]);
       if (!normalized) continue;
       const url = new URL(normalized);
       const context = text.replace(/\s+/g, " ").trim().slice(0, 800);
       const previous = found.get(normalized);
+      const linkedBlockIds = linkedClaimBlockIds(document, blockIndex, block.id, text, profileId);
+      const provenance: ApprovalEvidenceProvenance = block.type === "button"
+        && block.purpose === "source"
+        && contentBlockOwnership(block) === "user_manual"
+        ? "user_selected"
+        : "document_link";
       found.set(normalized, {
         url: normalized,
         title: previous?.title ?? url.hostname,
         publisher: previous?.publisher ?? url.hostname,
         context: previous?.context && previous.context.length >= context.length ? previous.context : context,
+        blockId: previous?.blockId ?? block.id,
+        linkedBlockIds: Object.freeze([...new Set([
+          ...(previous?.linkedBlockIds ?? []),
+          ...linkedBlockIds,
+        ])]),
+        provenance: preferredProvenance(previous?.provenance, provenance),
       });
+    }
     }
   }
   return Object.freeze([...found.values()]);
+}
+
+function emptyMissingEvidencePack(pack: ApprovalEvidencePack): boolean {
+  return pack.status === "missing"
+    && pack.sources.length === 0
+    && !pack.reviewedAt
+    && !pack.reviewedRevisionId;
+}
+
+function linkedClaimBlockIds(
+  document: ContentDocument,
+  blockIndex: number,
+  sourceBlockId: string,
+  sourceText: string,
+  profileId: ApprovalAwareContent["approvalProfileId"],
+): readonly string[] {
+  const ids = [sourceBlockId];
+  if (!profileId || !/(?:^|\n)\s*(?:출처|공식\s*(?:출처|확인처))\s*:/u.test(sourceText)) {
+    return Object.freeze(ids);
+  }
+  const previous = document.blocks[blockIndex - 1];
+  if (previous?.type !== "paragraph") return Object.freeze(ids);
+  if (!extractProfileApprovalFactsFromText(previous.text, profileId).length) return Object.freeze(ids);
+  ids.unshift(previous.id);
+  return Object.freeze(ids);
 }
 
 function approvalEvidenceSourceType(profileId: ApprovalAwareContent["approvalProfileId"]): ApprovalEvidenceSourceType {
@@ -237,14 +477,8 @@ function approvalEvidenceSourceType(profileId: ApprovalAwareContent["approvalPro
 }
 
 function normalizeSourceUrl(value: string): string | undefined {
-  try {
-    const url = new URL(value.replace(/[.,;:!?]+$/g, ""));
-    if (url.protocol !== "https:") return undefined;
-    url.hash = "";
-    return url.toString();
-  } catch {
-    return undefined;
-  }
+  const canonical = canonicalizeApprovalEvidenceUrl(value.replace(/[.,;:!?]+$/g, ""));
+  return canonical.startsWith("https://") ? canonical : undefined;
 }
 
 function evidenceSourceId(url: string): string {
@@ -273,14 +507,19 @@ function attachApprovalDuplicateSnapshots(data: UserData): UserData {
 
     const projectDocuments = documentsByProject.get(content.projectId) ?? [];
     const checkedAt = latestDocumentTimestamp(projectDocuments, content.updatedAt);
-    const snapshot = evaluateApprovalDuplicateRisk(
+    const duplicateCandidates = projectDocuments.flatMap((candidate) => candidate.id === content.id || !candidate.document
+      ? []
+      : [{ contentId: candidate.id, document: candidate.document }]);
+    const existing = content.document.metadata.approvalDuplicateCheck;
+    const stableSnapshot = evaluateApprovalDuplicateRisk(
       content.document,
-      projectDocuments.flatMap((candidate) => candidate.id === content.id || !candidate.document
-        ? []
-        : [{ contentId: candidate.id, document: candidate.document }]),
-      checkedAt,
+      duplicateCandidates,
+      existing?.checkedAt ?? checkedAt,
     );
-    if (sameDuplicateSnapshot(content.document.metadata.approvalDuplicateCheck, snapshot)) return content;
+    if (sameDuplicateSnapshot(existing, stableSnapshot)) return content;
+    const snapshot = existing?.checkedAt === checkedAt
+      ? stableSnapshot
+      : evaluateApprovalDuplicateRisk(content.document, duplicateCandidates, checkedAt);
     changed = true;
     return {
       ...content,

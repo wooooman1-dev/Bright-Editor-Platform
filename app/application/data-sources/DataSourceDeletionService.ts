@@ -63,12 +63,20 @@ export class DataSourceDeletionService {
     const invalidated = Object.freeze({ ...connection, status: "disconnected" as const, enabled: false, activeOperationId: undefined, updatedAt: deletedAt, version: connection.version + 1 });
     await this.connections.save(invalidated);
     await this.oauthStates.invalidate({ workspaceId: connection.workspaceId, connectionId: connection.id });
-    await this.oauthCredentials.revoke(connection).catch(() => undefined);
-    if (connection.secretReference) await this.secrets.deleteSecret(connection.secretReference);
+    const sharedCredential = await this.credentialIsShared(connection);
+    if (!sharedCredential) {
+      await this.oauthCredentials.revoke(connection).catch(() => undefined);
+      if (connection.secretReference) await this.secrets.deleteSecret(connection.secretReference);
+    }
     const scrubbed = Object.freeze({ ...invalidated, secretReference: undefined, lastError: undefined, lastErrorCode: undefined, version: invalidated.version + 1 });
     await this.connections.save(scrubbed);
     await this.metadata.deleteConnectionAndReferences(connection.id, relatedReferences, tombstone);
     return Object.freeze({ deleted: true, alreadyDeleted: false, connectionId: connection.id, status: "deleted", removedProjectReferences: relatedReferences.length, retainedSnapshots: retainedSnapshots.length, retainedEvidence: retainedEvidence.length });
+  }
+
+  private async credentialIsShared(connection: DataSourceConnection): Promise<boolean> {
+    if (!connection.secretReference) return false;
+    return (await this.connections.listByWorkspace(connection.workspaceId)).some((value) => value.id !== connection.id && value.secretReference === connection.secretReference && value.status !== "disconnected");
   }
 
   private deletedResult(tombstone: DataSourceDeletionTombstone | undefined, workspaceId: string, connectionId: string): DataSourceDeletionResult {

@@ -1,6 +1,6 @@
 # Platform Adapter Architecture
 
-Version: 2.0
+Version: 2.1
 
 Status: Approved
 
@@ -9,6 +9,10 @@ Sprint: Sprint 8
 Document Type: Architecture Specification
 
 Implementation Status: Not Implemented
+
+WordPress Draft MVP Design Status: Approved
+
+WordPress Draft MVP Integrated Implementation Status: Not Started; existing Connection, Renderer and primitive Draft Adapter foundation only
 
 Integrated Sprint 6 Extension: Tistory Scheduling Contract Approved; Domain and Runtime Not Implemented
 
@@ -1246,6 +1250,20 @@ Publishing Service
 → WordPress API Client
 → WordPress REST API
 
+WordPress Draft MVP의 승인된 전체 실행 경계는 다음과 같다.
+
+```text
+UI
+→ Application Service
+→ Publishing Service
+→ Permission Gate
+→ WordPress Adapter
+→ WordPress REST API
+→ External Re-read Verification
+→ Persistence and Audit
+→ Completion UI
+```
+
 WordPress Adapter는 Browser Automation에 의존하지 않는다.
 
 특정 WordPress 설치 환경에서 REST API 사용이 불가능한 경우 연결을 지원하지 않는 상태로 명시한다.
@@ -1267,7 +1285,7 @@ interface WordPressConnectionProfile {
   username: string;
 
   defaultPostType?: "posts";
-  defaultCategoryId?: string;
+  defaultCategoryIds?: string[];
 
   secretReference: string;
 }
@@ -1291,6 +1309,8 @@ REST API Discovery
 Authenticated Connection Verification
 Site Metadata Read
 Category Read
+Media Upload
+Uploaded Media Re-read
 Post Draft Create
 Created Draft Re-read
 
@@ -1299,6 +1319,8 @@ Created Draft Re-read
 /wp-json/
 /wp-json/wp/v2/users/me
 /wp-json/wp/v2/categories
+/wp-json/wp/v2/media
+/wp-json/wp/v2/media/{id}
 /wp-json/wp/v2/posts
 /wp-json/wp/v2/posts/{id}
 
@@ -1330,13 +1352,32 @@ Adapter Capability
 
 24.5 WordPress Category Read
 
-Category 조회 결과를 Canonical PlatformCategory로 변환한다.
+WordPress의 실제 Category 목록을 PlatformConnection별로 조회하고 Canonical `PlatformCategory`로 변환한다.
 
 WordPress의 Category ID는 문자열로 정규화하여 Common Contract에 저장할 수 있다.
 
 Pagination을 지원한다.
 
 Category가 많아도 전체 결과를 한 번에 무제한 조회하지 않는다.
+
+Category 선택 모델은 `string[]` ID 배열을 사용한다. 현재 UI와 AdSense 승인 준비 정책이 `생활재테크` 하나만 선택하더라도 Domain과 Adapter Contract는 복수 선택을 지원한다.
+
+외부 Category ID는 코드에 하드코딩하지 않는다. 승인 준비에 필요한 Category 이름은 Core 승인 프로필에서 관리하고, Adapter는 실제 Connection API가 반환한 ID와 이름을 전달한다. 같은 Workspace 안에서도 WordPress PlatformConnection별 목록과 기본 Category를 독립적으로 관리한다.
+
+승인 정책 비교는 앞뒤 공백 제거와 안전한 Unicode 정규화까지만 허용한다. `생활재테크`와 정확히 일치해야 하며 `생활경제`를 포함한 유사 이름을 자동 매칭하지 않는다.
+
+Draft 실행 직전에 저장된 Category ID가 현재 실제 조회 결과에 존재하고 선택 가능한지 재검증한다. ID가 유지된 채 이름이 바뀌면 최신 이름으로 동기화할 수 있다.
+
+Category가 삭제되었거나 사용할 수 없으면 Readiness를 차단하고 재선택을 요구한다. 임의 Category 또는 `미분류`로 자동 대체하지 않는다.
+
+Category 선택과 기본값 적용 우선순위:
+
+1. Content에서 직접 선택한 Category
+2. Project `defaultWordPressCategories`
+3. `WordPressConnectionProfile.defaultCategoryIds`
+4. 유효한 Category가 없으면 Readiness 차단
+
+모든 기본 Category ID는 실제 WordPress 목록으로 재검증한다. 유효하지 않은 값을 `미분류`로 자동 대체하지 않는다.
 
 24.6 WordPress Rendering
 
@@ -1367,21 +1408,51 @@ Template 수정
 Custom CSS 저장
 Gutenberg Editor 직접 제어
 외부 Media Upload
-24.7 WordPress Draft Creation
+
+Renderer는 로컬 이미지 Placeholder 또는 Media Reference를 Render 결과에 유지할 수 있다. 실제 Media Upload와 WordPress URL 교체는 WordPress Media Adapter/Application Service 단계에서 수행한다.
+
+Preview와 최종 Draft HTML은 동일한 Render Artifact 또는 동일한 deterministic Renderer 결과에서 파생되어야 한다. Media URL 교체 전후의 관계와 checksum을 추적할 수 있어야 한다.
+
+24.7 WordPress Media Upload
+
+WordPress Media Upload는 Renderer가 아니라 별도 WordPress Media Adapter가 수행한다.
+
+실행 범위:
+
+- WordPress Media Resource에 POST
+- 로컬 Media 존재, 소유권, 형식과 접근 가능성 검증
+- ALT 저장
+- WordPress Media ID와 source URL 반환
+- Render 결과의 본문 이미지 Source를 업로드된 WordPress URL로 교체
+- 목적성 대표 이미지가 있으면 Featured Image 후보 Media ID 지정
+- 외부 Media ID 재조회로 Media 존재와 ALT 검증
+- Permission Gate: `media.upload`
+- 로컬 Media가 없으면 Media 작업 전체 생략
+
+`media.upload`는 Supported Capability지만 D-021 Safe Draft Mode에 따라 기본 Disabled다. 로컬 Media가 있는 Draft에서만 요구하며, 사용자가 해당 WordPress Connection에 명시적으로 허용해야 한다.
+
+Media Upload 이후 Post 생성이 실패해도 업로드된 Media를 자동 삭제하지 않는다. `cleanup_required` 또는 동등한 안전 상태와 Audit을 남긴다.
+
+Application Password, Authorization Header와 SecretStore 값은 Media Request, Error, Audit 또는 Log에 기록하지 않는다.
+
+24.8 WordPress Draft Creation
 
 Draft 생성 요청은 다음 원칙을 따른다.
 
 POST Post Resource
 Status = draft
 
-초기 Payload에 포함할 수 있는 항목:
+MVP Payload 범위:
 
 title
 content
 excerpt
-status
+status = draft
 categories
-slug
+optional slug
+optional featured_media
+
+현재 AdSense 승인 준비 정책에서는 `tags`를 보내지 않는다. 존재하는 Tag를 자동 생성하거나 추측하지 않는다.
 
 필드가 지원되지 않거나 권한이 없는 경우 Platform Error로 변환한다.
 
@@ -1392,41 +1463,49 @@ External Status
 Edit Link 또는 확인 가능한 URL
 Modified Time
 Render Checksum Reference
-24.8 WordPress Draft Verification
+24.9 WordPress Draft Verification
 
 Draft 생성 이후 외부 Post ID로 다시 조회한다.
 
 최소 검증 항목:
 
-Post 존재
+External Post ID 일치
 Status가 Draft
 Title 일치
-Content가 비어 있지 않음
-예상 Category 적용 여부
-External ID 일치
+의미 있는 Content가 비어 있지 않음
+선택한 Category ID 적용
+현재 정책에서 Tag 미사용
+필요한 Media URL 존재
+필요한 ALT 적용
+필요한 `featured_media` ID 적용
 
 가능하면 정규화된 Content Fingerprint를 비교한다.
 
 WordPress가 HTML을 정규화할 수 있으므로 문자열 완전 일치만으로 실패 처리하지 않는다.
 
-24.9 WordPress v1 Capabilities
-Capability	Supported	Default
-Connection Verification	Yes	Enabled
-Site Metadata Read	Yes	Enabled
-Category Read	Yes	Enabled
-Content Render	Yes	Enabled
-Shared Preview	Yes	Enabled
-Draft Create	Yes	Enabled
-Draft Verify	Yes	Enabled
-Media Upload	Contract Only	Disabled
-Scheduling	No	Disabled
-Public Publish	No	Disabled
-Existing Post Update	No	Disabled
-Post Delete	No	Disabled
-Plugin Modification	No	Disabled
-Theme Modification	No	Disabled
-User Administration	No	Disabled
-24.10 WordPress Plugin Compatibility
+24.10 WordPress v1 Capabilities
+
+| Capability | Support | Default / Policy | Condition |
+|---|---|---|---|
+| Connection Verification | Supported | Enabled | - |
+| Site Metadata Read | Supported | Enabled | - |
+| Category Read | Supported | Enabled | Connection별 실제 목록 |
+| Content Render | Supported | Enabled | - |
+| Shared Preview | Supported | Enabled | 동일 Renderer 결과 |
+| Draft Create | Supported | Enabled | Draft Only |
+| Draft Verify | Supported | Enabled | 외부 Post 재조회 |
+| Media Upload | Supported | Disabled by default | Explicit Permission Required |
+| Featured Image Assignment | Supported | Media Upload 승인 시 | Media Upload is authorized |
+| Tags | Technically extensible | Disabled | Current AdSense policy |
+| Scheduling | Unsupported | Disabled | - |
+| Public Publish | Unsupported | Disabled | - |
+| Existing Post Update | Unsupported | Disabled | - |
+| Post Delete | Unsupported | Disabled | - |
+| Plugin Modification | Unsupported | Disabled | - |
+| Theme Modification | Unsupported | Disabled | - |
+| User Administration | Unsupported | Disabled | - |
+
+24.11 WordPress Plugin Compatibility
 
 Sprint 8은 WordPress Core REST API를 기준으로 한다.
 
@@ -1773,8 +1852,6 @@ WordPress Plugin 설정 변경
 WordPress Theme 설치
 WordPress Theme 수정
 WordPress User 관리
-WordPress Media 자동 업로드
-Featured Image 자동 설정
 Yoast SEO 전용 Metadata
 Rank Math 전용 Metadata
 Custom Post Type 자동 지원
@@ -1850,8 +1927,6 @@ Adapter/Workflow 경계:
 
 향후 다음 Capability를 추가할 수 있다.
 
-Media Upload
-Featured Image
 Scheduling
 Public Publish
 Existing Content Update

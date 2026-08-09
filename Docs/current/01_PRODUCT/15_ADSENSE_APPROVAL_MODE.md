@@ -6,7 +6,7 @@ Status: Accepted
 
 Applies to: Bright Studio의 플랫폼 공통 AdSense 승인 준비 콘텐츠 Workflow
 
-Last updated: 2026-07-27
+Last updated: 2026-07-30
 
 ---
 
@@ -87,6 +87,28 @@ Planning
 - 빈 내부 링크, 예정 링크, 편집자 메모 및 공개 placeholder를 출력하지 않는다.
 - 저작권과 출처가 불명확한 이미지 또는 자료 사용을 요구하지 않는다.
 - 모바일에서도 제목, 문단, 목록, 표와 강조 요소가 읽기 쉽다.
+
+### 4.1 People-First Value and Trust Principle
+
+Canonical Principle:
+
+> 애드센스 승인 준비 콘텐츠는 Google 심사 시스템이나 검색 알고리즘을 공략하기 위한 문서가 아니라, 실제 독자의 검색 의도와 문제를 완결적으로 해결하는 독창적이고 검증 가능하며 신뢰할 수 있는 사람 중심 콘텐츠로 작성한다.
+
+Bright Studio의 목표는 자동화된 심사 또는 검색 시스템을 겨냥해 원고를 꾸미는 것이 아니다. 실제 독자가 가진 구체적인 질문에 답하고, 판단과 실행에 필요한 정보를 정확하고 이해하기 쉽게 제공하는 것이 우선이다.
+
+이 원칙은 다음 의미를 가진다.
+
+- 독창성은 새로운 사실, 수치, 경험, 성공 사례 또는 전문가 자격을 발명하는 것이 아니다. 검증된 사실을 바탕으로 주제에 맞는 고유한 설명, 비교, 사례, 계산, 체크리스트, 주의점 또는 선택 기준을 제공하는 것이다.
+- 신뢰성은 중요한 주장에 대한 공식 또는 신뢰할 수 있는 출처, 변동 정보의 기준일 또는 확인 시점, 사실과 해석의 구분, 불확실성과 적용 한계의 투명한 표시로 확보한다.
+- 제목과 소제목은 실제 내용을 정확히 설명해야 하며, 핵심 답변을 미루는 서론, 키워드 반복, 문장 부풀리기, 의미 없는 결론과 중복된 장문은 허용하지 않는다.
+- 원고의 길이, 문단 수 또는 게시물 수는 승인 준비 품질이나 외부 승인 가능성의 기준이 아니다. 필요한 정보를 충분히 제공한 경우 더 간결하고 밀도 높은 설명을 선호한다.
+- 사람 중심의 좋은 원고도 AdSense 승인을 예측하거나 보장하지 않는다. Bright Studio는 외부 승인 가능성을 콘텐츠 점수에 포함하지 않는다.
+- Google Search Console 연결, Google Analytics 연결, 검색엔진 차단 여부, 실제 색인 상태, sitemap 제출 상태와 같은 운영·기술 상태는 원고 품질과 분리하여 Site Approval Readiness 또는 사용자 확인 상태로 평가한다.
+- 검색엔진 색인이 차단된 사이트의 원고를 그 이유만으로 품질 실패 처리하지 않는다. 해당 문제는 Site Approval Readiness의 별도 미완료 또는 검토 필요 상태로 표시한다.
+- 이 원칙은 canonical policy/profile snapshot의 `requiredPrinciples`와 `qualityChecks`를 통해 Planning, Content Opportunity, Generation 및 기존 Quality Review에 같은 버전으로 전달한다.
+- AI 호출은 기존 Generation 1회와 Quality Review 1회를 유지한다. 사람 중심 원칙을 위한 별도 AdSense Review 또는 추가 Provider 호출을 만들지 않는다.
+
+Project별 세부 작성 기준은 해당 승인 프로필이 정의한다. WordPress 밝은재테크 프로필의 분야별 기준은 `14_ADSENSE_APPROVAL_CONTENT_POLICY.md`, Tistory 비바레인 프로필의 분야별 기준은 `16_TISTORY_VIVARAIN_ADSENSE_APPROVAL_PROFILE.md`를 따른다.
 
 ---
 

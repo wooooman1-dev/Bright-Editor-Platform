@@ -165,6 +165,25 @@ describe("ContentNormalizer", () => {
     }]);
   });
 
+  it("converts explicit ordered and prefixed unordered text into durable list blocks", () => {
+    const document: ContentDocument = {
+      id: "document",
+      title: "점검 목록",
+      blocks: [
+        { id: "steps", type: "paragraph", text: "1. 설명서를 확인합니다.\n2. 금융회사를 확인합니다.\n3. 보호 한도를 확인합니다." },
+        { id: "sources", type: "paragraph", text: "공식 확인 자료\n- 금융위원회 자료\n- 국가법령정보센터 법령" },
+      ],
+    };
+
+    const result = new ContentNormalizer().normalize(document);
+
+    expect(result.blocks).toEqual([
+      { id: "steps", type: "list", style: "ordered", items: ["설명서를 확인합니다.", "금융회사를 확인합니다.", "보호 한도를 확인합니다."] },
+      { id: "sources", type: "paragraph", text: "공식 확인 자료" },
+      { id: "sources-list-1", type: "list", style: "unordered", items: ["금융위원회 자료", "국가법령정보센터 법령"] },
+    ]);
+  });
+
   it("remaps long-form structure ids when one paragraph expands into text and table blocks", () => {
     const document: ContentDocument = {
       id: "document",

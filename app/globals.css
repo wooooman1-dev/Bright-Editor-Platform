@@ -116,6 +116,25 @@ body {
   animation: bright-operation-spin 0.75s linear infinite;
 }
 
+[aria-live="polite"].wordpress-draft-notice::before,
+[aria-live="polite"].wordpress-draft-notice::after {
+  display: none;
+  animation: none;
+}
+
+[aria-live="polite"].wordpress-draft-notice--loading::before,
+[aria-live="polite"].wordpress-draft-notice--loading::after {
+  display: block;
+}
+
+[aria-live="polite"].wordpress-draft-notice--loading::before {
+  animation: bright-operation-spin 0.75s linear infinite;
+}
+
+[aria-live="polite"].wordpress-draft-notice--loading::after {
+  animation: bright-operation-progress 1.35s ease-in-out infinite;
+}
+
 section:has(#tistory-schedule-title):has(button[aria-label="닫기"]:not(:disabled))
   [aria-live="polite"].bg-blue-50::before,
 section:has(#tistory-schedule-title):has(button[aria-label="닫기"]:not(:disabled))

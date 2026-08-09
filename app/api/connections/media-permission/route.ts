@@ -15,8 +15,10 @@ export async function POST(request: Request) {
 
     const connection = await connectionRepository.findById(connectionId);
     if (!connection || connection.workspaceId !== workspaceId) throw new Error("Connection was not found.");
-    if (connection.platform !== "tistory") throw new Error("Media upload permission is currently available only for Tistory.");
-    if (connection.status !== "connected") throw new Error("Reconnect the Tistory account before changing media upload permission.");
+    if (connection.platform !== "tistory" && connection.platform !== "wordpress") {
+      throw new Error("Media upload permission is not available for this platform.");
+    }
+    if (connection.status !== "connected") throw new Error("Reconnect the publishing account before changing media upload permission.");
 
     const permissions = new Set<AutomationPermission>(connection.automationPermissions ?? safeDraftPermissions);
     if (body.enabled === true) permissions.add("media.upload");

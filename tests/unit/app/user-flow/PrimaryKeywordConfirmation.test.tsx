@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import { PrimaryKeywordConfirmation } from "../../../../app/user-flow/PrimaryKeywordConfirmation";
+import { contentDepthLabel, contentTypeLabel, evidenceTypeLabel, formatOpportunityConfidence, providerLabel, topicComplexityLabel } from "../../../../app/user-flow/opportunity-presentation";
 import { createContentOpportunityCandidate } from "../../../../core/content";
 
 const opportunity = (selectedTopic: string, primaryKeyword: string, searchIntent: string, coverage: readonly string[]) => createContentOpportunityCandidate({
@@ -64,6 +65,84 @@ describe("primary keyword confirmation UI", () => {
     expect(onSelectCustom).not.toHaveBeenCalled();
   });
 
+  it("renders stored confidence, planning enums, providers, and limitations as deduplicated Korean presentation values", () => {
+    const marketCandidate = createContentOpportunityCandidate({
+      sourceRequest: "오늘의 건강 글",
+      selectionMode: "automatic",
+      selectedTopic: "장 건강 관리 방법 비교",
+      primaryKeyword: "장 건강 관리 방법",
+      secondaryKeywords: ["장 건강"],
+      searchIntent: "장 건강 관리 방법을 비교하고 선택하려는 정보 탐색",
+      audience: "일반 성인",
+      contentType: "how_to",
+      qualityTarget: { ...opportunities[0].qualityTarget, contentDepth: "comparison", topicComplexity: "moderate" },
+      contentAngle: "실행 가능한 관리 기준 제공",
+      readerProblem: "관리 방법을 선택할 기준이 부족함",
+      expectedCoverage: ["선택 기준"],
+      selectionRationale: "상대 검색 추세와 콘텐츠 공백이 함께 확인됨",
+      opportunityEvidence: [
+        { source: "verified", summary: "naverSearchTrend · relativeTrend · searchTrendRatio · 72 relativeRatio", evidenceId: "evidence-naver-ratio", provider: "naverSearchTrend", evidenceType: "relativeTrend", metric: "searchTrendRatio", freshness: "fresh", verified: true, limitation: "NAVER Search Trend ratios are relative trend indices, not absolute search volume. NAVER ratio is a relative trend index and is not absolute search volume." },
+        { source: "verified", summary: "naverSearchTrend · risingTrend · trendChange · 0.5 relativeChangeRate", evidenceId: "evidence-naver-rising", provider: "naverSearchTrend", evidenceType: "risingTrend", metric: "trendChange", freshness: "fresh", verified: true, limitation: "NAVER Search Trend ratios are relative trend indices, not absolute search volume. A rising relative trend does not establish absolute market size." },
+        { source: "inferred", summary: "brightStudio · contentGap · 0 publishedContentCount", evidenceId: "evidence-internal", provider: "brightStudio", evidenceType: "contentGap", freshness: "fresh", verified: true, limitation: "Internal growth Evidence is not external market demand. A dedicated Content Library projection is not implemented; only current Project metadata and verified public URLs are used." },
+      ],
+      recommendationType: "marketOpportunity",
+      evidenceIds: ["evidence-naver-ratio", "evidence-naver-rising", "evidence-internal"],
+      marketEvidenceStatus: "verified",
+      internalGrowthEvidenceStatus: "verified",
+      freshness: "fresh",
+      limitations: [
+        "NAVER Search Trend ratios are relative trend indices, not absolute search volume.",
+        "NAVER ratio is a relative trend index and is not absolute search volume.",
+        "A rising relative trend does not establish absolute market size.",
+        "Internal growth Evidence is not external market demand.",
+        "A dedicated Content Library projection is not implemented; only current Project metadata and verified public URLs are used.",
+      ],
+      classificationVersion: 1,
+      confidence: (1 + 1 + 0.75) / 3,
+      cautions: [],
+      projectId: "project-1",
+    });
+    const marketPlan = { ...plan, confidence: marketCandidate.confidence, estimateDisclosure: "Keyword competition and opportunity are AI estimates, not measured search-volume, CPC, or competition data.", recommendedPlatforms: ["wordpress"] as const, opportunityCandidates: [marketCandidate] };
+
+    const html = renderToStaticMarkup(<PrimaryKeywordConfirmation customKeyword="" customKeywordSelected={false} disabled={false} onCustomKeywordChange={vi.fn()} onReanalyzeCustom={vi.fn()} onSelectCandidate={vi.fn()} onSelectCustom={vi.fn()} opportunityCandidates={[marketCandidate]} plan={marketPlan} request="오늘의 건강 글" selectedOpportunityId={marketCandidate.opportunityId} />);
+
+    expect(html).toContain("콘텐츠 깊이 · 비교·선택 가이드");
+    expect(html).toContain("콘텐츠 유형 · 실행 방법");
+    expect(html).toContain("주제 복잡도 · 보통");
+    expect(html).toContain("데이터 출처 · Bright Studio 내부 데이터, NAVER 검색 트렌드");
+    expect(html).toContain("최신성 · 최신 · 신뢰도 92%");
+    expect(html).toContain("상승 추세만으로 절대적인 시장 규모를 확정할 수 없습니다.");
+    expect(html).toContain("전용 콘텐츠 라이브러리 분석은 아직 구현되지 않아 현재 프로젝트 메타데이터와 확인된 공개 URL만 사용합니다.");
+    expect(html.split("NAVER 검색 트렌드는 절대 검색량이 아닌 상대 추세 지수입니다.")).toHaveLength(2);
+    expect(html).not.toMatch(/naverSearchTrend|brightStudio|\bcomparison\b|\bhow_to\b|\bmoderate\b|\bfreshness\b|\bconfidence\b/);
+    expect(html).not.toContain("NAVER Search Trend ratios are relative trend indices");
+    expect(html).not.toContain("Internal growth Evidence");
+    expect(html).not.toContain("Content Library projection");
+    expect(marketCandidate.contentType).toBe("how_to");
+    expect(marketCandidate.qualityTarget.contentDepth).toBe("comparison");
+    expect(marketCandidate.qualityTarget.topicComplexity).toBe("moderate");
+    expect(marketCandidate.opportunityEvidence.some((item) => item.provider === "naverSearchTrend")).toBe(true);
+  });
+
+  it("converts normalized confidence values to UI percentages", () => {
+    expect(formatOpportunityConfidence(0)).toBe("0%");
+    expect(formatOpportunityConfidence(0.91666)).toBe("92%");
+    expect(formatOpportunityConfidence(1)).toBe("100%");
+  });
+
+  it("covers every current Opportunity display enum without changing its stored identifier", () => {
+    const providers = ["googleSearchConsole", "googleAnalytics4", "googleAdSense", "youtubeAnalytics", "naverSearchTrend", "googleAdsKeywordPlanning", "googleTrendsOfficial", "brightStudio"] as const;
+    const evidenceTypes = ["searchPerformance", "searchDemand", "relativeTrend", "risingTrend", "keywordCompetition", "commercialIntent", "pageEngagement", "revenuePerformance", "videoPerformance", "contentGap", "internalLinkOpportunity", "clusterOpportunity", "editorialInference"] as const;
+
+    expect(providers.map(providerLabel)).toEqual(["Google Search Console", "Google Analytics 4", "Google AdSense", "YouTube Analytics", "NAVER 검색 트렌드", "Google Ads 키워드 플래닝", "Google Trends 공식 데이터", "Bright Studio 내부 데이터"]);
+    expect(evidenceTypes.map(evidenceTypeLabel)).toEqual(["검색 성과", "검색 수요", "상대 검색 추세", "상승 추세", "광고 경쟁", "상업 의도", "페이지 참여", "수익 성과", "동영상 성과", "콘텐츠 공백", "내부 링크 기회", "콘텐츠 클러스터", "편집 추론"]);
+    expect(["quick", "standard", "deep", "comparison"].map(contentDepthLabel)).toEqual(["핵심 요약 가이드", "핵심 문제 해결 가이드", "심층 가이드", "비교·선택 가이드"]);
+    expect(contentTypeLabel("how_to")).toBe("실행 방법");
+    expect((["low", "moderate", "high"] as const).map(topicComplexityLabel)).toEqual(["낮음", "보통", "높음"]);
+    expect(providers[4]).toBe("naverSearchTrend");
+    expect(evidenceTypes[2]).toBe("relativeTrend");
+  });
+
   it("keeps automatic planning from invoking generation without the explicit confirmation button", () => {
     const source = readFileSync(join(process.cwd(), "app/user-flow/ContentCreationFlow.tsx"), "utf8");
     const automaticStart = source.indexOf("if (!automatic || automaticStartRef.current");
@@ -82,6 +161,6 @@ describe("primary keyword confirmation UI", () => {
 
 it("handles legacy candidates without limitations", () => {
   const source = readFileSync(join(process.cwd(), "app/user-flow/PrimaryKeywordConfirmation.tsx"), "utf8");
-  expect(source).toContain("const limitations = stringArray(candidate.limitations)");
+  expect(source).toContain("const limitations = formatEvidenceLimitations(stringArray(candidate.limitations))");
   expect(source).toContain("const evidence = Array.isArray(candidate.opportunityEvidence)");
 });

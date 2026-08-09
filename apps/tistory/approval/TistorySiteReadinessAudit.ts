@@ -1,4 +1,6 @@
 import type {
+  SiteApprovalReadinessAdapter,
+  SiteApprovalReadinessAuditInput,
   SiteApprovalReadinessRequirement,
   SiteApprovalReadinessSnapshot,
 } from "../../../core/approval";
@@ -15,6 +17,36 @@ export type TistorySiteReadinessAuditInput = Readonly<{
   fetcher?: TistorySiteAuditFetcher;
   timeoutMs?: number;
 }>;
+
+export const tistorySiteReadinessAdapter: SiteApprovalReadinessAdapter = Object.freeze({
+  platform: "tistory",
+  async audit(input: SiteApprovalReadinessAuditInput) {
+    const blogUrl = typeof input.connection.publicMetadata.blogUrl === "string"
+      ? input.connection.publicMetadata.blogUrl.trim()
+      : "";
+    if (!blogUrl) {
+      return Object.freeze({
+        version: "1.0",
+        status: "needs_review",
+        checkedAt: input.checkedAt,
+        checks: Object.freeze([
+          Object.freeze({
+            key: "public_site",
+            passed: false,
+            message: "Tistory 공개 블로그 주소가 연결 정보에 없습니다.",
+          }),
+        ]),
+      });
+    }
+
+    return auditTistorySiteReadiness({
+      blogUrl,
+      checkedAt: input.checkedAt,
+      expectedTerms: input.expectedTerms,
+      fetcher: input.fetcher,
+    });
+  },
+});
 
 type MutableSiteCheck = {
   key: string;

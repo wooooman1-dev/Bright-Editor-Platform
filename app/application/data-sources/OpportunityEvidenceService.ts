@@ -1,6 +1,8 @@
 import {
+  assessOpportunityEditorialValue,
   assessOpportunityRecommendation,
   calculateFreshness,
+  compareOpportunityEditorialValue,
   createOpportunityEvidence,
   recommendationTypePriority,
   type DataSourceConnectionRepository,
@@ -24,10 +26,9 @@ export class OpportunityEvidenceService {
     const allowedIds = new Set(references.map((value) => value.connectionId));
     const connections = (await this.connections.listByWorkspace(project.workspaceId)).filter((value) => allowedIds.has(value.id) && value.enabled && value.status !== "disconnected");
     const allowedConnectionIds = new Set(connections.map((value) => value.id));
-    const projectTerms = meaningful(`${project.name} ${project.description} ${project.strategy?.primaryTopic ?? ""} ${(project.strategy?.subtopics ?? []).join(" ")}`);
     const external = (await this.repository.listByWorkspace(project.workspaceId))
       .filter((value) => value.projectId == null && Boolean(value.connectionId && allowedConnectionIds.has(value.connectionId)))
-      .filter((value) => !value.keyword && !value.topic && !value.pageUrl ? false : overlap(projectTerms, meaningful(`${value.keyword ?? ""} ${value.topic ?? ""} ${value.pageUrl ?? ""}`)))
+      .filter((value) => Boolean(value.keyword || value.topic || value.pageUrl))
       .sort((a, b) => b.syncedAt.localeCompare(a.syncedAt))
       .slice(0, 100)
       .map((value) => value.provider === "brightStudio" ? value : Object.freeze({ ...value, freshness: calculateFreshness(value.provider, value.syncedAt) }));
@@ -42,36 +43,45 @@ export class OpportunityEvidenceService {
       const matched = matchEvidence(candidate, bundle, project);
       const duplicate = published.some((content) => isDirectDuplicate(candidate, content));
       const aligned = projectAligned(candidate, project);
+      const excluded = projectExcluded(candidate, project);
       const searchIntentClear = candidate.searchIntent.trim().length >= 4;
       const safe = safetyPassed(candidate);
+      const editorialValue = assessOpportunityEditorialValue({
+        selectedTopic: candidate.selectedTopic,
+        primaryKeyword: candidate.primaryKeyword,
+        searchIntent: candidate.searchIntent,
+        readerProblem: candidate.readerProblem,
+        contentAngle: candidate.contentAngle,
+        selectionRationale: candidate.selectionRationale,
+        expectedCoverage: candidate.expectedCoverage,
+        coreQuestions: candidate.qualityTarget.coreQuestions,
+        decisionCriteria: candidate.qualityTarget.decisionCriteria,
+        warningsOrExceptions: candidate.qualityTarget.warningsOrExceptions,
+        actionableNextSteps: candidate.qualityTarget.actionableNextSteps,
+        scopeBoundaries: candidate.qualityTarget.scopeBoundaries,
+        verificationClaimCount: candidate.verificationPlan?.claims.length ?? 0,
+        duplicate,
+        projectAligned: aligned,
+        projectExcluded: excluded,
+      });
       const assessment = assessOpportunityRecommendation({
         evidence: matched,
         duplicate,
         projectAligned: aligned,
         searchIntentClear,
-        safetyPassed: safe,
+        safetyPassed: safe && editorialValue.eligible,
       });
       const userSpecifiedFallback = candidate.selectionMode === "userSpecified" && searchIntentClear && safe;
       const recommendationType = assessment.recommendationType ?? (userSpecifiedFallback ? "blogGrowth" as const : undefined);
       if (!recommendationType) return [];
+      const evidenceConfidence = averageVerifiedEvidenceConfidence(matched);
       const summaries = matched.map(toOpportunityEvidence);
-      const limitations = [...assessment.limitations];
+      const limitations = [...assessment.limitations, ...editorialValue.limitations];
       if (userSpecifiedFallback && !matched.length) limitations.push("사용자가 직접 지정한 주제이므로 외부 시장 Evidence 없이 계속 진행합니다. 검색 수요와 성과 가능성은 검증되지 않았습니다.");
       if (userSpecifiedFallback && duplicate) limitations.push("현재 Project에 유사한 공개 콘텐츠가 있을 수 있습니다. 중복 여부를 확인해 주세요.");
       if (userSpecifiedFallback && !aligned) limitations.push("현재 Project 전략과의 연관성이 자동으로 확인되지 않았습니다. 사용자가 지정한 주제를 우선하여 계속 진행합니다.");
-      return [createContentOpportunityCandidate({
-        sourceRequest: candidate.sourceRequest,
-        selectionMode: candidate.selectionMode,
-        selectedTopic: candidate.selectedTopic,
-        primaryKeyword: candidate.primaryKeyword,
-        secondaryKeywords: candidate.secondaryKeywords,
-        searchIntent: candidate.searchIntent,
-        audience: candidate.audience,
-        contentType: candidate.contentType,
-        contentAngle: candidate.contentAngle,
-        readerProblem: candidate.readerProblem,
-        expectedCoverage: candidate.expectedCoverage,
-        selectionRationale: candidate.selectionRationale,
+      return [{ candidate: createContentOpportunityCandidate({
+        ...candidate,
         opportunityEvidence: summaries,
         recommendationType,
         evidenceIds: matched.map((value) => value.evidenceId),
@@ -80,17 +90,19 @@ export class OpportunityEvidenceService {
         freshness: assessment.freshness,
         limitations: Object.freeze([...new Set(limitations)]),
         classificationVersion: 1,
-        confidence: matched.length
-          ? Math.min(candidate.confidence, matched.reduce((sum, value) => sum + value.confidence, 0) / matched.length)
+        confidence: evidenceConfidence !== undefined
+          ? evidenceConfidence
           : userSpecifiedFallback ? Math.min(candidate.confidence, 0.55) : 0,
         cautions: candidate.cautions,
         projectId: project.id,
-      })];
+      }), editorialValue }];
     });
-    return Object.freeze(classified.sort((left, right) => recommendationTypePriority(left.recommendationType) - recommendationTypePriority(right.recommendationType)
-      || verifiedCount(right) - verifiedCount(left)
-      || freshnessPriority(left.freshness) - freshnessPriority(right.freshness)
-      || left.opportunityId.localeCompare(right.opportunityId)));
+    return Object.freeze(classified.sort((left, right) => compareOpportunityEditorialValue(left.editorialValue, right.editorialValue)
+      || recommendationTypePriority(left.candidate.recommendationType) - recommendationTypePriority(right.candidate.recommendationType)
+      || verifiedCount(right.candidate) - verifiedCount(left.candidate)
+      || freshnessPriority(left.candidate.freshness) - freshnessPriority(right.candidate.freshness)
+      || left.candidate.opportunityId.localeCompare(right.candidate.opportunityId))
+      .map((value) => value.candidate));
   }
 
   async assertWorkspaceEvidenceIds(workspaceId: string, ids: readonly string[]): Promise<void> {
@@ -155,5 +167,15 @@ function safetyPassed(candidate: ContentOpportunityCandidate): boolean { return 
 function meaningful(value: string): string[] { const ignored = new Set(["관리", "방법", "가이드", "정보", "콘텐츠", "글", "프로젝트", "위한", "대한"]); return [...new Set(normalize(value).split(" ").filter((term) => term.length >= 2 && !ignored.has(term)))]; }
 function normalize(value: string): string { return value.normalize("NFKC").toLocaleLowerCase("ko-KR").replace(/[^0-9a-z가-힣\s]/g, " ").replace(/\s+/g, " ").trim(); }
 function overlap(left: readonly string[], right: readonly string[]): boolean { return left.some((a) => right.some((b) => a.includes(b) || b.includes(a))); }
+function averageVerifiedEvidenceConfidence(values: readonly OpportunityEvidenceRecord[]): number | undefined {
+  const eligible = values.filter((value) => value.verified && value.freshness !== "unavailable");
+  if (!eligible.length) return undefined;
+  return eligible.reduce((sum, value) => sum + value.confidence, 0) / eligible.length;
+}
+function projectExcluded(candidate: ContentOpportunityCandidate, project: UserProject): boolean {
+  const excluded = (project.strategy?.excludedTopics ?? []).flatMap(meaningful);
+  if (!excluded.length) return false;
+  return overlap(meaningful(`${candidate.selectedTopic} ${candidate.primaryKeyword} ${candidate.contentAngle}`), excluded);
+}
 function verifiedCount(value: ContentOpportunityCandidate): number { return value.opportunityEvidence.filter((item) => item.verified).length; }
 function freshnessPriority(value: ContentOpportunityCandidate["freshness"]): number { return value === "fresh" ? 0 : value === "aging" ? 1 : value === "stale" ? 2 : 3; }

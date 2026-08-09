@@ -1,16 +1,20 @@
 import { NextResponse } from "next/server";
 
 import type { UserData } from "../../user-flow/user-data";
+import {
+  assertApprovalDraftIntegrity,
+  assertGeneratedClaimVerificationIntegrity,
+} from "../../../core/approval";
 import { PlatformConnectionService } from "../../../core/connections";
-import { contentRevisionId, PublishingGate, QualityEngine } from "../../../core/quality";
+import { editorialRevisionId, PublishingGate, QualityEngine } from "../../../core/quality";
 import { classifyTistoryDraftOutcome } from "../../../apps/tistory/workflows/TistoryDraftOutcome";
 import { connectionRepository, connectionStore, targetRepository } from "../../application/connections/connection-runtime";
 import { studioStore } from "../../application/studio-store";
 import { isPlatformEnabled, resolveWorkspaceSettings } from "../../application/settings/WorkspaceSettingsService";
-import { TistoryCategoryApplicationService } from "../../application/publishing/TistoryCategoryApplicationService";
+import { assertContentOwnedIdentityClean } from "../../application/publishing/ContentOwnedIdentityPolicy";
 import { TistoryDraftApplicationService, type PublishingAuditRecord } from "../../application/publishing/TistoryDraftApplicationService";
 import { isRetryableDraftStartupFailure, normalizeDraftStartupFailure } from "../../application/publishing/TistoryDraftStartupRecovery";
-import { applyTistoryPublishingAccount, applyTistoryPublishingCategory, calculateTistoryReadiness, resolveTistoryDefaultCategory, usableTistoryConnections } from "../../application/publishing/TistoryPublishingPreparation";
+import { applyTistoryPublishingAccount, calculateTistoryReadiness, usableTistoryConnections } from "../../application/publishing/TistoryPublishingPreparation";
 
 export async function GET(request: Request) {
   try {
@@ -23,37 +27,51 @@ export async function GET(request: Request) {
     const connection = connectionId ? await connectionRepository.findById(connectionId) : undefined;
     const selectedTarget = connection ? await hasSelectedTarget(projectId, content, project, connection.id) : false;
     return NextResponse.json({ readiness: await calculateTistoryReadiness({ data, project, content, connection, selectedTarget, finalConfirmation: url.searchParams.get("finalConfirmation") === "true" }) });
-  } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Tistory readiness 확인에 실패했습니다." }, { status: 400 }); }
+  } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "티스토리 저장 준비 상태 확인에 실패했습니다." }, { status: 400 }); }
 }
 
 export async function POST(request: Request) {
   try {
     const body = await request.json() as { action?: "prepare" | "body_editor_probe" | "category_verification_probe" | "draft_reopen_verify"; workspaceId?: string; projectId?: string; contentId?: string; connectionId?: string; finalConfirmation?: boolean };
-    if (body.action !== undefined && body.action !== "prepare" && body.action !== "body_editor_probe" && body.action !== "category_verification_probe" && body.action !== "draft_reopen_verify") throw new Error("The requested Tistory workflow is not registered.");
+    if (body.action !== undefined && body.action !== "prepare" && body.action !== "body_editor_probe" && body.action !== "category_verification_probe" && body.action !== "draft_reopen_verify") throw new Error("요청한 티스토리 작업이 등록되어 있지 않습니다.");
     const workspaceId = required(body.workspaceId), projectId = required(body.projectId), contentId = required(body.contentId);
     const data = await ownedContext(workspaceId, projectId, contentId);
     if (body.action === "prepare") return prepare(data, projectId, contentId, body.connectionId);
     const connectionId = required(body.connectionId);
-    if (!isPlatformEnabled(data, "tistory")) throw new Error("Tistory is disabled in Workspace Settings.");
+    if (!isPlatformEnabled(data, "tistory")) throw new Error("작업공간 설정에서 티스토리가 비활성화되어 있습니다.");
     const project = data.projects.find((item) => item.id === projectId && item.workspaceId === workspaceId);
     const content = data.contents.find((item) => item.id === contentId && item.projectId === projectId);
-    if (!project || !content?.document) throw new Error("Canonical content was not found.");
+    if (!project || !content?.document) throw new Error("기준 원고를 찾을 수 없습니다.");
+    assertContentOwnedIdentityClean(data, project, content);
     const policy = resolveWorkspaceSettings(data);
-    if (!policy.publishing.draftOnly || policy.publishing.publicPublish) throw new Error("현재 워크스페이스는 안전한 임시저장 정책만 사용할 수 있습니다.");
+    if (!policy.publishing.draftOnly || policy.publishing.publicPublish) throw new Error("현재 작업공간은 안전한 임시저장 정책만 사용할 수 있습니다.");
     if (policy.publishing.reviewFirst && body.finalConfirmation !== true) throw new Error("검토 후 최종 확인이 필요합니다.");
-    const revisionId = contentRevisionId(content.document);
-    if (!content.quality) throw new Error("Quality Review must pass after the latest edit before external draft save.");
+    const revisionId = editorialRevisionId(content.document);
+    assertGeneratedClaimVerificationIntegrity({
+      document: content.document,
+      plan: content.opportunity?.verificationPlan,
+      currentRevisionId: revisionId,
+    });
+    if (!content.quality) throw new Error("최근 편집 이후 품질 검토를 통과해야 외부 임시저장을 실행할 수 있습니다.");
     new PublishingGate().assertReady(content.quality, revisionId, content.document);
-    const quality = new QualityEngine().review(content.document, { contentType: content.contentType, platform: "tistory", primaryKeyword: content.primaryKeyword, searchIntent: content.searchIntent, revisionId });
+    const quality = new QualityEngine().review(content.document, {
+      contentType: content.contentType,
+      platform: "tistory",
+      primaryKeyword: content.primaryKeyword,
+      searchIntent: content.searchIntent,
+      opportunity: content.opportunity,
+      revisionId,
+    });
     new PublishingGate().assertReady(quality, revisionId, content.document);
+    assertApprovalDraftIntegrity(content.document);
     const connection = await connectionRepository.findById(connectionId);
-    if (!connection) throw new Error("Publishing account was not found.");
+    if (!connection) throw new Error("발행 계정을 찾을 수 없습니다.");
     const targets = targetRepository.listByProject ? await targetRepository.listByProject(projectId) : [];
     const selectedTarget = (content.selectedPublishingAccountIds?.includes(connectionId) || project.selectedPublishingAccountIds?.includes(connectionId) || content.publishingAccountId === connectionId)
       && targets.some((target) => target.platformConnectionId === connectionId);
     const audits = { save: (record: PublishingAuditRecord) => connectionStore.set("publishing-audits", record.operationId, record) };
     const preparation = content.publishingPreparation?.tistory;
-    if (!preparation || preparation.publishingAccountId !== connectionId) throw new Error("Tistory 카테고리를 선택하거나 '카테고리 없음'을 명시해 주세요.");
+    if (!preparation || preparation.publishingAccountId !== connectionId) throw new Error("티스토리 카테고리를 선택하거나 '카테고리 없음'을 명시해 주세요.");
     const diagnosticMode = body.action === "body_editor_probe" || body.action === "category_verification_probe" || body.action === "draft_reopen_verify" ? body.action : undefined;
     const execution = { workspaceId, projectId, contentId, connection, document: content.document, primaryKeyword: content.primaryKeyword, finalConfirmation: body.finalConfirmation === true, selectedTarget, categoryId: preparation.platformCategoryId, categoryName: preparation.platformCategoryName, ...(diagnosticMode ? { diagnosticMode } : {}) };
     const service = new TistoryDraftApplicationService(audits);
@@ -74,23 +92,23 @@ export async function POST(request: Request) {
       result,
       outcome,
       ...(failed ? {
-        error: result.error ?? "Tistory 임시저장 작업을 완료하지 못했습니다.",
+        error: result.error ?? "티스토리 임시저장 작업을 완료하지 못했습니다.",
         failedStep: result.failedStep,
         diagnosticCode: failedRecord?.diagnosticCode,
         runtimeFailure: result.diagnostic?.runtimeFailure,
       } : {}),
     }, { status: failed ? 400 : 200 });
-  } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Tistory draft save failed." }, { status: 400 }); }
+  } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "티스토리 임시저장에 실패했습니다." }, { status: 400 }); }
 }
-function required(value: unknown): string { if (typeof value !== "string" || !value.trim()) throw new Error("Required publishing context is missing."); return value.trim(); }
+function required(value: unknown): string { if (typeof value !== "string" || !value.trim()) throw new Error("필수 발행 정보가 없습니다."); return value.trim(); }
 
 async function ownedContext(workspaceId: string, projectId: string, contentId: string): Promise<UserData> {
   const data = await studioStore.get<UserData>("application", "user-data");
-  if (data?.workspace?.id !== workspaceId) throw new Error("Workspace was not found.");
-  if (!isPlatformEnabled(data, "tistory")) throw new Error("Tistory is disabled in Workspace Settings.");
+  if (data?.workspace?.id !== workspaceId) throw new Error("작업공간을 찾을 수 없습니다.");
+  if (!isPlatformEnabled(data, "tistory")) throw new Error("작업공간 설정에서 티스토리가 비활성화되어 있습니다.");
   const project = data.projects.find((item) => item.id === projectId && item.workspaceId === workspaceId);
   const content = data.contents.find((item) => item.id === contentId && item.projectId === projectId && item.workspaceId === workspaceId);
-  if (!project || !content) throw new Error("Project 또는 Content를 찾을 수 없습니다.");
+  if (!project || !content) throw new Error("프로젝트 또는 콘텐츠를 찾을 수 없습니다.");
   return data;
 }
 
@@ -104,25 +122,9 @@ async function prepare(data: UserData, projectId: string, contentId: string, req
   }
   await new PlatformConnectionService(connectionRepository, targetRepository).selectTarget(data.projects.find((item) => item.id === projectId)!, connection.id);
   const updatedAt = new Date().toISOString();
-  let next = applyTistoryPublishingAccount(data, projectId, contentId, connection.id, updatedAt);
-  let project = next.projects.find((item) => item.id === projectId)!;
-  let content = next.contents.find((item) => item.id === contentId)!;
-  if (content.publishingPreparation?.tistory?.publishingAccountId !== connection.id) {
-    try {
-      const categoryResult = await new TistoryCategoryApplicationService().read({ workspaceId: next.workspace!.id, projectId, contentId, connection, selectedTarget: true });
-      const category = resolveTistoryDefaultCategory(project, connection.id, categoryResult.categories);
-      if (category) {
-        next = applyTistoryPublishingCategory(next, projectId, contentId, connection.id, category, updatedAt);
-        project = next.projects.find((item) => item.id === projectId)!;
-        content = next.contents.find((item) => item.id === contentId)!;
-        console.info("[tistory-preparation] category auto-applied", { categoryId: category.id, categoryName: category.name, connectionId: connection.id, contentId, projectId });
-      } else {
-        console.info("[tistory-preparation] no matching default category", { connectionId: connection.id, contentId, projectId, projectTopic: project.strategy?.primaryTopic ?? project.name });
-      }
-    } catch (error) {
-      console.warn("[tistory-preparation] category auto-apply unavailable", { connectionId: connection.id, contentId, error: error instanceof Error ? error.message : "Category preparation failed.", projectId });
-    }
-  }
+  const next = applyTistoryPublishingAccount(data, projectId, contentId, connection.id, updatedAt);
+  const project = next.projects.find((item) => item.id === projectId)!;
+  const content = next.contents.find((item) => item.id === contentId)!;
   await studioStore.set("application", "user-data", next);
   return NextResponse.json({ data: next, connectionId: connection.id, automaticallyApplied: !requestedConnectionId && available.length === 1, readiness: await calculateTistoryReadiness({ data: next, project, content, connection, selectedTarget: true, finalConfirmation: false }) });
 }
@@ -139,7 +141,7 @@ async function synchronizeTistorySessionState(connectionId: string, outcomeStatu
       publicMetadata: {
         ...connection.publicMetadata,
         sessionStateAvailable: false,
-        safeError: "Tistory 로그인 세션이 만료되었습니다. 다시 연결해 주세요.",
+        safeError: "티스토리 로그인 세션이 만료되었습니다. 다시 연결해 주세요.",
       },
     });
     return;

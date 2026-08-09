@@ -7,6 +7,7 @@ export const providerFreshnessPolicies: Readonly<Record<DataSourceProvider, Fres
   googleSearchConsole: { freshForMs: days(2), agingForMs: days(7), staleUsable: true },
   googleAnalytics4: { freshForMs: days(2), agingForMs: days(7), staleUsable: true },
   googleAdSense: { freshForMs: days(2), agingForMs: days(7), staleUsable: true },
+  youtubeAnalytics: { freshForMs: days(2), agingForMs: days(7), staleUsable: true },
   naverSearchTrend: { freshForMs: days(1), agingForMs: days(3), staleUsable: true },
   googleAdsKeywordPlanning: { freshForMs: days(7), agingForMs: days(30), staleUsable: true },
   googleTrendsOfficial: { freshForMs: days(1), agingForMs: days(7), staleUsable: true },

@@ -1,5 +1,12 @@
 export type { ContentBlock } from "./ContentBlock";
 export {
+  contentBlockOwnership,
+  contentBlockOwnerships,
+  isSystemProjectionBlock,
+  normalizeContentBlockOwnership,
+  type ContentBlockOwnership,
+} from "./ContentBlockOwnership";
+export {
   contentBlockTypes,
   type ContentBlockType,
 } from "./ContentBlockType";
@@ -27,16 +34,27 @@ export {
   confirmContentOpportunity,
   contentOpportunityKeywords,
   createContentOpportunityCandidate,
+  createContentOpportunityVerificationPlan,
   detectContentOpportunitySelectionMode,
+  hasSelfConsistentVerificationPlan,
+  hasUsableContentOpportunityVerificationPlan,
   hasCurrentContentOpportunityFingerprint,
+  resolveContentOpportunityVerificationMode,
   opportunityEvidenceLabel,
   type ConfirmedContentOpportunity,
   type ContentOpportunityCandidate,
   type ContentOpportunityDraft,
   type ContentOpportunitySelectionMode,
+  type ContentOpportunityVerificationPlan,
   type OpportunityEvidence,
   type OpportunityEvidenceSource,
 } from "./ContentOpportunity";
+export {
+  findUnrequestedOwnedIdentityOccurrences,
+  findUnrequestedOwnedIdentityPrefixes,
+  hasOwnedIdentityPrefix,
+  type OwnedIdentityKeywordPolicyInput,
+} from "./OwnedIdentityKeywordPolicy";
 export {
   analyzeContentOpportunityAlignment,
   applyContentOpportunityPolicy,
@@ -46,6 +64,14 @@ export {
   type OpportunityAlignmentSignal,
   type OpportunityAlignmentStatus,
 } from "./ContentOpportunityAlignment";
+export {
+  analyzeEditorialMarkupIntegrity,
+  EditorialMarkupIntegrityError,
+  normalizeEditorialMarkupDocument,
+  normalizeEditorialMarkupText,
+  type EditorialMarkupIssue,
+  type EditorialMarkupIssueCode,
+} from "./EditorialMarkupIntegrity";
 export { calculateContentMetrics, canonicalDocumentText } from "./ContentMetrics";
 export {
   analyzeLongFormDocument,
@@ -53,6 +79,7 @@ export {
   assertLongFormSafetyTarget,
   formatLongFormDiagnostic,
   LongFormValidationError,
+  normalizeGeneratedSectionSemantics,
   requiresLongFormValidation,
   type LongFormDiagnostic,
   type LongFormSectionDiagnostic,
@@ -60,6 +87,7 @@ export {
 } from "./LongFormDiagnostics";
 export { deriveContentTags } from "./ContentTags";
 export { placeRecommendedPosts, rankRelatedPosts, type PublicPostCandidate } from "./RelatedPostRecommendation";
+export { restoreProtectedEditorialMetadata } from "./ProtectedEditorialMetadata";
 export { restoreProtectedImageAssets } from "./ProtectedImageAssets";
 export { isVerifiedEditorialLink, restoreVerifiedEditorialLinks } from "./ProtectedEditorialLinks";
 export { buildReadableSeoTitle, ensureSeoKeywordPlacement, normalizeSeoKeyword, titleContainsPrimaryKeyword } from "./SeoKeywordPlacement";
@@ -88,6 +116,7 @@ export type {
   HeadingLevel,
 } from "./blocks/HeadingBlock";
 export type { ImageBlock, ImageBlockPurpose, ImageBlockSourceType } from "./blocks/ImageBlock";
+export type { ListBlock, ListBlockStyle } from "./blocks/ListBlock";
 export type { ParagraphBlock } from "./blocks/ParagraphBlock";
 export type { TableBlock } from "./blocks/TableBlock";
 export type { VideoBlock } from "./blocks/VideoBlock";
@@ -95,12 +124,15 @@ export { ContentNormalizer } from "./processors/ContentNormalizer";
 export {
   normalizeStructuredTable,
   normalizeStructuredText,
+  parseStructuredList,
   parseStructuredText,
+  serializeStructuredList,
   serializeStructuredTable,
   structuredListItems,
   structuredProseText,
   structuredTableCount,
   type StructuredTableData,
+  type StructuredListData,
   type StructuredTextSegment,
 } from "./StructuredText";
 export {

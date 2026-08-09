@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { GoogleOAuthCredentialService } from "../../../../app/application/data-sources/google/GoogleOAuthCredentialService";
-import { GOOGLE_SEARCH_CONSOLE_READONLY_SCOPE } from "../../../../app/application/data-sources/google/GoogleOAuthClientFactory";
+import { GOOGLE_SEARCH_CONSOLE_READONLY_SCOPE, GOOGLE_YOUTUBE_ANALYTICS_READONLY_SCOPE, GOOGLE_YOUTUBE_READONLY_SCOPE } from "../../../../app/application/data-sources/google/GoogleOAuthClientFactory";
 
 function secrets(value: string) {
   return { storeSecret: vi.fn(), readSecret: vi.fn().mockResolvedValue(value), replaceSecret: vi.fn().mockResolvedValue(undefined), deleteSecret: vi.fn(), secretExists: vi.fn().mockResolvedValue(true) };
@@ -13,6 +13,18 @@ describe("Google OAuth credential exchange and refresh", () => {
     const result = await service.exchangeCode("authorization-code-secret");
     expect(result.credential).toEqual({ kind: "googleOAuth", accessToken: "access-secret", refreshToken: "refresh-secret", expiryDate: 1234, tokenType: "Bearer", grantedScopes: [GOOGLE_SEARCH_CONSOLE_READONLY_SCOPE] });
     expect(JSON.stringify(result.credential)).not.toMatch(/authorization-code|id_token|client-secret/);
+  });
+
+  it("accepts only the complete YouTube read-only scope set for YouTube Analytics", async () => {
+    const scope = `${GOOGLE_YOUTUBE_READONLY_SCOPE} ${GOOGLE_YOUTUBE_ANALYTICS_READONLY_SCOPE}`;
+    const client = { getToken: vi.fn().mockResolvedValue({ tokens: { access_token: "access-secret", refresh_token: "refresh-secret", scope } }), setCredentials: vi.fn(), getTokenInfo: vi.fn(), on: vi.fn(), getAccessToken: vi.fn() };
+    const result = await new GoogleOAuthCredentialService(secrets(""), { create: () => client } as never).exchangeCode("code", undefined, "youtubeAnalytics");
+    expect(result.credential.grantedScopes).toEqual([GOOGLE_YOUTUBE_ANALYTICS_READONLY_SCOPE, GOOGLE_YOUTUBE_READONLY_SCOPE].sort());
+  });
+
+  it("rejects YouTube Analytics OAuth when either required read-only scope is missing", async () => {
+    const client = { getToken: vi.fn().mockResolvedValue({ tokens: { access_token: "access-secret", refresh_token: "refresh-secret", scope: GOOGLE_YOUTUBE_READONLY_SCOPE } }), setCredentials: vi.fn(), getTokenInfo: vi.fn(), on: vi.fn(), getAccessToken: vi.fn() };
+    await expect(new GoogleOAuthCredentialService(secrets(""), { create: () => client } as never).exchangeCode("code", undefined, "youtubeAnalytics")).rejects.toMatchObject({ code: "GOOGLE_OAUTH_SCOPE_MISSING" });
   });
 
   it("keeps the existing refresh token when Google omits it during reconnection", async () => {
@@ -35,6 +47,13 @@ describe("Google OAuth credential exchange and refresh", () => {
     await session.persist();
     const saved = JSON.parse(store.replaceSecret.mock.calls[0][1]);
     expect(saved).toMatchObject({ accessToken: "refreshed-access", refreshToken: "keep-refresh", expiryDate: 9999 });
+  });
+
+  it("rejects a stored credential when it lacks the current connection provider scopes", async () => {
+    const stored = JSON.stringify({ kind: "googleOAuth", accessToken: "access-secret", refreshToken: "refresh-secret", grantedScopes: [GOOGLE_SEARCH_CONSOLE_READONLY_SCOPE] });
+    const client = { on: vi.fn(), setCredentials: vi.fn(), getAccessToken: vi.fn(), getToken: vi.fn(), getTokenInfo: vi.fn() };
+    const promise = new GoogleOAuthCredentialService(secrets(stored), { create: () => client } as never).authorized({ id: "youtube-1", workspaceId: "workspace-1", provider: "youtubeAnalytics", displayName: "YouTube", status: "connected", secretReference: "secret-reference", credentialMode: "googleOAuth", resourceConfiguration: { channelId: "channel-1" }, enabled: true, createdAt: "now", updatedAt: "now", version: 1 });
+    await expect(promise).rejects.toMatchObject({ code: "GOOGLE_OAUTH_SCOPE_MISSING" });
   });
 
   it("marks refresh failure for reconnection without exposing token material", async () => {

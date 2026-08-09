@@ -1,14 +1,17 @@
 import { NextResponse } from "next/server";
+import { isDataSourceProvider } from "../../../../../core/intelligence";
 import { dataSourceConnectionRepository, googleOAuthClientFactory, googleOAuthCredentialService, googleOAuthStateStore } from "../../../../application/data-sources/data-source-runtime";
 import { DataSourceError, publicDataSourceError } from "../../../../application/data-sources/DataSourceErrors";
 import { studioStore } from "../../../../application/studio-store";
 import type { UserData } from "../../../../user-flow/user-data";
 
+const googleProviders = new Set(["googleSearchConsole", "youtubeAnalytics"] as const);
+
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url), workspaceId = required(url.searchParams.get("workspaceId"), "Workspace를 선택해 주세요.", "workspaceId");
     const provider = required(url.searchParams.get("provider"), "Google Provider를 선택해 주세요.", "provider");
-    if (provider !== "googleSearchConsole") throw new DataSourceError("이번 OAuth 연결은 Google Search Console만 지원합니다.", "DATA_SOURCE_REQUEST_VALIDATION_ERROR", 400, "provider");
+    if (!isDataSourceProvider(provider) || !googleProviders.has(provider as "googleSearchConsole" | "youtubeAnalytics")) throw new DataSourceError("이번 OAuth 연결이 지원하지 않는 Google Provider입니다.", "DATA_SOURCE_REQUEST_VALIDATION_ERROR", 400, "provider");
     await ownedWorkspace(workspaceId);
     const connectionId = optional(url.searchParams.get("connectionId")), connection = connectionId ? await dataSourceConnectionRepository.findById(connectionId) : undefined;
     if (connectionId && (!connection || connection.workspaceId !== workspaceId)) throw new DataSourceError("이 Workspace에서 Data Source 연결에 접근할 수 없습니다.", "DATA_SOURCE_WORKSPACE_FORBIDDEN", 403);

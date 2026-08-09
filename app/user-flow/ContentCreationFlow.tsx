@@ -4,11 +4,13 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { detectContentOpportunitySelectionMode, type ContentOpportunityCandidate } from "../../core/content";
+import { applyProjectPublishingTargets, projectPublishingAccountIds } from "../application/publishing/ProjectPublishingTarget";
 import { PageContainer } from "../shared/ui/PageContainer";
 import { completeConfirmedGeneration } from "./confirmed-generation";
 import { generatedDocumentEditable, generatedDocumentReady, GenerationCompletionError, type GenerationCompletionResult } from "./generation-result";
 import { PrimaryKeywordConfirmation } from "./PrimaryKeywordConfirmation";
 import {
+  buildAutomaticContentPlanningRequest,
   createContentFromPlan,
   failContentPlanning,
   resolveProjectStrategy,
@@ -16,7 +18,6 @@ import {
   startContentGeneration,
   startContentPlanning,
   updateContent,
-  updateProjectTargets,
   type ContentPlanningResult,
   type UserContent,
   type UserData,
@@ -253,7 +254,8 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
     let generationStarted = false;
     if (generate) setOperation("generating");
     setNotice("원고 생성 전에 콘텐츠 기록을 저장하고 있습니다.");
-    let next = createContentFromPlan(latestDataRef.current, {
+    let next = applyProjectPublishingTargets(latestDataRef.current, project.id, readyAccountIds, connected, now());
+    next = createContentFromPlan(next, {
       id: contentId,
       projectId: project.id,
       naturalLanguageRequest: confirmedRequest,
@@ -262,11 +264,10 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
       selectedPublishingAccountIds: readyAccountIds,
       now: now(),
     });
-    next = updateProjectTargets(next, project.id, readyAccountIds, now());
     latestDataRef.current = next;
     try {
       await onPersist(next);
-      const tistoryAccountIds = readyAccountIds.filter((id) => connected.some((connection) => connection.id === id && connection.platform === "tistory"));
+      const tistoryAccountIds = projectPublishingAccountIds(next, project.id, readyAccountIds, connected, "tistory");
       if (tistoryAccountIds.length) {
         const preparationResponse = await fetch("/api/tistory", {
           method: "POST",
@@ -299,6 +300,7 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
           throw new Error(result.error ?? "Publishing-account selection failed.");
         }
       }
+      next = applyProjectPublishingTargets(next, project.id, persistedAccountIds, connected, now());
       next = createContentFromPlan(next, {
         id: contentId,
         projectId: project.id,
@@ -308,7 +310,6 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
         selectedPublishingAccountIds: persistedAccountIds,
         now: now(),
       });
-      next = updateProjectTargets(next, project.id, persistedAccountIds, now());
       latestDataRef.current = next;
       await onPersist(next);
       if (!generate) {
@@ -366,7 +367,12 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
           if (generatedDocumentEditable(result)) onOpenEditor(contentId);
           return;
         }
-        throw new GenerationCompletionError(result.error ?? "Generation failed.", result.diagnostic);
+        throw new GenerationCompletionError(
+          result.error ?? "Generation failed.",
+          result.diagnostic,
+          result.approvalSourcePreflightDiagnostic,
+          result.aiProviderDiagnostic,
+        );
       }
       if (!response.ok || !result.document) throw new Error(result.error ?? "Generation failed.");
       if (result.data) {
@@ -389,6 +395,12 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
           error: message(error),
           retryFrom: "generation",
           ...(error instanceof GenerationCompletionError && error.diagnostic ? { diagnostic: error.diagnostic } : {}),
+          ...(error instanceof GenerationCompletionError && error.approvalSourcePreflightDiagnostic
+            ? { approvalSourcePreflightDiagnostic: error.approvalSourcePreflightDiagnostic }
+            : {}),
+          ...(error instanceof GenerationCompletionError && error.aiProviderDiagnostic
+            ? { aiProviderDiagnostic: error.aiProviderDiagnostic }
+            : {}),
           now: now(),
         });
       }
@@ -458,7 +470,7 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
     if (!automatic || automaticStartRef.current || content?.planningWorkflow) return;
     automaticStartRef.current = true;
     const strategy = resolveProjectStrategy(project);
-    const automaticRequest = `${strategy.primaryTopic} 프로젝트에서 아직 다루지 않은 주제를 선정해 ${strategy.targetAudience}을 위한 ${strategy.defaultContentType} 원고를 작성해줘. 세부 주제: ${strategy.subtopics.join(", ") || strategy.primaryTopic}. 제외 주제: ${strategy.excludedTopics.join(", ") || "없음"}.`;
+    const automaticRequest = buildAutomaticContentPlanningRequest(strategy);
     void Promise.resolve().then(() => {
       setRequest(automaticRequest);
       setNotice("주제를 선정하고 있습니다. 기존 게시글과 중복 여부를 확인하고 있습니다.");

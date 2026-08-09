@@ -116,10 +116,50 @@ describe("integration infrastructure", () => {
       usage: { output_tokens: 12_000 },
       output_text: "{}",
     }), { status: 200 }));
-    await expect(new OpenAIProvider("sk-test", "gpt-5.6-terra").generate({
+    const result = new OpenAIProvider("sk-test", "gpt-5.6-terra").generate({
       instruction: "generate",
       metadata: { task: "content-generation" },
-    })).rejects.toThrow("max_output_tokens");
+    });
+    await expect(result).rejects.toMatchObject({
+      name: "AIProviderError",
+      diagnostic: expect.objectContaining({
+        stage: "generation",
+        completionStatus: "incomplete_max_output_tokens",
+        configuredMaxOutputTokens: 11_000,
+        responseId: "resp-test",
+        outputTokens: 12_000,
+        structuredOutputPresent: true,
+      }),
+    });
+    fetchSpy.mockRestore();
+  });
+
+  it.each([
+    ["content-planning", "planning"],
+    ["approval-source-preflight", "source_preflight"],
+    ["content-generation", "generation"],
+    ["quality-final-edit", "quality_review"],
+  ] as const)("preserves the incomplete boundary for %s", async (task, stage) => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      id: `resp-${stage}`,
+      model: "gpt-test",
+      status: "incomplete",
+      incomplete_details: { reason: "max_output_tokens" },
+    }), { status: 200 }));
+    await expect(new OpenAIProvider("sk-test", "gpt-test").generate({ instruction: "x", metadata: { task } }))
+      .rejects.toMatchObject({ diagnostic: expect.objectContaining({ stage, completionStatus: "incomplete_max_output_tokens" }) });
+    fetchSpy.mockRestore();
+  });
+
+  it("keeps content-filter incomplete distinct from token exhaustion", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      id: "resp-filter",
+      model: "gpt-test",
+      status: "incomplete",
+      incomplete_details: { reason: "content_filter" },
+    }), { status: 200 }));
+    await expect(new OpenAIProvider("sk-test", "gpt-test").generate({ instruction: "x", metadata: { task: "approval-source-preflight" } }))
+      .rejects.toMatchObject({ diagnostic: expect.objectContaining({ completionStatus: "incomplete_content_filter", stage: "source_preflight" }) });
     fetchSpy.mockRestore();
   });
 

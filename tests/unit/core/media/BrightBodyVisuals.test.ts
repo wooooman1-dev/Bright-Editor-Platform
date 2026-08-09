@@ -4,22 +4,16 @@ import type { ContentDocument } from "../../../../core/content";
 import { brightBodyVisualContent, ensureFreeBodyVisuals, renderBrightBodyVisualHtml } from "../../../../core/media";
 
 describe("BrightBodyVisuals", () => {
-  it("adds two stable zero-cost body cards to an existing long-form draft with only a hero", () => {
+  it("does not synthesize a body card from editorial paragraphs", () => {
     const first = ensureFreeBodyVisuals(article());
     const second = ensureFreeBodyVisuals(first);
     const visuals = first.blocks.filter((block) => block.type === "image" && block.purpose !== "hero");
 
-    expect(visuals).toHaveLength(2);
-    expect(visuals.map((block) => block.id)).toEqual(
-      second.blocks
-        .filter((block) => block.type === "image" && block.purpose !== "hero")
-        .map((block) => block.id),
-    );
-    expect(visuals.some((block) => block.type === "image" && block.purpose === "warning")).toBe(true);
-    expect(visuals.every((block) => block.type === "image" && block.source === "" && block.sourceType === "planned")).toBe(true);
+    expect(visuals).toHaveLength(0);
+    expect(second).toEqual(first);
   });
 
-  it("keeps all related posts after a missing final warning card is derived", () => {
+  it("keeps an explicitly stored card and moves all related posts to the end", () => {
     const base = article();
     const firstHeadingIndex = base.blocks.findIndex((block) => block.type === "heading");
     const firstParagraphIndex = base.blocks.findIndex((block, index) => index > firstHeadingIndex && block.type === "paragraph");
@@ -34,22 +28,15 @@ describe("BrightBodyVisuals", () => {
       ],
     };
     const result = ensureFreeBodyVisuals(withRelated).blocks;
-    expect(result.filter((block) => block.type === "image" && block.purpose !== "hero")).toHaveLength(2);
-    expect(result.at(-4)).toMatchObject({ type: "image", purpose: "warning" });
+    expect(result.filter((block) => block.type === "image" && block.purpose !== "hero")).toEqual([existingInfographic]);
     expect(result.slice(-3).map((block) => block.type === "button" ? block.purpose : block.type)).toEqual(["related_post", "related_post", "related_post"]);
   });
 
   it("renders escaped HTML instead of a missing-image placeholder", () => {
-    const visual = ensureFreeBodyVisuals(article()).blocks.find(
-      (block) => block.type === "image" && block.purpose === "warning",
-    );
-    expect(visual?.type).toBe("image");
-    if (!visual || visual.type !== "image") return;
-
-    const candidate = { ...visual, alt: "중단 <신호>" };
+    const candidate = { id: "warning", type: "image" as const, source: "", purpose: "warning" as const, alt: "중단 <신호>", caption: "호흡 곤란\n흉통" };
     expect(brightBodyVisualContent(candidate).items.length).toBeGreaterThan(0);
     expect(renderBrightBodyVisualHtml(candidate)).toContain("중단 &lt;신호&gt;");
-    expect(renderBrightBodyVisualHtml(candidate)).toContain('data-free-visual="true"');
+    expect(renderBrightBodyVisualHtml(candidate)).not.toContain('data-free-visual="true"');
     expect(renderBrightBodyVisualHtml(candidate)).not.toContain("data-image-required");
   });
 });

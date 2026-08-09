@@ -13,8 +13,10 @@ import { resolveContentOpenDestination } from "./content-navigation";
 import { DangerZone } from "./DangerZone";
 import { EditorWorkspace } from "./EditorWorkspace";
 import { ProjectCardActions } from "./ProjectCardActions";
+import { serializeStructuredList } from "../../core/content";
 import { ProjectApprovalSettingsCard } from "./ProjectApprovalSettingsCard";
-import { contentRevisionId } from "../../core/quality";
+import { editorialRevisionId } from "../../core/quality";
+import { applyProjectPublishingTargets } from "../application/publishing/ProjectPublishingTarget";
 import { normalizeQualityReview } from "./quality-review-ui";
 import {
   createProject,
@@ -25,7 +27,6 @@ import {
   renameProject,
   resolveProjectStrategy,
   saveDraft,
-  updateProjectTargets,
   type UserContent,
   type UserData,
   type UserProject,
@@ -299,7 +300,7 @@ export function LegacyEditorScreen({ content, data, onBack, onPersist, project }
   const [platform, setPlatform] = useState(content.platform ?? "tistory");
   const [contentType, setContentType] = useState(content.contentType ?? "article");
   const [keywords, setKeywords] = useState("");
-  const normalizedQuality = normalizeQualityReview(content.quality, { currentRevisionId: content.document ? contentRevisionId(content.document) : undefined });
+  const normalizedQuality = normalizeQualityReview(content.quality, { currentRevisionId: content.document ? editorialRevisionId(content.document) : undefined });
   const [generating, setGenerating] = useState(false);
   const [preparedHtml, setPreparedHtml] = useState("");
 
@@ -319,7 +320,9 @@ export function LegacyEditorScreen({ content, data, onBack, onPersist, project }
       const response = await fetch("/api/studio", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "generate", input: { workspaceId: project.workspaceId, contentId: content.id, contentType, keywords: keywords.split(",").map((value) => value.trim()).filter(Boolean), platform, projectId: project.id } }) });
       const result = await response.json() as { document?: import("../../core/content").ContentDocument; quality?: import("../../core/quality").QualityReport; error?: string };
       if (!response.ok || !result.document) throw new Error(result.error ?? "Generation failed.");
-      const generatedBody = result.document.blocks.filter((block) => block.type === "paragraph").map((block) => block.text).join("\n\n");
+      const generatedBody = result.document.blocks.flatMap((block) => block.type === "paragraph"
+        ? [block.text]
+        : block.type === "list" ? [serializeStructuredList(block)] : []).join("\n\n");
       const next: UserData = { ...data, contents: data.contents.map((item) => item.id === content.id ? { ...item, body: generatedBody, contentType, document: result.document, platform, quality: result.quality, title: result.document!.title, updatedAt: nowLabel() } : item), qualityReports: result.quality ? [...(data.qualityReports ?? []).filter((item) => item.contentId !== content.id), { contentId: content.id, report: result.quality }] : data.qualityReports };
       setTitle(result.document.title); setBody(generatedBody); onPersist(next);
       setNotice("Generated, quality-reviewed, and persisted as a draft.");
@@ -395,7 +398,7 @@ function PublishingTargetSelector({ data, onPersist, project, workspaceId }: { d
       const response = await fetch("/api/connections", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "select-target", workspaceId, projectId: project.id, connectionId: connection.id }) });
       const result = await response.json() as { error?: string }; if (!response.ok) { setNotice(result.error ?? "Target selection failed."); return; }
     }
-    await onPersist(updateProjectTargets(data, project.id, nextIds, nowLabel())); setNotice("Project publishing-account defaults updated. Credentials were not copied.");
+    await onPersist(applyProjectPublishingTargets(data, project.id, nextIds, connections, nowLabel())); setNotice("Project publishing-account defaults updated. Credentials were not copied.");
   };
   return <section className="mt-6 rounded-[20px] border border-black/6 bg-white p-5"><h2 className="font-semibold">Selected Publishing Accounts</h2>{connections.length ? <div className="mt-3 space-y-2">{connections.map((connection) => <label className={`flex gap-3 rounded-xl border p-3 text-sm ${connection.status !== "connected" ? "opacity-60" : ""}`} key={connection.id}><input checked={selected.includes(connection.id)} disabled={connection.status !== "connected"} onChange={() => void toggleTarget(connection)} type="checkbox" /><span>{connection.platform}: {connection.displayName} · {connection.status}</span></label>)}</div> : <p className="mt-2 text-sm text-[#77777f]">No connected account. Content creation remains available.</p>}<p className="mt-2 text-sm">{notice}</p></section>;
 }

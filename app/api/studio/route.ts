@@ -2,22 +2,35 @@
 
 import { studioStore } from "../../application/studio-store";
 import { mergeServerMutationSnapshot, mergeUserDataSnapshot } from "../../application/persistence/mergeUserDataSnapshot";
-import { AIWorkflow } from "../../../core/ai";
-import { contentRevisionId, evaluateQualityImprovement, evaluateQualityReviewReadiness, isStandardQualityApproved, qualityImprovementRejectionMessage, QualityEngine } from "../../../core/quality";
+import { AIWorkflow } from "../../../core/ai/AIWorkflow";
+import { AIProviderError } from "../../../core/ai";
+import { ApprovalSourcePreflightError } from "../../../core/ai/ApprovalSourcePreflight";
+import { contentRevisionId, editorialRevisionId, evaluateQualityImprovement, evaluateQualityReviewReadiness, isStandardQualityApproved, qualityImprovementRejectionMessage, QualityEngine } from "../../../core/quality";
 import { contentOpportunityAIContext, EditorialGenerationStrategy } from "../../application/EditorialGenerationStrategy";
+import { approvalPolicySnapshotFromEditorialContext } from "../../../core/approval";
 import { OpenAIProvider } from "../../application/OpenAIProvider";
 import { openAIGenerationModel, openAIReviewModel } from "../../application/OpenAIModelPolicy";
 import { contentDocumentAIContext, EditorialQualityPipeline } from "../../application/EditorialQualityPipeline";
-import { ContentPlanningStrategy, createManualPlanningResult, projectStrategyAIContext } from "../../application/ContentPlanningStrategy";
+import { preserveCanonicalSeoMetadata } from "../../application/SeoMetadataPolicy";
+import { attachApprovalEvidenceContracts, ContentPlanningStrategy, createManualPlanningResult, ensureApprovalEvidenceContract, projectStrategyAIContext } from "../../application/ContentPlanningStrategy";
 import { approvalAwareInstruction, contentEditorialContext, preserveContentApprovalPolicy } from "../../application/approval/ApprovalRuntimePolicy";
 import { TistoryPublishingAdapter } from "../../../apps/tistory/publishing/TistoryPublishingAdapter";
-import { analyzeLongFormDocument, applyContentDepthPolicy, applyContentOpportunityPolicy, calculateContentMetrics, contentOpportunityKeywords, deriveContentTags, detectContentOpportunitySelectionMode, ensureSeoKeywordPlacement, LongFormValidationError, placeRecommendedPosts, rankRelatedPosts, requiresLongFormValidation, restoreProtectedImageAssets, restoreVerifiedEditorialLinks, type ConfirmedContentOpportunity, type ContentDocument, type LongFormDiagnostic } from "../../../core/content";
+import { WordPressHtmlRenderer } from "../../../apps/wordpress/WordPressHtmlRenderer";
+import { analyzeLongFormDocument, applyContentDepthPolicy, applyContentOpportunityPolicy, contentOpportunityKeywords, deriveContentTags, detectContentOpportunitySelectionMode, ensureSeoKeywordPlacement, LongFormValidationError, requiresLongFormValidation, restoreProtectedImageAssets, restoreVerifiedEditorialLinks, type ConfirmedContentOpportunity, type ContentDocument, type LongFormDiagnostic } from "../../../core/content";
 import { ContentDeletionService } from "../../application/content/ContentDeletionService";
 import { applyCanonicalDocument, completeContentGeneration, completeContentPlanning, failContentPlanning, resolveProjectStrategy, startContentPlanning, updateContent, type UserData } from "../../user-flow/user-data";
 import { isPlatformEnabled, resolveWorkspaceSettings } from "../../application/settings/WorkspaceSettingsService";
 import { connectionRepository, targetRepository } from "../../application/connections/connection-runtime";
-import { TistoryPostCatalogApplicationService } from "../../application/publishing/TistoryPostCatalogApplicationService";
-import { isConnectionSelectedForContent, resolveTistoryConnectionId } from "../../application/publishing/TistoryConnectionSelection";
+import { PublicPostCatalogApplicationService } from "../../application/publishing/PublicPostCatalogApplicationService";
+import {
+  applyInternalLinkCatalogResult,
+  publishingCategoryIdentities,
+  publishingCategoryNames,
+  rankPublishingPostCandidates,
+  withInternalLinkCatalogMetadata,
+} from "../../application/publishing/InternalLinkCatalogPolicy";
+import { resolveCanonicalPublishingConnection } from "../../application/publishing/ProjectPublishingTarget";
+import { isPublishingConnectionSelectedForContent } from "../../application/publishing/PublishingTargetSelection";
 import { resolveConfirmedGenerationKeywords, resolveConfirmedGenerationOpportunity } from "../../application/ConfirmedGenerationPolicy";
 import { OpportunityEvidenceService } from "../../application/data-sources/OpportunityEvidenceService";
 import { dataSourceConnectionRepository, opportunityEvidenceRepository, projectDataSourceReferenceRepository } from "../../application/data-sources/data-source-runtime";
@@ -105,8 +118,13 @@ export async function POST(request: Request) {
         secondaryKeywords: input.secondaryKeywords,
         keywords: input.keywords,
       });
-      const { keywords, opportunity } = generationContract;
       const editorialContext = contentEditorialContext(owned, existing);
+      const resolvedOpportunity = generationContract.opportunity;
+      const approvalSnapshot = approvalPolicySnapshotFromEditorialContext(editorialContext);
+      const opportunity = approvalSnapshot
+        ? ensureApprovalEvidenceContract(resolvedOpportunity, approvalSnapshot)
+        : resolvedOpportunity;
+      const keywords = generationContract.keywords;
       const provider = new OpenAIProvider(undefined, openAIGenerationModel());
       const workflow = new AIWorkflow(provider, new EditorialGenerationStrategy());
       const generationStartedAt = new Date();
@@ -121,7 +139,7 @@ export async function POST(request: Request) {
         structuredLongFormOutput: true,
       });
       const generationCompletedAt = new Date();
-      const initialDocument = applyContentPolicy(await placeAvailableTistoryPosts(owned, existing, result.document), existing);
+      const initialDocument = applyContentPolicy(await placeAvailablePublishingPosts(owned, existing, result.document), existing);
       const context = qualityContext(existing, initialDocument);
       const initialQuality = new QualityEngine().review(initialDocument, context);
       const generationDiagnostic = initialDocument.metadata?.generationDiagnostic
@@ -186,7 +204,7 @@ export async function POST(request: Request) {
             existing,
           ),
           parseInput: { contentId, contentType: opportunity.contentType as never, contentOpportunity: opportunity, keywords, platform: required(input.platform) as never, projectId },
-          placeDocument: async (document) => applyContentPolicy(await placeAvailableTistoryPosts(owned, existing, document), existing),
+          placeDocument: async (document) => applyContentPolicy(await placeAvailablePublishingPosts(owned, existing, document), existing),
           qualityContext: context,
           requiredInformation: [...opportunity.expectedCoverage, ...editorialRequirements(editorialContext)],
         });
@@ -302,7 +320,7 @@ export async function POST(request: Request) {
       if (!content?.document) throw new Error("Canonical content was not found.");
       ownedProject(data, content.projectId);
       const keywords = content.opportunity ? contentOpportunityKeywords(content.opportunity) : resolveConfirmedGenerationKeywords(content, [content.primaryKeyword]);
-      const initialDocument = await placeAvailableTistoryPosts(data, content, content.document);
+      const initialDocument = await placeAvailablePublishingPosts(data, content, content.document);
       const initialQuality = new QualityEngine().review(initialDocument, qualityContext(content));
       const finalEdit = await new OpenAIProvider(undefined, openAIReviewModel(), reviewTimeoutMs()).generate({
         instruction: approvalAwareInstruction(
@@ -312,10 +330,10 @@ export async function POST(request: Request) {
         ),
         metadata: { task: "quality-final-edit" },
       });
-      let document = restoreProtectedImageAssets(content.document, new EditorialGenerationStrategy().parse(finalEdit.content, { contentId, contentType: (content.contentType ?? "article") as never, ...(content.opportunity ? { contentOpportunity: content.opportunity } : {}), keywords, platform: (content.platform ?? "tistory") as never, projectId: content.projectId }));
-      document = applyContentPolicy(await placeAvailableTistoryPosts(data, content, document), content);
+      let document = preserveCanonicalSeoMetadata(content.document, restoreProtectedImageAssets(content.document, new EditorialGenerationStrategy().parse(finalEdit.content, { contentId, contentType: (content.contentType ?? "article") as never, ...(content.opportunity ? { contentOpportunity: content.opportunity } : {}), keywords, platform: (content.platform ?? "tistory") as never, projectId: content.projectId })));
+      document = applyContentPolicy(await placeAvailablePublishingPosts(data, content, document), content);
       const reviewedAt = new Date().toISOString();
-      const quality = new QualityEngine().review(document, { ...qualityContext(content), revisionId: contentRevisionId(document), reviewedAt });
+      const quality = new QualityEngine().review(document, { ...qualityContext(content), revisionId: editorialRevisionId(document), reviewedAt });
       let next = applyCanonicalDocument(data, contentId, document, "ai_revision", reviewedAt);
       next = updateContent(next, contentId, { quality, status: isPublishReady(document, quality) ? "ready" : "in_review", generationError: opportunityFailure(quality), updatedAt: reviewedAt });
       next = { ...next, qualityReports: [...(next.qualityReports ?? []).filter((item) => item.contentId !== contentId), { contentId, report: quality }] };
@@ -332,7 +350,7 @@ export async function POST(request: Request) {
       const keywords = current.opportunity ? contentOpportunityKeywords(current.opportunity) : resolveConfirmedGenerationKeywords(current, [input.primaryKeyword]);
       const provider = new OpenAIProvider(undefined, openAIGenerationModel());
       const response = await provider.generate({
-        instruction: approvalAwareInstruction(`Revise the canonical ContentDocument according to the user's instruction. The confirmed Content Opportunity is immutable: ${JSON.stringify(current.opportunity ?? { primaryKeyword: current.primaryKeyword, searchIntent: current.searchIntent })}. Keep the selected topic, primary keyword, search intent, secondary keywords, and expected coverage aligned as one article; never satisfy this by attaching a keyword to an unrelated title. Preserve unaffected blocks and every attached image source, assetId, ALT, prompt, purpose, and media field. For source-empty recommendations, keep each prompt grounded in its nearest H2 and make image scenes differ in at least two of subject, action, background, composition, viewpoint, or information expression. Never publish or invoke browser automation. Return the complete revised document as JSON only in {"title":"...","blocks":[...]} form.\nUser instruction: ${required(input.instruction)}\nCurrent document: ${JSON.stringify(input.document)}`, data, current),
+        instruction: approvalAwareInstruction(`Revise the canonical ContentDocument according to the user's instruction. The confirmed Content Opportunity is immutable: ${JSON.stringify(current.opportunity ?? { primaryKeyword: current.primaryKeyword, searchIntent: current.searchIntent })}. Keep the selected topic, primary keyword, search intent, secondary keywords, and expected coverage aligned as one article; never satisfy this by attaching a keyword to an unrelated title. Preserve unaffected blocks and every attached image source, assetId, ALT, prompt, purpose, and media field. For source-empty recommendations, keep each prompt grounded in its nearest H2 and make image scenes differ in at least two of subject, action, background, composition, viewpoint, or information expression. Never publish or invoke browser automation. Return the complete revised document as JSON only in {"title":"...","blocks":[...]} form.\nUser instruction: ${required(input.instruction)}\nCurrent document: ${JSON.stringify(contentDocumentAIContext(current.document))}`, data, current),
         metadata: { task: "content-revision" },
       });
       const parsed = new EditorialGenerationStrategy().parse(response.content, {
@@ -340,7 +358,7 @@ export async function POST(request: Request) {
         ...(current.opportunity ? { contentOpportunity: current.opportunity } : {}), keywords,
         platform: "editor" as never, projectId,
       });
-      const document = applyContentPolicy(restoreProtectedImageAssets(current.document, parsed), current, true);
+      const document = applyContentPolicy(preserveCanonicalSeoMetadata(current.document, restoreProtectedImageAssets(current.document, parsed)), current, true);
       return NextResponse.json({ document });
     }
     if (body.action === "improve-quality") {
@@ -363,10 +381,10 @@ Quality tasks: ${JSON.stringify(currentQuality.tasks)}
         contentId, contentType: (content.contentType ?? "article") as never,
         ...(content.opportunity ? { contentOpportunity: content.opportunity } : {}), keywords, platform: (content.platform ?? "canonical") as never, projectId: content.projectId,
       });
-      let document = restoreProtectedImageAssets(content.document, restoreVerifiedEditorialLinks(content.document, parsed));
-      document = applyContentPolicy(await placeAvailableTistoryPosts(data, content, document), content);
+      let document = preserveCanonicalSeoMetadata(content.document, restoreProtectedImageAssets(content.document, restoreVerifiedEditorialLinks(content.document, parsed)));
+      document = applyContentPolicy(await placeAvailablePublishingPosts(data, content, document), content);
       const appliedAt = new Date().toISOString();
-      const quality = new QualityEngine().review(document, { ...qualityContext(content), revisionId: contentRevisionId(document), reviewedAt: appliedAt });
+      const quality = new QualityEngine().review(document, { ...qualityContext(content), revisionId: editorialRevisionId(document), reviewedAt: appliedAt });
       const improvement = evaluateQualityImprovement(currentQuality, quality);
       if (isPublishReady(document, quality)) {
         let next = applyCanonicalDocument(data, contentId, document, "ai_revision", appliedAt);
@@ -386,11 +404,11 @@ Quality tasks: ${JSON.stringify(currentQuality.tasks)}
       if (!raw || typeof raw !== "object") throw new Error("개선 문서가 없습니다.");
       const candidate = raw as import("../../../core/content").ContentDocument;
       if (candidate.id !== content.document.id) throw new Error("개선 문서 ID가 현재 문서와 일치하지 않습니다.");
-      let document = restoreProtectedImageAssets(content.document, restoreVerifiedEditorialLinks(content.document, candidate));
-      document = applyContentPolicy(await placeAvailableTistoryPosts(data, content, document), content);
+      let document = preserveCanonicalSeoMetadata(content.document, restoreProtectedImageAssets(content.document, restoreVerifiedEditorialLinks(content.document, candidate)));
+      document = applyContentPolicy(await placeAvailablePublishingPosts(data, content, document), content);
       const baselineQuality = new QualityEngine().review(content.document, qualityContext(content));
       const appliedAt = new Date().toISOString();
-      const quality = new QualityEngine().review(document, { ...qualityContext(content), revisionId: contentRevisionId(document), reviewedAt: appliedAt });
+      const quality = new QualityEngine().review(document, { ...qualityContext(content), revisionId: editorialRevisionId(document), reviewedAt: appliedAt });
       const improvement = evaluateQualityImprovement(baselineQuality, quality);
       if (!improvement.accepted) throw new Error(qualityImprovementRejectionMessage(improvement));
       if (!isPublishReady(document, quality)) throw new Error(`개선안이 standard 품질 승인 및 Planning 품질 목표를 충족하지 못했습니다. 전체 ${quality.overallScore}점, 승인 유형 ${quality.approvalType ?? "none"}입니다.`);
@@ -414,13 +432,28 @@ Quality tasks: ${JSON.stringify(currentQuality.tasks)}
       await studioStore.set(collection, stateId, result.data);
       return NextResponse.json(result);
     }
-    if (body.action === "render-tistory") {
+    if (body.action === "render-platform" || body.action === "render-tistory") {
       const data = await ownedWorkspace(required(body.input?.workspaceId));
       const contentId = required(body.input?.contentId);
       const content = data.contents.find((item) => item.id === contentId && item.workspaceId === data.workspace!.id);
       if (!content?.document) throw new Error("Canonical content was not found.");
-      const prepared = await new TistoryPublishingAdapter().prepare({ content: content.document, platform: "tistory" });
-      return NextResponse.json({ html: prepared.payload.html, revisionId: contentRevisionId(content.document) });
+      const requestedPlatform = body.action === "render-tistory"
+        ? "tistory"
+        : required(body.input?.platform);
+      if (requestedPlatform !== "tistory" && requestedPlatform !== "wordpress") {
+        throw new Error("지원하지 않는 Preview 플랫폼입니다.");
+      }
+      const html = requestedPlatform === "wordpress"
+        ? new WordPressHtmlRenderer().render(content.document)
+        : (await new TistoryPublishingAdapter().prepare({
+            content: content.document,
+            platform: "tistory",
+          })).payload.html;
+      return NextResponse.json({
+        html,
+        platform: requestedPlatform,
+        revisionId: contentRevisionId(content.document),
+      });
     }
     if (body.action === "prepare-tistory") {
       const data = await ownedWorkspace(required(body.input?.workspaceId));
@@ -439,8 +472,8 @@ Quality tasks: ${JSON.stringify(currentQuality.tasks)}
       const contentId = required(body.input?.contentId);
       const content = data.contents.find((item) => item.id === contentId && item.workspaceId === data.workspace!.id);
       if (!content?.document) throw new Error("Canonical content was not found.");
-      const document = await placeAvailableTistoryPosts(data, content, content.document);
-      const quality = new QualityEngine().review(document, { ...qualityContext(content), revisionId: contentRevisionId(document) });
+      const document = await placeAvailablePublishingPosts(data, content, content.document);
+      const quality = new QualityEngine().review(document, { ...qualityContext(content), revisionId: editorialRevisionId(document) });
       let next = contentRevisionId(document) === contentRevisionId(content.document) ? data : applyCanonicalDocument(data, contentId, document, "autosave", quality.reviewedAt);
       next = updateContent(next, contentId, { quality, status: isPublishReady(document, quality) ? "ready" : "in_review", updatedAt: quality.reviewedAt });
       const persisted = { ...next, qualityReports: [...(next.qualityReports ?? []).filter((item) => item.contentId !== contentId), { contentId, report: quality }] };
@@ -461,7 +494,17 @@ Quality tasks: ${JSON.stringify(currentQuality.tasks)}
         violations: diagnostic.violations,
       });
     }
-    return NextResponse.json({ error: message(error), ...(diagnostic ? { diagnostic } : {}) }, { status });
+    const code = error instanceof ApprovalSourcePreflightError
+      ? error.code
+      : undefined;
+    const approvalDiagnostic = approvalSourcePreflightDiagnostic(error);
+    return NextResponse.json({
+      error: message(error),
+      ...(code ? { code } : {}),
+      ...(diagnostic ? { diagnostic } : {}),
+      ...(approvalDiagnostic ? { approvalSourcePreflightDiagnostic: approvalDiagnostic } : {}),
+      ...(aiProviderDiagnostic(error) ? { aiProviderDiagnostic: aiProviderDiagnostic(error) } : {}),
+    }, { status });
   }
 }
 
@@ -598,12 +641,16 @@ async function performPlanning(data: UserData, project: UserData["projects"][num
       hasVerifiedKeywordData: evidenceBundle.some((value) => value.provider !== "brightStudio" && value.verified),
       evidenceBundle,
     });
-  const classified = opportunityEvidenceService.classifyCandidates(rawPlan.opportunityCandidates ?? [], evidenceBundle, data, project)
+  const approvalSnapshot = approvalPolicySnapshotFromEditorialContext(projectContext);
+  const contractedPlan = approvalSnapshot
+    ? attachApprovalEvidenceContracts(rawPlan, approvalSnapshot)
+    : rawPlan;
+  const classified = opportunityEvidenceService.classifyCandidates(contractedPlan.opportunityCandidates ?? [], evidenceBundle, data, project)
     .map((candidate) => applyContentDepthPolicy(candidate, {
       domain: rawPlan.domain,
       projectStrategy: projectContext,
     }));
-  const plan = withClassifiedCandidates(rawPlan, classified);
+  const plan = withClassifiedCandidates(contractedPlan, classified);
   const saved = await persistPlanningResult(data, input, plan);
   return { plan, data: saved };
 }
@@ -621,6 +668,12 @@ async function persistWorkflowFailure(body: { action?: string; input?: Record<st
       error: message(error),
       retryFrom,
       ...(longFormDiagnostic(error) ? { diagnostic: longFormDiagnostic(error) } : {}),
+      ...(approvalSourcePreflightDiagnostic(error)
+        ? { approvalSourcePreflightDiagnostic: approvalSourcePreflightDiagnostic(error) }
+        : {}),
+      ...(aiProviderDiagnostic(error)
+        ? { aiProviderDiagnostic: aiProviderDiagnostic(error) }
+        : {}),
       now: new Date().toISOString(),
     }) : (() => { throw new Error("Workspace was not found."); })());
   } catch (persistenceError) {
@@ -632,6 +685,15 @@ function longFormDiagnostic(error: unknown): LongFormDiagnostic | undefined {
   return error instanceof LongFormValidationError ? error.diagnostic : undefined;
 }
 
+function approvalSourcePreflightDiagnostic(error: unknown) {
+  return error instanceof ApprovalSourcePreflightError ? error.diagnostic : undefined;
+}
+
+function aiProviderDiagnostic(error: unknown) {
+  if (error instanceof AIProviderError) return error.diagnostic;
+  return error instanceof ApprovalSourcePreflightError ? error.providerDiagnostics : undefined;
+}
+
 function isPublishReady(document: ContentDocument, quality: ReturnType<QualityEngine["review"]>): boolean {
   if (!requiresLongFormValidation(document)) return isStandardQualityApproved(quality);
   const diagnostic = analyzeLongFormDocument(document, document.metadata?.qualityTarget);
@@ -640,7 +702,7 @@ function isPublishReady(document: ContentDocument, quality: ReturnType<QualityEn
 }
 
 function qualityContext(content: UserData["contents"][number], document = content.document) {
-  return { contentType: content.contentType, platform: content.platform ?? "canonical", primaryKeyword: content.primaryKeyword, searchIntent: content.searchIntent, categoryName: content.publishingPreparation?.tistory?.platformCategoryName ?? undefined, availableInternalLinkCandidates: document?.metadata?.availableRelatedContentCandidates, internalLinkCatalogStatus: document?.metadata?.internalLinkCatalogStatus, qualityTarget: content.qualityTarget ?? content.opportunity?.qualityTarget ?? document?.metadata?.qualityTarget, ...(content.opportunity ? { opportunity: content.opportunity } : {}), revisionId: document ? contentRevisionId(document) : undefined };
+  return { contentType: content.contentType, platform: content.platform ?? "canonical", primaryKeyword: content.primaryKeyword, searchIntent: content.searchIntent, categoryName: publishingCategoryNames(content).join(", ") || undefined, availableInternalLinkCandidates: document?.metadata?.availableRelatedContentCandidates, internalLinkCatalogStatus: document?.metadata?.internalLinkCatalogStatus, qualityTarget: content.qualityTarget ?? content.opportunity?.qualityTarget ?? document?.metadata?.qualityTarget, ...(content.opportunity ? { opportunity: content.opportunity } : {}), revisionId: document ? editorialRevisionId(document) : undefined };
 }
 
 function opportunityFailure(quality: ReturnType<QualityEngine["review"]>): string | undefined {
@@ -687,131 +749,91 @@ function reviewTimeoutMs(): number {
 }
 function editorialRequirements(context?: string): string[] { const marker = context?.match(/필수 정보:\s*([^\n]+)/); return marker ? marker[1].split("|").map((item) => item.trim()).filter(Boolean) : []; }
 
-async function placeAvailableTistoryPosts(data: UserData, content: UserData["contents"][number], document: ContentDocument): Promise<ContentDocument> {
-  if (!data.workspace || !isPlatformEnabled(data, "tistory")) {
-    console.info("[internal-link-trace] skipped before connection resolution", {
+async function placeAvailablePublishingPosts(
+  data: UserData,
+  content: UserData["contents"][number],
+  document: ContentDocument,
+): Promise<ContentDocument> {
+  if (!data.workspace) {
+    console.info("[internal-link-trace] skipped before workspace resolution", {
       contentId: content.id,
-      hasWorkspace: Boolean(data.workspace),
-      tistoryEnabled: isPlatformEnabled(data, "tistory"),
     });
     return document;
   }
 
-  const connectionId = resolveTistoryConnectionId(data, content);
-  console.info("[internal-link-trace] connection resolution", {
-    connectionId: connectionId ?? null,
-    contentId: content.id,
-    contentPublishingAccountId: content.publishingAccountId ?? null,
-    contentSelectedPublishingAccountIds: content.selectedPublishingAccountIds ?? [],
-    projectId: content.projectId,
-  });
-  if (!connectionId) {
-    console.warn("[studio-generation] No selected Tistory connection for internal-link placement", { contentId: content.id, projectId: content.projectId });
-    return document;
-  }
-
-  const connection = await connectionRepository.findById(connectionId);
-  if (!connection || connection.workspaceId !== data.workspace.id || connection.platform !== "tistory") {
-    console.warn("[internal-link-trace] resolved connection is unavailable or invalid", {
-      connectionFound: Boolean(connection),
-      connectionId,
-      connectionPlatform: connection?.platform ?? null,
-      connectionWorkspaceId: connection?.workspaceId ?? null,
+  const connections = await connectionRepository.listByWorkspace(data.workspace.id);
+  const connection = resolveCanonicalPublishingConnection(data, content, connections);
+  if (!connection || !isPlatformEnabled(data, connection.platform)) {
+    console.info("[internal-link-trace] skipped before canonical connection resolution", {
       contentId: content.id,
-      expectedWorkspaceId: data.workspace.id,
+      platform: connection?.platform ?? null,
     });
     return document;
   }
 
-  const preparation = content.publishingPreparation?.tistory;
-  console.info("[internal-link-trace] category preparation", {
-    categoryId: preparation?.platformCategoryId ?? null,
-    categoryName: preparation?.platformCategoryName ?? null,
-    contentId: content.id,
-  });
-  if (!preparation?.platformCategoryName?.trim()) {
-    console.warn("[internal-link-trace] category is missing", { contentId: content.id });
+  const categories = publishingCategoryIdentities(content);
+  if (!categories.length) {
+    console.warn("[internal-link-trace] publishing category is missing", {
+      contentId: content.id,
+      platform: connection.platform,
+    });
     return withInternalLinkCatalogMetadata(document, 0, "category_missing");
   }
 
-  const targets = targetRepository.listByProject ? await targetRepository.listByProject(content.projectId) : [];
-  const connectionSelected = isConnectionSelectedForContent(data, content, connection.id);
-  const targetRegistered = targets.some((target) => target.platformConnectionId === connection.id);
+  const targets = targetRepository.listByProject
+    ? await targetRepository.listByProject(content.projectId)
+    : [];
+  const connectionSelected = isPublishingConnectionSelectedForContent(
+    data,
+    content,
+    connection.id,
+  );
+  const targetRegistered = targets.some((target) =>
+    target.platformConnectionId === connection.id
+    && target.platform === connection.platform);
   const selectedTarget = connectionSelected && targetRegistered;
-  console.info("[internal-link-trace] publishing target resolution", {
+
+  console.info("[internal-link-trace] canonical catalog resolution", {
     connectionId: connection.id,
-    connectionSelected,
     contentId: content.id,
+    platform: connection.platform,
     selectedTarget,
-    targetCount: targets.length,
-    targetRegistered,
-    targetConnectionIds: targets.map((target) => target.platformConnectionId),
+    categories,
   });
 
   try {
-    const catalog = await new TistoryPostCatalogApplicationService().read({ workspaceId: data.workspace.id, projectId: content.projectId, contentId: content.id, connection, selectedTarget });
-    console.info("[internal-link-trace] catalog loaded", {
+    const catalog = await new PublicPostCatalogApplicationService().read({
+      workspaceId: data.workspace.id,
+      projectId: content.projectId,
+      contentId: content.id,
+      content,
+      connection,
+      selectedTarget,
+    });
+    const ranked = rankPublishingPostCandidates(document, catalog.posts, content);
+    const placed = applyInternalLinkCatalogResult(document, ranked, "evaluated");
+    console.info("[internal-link-trace] platform catalog evaluated", {
       cached: catalog.cached,
       catalogPostCount: catalog.posts.length,
-      categories: [...new Set(catalog.posts.map((post) => `${post.categoryId ?? ""}|${post.categoryName ?? ""}`))].slice(0, 20),
       contentId: content.id,
-    });
-
-    console.info("[internal-link-trace] current category", {
-      categoryId: preparation.platformCategoryId,
-      categoryName: preparation.platformCategoryName,
-      catalogCategories: [
-        ...new Set(
-          catalog.posts.map(
-            (post) => `${post.categoryId ?? "null"}|${post.categoryName ?? "null"}`
-          ),
-        ),
-      ],
-    });
-
-    const ranked = rankRelatedPosts(document, catalog.posts, { primaryKeyword: content.primaryKeyword, categoryId: preparation.platformCategoryId, categoryName: preparation.platformCategoryName ?? undefined });
-    const placed = placeRecommendedPosts(document, ranked);
-    console.info("[internal-link-trace] ranking and placement completed", {
-      contentId: content.id,
-      internalLinkCount: placed.blocks.filter((block) => block.type === "button" && block.purpose === "internal_link").length,
+      internalLinkCount: placed.blocks.filter((block) =>
+        block.type === "button" && block.purpose === "internal_link").length,
+      platform: connection.platform,
       rankedCount: ranked.length,
-      rankedPosts: ranked.slice(0, 10).map((post) => ({ categoryId: post.categoryId ?? null, categoryName: post.categoryName ?? null, title: post.title, url: post.publishedUrl })),
-      relatedPostCount: placed.blocks.filter((block) => block.type === "button" && block.purpose === "related_post").length,
+      relatedPostCount: placed.blocks.filter((block) =>
+        block.type === "button" && block.purpose === "related_post").length,
     });
-    return withInternalLinkCatalogMetadata(placed, ranked.length, "evaluated");
+    return placed;
   } catch (error) {
-    console.error("[studio-generation] Tistory post catalog unavailable", {
+    console.error("[studio-generation] Public post catalog unavailable", {
       connectionId: connection.id,
       contentId: content.id,
       error: message(error),
+      platform: connection.platform,
       selectedTarget,
     });
     return withInternalLinkCatalogMetadata(document, 0, "catalog_unavailable");
   }
-}
-
-function withInternalLinkCatalogMetadata(document: ContentDocument, count: number, status: "evaluated" | "category_missing" | "catalog_unavailable"): ContentDocument {
-  const now = new Date().toISOString();
-  const metrics = calculateContentMetrics(document);
-  return {
-    ...document,
-    metadata: {
-      buttonCount: document.metadata?.buttonCount ?? document.blocks.filter((block) => block.type === "button").length,
-      createdAt: document.metadata?.createdAt ?? now,
-      generator: document.metadata?.generator ?? "bright-studio",
-      imageCount: document.metadata?.imageCount ?? document.blocks.filter((block) => block.type === "image").length,
-      language: document.metadata?.language ?? "ko",
-      readingTime: document.metadata?.readingTime ?? metrics.estimatedReadingMinutes,
-      source: document.metadata?.source ?? "generated",
-      updatedAt: now,
-      version: document.metadata?.version ?? 1,
-      videoCount: document.metadata?.videoCount ?? document.blocks.filter((block) => block.type === "video").length,
-      wordCount: document.metadata?.wordCount ?? metrics.wordUnits,
-      ...document.metadata,
-      availableRelatedContentCandidates: count,
-      internalLinkCatalogStatus: status,
-    },
-  };
 }
 
 function qualityTargetFailure(quality: ReturnType<QualityEngine["review"]>): string {

@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { detectEditorialReviewRegression, EditorialQualityPipeline } from "../../../../app/application/EditorialQualityPipeline";
+import { contentDocumentAIContext, detectEditorialReviewRegression, EditorialQualityPipeline } from "../../../../app/application/EditorialQualityPipeline";
 import { EditorialGenerationStrategy } from "../../../../app/application/EditorialGenerationStrategy";
 import type { AIProvider, AIRequest } from "../../../../core/ai";
+import { applyGeneratedFactualClaimInventory, resolveApprovalPolicySnapshot, type GeneratedFactualClaimInventoryDraft } from "../../../../core/approval";
 import { determineContentPlanQualityTarget, type ContentDocument, type ContentPlanQualityTarget } from "../../../../core/content";
 
 type TestQualityReport = {
@@ -63,6 +64,87 @@ function parseInput() {
 }
 
 describe("EditorialQualityPipeline", () => {
+  it("uses the single Quality call but rejects a newly introduced factual Claim", async () => {
+    const verifySurface = "취소 처리와 청구 반영은 서로 다른 단계일 수 있습니다.";
+    const verifyDraft: GeneratedFactualClaimInventoryDraft = {
+      claimId: "claim-verify", planningClaimId: "", origin: "generation", risk: "verify",
+      surfaceText: verifySurface, statement: verifySurface, kind: "general", normalizedValueJson: "{}",
+      qualifiers: { subject: "", scope: "", basis: "", note: "" }, temporalRequirementJson: "null",
+      evidenceUrl: "https://www.fss.or.kr/card", evidenceExcerpt: verifySurface,
+    };
+    const source = rawDocument("초기 원고");
+    source.blocks.push({ type: "paragraph", text: verifySurface });
+    const parsed = new EditorialGenerationStrategy().parse(JSON.stringify(source), parseInput());
+    const initial = applyGeneratedFactualClaimInventory({
+      document: parsed, drafts: [verifyDraft], decisions: [{ retained: true, evidenceStatus: "verify_verified" }], fallbackTitle: parsed.title,
+    }).document;
+    const criticalSurface = "이 상품의 실제 금리는 7%입니다.";
+    const candidate = rawDocument("검토 후보");
+    candidate.blocks.push({ type: "paragraph", text: verifySurface }, { type: "paragraph", text: criticalSurface });
+    const criticalDraft = { ...verifyDraft, claimId: "quality-critical", origin: "quality_review" as const, risk: "critical" as const, surfaceText: criticalSurface, statement: criticalSurface, evidenceUrl: "", evidenceExcerpt: "" };
+    const generate = vi.fn(async (request: AIRequest) => {
+      void request;
+      return { content: JSON.stringify({ ...candidate, verificationClaimsUsed: [verifyDraft, criticalDraft] }), model: "review" };
+    });
+    const qualityEngine = { review: vi.fn(() => report(96, true)) };
+    const result = await new EditorialQualityPipeline({ generate } as AIProvider, undefined, qualityEngine as never).run({
+      document: initial, finalReviewInstruction: () => "final", parseInput: parseInput(), qualityContext: {},
+    });
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(generate.mock.calls[0]?.[0].metadata).toMatchObject({ factualInventoryMode: "structured_claims_v2" });
+    expect(result.attemptHistory[0]?.rejectionReason).toBe("quality_new_factual_claim_added");
+    expect(result.document.title).toBe("초기 원고");
+    expect(JSON.stringify(result.document.blocks)).not.toContain("7%");
+  });
+
+  it("projects the public profile label into Quality prompts without exposing the stable profile ID", () => {
+    const approvalPolicy = {
+      ...resolveApprovalPolicySnapshot("adsense_approval", "wordpress_life_economy_v1")!,
+      siteIdentity: "복잡한 제도 설명이라는 과거 저장값",
+    };
+    const document: ContentDocument = {
+      id: "content-identity",
+      title: "예금자보호 확인 방법",
+      blocks: [
+        { id: "p1", type: "paragraph", text: "보호 대상과 한도를 공식 자료에서 확인합니다." },
+        { id: "image1", type: "image", source: "", alt: "예금자보호 확인 순서", prompt: "공식 확인 화면과 점검표" },
+      ],
+      metadata: {
+        buttonCount: 0,
+        createdAt: "2026-08-01T00:00:00.000Z",
+        generator: "test",
+        imageCount: 1,
+        language: "ko",
+        readingTime: 1,
+        source: "test",
+        updatedAt: "2026-08-01T00:00:00.000Z",
+        version: 1,
+        videoCount: 0,
+        wordCount: 20,
+        metaDescription: "예금자보호 대상과 한도를 확인하는 순서를 안내합니다.",
+        tags: ["예금자보호"],
+        approvalPolicy,
+      },
+    };
+
+    const projected = contentDocumentAIContext(document);
+    const serialized = JSON.stringify(projected);
+
+    expect(serialized).not.toContain("wordpress_life_economy_v1");
+    expect(serialized).not.toContain("복잡한 제도 설명이라는 과거 저장값");
+    expect(serialized).toContain("WordPress · 밝은재테크");
+    expect(serialized).toContain('"siteIdentity":"밝은재테크"');
+    expect(serialized).toContain('"contentDomain":"생활경제, 생활금융, 정부지원, 세금, 주거 정보"');
+    expect(projected).toMatchObject({
+      title: "예금자보호 확인 방법",
+      blocks: document.blocks,
+      metadata: {
+        metaDescription: "예금자보호 대상과 한도를 확인하는 순서를 안내합니다.",
+        tags: ["예금자보호"],
+      },
+    });
+  });
+
   it("uses exactly one final quality-edit call", async () => {
     const initial = new EditorialGenerationStrategy().parse(JSON.stringify(rawDocument()), parseInput());
     const final = JSON.stringify(rawDocument("승인 원고"));
@@ -158,6 +240,42 @@ describe("EditorialQualityPipeline", () => {
     expect(instruction).toContain("Correct blocked and below-threshold dimensions first");
     expect(instruction).toContain("keep the strongest occurrence in its owning H2");
     expect(instruction).toContain("convert existing generic advice into a usable checklist");
+    expect(instruction).toContain("Presentation semantics must remain useful and restrained");
+    expect(instruction).toContain("a table only for genuine multi-column comparison or lookup");
+    expect(instruction).toContain("do not add decorative card-like sections");
+  });
+
+  it("preserves current sectionType ownership while using candidate block bindings", async () => {
+    const parsed = new EditorialGenerationStrategy().parse(JSON.stringify(rawDocument()), parseInput());
+    const currentStructure = parsed.metadata!.longFormStructure!;
+    const initial: ContentDocument = {
+      ...parsed,
+      metadata: {
+        ...parsed.metadata!,
+        longFormStructure: {
+          ...currentStructure,
+          sections: currentStructure.sections.map((section, index) => ({
+            ...section,
+            sectionType: index === 0 ? "warning" as const : section.sectionType,
+          })),
+        },
+      },
+    };
+    const reviews = [report(90, false), report(96, true), report(96, true)];
+    const qualityEngine = { review: vi.fn(() => reviews.shift() ?? report(96, true)) };
+    const result = await new EditorialQualityPipeline({
+      generate: async () => ({ content: JSON.stringify(rawDocument("검토 원고")), model: "review" }),
+    } as AIProvider, undefined, qualityEngine as never).run({
+      document: initial,
+      finalReviewInstruction: () => "final",
+      parseInput: parseInput(),
+      qualityContext: {},
+    });
+
+    expect(result.document.title).toBe("검토 원고");
+    expect(result.document.metadata?.longFormStructure?.sections[0]?.sectionType).toBe("warning");
+    expect(result.document.metadata?.longFormStructure?.sections[0]?.paragraphBlockIds)
+      .toEqual(result.document.blocks.filter((block) => block.id.startsWith("block-")).slice(2, 4).map((block) => block.id));
   });
 
   it("removes legacy length targets from the final review prompt and priorities", async () => {
@@ -204,6 +322,7 @@ describe("EditorialQualityPipeline", () => {
     expect(result.reachedTarget).toBe(false);
     expect(result.document.title).toBe("초기 원고");
     expect(result.attemptHistory[0]?.rejectionReason).toBe("invalid_content_document");
+    expect(result.providerDiagnostics).toMatchObject({ stage: "quality_review", completionStatus: "parse_error" });
   });
 
   it("restores verified editorial links and removes links invented by the Review response", async () => {

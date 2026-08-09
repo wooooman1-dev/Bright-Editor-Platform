@@ -1,10 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { ApprovalReadinessApplicationService } from "../../../../../app/application/approval/ApprovalReadinessApplicationService";
-import { resolveApprovalPolicySnapshot, type ApprovalEvidencePack } from "../../../../../core/approval";
+import {
+  resolveApprovalPolicySnapshot,
+  SiteApprovalReadinessAdapterRegistry,
+  type ApprovalEvidencePack,
+  type SiteApprovalReadinessAdapter,
+} from "../../../../../core/approval";
 import type { PlatformConnection } from "../../../../../core/connections";
 import type { ContentDocument } from "../../../../../core/content";
-import type { ApprovalAwareQualityReport } from "../../../../../core/quality";
+import { editorialRevisionId, type ApprovalAwareQualityReport, type QualityReport } from "../../../../../core/quality";
 import type { UserData } from "../../../../../app/user-flow/user-data";
 
 const sourceUrl = "https://www.moma.org/collection/works/79802";
@@ -20,6 +25,10 @@ const candidateEvidence: ApprovalEvidencePack = {
     sourceType: "official_institution",
     retrievedAt: "2026-07-27T00:00:00.000Z",
     verified: false,
+    provenance: "citation",
+    cited: true,
+    selected: true,
+    linkedBlockIds: ["p1"],
     facts: [{ field: "citedContext", value: "공식 페이지 후보" }],
   }],
 };
@@ -60,6 +69,22 @@ const document: ContentDocument = {
     { id: "p2", type: "paragraph", text: "먼저 하늘의 소용돌이를 보고, 다음으로 사이프러스와 마을의 수직·수평 대비를 확인합니다. 마지막으로 밝은 별과 어두운 전경이 만드는 리듬을 비교합니다." },
   ],
 };
+
+function standardQuality(value: ContentDocument): QualityReport {
+  return {
+    approved: true,
+    approvalType: "standard",
+    approvalState: "approved",
+    findings: [],
+    overallScore: 100,
+    reviews: [],
+    dimensions: [],
+    tasks: [],
+    reviewedAt: "2026-07-27T00:00:00.000Z",
+    reviewedRevisionId: editorialRevisionId(value),
+    weights: { searchIntent: 0, seo: 0, readability: 0, structure: 0, completeness: 0, usefulness: 0, htmlQuality: 0, imageStrategy: 0, internalLinks: 0, cta: 0 },
+  };
+}
 
 const data: UserData = {
   workspace: { id: "workspace-1", name: "Studio" },
@@ -104,6 +129,7 @@ const data: UserData = {
     publishingAccountId: "tistory-1",
     selectedPublishingAccountIds: ["tistory-1"],
     document,
+    quality: standardQuality(document),
     updatedAt: "2026-07-27T00:00:00.000Z",
     contentPurpose: "adsense_approval",
     approvalPolicyId: "adsense_approval_mode",
@@ -144,6 +170,47 @@ function fetcher() {
 }
 
 describe("ApprovalReadinessApplicationService", () => {
+  it("skips source verification and persists not-required Evidence when Planning has no mandatory Claim", async () => {
+    const noEvidenceData: UserData = {
+      ...data,
+      contents: [{
+        ...data.contents[0]!,
+        opportunity: {
+          requiredEvidenceContract: {
+            schemaVersion: 1,
+            contractId: "contract-optional-evidence",
+            policyId: "adsense_approval_mode",
+            policyVersion: "1.0",
+            profileId: "tistory_vivarain_art_v1",
+            profileVersion: "1.0",
+            profileSourceRequirementApplicable: false,
+            explicitVerificationRequired: false,
+            sourceRequirements: [],
+            requiredClaims: [],
+          },
+        },
+      } as unknown as UserData["contents"][number]],
+    };
+    const request = fetcher();
+    const result = await new ApprovalReadinessApplicationService(
+      request,
+      () => "2026-07-27T10:30:00.000Z",
+    ).execute({ data: noEvidenceData, contentId: "content-1", connection });
+
+    expect(request.mock.calls.some(([input]) => String(input) === sourceUrl)).toBe(false);
+    expect(result.evidence.pack).toMatchObject({
+      status: "not_required",
+      coverageStatus: "not_required",
+      sourcePolicyCompliance: "not_required",
+      sources: [],
+    });
+    expect((result.quality as ApprovalAwareQualityReport).approvalReadiness?.checks).toContainEqual(expect.objectContaining({
+      key: "evidence",
+      status: "passed",
+      applicable: false,
+    }));
+  });
+
   it("verifies official Evidence, adds visible review metadata, audits the public Tistory site, and persists new snapshots", async () => {
     const result = await new ApprovalReadinessApplicationService(
       fetcher(),
@@ -157,15 +224,87 @@ describe("ApprovalReadinessApplicationService", () => {
     expect(result.document.metadata?.siteApprovalReadiness?.status).toBe("passed");
     expect(result.document.blocks).toContainEqual(expect.objectContaining({
       id: "approval-review-date",
-      text: "정보 기준일: 2026-07-27 · 최종 검토일: 2026-07-27",
+      ownership: "system_source_projection",
+      text: "출처 확인일: 2026-07-27",
     }));
     expect(result.document.blocks).toContainEqual(expect.objectContaining({
-      id: "approval-sources-summary",
-      text: expect.stringContaining(sourceUrl),
+      id: "approval-source-link-1",
+      type: "button",
+      purpose: "source",
+      targetUrl: sourceUrl,
+      target: "_blank",
     }));
     expect(approvalQuality.approvalReadiness?.checks).toContainEqual(expect.objectContaining({ key: "evidence", status: "passed" }));
     expect(approvalQuality.approvalReadiness?.checks).toContainEqual(expect.objectContaining({ key: "site_readiness", status: "passed" }));
     expect(result.data.contents[0]?.quality?.reviewedRevisionId).toBe(result.quality.reviewedRevisionId);
+  });
+
+  it("reuses a verified result after refresh without repeating source or site checks", async () => {
+    const firstFetcher = fetcher();
+    const first = await new ApprovalReadinessApplicationService(
+      firstFetcher,
+      () => "2026-07-27T10:30:00.000Z",
+    ).execute({ data, contentId: "content-1", connection });
+    const refreshedFetcher = fetcher();
+
+    const refreshed = await new ApprovalReadinessApplicationService(
+      refreshedFetcher,
+      () => "2026-07-27T11:30:00.000Z",
+    ).execute({ data: first.data, contentId: "content-1", connection });
+
+    expect(refreshedFetcher).not.toHaveBeenCalled();
+    expect(refreshed.document.metadata?.approvalReadinessExecution?.checkedAt).toBe("2026-07-27T10:30:00.000Z");
+    expect(refreshed.evidence.pack.status).toBe("verified");
+  });
+
+  it("reuses a needs-review result after refresh without an automatic retry", async () => {
+    const unavailable = vi.fn(async (input: string | URL) => {
+      if (String(input) === sourceUrl) throw new TypeError("source unavailable");
+      return new Response(siteHtml, { status: 200, headers: { "content-type": "text/html" } });
+    });
+    const first = await new ApprovalReadinessApplicationService(
+      unavailable,
+      () => "2026-07-27T10:30:00.000Z",
+    ).execute({ data, contentId: "content-1", connection });
+    const refreshedFetcher = fetcher();
+
+    const refreshed = await new ApprovalReadinessApplicationService(
+      refreshedFetcher,
+      () => "2026-07-27T11:30:00.000Z",
+    ).execute({ data: first.data, contentId: "content-1", connection });
+
+    expect(refreshedFetcher).not.toHaveBeenCalled();
+    expect(refreshed.evidence.pack.status).toBe("needs_review");
+    expect(refreshed.document.metadata?.approvalReadinessExecution?.checkedAt).toBe("2026-07-27T10:30:00.000Z");
+  });
+
+  it("preserves an editorial source section and reports a projection conflict instead of creating a duplicate", async () => {
+    const editorialDocument: ContentDocument = {
+      ...document,
+      blocks: [
+        ...document.blocks,
+        { id: "editorial-sources", type: "heading", level: 2, ownership: "ai_editorial", text: "참고 자료" },
+        { id: "editorial-source-link", type: "button", ownership: "ai_editorial", purpose: "source", label: "MoMA 원문", targetUrl: sourceUrl },
+      ],
+    };
+    const editorialData: UserData = {
+      ...data,
+      contents: [{
+        ...data.contents[0]!,
+        document: editorialDocument,
+        quality: standardQuality(editorialDocument),
+      }],
+    };
+
+    const result = await new ApprovalReadinessApplicationService(
+      fetcher(),
+      () => "2026-07-27T10:30:00.000Z",
+    ).execute({ data: editorialData, contentId: "content-1", connection });
+
+    expect(result.document.blocks).toContainEqual(expect.objectContaining({ id: "editorial-sources", ownership: "ai_editorial" }));
+    expect(result.document.blocks).not.toContainEqual(expect.objectContaining({ id: "approval-sources-heading" }));
+    expect(result.evidence.pack).toMatchObject({ presentationStatus: "conflict" });
+    expect((result.quality as ApprovalAwareQualityReport).approvalReadiness?.checks).toContainEqual(expect.objectContaining({ key: "evidence", status: "needs_review" }));
   });
 
   it("retries a rate-limited source and never fetches official candidates concurrently", async () => {
@@ -183,7 +322,7 @@ describe("ApprovalReadinessApplicationService", () => {
     };
     const retryData: UserData = {
       ...data,
-      contents: [{ ...data.contents[0]!, document: retryDocument }],
+      contents: [{ ...data.contents[0]!, document: retryDocument, quality: standardQuality(retryDocument) }],
     };
 
     let activeSourceRequests = 0;
@@ -225,6 +364,26 @@ describe("ApprovalReadinessApplicationService", () => {
     expect(result.evidence.verifiedSourceCount).toBe(2);
   });
 
+  it("preserves the concrete source fetch error in the Evidence diagnostic", async () => {
+    const controlledFetcher = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url === sourceUrl) throw new TypeError("fetch failed: ECONNRESET");
+      return new Response(siteHtml, { status: 200, headers: { "content-type": "text/html" } });
+    });
+
+    const result = await new ApprovalReadinessApplicationService(
+      controlledFetcher,
+      () => "2026-07-27T10:30:00.000Z",
+    ).execute({ data, contentId: "content-1", connection });
+
+    expect(result.evidence.pack.status).toBe("needs_review");
+    expect(result.evidence.pack.sources[0]).toMatchObject({
+      verificationStatus: "unreachable",
+      httpStatus: 0,
+      failureReason: expect.stringContaining("ECONNRESET"),
+    });
+  });
+
   it("uses the official NGA Open Data record when an artwork page is blocked", async () => {
     const ngaSourceUrl = "https://www.nga.gov/artworks/1167-portrait-man";
     const ngaDatasetUrl = "https://raw.githubusercontent.com/NationalGalleryOfArt/opendata/main/data/objects.csv";
@@ -236,6 +395,7 @@ describe("ApprovalReadinessApplicationService", () => {
         url: ngaSourceUrl,
         title: "Portrait of a Man",
         publisher: "National Gallery of Art",
+        linkedBlockIds: ["p"],
       }],
     };
     const ngaDocument: ContentDocument = {
@@ -254,6 +414,7 @@ describe("ApprovalReadinessApplicationService", () => {
         title: ngaDocument.title,
         primaryKeyword: "Portrait of a Man",
         document: ngaDocument,
+        quality: standardQuality(ngaDocument),
       }],
     };
     const csv = [
@@ -296,4 +457,114 @@ describe("ApprovalReadinessApplicationService", () => {
       contentType: "text/html; normalized-from=text/csv",
     });
   });
+
+  it("audits WordPress site identity with the stored brand instead of content-domain or legacy policy terms", async () => {
+    const audit = vi.fn<SiteApprovalReadinessAdapter["audit"]>(async () =>
+      siteSnapshot("wordpress-identity"));
+    const adapters = new SiteApprovalReadinessAdapterRegistry([
+      adapter("wordpress", audit),
+    ]);
+    const approvalPolicy = {
+      ...resolveApprovalPolicySnapshot("adsense_approval", "wordpress_life_economy_v1")!,
+      siteIdentity: "생활경제",
+    };
+    const wordpressDocument: ContentDocument = {
+      ...document,
+      metadata: {
+        ...document.metadata!,
+        approvalPolicy,
+      },
+    };
+    const wordpressData: UserData = {
+      ...data,
+      brands: [{ id: "brand-bright", workspaceId: "workspace-1", name: "밝은재테크" }],
+      projects: [{
+        ...data.projects[0]!,
+        brandId: "brand-bright",
+        name: "밝은재테크",
+        strategy: {
+          ...data.projects[0]!.strategy!,
+          primaryTopic: "생활경제",
+          defaultPlatform: "wordpress",
+        },
+      }],
+      contents: [{
+        ...data.contents[0]!,
+        brandId: "brand-bright",
+        platform: "wordpress",
+        document: wordpressDocument,
+        quality: standardQuality(wordpressDocument),
+        approvalProfileId: "wordpress_life_economy_v1",
+      } as UserData["contents"][number] & { approvalProfileId: "wordpress_life_economy_v1" }],
+    };
+    const wordpressConnection: PlatformConnection = {
+      ...connection,
+      id: "wordpress-1",
+      platform: "wordpress",
+      displayName: "밝은재테크",
+      publicMetadata: { siteUrl: "https://example.com" },
+    };
+
+    await new ApprovalReadinessApplicationService(
+      fetcher(),
+      () => "2026-07-27T10:30:00.000Z",
+      adapters,
+    ).execute({ data: wordpressData, contentId: "content-1", connection: wordpressConnection });
+
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({
+      expectedTerms: ["밝은재테크"],
+    }));
+    expect(audit.mock.calls[0]?.[0].expectedTerms).not.toContain("생활경제");
+  });
+
+  it.each([
+    ["wordpress", "wordpress-audit"],
+    ["tistory", "tistory-audit"],
+  ] as const)("selects only the registered %s site readiness Adapter", async (platform, selectedKey) => {
+    const wordpressAudit = vi.fn(async () => siteSnapshot("wordpress-audit"));
+    const tistoryAudit = vi.fn(async () => siteSnapshot("tistory-audit"));
+    const adapters = new SiteApprovalReadinessAdapterRegistry([
+      adapter("wordpress", wordpressAudit),
+      adapter("tistory", tistoryAudit),
+    ]);
+    const selectedConnection: PlatformConnection = {
+      ...connection,
+      id: `${platform}-1`,
+      platform,
+      publicMetadata: platform === "wordpress"
+        ? { siteUrl: "https://example.com" }
+        : { blogUrl: "https://viva-rain.tistory.com" },
+    };
+
+    const result = await new ApprovalReadinessApplicationService(
+      fetcher(),
+      () => "2026-07-27T10:30:00.000Z",
+      adapters,
+    ).execute({ data, contentId: "content-1", connection: selectedConnection });
+
+    expect(result.siteReadiness.checks[0]).toMatchObject({ key: selectedKey });
+    expect(wordpressAudit).toHaveBeenCalledTimes(platform === "wordpress" ? 1 : 0);
+    expect(tistoryAudit).toHaveBeenCalledTimes(platform === "tistory" ? 1 : 0);
+    const selectedAudit = platform === "wordpress" ? wordpressAudit : tistoryAudit;
+    expect(selectedAudit).toHaveBeenCalledWith(expect.objectContaining({
+      connection: selectedConnection,
+      expectedTerms: ["비바레인"],
+    }));
+  });
 });
+
+function adapter(
+  platform: "tistory" | "wordpress",
+  audit: SiteApprovalReadinessAdapter["audit"],
+): SiteApprovalReadinessAdapter {
+  return { platform, audit };
+}
+
+function siteSnapshot(key: string) {
+  return Object.freeze({
+    version: "1.0" as const,
+    status: "needs_review" as const,
+    checkedAt: "2026-07-27T10:30:00.000Z",
+    checks: Object.freeze([Object.freeze({ key, passed: false, message: key })]),
+  });
+}

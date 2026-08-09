@@ -128,6 +128,18 @@ describe("LongFormDiagnostics information sufficiency", () => {
     expect(diagnostic.requiredContentElements[0]?.status).toBe("sufficient");
     expect(diagnostic.actualTotalProseCharacters).toBeGreaterThan(0);
   });
+
+  it("does not count an unordered checklist as an ordered steps sequence", () => {
+    const target = targetFor(["실행 순서"]);
+    const diagnostic = analyzeLongFormDocument(document(target, [[
+      "steps",
+      "실행 전에 조건을 확인하고 필요한 도구를 준비합니다.\n- 현재 상태 확인\n- 필요한 자료 준비\n- 결과 기록\n- 예외 조건 메모",
+      "실행 순서",
+    ]]), target);
+
+    expect(diagnostic.sections[0]).toMatchObject({ sectionType: "steps", completeness: "mentioned" });
+    expect(diagnostic.violations).toContainEqual(expect.objectContaining({ code: "CONTENT_INCOMPLETE_SECTION" }));
+  });
 });
 
 function targetFor(requiredContentElements: readonly string[]): ContentPlanQualityTarget {

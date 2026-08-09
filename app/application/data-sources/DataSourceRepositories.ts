@@ -9,10 +9,20 @@ import type {
   ProjectDataSourceReferenceRepository,
 } from "../../../core/intelligence";
 import type { PersistenceStore } from "../../../core/data";
+import { DataSourceError } from "./DataSourceErrors";
+import { canonicalProjectReference, projectScopedReferences } from "./ProjectDataSourceScopePolicy";
 
 const connectionCollection = "data-source-connections";
 const referenceCollection = "project-data-source-references";
+const ownerCollection = "data-source-project-owners";
 const deletionCollection = "data-source-deletion-tombstones";
+
+type DataSourceProjectOwner = Readonly<{
+  workspaceId: string;
+  connectionId: string;
+  projectId: string;
+  claimedAt: string;
+}>;
 
 export type DataSourceDeletionTombstone = Readonly<{
   connectionId: string;
@@ -38,10 +48,60 @@ export class DurableDataSourceConnectionRepository implements DataSourceConnecti
 
 export class DurableProjectDataSourceReferenceRepository implements ProjectDataSourceReferenceRepository {
   constructor(private readonly store: PersistenceStore) {}
-  async listByProject(projectId: string) { return (await this.store.list<ProjectDataSourceReference>(referenceCollection)).filter((value) => value.projectId === projectId); }
-  async listByWorkspace(workspaceId: string) { return (await this.store.list<ProjectDataSourceReference>(referenceCollection)).filter((value) => value.workspaceId === workspaceId); }
-  save(value: ProjectDataSourceReference) { return this.store.set(referenceCollection, `${value.projectId}:${value.connectionId}`, value); }
-  delete(projectId: string, connectionId: string) { return this.store.delete(referenceCollection, `${projectId}:${connectionId}`); }
+
+  async listByProject(projectId: string) {
+    const references = await this.store.list<ProjectDataSourceReference>(referenceCollection);
+    const owners = await this.store.list<DataSourceProjectOwner>(ownerCollection);
+    const ownerByConnection = new Map(owners.map((owner) => [owner.connectionId, owner.projectId]));
+    const legacyScoped = projectScopedReferences(references, projectId);
+    return references.filter((reference) => {
+      if (!reference.enabled || reference.projectId !== projectId) return false;
+      const ownerProjectId = ownerByConnection.get(reference.connectionId);
+      if (ownerProjectId) return ownerProjectId === projectId;
+      return legacyScoped.some((legacy) => legacy.connectionId === reference.connectionId);
+    });
+  }
+
+  async listByWorkspace(workspaceId: string) {
+    return (await this.store.list<ProjectDataSourceReference>(referenceCollection)).filter((value) => value.workspaceId === workspaceId);
+  }
+
+  async save(value: ProjectDataSourceReference) {
+    const references = await this.store.list<ProjectDataSourceReference>(referenceCollection);
+    const legacyOwner = canonicalProjectReference(references, value.connectionId);
+    const fallbackOwner: DataSourceProjectOwner = Object.freeze({
+      workspaceId: value.workspaceId,
+      connectionId: value.connectionId,
+      projectId: legacyOwner?.projectId ?? value.projectId,
+      claimedAt: legacyOwner?.updatedAt ?? value.updatedAt,
+    });
+
+    await this.store.update<DataSourceProjectOwner>(ownerCollection, value.connectionId, (current) => {
+      const owner = current ?? fallbackOwner;
+      if (owner.workspaceId !== value.workspaceId || owner.projectId !== value.projectId) {
+        throw new DataSourceError(
+          "이 Data Source 연결은 이미 다른 Project에 배정되어 있습니다. 현재 Project 전용 연결을 새로 추가해 주세요.",
+          "DATA_SOURCE_PROJECT_SCOPE_CONFLICT",
+          409,
+          "connectionId",
+        );
+      }
+      return owner;
+    });
+
+    return this.store.set(referenceCollection, `${value.projectId}:${value.connectionId}`, value);
+  }
+
+  async delete(projectId: string, connectionId: string) {
+    const owner = await this.store.get<DataSourceProjectOwner>(ownerCollection, connectionId);
+    if (owner?.projectId === projectId) {
+      return this.store.batch([
+        { type: "delete", collection: referenceCollection, id: `${projectId}:${connectionId}` },
+        { type: "delete", collection: ownerCollection, id: connectionId },
+      ]);
+    }
+    return this.store.delete(referenceCollection, `${projectId}:${connectionId}`);
+  }
 }
 
 export class DurableDataSourceSnapshotRepository implements DataSourceSnapshotRepository {
@@ -72,6 +132,7 @@ export class DurableDataSourceDeletionRepository {
     return this.store.batch([
       { type: "set", collection: deletionCollection, id: connectionId, value: tombstone },
       ...references.map((reference) => ({ type: "delete" as const, collection: referenceCollection, id: `${reference.projectId}:${reference.connectionId}` })),
+      { type: "delete", collection: ownerCollection, id: connectionId },
       { type: "delete", collection: connectionCollection, id: connectionId },
     ]);
   }

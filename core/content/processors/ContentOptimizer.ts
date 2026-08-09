@@ -1,7 +1,7 @@
 import type { ContentBlock } from "../ContentBlock";
 import type { ContentDocument } from "../ContentDocument";
 import type { ContentMetadata } from "../ContentMetadata";
-import { normalizeStructuredTable, serializeStructuredTable } from "../StructuredText";
+import { normalizeStructuredTable, serializeStructuredList, serializeStructuredTable } from "../StructuredText";
 
 const WORDS_PER_MINUTE = 200;
 
@@ -37,6 +37,8 @@ function trimBlock(block: ContentBlock): readonly ContentBlock[] {
     case "heading":
     case "paragraph":
       return [Object.freeze({ ...block, text: normalizeWhitespace(block.text) })];
+    case "list":
+      return [Object.freeze({ ...block, items: Object.freeze(block.items.map(normalizeWhitespace).filter(Boolean)) })];
     case "table": {
       const table = normalizeStructuredTable(block);
       return table ? [Object.freeze({ ...block, ...table })] : [];
@@ -93,6 +95,7 @@ function countWords(title: string, blocks: readonly ContentBlock[]): number {
     title,
     ...blocks.flatMap((block) => {
       if (block.type === "heading" || block.type === "paragraph") return [block.text];
+      if (block.type === "list") return [serializeStructuredList(block)];
       if (block.type === "table") return [serializeStructuredTable(block)];
       if (block.type === "button") return [block.label];
       if (block.type === "image") return [block.alt, block.caption ?? ""];

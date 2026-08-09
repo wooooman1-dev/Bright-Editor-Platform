@@ -694,3 +694,41 @@ Remaining gates:
 - Google Ads and Google Trends remain inactive until official access is verified
 
 Content Intelligence remains partially implemented. Project DNA, Content Library, Published Content Registry, Search Intent Memory, Keyword Memory, Topic Memory, Duplicate Detection, Cannibalization Detection and Internal Link Intelligence are not implemented. Sprint 7 as a whole is not implemented.
+
+---
+
+## WordPress Draft Publishing MVP
+
+Status: Approved / Not Implemented
+
+Branch: `feat/wordpress-draft-publishing`
+
+Detailed plan: `Docs/current/04_DEVELOPMENT/12_WORDPRESS_DRAFT_PUBLISHING_MVP.md`
+
+이 구현 단위는 WordPress Core REST API를 사용하는 안전한 Draft Create, 조건부 Media Upload, 외부 재조회 Verification, Idempotency, Audit과 완료 UI를 통합한다. 기존 Tistory Draft와 예약발행 기능을 보호하며 Public Publish는 활성화하지 않는다.
+
+구현 순서:
+
+1. Documentation and Contract Alignment
+2. Additive Data Model
+3. Category Read and Preparation
+4. Readiness
+5. Media Upload
+6. ALT and Featured Image
+7. Draft Create
+8. External Verification
+9. Idempotency and Audit
+10. Completion UI
+11. Automated Regression
+12. Real WordPress Verification
+
+각 단계는 다음 순서를 독립적으로 완료한다.
+
+```text
+Implement
+→ Test
+→ Review
+→ Commit
+```
+
+현재 작업 범위는 Documentation and Contract Alignment의 문서 반영뿐이다. 코드 구현, Commit, push와 PR 생성은 포함하지 않는다.

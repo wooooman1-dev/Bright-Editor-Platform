@@ -29,7 +29,11 @@ export function collectImagePromptContexts(document: ContentDocument, primaryKey
     const sectionEnd = nextHeadingIndex >= 0 ? nextHeadingIndex : document.blocks.length;
     const paragraphs = document.blocks
       .slice(sectionStart, sectionEnd)
-      .flatMap((candidate, offset) => candidate.type === "paragraph" && candidate.text.trim() ? [{ distance: Math.abs(sectionStart + offset - blockIndex), text: candidate.text }] : []);
+      .flatMap((candidate, offset) => candidate.type === "paragraph" && candidate.text.trim()
+        ? [{ distance: Math.abs(sectionStart + offset - blockIndex), text: candidate.text }]
+        : candidate.type === "list" && candidate.items.length
+          ? [{ distance: Math.abs(sectionStart + offset - blockIndex), text: candidate.items.join(" ") }]
+          : []);
     const primaryParagraph = [...paragraphs].sort((left, right) => left.distance - right.distance)[0]?.text ?? "";
     const previousImages = imageEntries.slice(0, imageIndex).map(({ block: previous }) => Object.freeze({
       alt: previous.alt.trim(),

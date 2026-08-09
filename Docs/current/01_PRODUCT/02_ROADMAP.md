@@ -1358,3 +1358,111 @@ Core와 Apps의 책임을 지키는가?
 실제 검증이 가능한가?
 
 Bright Studio는 기능 수가 아니라 완성도와 신뢰성으로 성장한다.
+
+29. Current Implementation Addendum — 2026-08-08
+
+이 절은 기존 Stage/Sprint/Release 설계를 삭제하거나 새 Stage를 만드는 변경이 아니다. 현재 Draft PR `#42`에서 실제 구현이 기존 Roadmap baseline보다 앞서 진행된 부분만 기록한다.
+
+기존 표와 Stage 설명이 이 절의 실제 Repository 상태와 충돌할 경우, 현재 구현 상태를 판단할 때만 이 절과 `04_CURRENT_DEVELOPMENT_STATUS.md`를 우선한다. Stage 전체 완료 여부와 장기 순서는 기존 Roadmap Gate를 유지한다.
+
+Current repository context:
+
+```text
+Base branch: fix/wordpress-full-audit
+Feature branch: feat/data-source-multi-connections
+Pull request: #42
+PR state: Open / Draft / Unmerged
+Latest automated-verified code HEAD before documentation-only sync:
+88efad926c49b1f7ab3bcd011ad7562ffb98122a
+GitHub Actions run: 31235886063
+```
+
+Latest automated verification:
+
+```text
+Typecheck: passed
+Lint: passed
+Test: passed
+Build: passed
+Test Files: 292 passed | 8 skipped
+Tests: 1629 passed | 20 skipped
+```
+
+Automated verification is not external Provider/UI verification.
+
+Stage 5 / Sprint 7 foundation has advanced beyond the older `Design Approved, Not Implemented` baseline. The full Sprint remains Partially Implemented, but Project-scoped Data Source ownership, reusable provider credentials through separate resource Connections, immutable resource identity, current Google resource discovery, Workspace-unassigned projection, duplicate Project persistence protection/migration, Project-scoped GSC/NAVER Evidence delivery, Opportunity confidence corrections and stale/cross-Project isolation guards are implemented and regression-protected.
+
+This does not mark Project DNA, complete Content Library, Published Registry, memory, cannibalization or full Internal Link Intelligence complete.
+
+Detailed Data Source status:
+
+```text
+Docs/current/04_DEVELOPMENT/05_DATA_SOURCE_MULTI_CONNECTION_STATUS.md
+```
+
+The Bright Finance Source Preflight incident introduced a Core-shared Verification Claim workstream that is now implemented and automated-verified:
+
+```text
+approval-aware Planning
+→ explicit Verification Plan
+→ primary-topic Claim scope
+→ Source Preflight only when required
+→ actual source verification
+→ temporal/freshness verification
+→ VerificationSnapshot
+→ Generation Verification Gate
+→ verified Generation bundle
+→ Generation 1 call
+→ Generated Claim Binding
+→ server-owned verification persistence
+→ current-manuscript deterministic verification
+→ Quality Review 1 call
+→ shared publishing-readiness consumption
+```
+
+Status rules:
+
+- the original Bright Finance 400 was an internal `APPROVAL_SOURCE_NOT_READY` workflow rejection mapped to HTTP 400, not proof of an OpenAI transport 400;
+- internal-link/related-content mentions do not activate an unrelated full specialized Claim bundle by themselves;
+- approval-policy context automatically selects explicit Verification Planning;
+- the strict Planning schema was corrected before automatic rollout;
+- new public HTTPS source URLs are handled through dynamic source identity rather than an exact closed URL list;
+- a new source is not automatically trusted: official-source, support, freshness and conflict rules still apply;
+- unsupported high-risk generated scalar values can block Quality after Generation;
+- verification is shared Core logic, not separate WordPress/Tistory truth systems;
+- no additional AI Claim-verification agent/call was added.
+
+Detailed Verification status and policy:
+
+```text
+Docs/current/04_DEVELOPMENT/07_VERIFICATION_CLAIM_SOURCE_STATUS.md
+Docs/current/01_PRODUCT/20_APPROVAL_SOURCE_PREFLIGHT.md
+```
+
+The earlier conceptual phrase `Phase 6 — Quality Review Claim Linkage` is not an outstanding separate implementation milestone in the current repository. Its responsibility is already implemented in the canonical verification persistence and Quality integrity path.
+
+The older Stage 6 `Planned` and Sprint 8 `Design Approved, Not Implemented` labels remain historical Roadmap baselines, but they no longer describe every component currently present in the branch. The Repository contains WordPress implementation foundation beyond the original primitive-only snapshot plus shared Generated Claim verification consumption in publishing readiness. This does not mark Stage 6 or Sprint 8 complete.
+
+The current Source/Verification external Gate remains:
+
+```text
+new Bright Finance Content
+→ Planning 1 call
+→ verify explicit Verification Plan
+→ inspect scoped Claims
+→ Source Preflight
+→ inspect newly discovered real sources and VerificationSnapshot
+→ only if valid: Generation 1 call
+→ Quality Review 1 call
+→ inspect final HTML and verification metadata
+```
+
+Manual harness:
+
+```text
+tests/manual/bright-finance-source-live-verification.test.ts
+```
+
+This harness does not execute WordPress Draft save or public publishing. A real WordPress Draft using the latest Source/Verification correction has not been performed as part of this workstream. Public publish remains unauthorized.
+
+While the user's local environment is unavailable, documentation synchronization, deterministic regression coverage and architecture audit may continue. External verification remains `Pending` until actual local/provider evidence exists.
