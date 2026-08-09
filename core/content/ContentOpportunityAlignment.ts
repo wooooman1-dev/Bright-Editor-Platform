@@ -32,6 +32,11 @@ export type ContentOpportunityAlignment = Readonly<{
   review: ContentOpportunityQualityReview;
 }>;
 type InformationSufficiencyStatus = "missing" | "mentioned" | "sufficient";
+type ContentSection = Readonly<{
+  heading: string;
+  informationElements: number;
+  text: string;
+}>;
 
 export function analyzeContentOpportunityAlignment(
   document: ContentDocument,
@@ -47,7 +52,7 @@ export function analyzeContentOpportunityAlignment(
   const keywordTerms = distinctiveTerms(opportunity.primaryKeyword);
   const coreTerms = [...new Set([...topicTerms, ...keywordTerms])];
   const topicKeywordCoverage = coverage(keywordTerms, opportunity.selectedTopic);
-  const headingCoreCoverage = coverage(coreTerms, headings);
+  const headingCoverage = analyzeOpportunityOutlineCoverage(document, opportunity, coreTerms);
   const bodyCoreCoverage = coverage(coreTerms, body);
   const titleCoreCoverage = coverage(coreTerms, document.title);
   const supportedSecondary = opportunity.secondaryKeywords.filter((keyword) => phraseOrTermCoverage(keyword, allText));
@@ -55,7 +60,7 @@ export function analyzeContentOpportunityAlignment(
   const titleHasKeyword = titleContainsPrimaryKeyword(document.title, opportunity.primaryKeyword);
   const bodyHasKeyword = phraseOrTermCoverage(opportunity.primaryKeyword, body);
   const topicKeywordPass = keywordTerms.length === 0 || topicKeywordCoverage >= 0.6;
-  const headingPass = coreTerms.length === 0 || headingCoreCoverage >= 0.34;
+  const headingPass = headingCoverage.pass;
   const bodyPass = bodyHasKeyword || coreTerms.length === 0 || bodyCoreCoverage >= 0.5 || (titleHasKeyword && bodyCoreCoverage >= 0.34);
   const titleTopicPass = titleHasKeyword || coreTerms.length === 0 || titleCoreCoverage >= 0.34;
 
@@ -113,7 +118,7 @@ export function analyzeContentOpportunityAlignment(
     `제목: ${document.title}`,
     `제목 핵심어 반영률: ${percent(titleCoreCoverage)}`,
   ], "제목이 확정된 주제와 다른 방향을 가리킵니다.");
-  const headingCoverageSignal = signal(headingPass, headingCoreCoverage * 100, [`H2/H3 핵심어 반영률: ${percent(headingCoreCoverage)}`], "목차가 확정된 주제의 핵심 범위를 구성하지 않습니다.");
+  const headingCoverageSignal = signal(headingPass, headingCoverage.score, [...headingCoverage.evidence], "목차가 확정된 주제의 핵심 범위를 구성하지 않습니다.");
   const bodyCoverageSignal = signal(bodyPass && expectedPass, Math.min(bodyHasKeyword ? 1 : bodyCoreCoverage, expectedPass ? 1 : expectedCoverage.length / Math.max(1, opportunity.expectedCoverage.length)) * 100, [
     `본문 핵심어 반영률: ${percent(bodyCoreCoverage)}`,
     `예상 범위 반영: ${expectedCoverage.length}/${opportunity.expectedCoverage.length}`,
@@ -227,14 +232,14 @@ function intentRequirementStatus(requirement: string, document: ContentDocument)
   return matching.length || fullCoverage >= 0.34 || semanticWhole ? "mentioned" : "missing";
 }
 
-function contentSections(document: ContentDocument): readonly Readonly<{ text: string; informationElements: number }>[] {
-  const sections: Array<{ text: string; informationElements: number }> = [];
+function contentSections(document: ContentDocument): readonly ContentSection[] {
+  const sections: ContentSection[] = [];
   let heading = "";
   let texts: string[] = [];
   const flush = () => {
     const text = normalizeStructuredText([heading, ...texts].filter(Boolean).join("\n"));
     if (!text) return;
-    sections.push({ text, informationElements: informationElements(text) });
+    sections.push(Object.freeze({ heading, text, informationElements: informationElements(text) }));
   };
   for (const block of document.blocks) {
     if (block.type === "heading" && block.level === 2) {
@@ -249,7 +254,54 @@ function contentSections(document: ContentDocument): readonly Readonly<{ text: s
     }
   }
   flush();
-  return Object.freeze(sections.map((section) => Object.freeze(section)));
+  return Object.freeze(sections);
+}
+
+function analyzeOpportunityOutlineCoverage(
+  document: ContentDocument,
+  opportunity: ConfirmedContentOpportunity,
+  coreTerms: readonly string[],
+): Readonly<{ pass: boolean; score: number; evidence: readonly string[] }> {
+  const headings = document.blocks.flatMap((block) =>
+    block.type === "heading" && (block.level === 2 || block.level === 3) ? [block.text] : []);
+  const sections = contentSections(document).filter((section) => Boolean(section.heading.trim()));
+  const anchorTerms = [...new Set([
+    ...coreTerms,
+    ...opportunity.secondaryKeywords.flatMap(distinctiveTerms),
+    ...opportunity.expectedCoverage.flatMap(distinctiveTerms),
+  ].filter((term) => term.length >= 2))];
+  const anchoredHeadings = headings.filter((heading) => headingContainsAnyTerm(heading, anchorTerms));
+  const coveredScopes = opportunity.expectedCoverage.filter((scope) =>
+    sections.some((section) => sectionCoversOpportunityScope(section, scope)));
+  const headingAnchorPass = headings.length > 0 && anchoredHeadings.length === headings.length;
+  const scopePass = opportunity.expectedCoverage.length === 0
+    || coveredScopes.length >= Math.ceil(opportunity.expectedCoverage.length * 2 / 3);
+  const anchorCoverage = headings.length ? anchoredHeadings.length / headings.length : 0;
+  const scopeCoverage = opportunity.expectedCoverage.length
+    ? coveredScopes.length / opportunity.expectedCoverage.length
+    : 1;
+
+  return Object.freeze({
+    pass: headingAnchorPass && scopePass,
+    score: Math.round(Math.min(anchorCoverage, scopeCoverage) * 100),
+    evidence: Object.freeze([
+      `H2/H3 주제 앵커: ${anchoredHeadings.length}/${headings.length}`,
+      `계획 범위의 H2/H3 섹션 연결: ${coveredScopes.length}/${opportunity.expectedCoverage.length}`,
+    ]),
+  });
+}
+
+function sectionCoversOpportunityScope(section: ContentSection, scope: string): boolean {
+  if (section.informationElements < 2) return false;
+  if (phraseOrTermCoverage(scope, section.text)) return true;
+  const scopeTerms = distinctiveTerms(scope).filter((term) => term.length >= 2);
+  const matchedTerms = scopeTerms.filter((term) => normalize(section.text).includes(normalize(term)));
+  return matchedTerms.length >= Math.min(2, scopeTerms.length);
+}
+
+function headingContainsAnyTerm(heading: string, terms: readonly string[]): boolean {
+  const normalizedHeading = normalize(heading);
+  return terms.some((term) => normalizedHeading.includes(normalize(term)));
 }
 
 const freeVisualPurposes = new Set(["comparison", "checklist", "infographic", "summary", "warning"]);
