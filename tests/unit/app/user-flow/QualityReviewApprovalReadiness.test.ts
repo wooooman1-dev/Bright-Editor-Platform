@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import type { ApprovalReadinessReport } from "../../../../core/approval";
 import type { QualityCategory } from "../../../../core/quality";
-import { normalizeQualityReview } from "../../../../app/user-flow/quality-review-ui";
+import {
+  normalizeQualityReview,
+  visibleApprovalReadinessChecks,
+} from "../../../../app/user-flow/quality-review-ui";
 
 const categories: readonly QualityCategory[] = [
   "searchIntent",
@@ -76,5 +79,21 @@ describe("quality review approval readiness UI", () => {
 
     expect(review.status).toBe("ready");
     expect(review.approvalReadiness?.applicationReady).toBe(true);
+  });
+
+  it("hides non-applicable Evidence while preserving the canonical readiness check", () => {
+    const report = readiness(true);
+    const evidenceIndex = report.checks.findIndex((check) => check.key === "evidence");
+    const checks = report.checks.map((check, index) => index === evidenceIndex
+      ? { ...check, applicable: false as const }
+      : check);
+    const review = normalizeQualityReview(rawQuality({ ...report, checks }), { currentRevisionId: "rev-current" });
+
+    expect(review.approvalReadiness?.checks).toContainEqual(expect.objectContaining({
+      key: "evidence",
+      applicable: false,
+    }));
+    expect(visibleApprovalReadinessChecks(review.approvalReadiness!))
+      .not.toContainEqual(expect.objectContaining({ key: "evidence" }));
   });
 });

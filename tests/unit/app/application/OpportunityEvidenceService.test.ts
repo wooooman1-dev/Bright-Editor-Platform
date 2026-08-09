@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { InMemoryPersistenceStore } from "../../../../core/data";
 import { createContentOpportunityCandidate, hasCurrentContentOpportunityFingerprint } from "../../../../core/content";
 import { createOpportunityEvidence } from "../../../../core/intelligence";
+import { createApprovalRequiredEvidenceContract, resolveApprovalPolicySnapshot } from "../../../../core/approval";
 import { DurableDataSourceConnectionRepository, DurableOpportunityEvidenceRepository, DurableProjectDataSourceReferenceRepository } from "../../../../app/application/data-sources/DataSourceRepositories";
 import { OpportunityEvidenceService } from "../../../../app/application/data-sources/OpportunityEvidenceService";
 import type { UserData, UserProject } from "../../../../app/user-flow/user-data";
@@ -11,6 +12,18 @@ const data: UserData = { workspace: { id: "workspace-1", name: "Studio" }, brand
 const candidate = (topic: string, confidence = 0.8, selectionMode: "automatic" | "userSpecified" = "automatic") => createContentOpportunityCandidate({ sourceRequest: "오늘의 건강 글", selectionMode, selectedTopic: topic, primaryKeyword: `${topic} 방법`, secondaryKeywords: [], searchIntent: `${topic} 실천 방법 탐색`, audience: "성인", contentType: "guide", contentAngle: "실천 안내", readerProblem: "기준 부족", expectedCoverage: [topic], selectionRationale: "콘텐츠 공백", opportunityEvidence: [{ source: "unknown", summary: "서버 판정 전" }], confidence, cautions: [], projectId: project.id });
 
 describe("server-owned Opportunity Evidence classification", () => {
+  it("preserves the approval evidence contract across classification projection", async () => {
+    const store = new InMemoryPersistenceStore();
+    const service = new OpportunityEvidenceService(new DurableDataSourceConnectionRepository(store), new DurableProjectDataSourceReferenceRepository(store), new DurableOpportunityEvidenceRepository(store));
+    const original = candidate("??嫄닿컯");
+    const snapshot = resolveApprovalPolicySnapshot("adsense_approval", "wordpress_life_economy_v1")!;
+    const contract = createApprovalRequiredEvidenceContract(original, snapshot);
+    const contracted = createContentOpportunityCandidate({ ...original, requiredEvidenceContract: contract });
+    const classified = service.classifyCandidates([contracted], await service.buildPlanningBundle(data, project), data, project)[0]!;
+    expect(classified.requiredEvidenceContract).toEqual(contract);
+    expect(classified.fingerprint).toBe(createContentOpportunityCandidate({ ...classified }).fingerprint);
+  });
+
   it("allows all three candidates to be blog-growth recommendations without forced type balancing", async () => {
     const store = new InMemoryPersistenceStore(), service = new OpportunityEvidenceService(new DurableDataSourceConnectionRepository(store), new DurableProjectDataSourceReferenceRepository(store), new DurableOpportunityEvidenceRepository(store));
     const bundle = await service.buildPlanningBundle(data, project);

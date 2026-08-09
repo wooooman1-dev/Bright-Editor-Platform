@@ -221,7 +221,7 @@ describe("studio approval policy routes", () => {
         value: "The Museum of Modern Art",
         evidenceExcerpt: institutionExcerpt,
       },
-    ];
+    ].map((claim) => ({ claimId: claim.field, ...claim }));
     const pageText = [
       sourceEvidenceExcerpt,
       artworkTitleExcerpt,

@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  explicitApprovalSourcePreflightFormat,
   approvalSourcePreflightFormat,
   OpenAIProvider,
 } from "../../../../app/application/OpenAIProvider";
-import { approvalSourcePreflightMaximumClaimsPerSource } from "../../../../core/ai";
+import { approvalSourcePreflightMaximumClaimsPerSource } from "../../../../core/ai/ApprovalSourcePreflight";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -114,7 +115,7 @@ describe("OpenAI approval web search", () => {
     const request = fetchMock.mock.calls[0]?.[1];
     const body = JSON.parse(new TextDecoder().decode(request?.body as Uint8Array)) as Record<string, unknown>;
     expect(body).toMatchObject({
-      max_output_tokens: 2_500,
+      max_output_tokens: 4_000,
       tools: [{ type: "web_search", search_context_size: "high" }],
       text: { format: { name: "approval_source_preflight", strict: true }, verbosity: "low" },
     });
@@ -157,6 +158,20 @@ describe("OpenAI approval web search", () => {
       "value",
       "evidenceExcerpt",
     ]);
+  });
+
+  it("documents the verbatim evidence contract in both source preflight schemas", () => {
+    for (const format of [approvalSourcePreflightFormat, explicitApprovalSourcePreflightFormat]) {
+      const sourceSchema = format.schema.properties.sources.items;
+      const sourceEvidenceDescription = sourceSchema.properties.evidenceExcerpt.description;
+      const claimEvidenceDescription = sourceSchema.properties.claims.items.properties.evidenceExcerpt.description;
+      expect(sourceEvidenceDescription).toContain("verbatim");
+      expect(sourceEvidenceDescription).toContain("canonical extracted text");
+      expect(sourceEvidenceDescription).toContain("paraphrase");
+      expect(sourceEvidenceDescription).toContain("synthesize");
+      expect(claimEvidenceDescription).toContain("verbatim");
+      expect(claimEvidenceDescription).toContain("canonical extracted text");
+    }
   });
 
   it("does not attach web search to Generation after a verified preflight bundle exists", async () => {

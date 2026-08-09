@@ -27,6 +27,7 @@ export type ApprovalSourceDocumentInput = Readonly<{
   bytes: Uint8Array;
   tooLarge?: boolean;
   fetchError?: string;
+  pdfTextExtractor?: (bytes: Uint8Array) => string;
 }>;
 
 export type ApprovalSourceDocumentExtraction = Readonly<{
@@ -227,8 +228,27 @@ function extractPdf(
 ): ApprovalSourceDocumentExtraction {
   const raw = decodeLatin1(input.bytes);
   const title = decodePdfLiteral(firstMatch(raw, /\/Title\s*\(((?:\\.|[^\\)])*)\)/u));
+  const fragments = [extractPdfTextFragments(raw)];
+  const extractedServerText = input.pdfTextExtractor?.(input.bytes) ?? "";
+  if (extractedServerText) fragments.push(extractedServerText);
+  const text = normalizeWhitespace(fragments.join(" "));
+  if (text.length < minimumExtractedTextLength) {
+    return frozenExtraction(
+      "pdf",
+      "unsupported",
+      title,
+      publisher,
+      "",
+      input.bytes.byteLength,
+      "PDF에 안전하게 추출할 수 있는 텍스트 레이어가 없습니다.",
+    );
+  }
+  return frozenExtraction("pdf", "extracted", title, publisher, text, input.bytes.byteLength);
+}
+
+export function extractPdfTextFragments(source: string): string {
   const fragments: string[] = [];
-  for (const match of raw.matchAll(/BT([\s\S]*?)ET/gu)) {
+  for (const match of source.matchAll(/BT([\s\S]*?)ET/gu)) {
     const segment = match[1] ?? "";
     for (const literal of segment.matchAll(/\(((?:\\.|[^\\)])*)\)\s*(?:Tj|'|")/gu)) {
       const value = decodePdfLiteral(literal[1] ?? "");
@@ -242,19 +262,7 @@ function extractPdf(
     }
     if (fragments.length >= maximumPdfFragments) break;
   }
-  const text = normalizeWhitespace(fragments.slice(0, maximumPdfFragments).join(" "));
-  if (text.length < minimumExtractedTextLength) {
-    return frozenExtraction(
-      "pdf",
-      "unsupported",
-      title,
-      publisher,
-      "",
-      input.bytes.byteLength,
-      "PDF에 안전하게 추출할 수 있는 텍스트 레이어가 없습니다.",
-    );
-  }
-  return frozenExtraction("pdf", "extracted", title, publisher, text, input.bytes.byteLength);
+  return fragments.slice(0, maximumPdfFragments).join(" ");
 }
 
 function detectFormat(contentType: string, bytes: Uint8Array): ApprovalSourceDocumentFormat {
@@ -448,6 +456,7 @@ function looksTextual(bytes: Uint8Array): boolean {
 
 function htmlToText(html: string): string {
   return markupToText(html
+    .replace(/<head\b[\s\S]*?<\/head>/giu, " ")
     .replace(/<script\b[\s\S]*?<\/script>/giu, " ")
     .replace(/<style\b[\s\S]*?<\/style>/giu, " ")
     .replace(/<noscript\b[\s\S]*?<\/noscript>/giu, " ")
@@ -503,9 +512,15 @@ function decodeUtf8(bytes: Uint8Array): string {
   return stripBom(new TextDecoder("utf-8", { fatal: false }).decode(bytes));
 }
 
-function decodeLatin1(bytes: Uint8Array): string {
-  return new TextDecoder("latin1", { fatal: false }).decode(bytes);
+export function decodePdfBytesAsLatin1(bytes: Uint8Array): string {
+  let value = "";
+  for (let offset = 0; offset < bytes.length; offset += 8192) {
+    value += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + 8192, bytes.length)));
+  }
+  return value;
 }
+
+const decodeLatin1 = decodePdfBytesAsLatin1;
 
 function stripBom(value: string): string {
   return value.replace(/^\uFEFF/u, "");

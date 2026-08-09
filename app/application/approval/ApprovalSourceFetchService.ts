@@ -1,8 +1,5 @@
-import {
-  evaluateApprovalSourceUrlSafety,
-  normalizeApprovalSourceDocument,
-  type ApprovalSourcePage,
-} from "../../../core/approval";
+import { evaluateApprovalSourceUrlSafety, type ApprovalSourcePage } from "../../../core/approval";
+import { normalizeApprovalSourceDocumentServer } from "../../../core/approval/ApprovalSourceDocumentServerAdapter";
 import type { SiteApprovalReadinessFetch } from "../../../core/approval";
 import { resolveOfficialEvidenceSourceFallback } from "./OfficialEvidenceSourceResolver";
 
@@ -49,7 +46,7 @@ export async function fetchApprovalSourcePage(
       const response = fetched.response;
       const contentType = response.headers.get("content-type") ?? "";
       const body = await readBoundedResponseBody(response, sourceResponseMaxBytes);
-      const extraction = normalizeApprovalSourceDocument({
+      const extraction = normalizeApprovalSourceDocumentServer({
         requestedUrl,
         finalUrl: fetched.finalUrl,
         status: response.status,

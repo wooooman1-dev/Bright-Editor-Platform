@@ -1,4 +1,6 @@
 export type VerificationMode = "legacy" | "explicit";
+/** NONE is editorial-only; VERIFY is best-effort; CRITICAL requires Evidence. */
+export type VerificationClaimRisk = "none" | "verify" | "critical";
 export type VerificationClaimKind = "money" | "ratio" | "date" | "dateRange" | "duration" | "location" | "eligibility" | "legal" | "general";
 export type VerificationClaimStatus = "planned" | "verified" | "insufficient" | "conflicted" | "stale";
 export type VerificationOverallStatus = "not_required" | "planned" | "verified" | "insufficient" | "conflicted" | "stale";
@@ -34,16 +36,16 @@ export type VerificationTemporalEvidence = Readonly<{
   start?: string;
   end?: string;
 }>;
-export type VerificationClaimSpec = Readonly<{ claimId: string; field: string; kind: VerificationClaimKind; statement: string; rawValue?: string; qualifiers: VerificationClaimQualifiers; temporalRequirement?: VerificationTemporalRequirement; required: boolean; policyId?: string }>;
+export type VerificationClaimSpec = Readonly<{ claimId: string; atomicity?: "single_assertion"; field: string; kind: VerificationClaimKind; statement: string; rawValue?: string; qualifiers: VerificationClaimQualifiers; temporalRequirement?: VerificationTemporalRequirement; required: boolean; risk?: VerificationClaimRisk; policyId?: string }>;
 export type VerificationFreshnessStatus = "fresh" | "stale" | "unknown";
 export type VerificationSourceAssessment = Readonly<{ sourceId: string; institutionGroupId: string; sourceFamilyId?: string; canonicalUrl?: string; publisherId?: string; role: VerificationSourceRole; authoritative: boolean; supports: boolean; normalizedValue?: VerificationNormalizedValue; freshnessStatus?: VerificationFreshnessStatus; observedAt?: string; effectiveFrom?: string; effectiveUntil?: string; temporalEvidence?: VerificationTemporalEvidence; fresh: boolean; diagnostics: readonly string[] }>;
 export type VerificationClaimResult = Readonly<{ claimId: string; status: VerificationClaimStatus; normalizedValue?: VerificationNormalizedValue; sourceAssessments: readonly VerificationSourceAssessment[]; independentInstitutionCount: number; authoritativeInstitutionCount: number; primarySourceFound: boolean; unresolvedConflict: boolean; freshnessPassed: boolean; verifiedAt?: string; reviewBy?: string; diagnostics: readonly string[] }>;
 export type VerificationSnapshot = Readonly<{ verificationMode: VerificationMode; claimDefinitionFingerprint: string; sourceSnapshotFingerprint: string; results: readonly VerificationClaimResult[]; overallStatus: VerificationOverallStatus; createdAt: string; updatedAt: string; verificationSnapshotFingerprint: string }>;
 export type GeneratedClaimReference = Readonly<{ referenceType: "verified"; verificationClaimId: string; sourceIds: readonly string[] }> | Readonly<{ referenceType: "unverifiedDetected"; diagnosticCode: string }>;
 export function verificationOverallStatus(claims: readonly VerificationClaimSpec[], results: readonly VerificationClaimResult[] = []): VerificationOverallStatus {
-  if (!claims.length) return "not_required";
+  if (!claims.some(isCriticalVerificationClaim)) return "not_required";
   if (!results.length) return "planned";
-  const requiredIds = new Set(claims.filter((claim) => claim.required).map((claim) => claim.claimId));
+  const requiredIds = new Set(claims.filter(isCriticalVerificationClaim).map((claim) => claim.claimId));
   const relevant = requiredIds.size ? results.filter((result) => requiredIds.has(result.claimId)) : results;
   if (!relevant.length) return "verified";
   const statuses = relevant.map((result) => result.status);
@@ -52,4 +54,13 @@ export function verificationOverallStatus(claims: readonly VerificationClaimSpec
   if (statuses.includes("insufficient")) return "insufficient";
   if (statuses.includes("planned")) return "planned";
   return "verified";
+}
+
+export function verificationClaimRisk(claim: Pick<VerificationClaimSpec, "required" | "risk" | "kind">): VerificationClaimRisk {
+  if (claim.risk === "none" || claim.risk === "critical" || claim.risk === "verify") return claim.risk;
+  return claim.required ? "critical" : "verify";
+}
+
+export function isCriticalVerificationClaim(claim: Pick<VerificationClaimSpec, "required" | "risk" | "kind">): boolean {
+  return verificationClaimRisk(claim) === "critical";
 }

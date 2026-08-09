@@ -1,15 +1,13 @@
-export type { AIProvider, AIRequest, AIResponse, AIWebSource } from "./AIProvider";
 export {
-  approvalSourcePreflightMaximumClaimsPerSource,
-  approvalSourcePreflightTask,
-  ApprovalSourcePreflightError,
-  runApprovalSourcePreflight,
-  withApprovalSourcePreflightInstruction,
-} from "./ApprovalSourcePreflight";
-export type {
-  ApprovalSourcePreflightClaimSource,
-  ApprovalSourcePreflightResult,
-} from "./ApprovalSourcePreflight";
+  AIProviderError,
+  aiProviderStages,
+  type AIProvider,
+  type AIRequest,
+  type AIResponse,
+  type AIProviderCompletionStatus,
+  type AIProviderStage,
+  type AIWebSource,
+} from "./AIProvider";
 export {
   aiUsageStageForTask,
   aiUsageStages,
@@ -25,17 +23,7 @@ export type {
   AIUsageRecord,
   AIUsageStage,
 } from "./AIUsageCost";
-export {
-  AIWorkflow,
-  assertGeneratedDocumentOwnedIdentityPolicy,
-  assertOwnedIdentityKeywordPolicy,
-  withApprovalEvidenceMetadata,
-  withApprovalPolicyMetadata,
-  withCanonicalEditorialContext,
-} from "./AIWorkflow";
 export type {
-  AIWorkflowState,
-  AIWorkflowStatus,
   ContentGenerationStrategy,
   ContentTypeId,
   GenerationInput,

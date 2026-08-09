@@ -2,9 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import { approvalPolicyPromptContext, resolveApprovalPolicySnapshot } from "../../../../core/approval";
 import { explicitPlanningFormat, extendPlanningSchemaWithVerificationClaims, planningOutputFormat } from "../../../../app/application/PlanningContracts";
 import { OpenAIProvider } from "../../../../app/application/OpenAIProvider";
-import { ContentPlanningStrategy, parsePlanningResult } from "../../../../app/application/ContentPlanningStrategy";
+import { attachApprovalEvidenceContracts, ContentPlanningStrategy, parsePlanningResult } from "../../../../app/application/ContentPlanningStrategy";
 
-const candidate = { selectedTopic: "서울 청년 지원", primaryKeyword: "서울 청년 지원 조건", secondaryKeywords: [], searchIntent: "지원 조건 확인", audience: "청년", contentType: "guide", contentAngle: "조건 안내", readerProblem: "자격을 모름", expectedCoverage: ["신청 절차"], selectionRationale: "주제", opportunityEvidence: [], confidence: 0.5, cautions: [], verificationClaims: [{ field: "지원 금액", kind: "money", statement: "현재 지원 금액은 최대 500000원이다.", rawValue: "500000원", qualifiers: {}, temporalRequirement: { mode: "current" }, required: true }] };
+const candidate = { selectedTopic: "서울 청년 지원", primaryKeyword: "서울 청년 지원 조건", secondaryKeywords: [], searchIntent: "지원 조건 확인", audience: "청년", contentType: "guide", contentAngle: "조건 안내", readerProblem: "자격을 모름", expectedCoverage: ["신청 절차"], selectionRationale: "주제", opportunityEvidence: [], confidence: 0.5, cautions: [], verificationClaims: [{ atomicity: "single_assertion", field: "지원 금액", kind: "money", statement: "현재 지원 금액은 최대 500000원이다.", rawValue: "500000원", qualifiers: {}, temporalRequirement: { mode: "current" }, required: true }] };
 const planning = { interpretedIntent: "지원 정보", domain: "생활경제", targetAudience: "청년", contentGoal: "조건 안내", recommendedPlatforms: [], suggestedTitleAngles: ["서울 청년 지원"], contentCluster: [], recommendationReason: "주제", confidence: 0.5, estimateDisclosure: "AI estimate", opportunityCandidates: [candidate] };
 
 describe("explicit planning contract", () => {
@@ -18,7 +18,7 @@ describe("explicit planning contract", () => {
     expect(extended.schema.properties.opportunityCandidates.items.required)
       .toEqual(Object.keys(extended.schema.properties.opportunityCandidates.items.properties));
     expect(extended.schema.properties.opportunityCandidates.items.properties.verificationClaims.items.required)
-      .toEqual(["field", "kind", "statement", "rawValue", "qualifiers", "temporalRequirement", "required", "policyId"]);
+      .toEqual(["atomicity", "field", "kind", "statement", "rawValue", "qualifiers", "temporalRequirement", "required", "risk", "policyId"]);
     expect(extended.schema.properties.opportunityCandidates.items.properties.verificationClaims.items.properties.qualifiers.required)
       .toEqual(["subject", "scope", "basis", "note"]);
     expect(extended.schema.properties.opportunityCandidates.items.properties.verificationClaims.items.properties.temporalRequirement.required)
@@ -41,8 +41,9 @@ describe("explicit planning contract", () => {
     expect(parsed.opportunityCandidates?.[0].verificationPlan?.claims[0]).not.toHaveProperty("status");
     expect(Object.isFrozen(parsed.opportunityCandidates?.[0].verificationPlan?.claims[0]?.temporalRequirement)).toBe(true);
     const empty = parsePlanningResult(JSON.stringify({ ...planning, opportunityCandidates: [{ ...candidate, verificationClaims: [] }] }), { projectId: "p", selectionMode: "automatic", explicitVerificationPlanningEnabled: true });
-    expect(empty.opportunityCandidates?.[0].verificationPlan?.claims).toHaveLength(0);
+    expect(empty.opportunityCandidates?.[0].verificationPlan).toBeUndefined();
     expect(() => parsePlanningResult(JSON.stringify({ ...planning, opportunityCandidates: [{ ...candidate, verificationClaims: undefined }] }), { projectId: "p", selectionMode: "automatic", explicitVerificationPlanningEnabled: true })).toThrow();
+    expect(() => parsePlanningResult(JSON.stringify({ ...planning, opportunityCandidates: [{ ...candidate, verificationClaims: [{ ...candidate.verificationClaims[0], atomicity: undefined }] }] }), { projectId: "p", selectionMode: "automatic", explicitVerificationPlanningEnabled: true })).toThrow("atomicity");
     expect(() => parsePlanningResult(JSON.stringify({ ...planning, opportunityCandidates: [{ ...candidate, verificationClaims: [{ ...candidate.verificationClaims[0], kind: "bad" }] }] }), { projectId: "p", selectionMode: "automatic", explicitVerificationPlanningEnabled: true })).toThrow();
     expect(() => parsePlanningResult(JSON.stringify({ ...planning, opportunityCandidates: [{ ...candidate, verificationClaims: [{ ...candidate.verificationClaims[0], temporalRequirement: undefined }] }] }), { projectId: "p", selectionMode: "automatic", explicitVerificationPlanningEnabled: true })).toThrow("temporalRequirement");
     expect(() => parsePlanningResult(JSON.stringify({ ...planning, opportunityCandidates: [{ ...candidate, verificationClaims: [{ ...candidate.verificationClaims[0], temporalRequirement: { mode: "asOf", date: "2026-02-30" } }] }] }), { projectId: "p", selectionMode: "automatic", explicitVerificationPlanningEnabled: true })).toThrow();
@@ -102,7 +103,63 @@ describe("explicit planning contract", () => {
 
     expect(generate).toHaveBeenCalledTimes(1);
     expect(generate.mock.calls[0]?.[0].instruction).toContain("Verification claims rule");
+    expect(generate.mock.calls[0]?.[0].instruction).toContain("Approval evidence policy is risk-based");
+    expect(generate.mock.calls[0]?.[0].instruction).toContain("empty verificationClaims array is valid");
     expect(generate.mock.calls[0]?.[0].metadata?.explicitVerificationPlanning).toBe("1");
     expect(result.opportunityCandidates?.[0].verificationPlan?.mode).toBe("explicit");
+    expect(result.opportunityCandidates?.[0].requiredEvidenceContract).toMatchObject({
+      profileSourceRequirementApplicable: true,
+      explicitVerificationRequired: true,
+      policyId: "adsense_approval_mode",
+      profileId: "wordpress_life_economy_v1",
+    });
+    expect(result.opportunityCandidates?.[0].requiredEvidenceContract?.contractId).toMatch(/^approval-evidence-contract-/);
+  });
+
+  it("preserves a topic-specific factual Claim for an approval-profile loan comparison", () => {
+    const loanPlanning = {
+      ...planning,
+      opportunityCandidates: [{
+        ...candidate,
+        selectedTopic: "대출 상환 방식 비교 방법: 월 납입액·총이자·상환 여력을 기준으로 고르기",
+        primaryKeyword: "대출 상환 방식 비교 방법",
+        searchIntent: "대출 상환 방식별 월 납입액과 총이자를 비교해 선택하는 방법",
+        readerProblem: "상환 방식에 따라 달라지는 월 부담과 총이자를 비교하기 어려움",
+        verificationClaims: [{
+          atomicity: "single_assertion",
+          field: "repaymentMethodDefinition",
+          kind: "general",
+          statement: "원금균등상환은 매월 같은 원금과 남은 원금에 대한 이자를 함께 갚는 방식이다.",
+          rawValue: "원금균등상환",
+          qualifiers: { subject: "대출 상환 방식", scope: "일반 금융 정보", basis: "공식 금융기관 안내", note: "상환 방식 비교 기준" },
+          temporalRequirement: { mode: "notRequired" },
+          required: true,
+        }],
+      }],
+    };
+    const parsed = parsePlanningResult(JSON.stringify(loanPlanning), {
+      projectId: "loan-project",
+      selectionMode: "automatic",
+      explicitVerificationPlanningEnabled: true,
+      projectContext: approvalPolicyPromptContext(resolveApprovalPolicySnapshot("adsense_approval", "wordpress_life_economy_v1")!),
+      sourceRequest: "대출 상환 방식 비교 방법",
+    });
+    const snapshot = resolveApprovalPolicySnapshot("adsense_approval", "wordpress_life_economy_v1")!;
+    const planned = attachApprovalEvidenceContracts(parsed, snapshot).opportunityCandidates![0]!;
+
+    expect(planned.verificationPlan?.claims).toHaveLength(1);
+    expect(planned.verificationPlan?.claims[0]).toMatchObject({
+      field: "repaymentMethodDefinition",
+      kind: "general",
+      required: true,
+    });
+    expect(planned.requiredEvidenceContract).toMatchObject({
+      profileSourceRequirementApplicable: true,
+      requiredClaims: [{ field: "repaymentMethodDefinition" }],
+    });
+    expect(planned.requiredEvidenceContract?.requiredClaims[0]).toMatchObject({
+      claimId: planned.verificationPlan?.claims[0]?.claimId,
+      statement: "원금균등상환은 매월 같은 원금과 남은 원금에 대한 이자를 함께 갚는 방식이다.",
+    });
   });
 });

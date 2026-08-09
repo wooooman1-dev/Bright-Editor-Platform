@@ -98,6 +98,67 @@ const data: UserData = {
 };
 
 describe("approval Evidence candidate normalization", () => {
+  it("upgrades an empty legacy missing pack only when Planning proves Evidence is not required", () => {
+    const content = data.contents[0]!;
+    const notRequiredData = {
+      ...data,
+      contents: [{
+        ...content,
+        opportunity: {
+          requiredEvidenceContract: {
+            schemaVersion: 1,
+            contractId: "contract-1",
+            policyId: "adsense_approval_mode",
+            policyVersion: "1.0",
+            profileId: "wordpress_life_economy_v1",
+            profileVersion: "1.0",
+            profileSourceRequirementApplicable: false,
+            explicitVerificationRequired: false,
+            sourceRequirements: [],
+            requiredClaims: [],
+          },
+        },
+        document: {
+          ...content.document!,
+          metadata: {
+            ...content.document!.metadata!,
+            approvalEvidence: { version: "1.0", status: "missing", coverageStatus: "missing", sources: [] },
+          },
+        },
+      }],
+    } as unknown as UserData;
+
+    expect(normalizeApprovalEvidenceCandidates(notRequiredData, "content-1")
+      .contents[0]?.document?.metadata?.approvalEvidence).toEqual({
+      version: "1.0",
+      status: "not_required",
+      coverageStatus: "not_required",
+      sourcePolicyCompliance: "not_required",
+      sources: [],
+    });
+  });
+
+  it("does not reinterpret a legacy missing pack without Planning evidence", () => {
+    const content = data.contents[0]!;
+    const legacyData: UserData = {
+      ...data,
+      contents: [{
+        ...content,
+        document: {
+          ...content.document!,
+          metadata: {
+            ...content.document!.metadata!,
+            approvalEvidence: { version: "1.0", status: "missing", coverageStatus: "missing", sources: [] },
+          },
+        },
+      }],
+    };
+
+    const result = normalizeApprovalEvidenceCandidates(legacyData, "content-1");
+    expect(result).toBe(legacyData);
+    expect(result.contents[0]?.document?.metadata?.approvalEvidence?.status).toBe("missing");
+  });
+
   it("removes tracked canonical duplicates before the next audit", () => {
     const result = normalizeApprovalEvidenceCandidates(data, "content-1");
     const content = result.contents[0]!;

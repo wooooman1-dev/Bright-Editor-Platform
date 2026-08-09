@@ -16,6 +16,7 @@ import {
   type UserData,
 } from "../../../../app/user-flow/user-data";
 import { createContentOpportunityCandidate, createContentOpportunityVerificationPlan } from "../../../../core/content";
+import type { ApprovalSourcePreflightDiagnostic } from "../../../../core/approval";
 
 const first = createContentOpportunityCandidate({
   sourceRequest: "오늘의 건강 글을 골라줘", selectionMode: "automatic", selectedTopic: "장 건강 관리", primaryKeyword: "장 건강 관리 방법",
@@ -55,6 +56,34 @@ function candidatesReady(): UserData {
 }
 
 describe("durable Content planning workflow", () => {
+  it("preserves an approval evidence contract through planning, restore, and confirmation", () => {
+    const contract = {
+      schemaVersion: 1 as const,
+      contractId: "contract-persistence-fixture",
+      policyId: "adsense_approval_mode",
+      policyVersion: "1.0",
+      profileId: "wordpress_life_economy_v1" as const,
+      profileVersion: "1.0",
+      profileSourceRequirementApplicable: true,
+      explicitVerificationRequired: false,
+      sourceRequirements: ["official evidence"],
+      requiredClaims: [{ field: "amount", plannedValue: "100만원" }],
+    };
+    const contracted = createContentOpportunityCandidate({ ...first, requiredEvidenceContract: contract });
+    const contractedPlan = { ...plan, opportunityCandidates: [contracted, second] };
+    const ready = completeContentPlanning(startContentPlanning(baseData(), {
+      id: "content-contract", projectId: "project-1", request: "contract", selectionMode: "automatic", operationId: "planning-contract", now: "2026-08-01T00:00:00.000Z",
+    }), { workspaceId: "workspace-1", projectId: "project-1", contentId: "content-contract", operationId: "planning-contract", plan: contractedPlan, now: "2026-08-01T00:01:00.000Z" });
+    const restored = mergeUserDataSnapshot(undefined, JSON.parse(JSON.stringify(ready)));
+    const restoredCandidate = restored.contents[0].planning!.opportunityCandidates![0];
+    expect(restoredCandidate.requiredEvidenceContract).toEqual(contract);
+    const confirmed = createContentFromPlan(restored, {
+      id: "content-contract", projectId: "project-1", naturalLanguageRequest: "contract", plan: contractedPlan,
+      opportunity: restoredCandidate, selectedPublishingAccountIds: [], now: "2026-08-01T00:02:00.000Z",
+    }).contents[0];
+    expect(confirmed.opportunity?.requiredEvidenceContract).toEqual(contract);
+  });
+
   it("persists and merges an explicit verification plan without changing Opportunity identity", () => {
     const claim = { claimId: "claim-1", field: "amount", kind: "money" as const, statement: "지원금", qualifiers: { subject: "가구" }, required: true };
     const explicit = createContentOpportunityCandidate({ ...first, verificationPlan: createContentOpportunityVerificationPlan([claim]) });
@@ -171,6 +200,77 @@ describe("durable Content planning workflow", () => {
     });
     expect(generated.contents[0].planningWorkflow).toMatchObject({ status: "generated", lastSuccessfulStep: "generation" });
     expect(generated.contents[0].planningWorkflow).not.toHaveProperty("failedStep");
+  });
+
+  it("persists bounded Source Preflight diagnostics and protects them from stale client snapshots", () => {
+    const ready = candidatesReady();
+    const confirmed = createContentFromPlan(ready, {
+      id: "content-1", projectId: "project-1", naturalLanguageRequest: "diagnostic", plan, opportunity: first,
+      selectedPublishingAccountIds: [], now: "2026-07-18T00:03:00.000Z",
+    });
+    const generating = startContentGeneration(confirmed, {
+      workspaceId: "workspace-1", projectId: "project-1", contentId: "content-1", operationId: "generation-diagnostic", now: "2026-07-18T00:04:00.000Z",
+    });
+    const diagnostic: ApprovalSourcePreflightDiagnostic = {
+      schemaVersion: 1,
+      preflightExecutionId: "preflight-opportunity-1",
+      contractId: "contract-diagnostic",
+      contractVersion: 1,
+      topicScopeFingerprint: "topic-diagnostic",
+      selectedTopic: first.selectedTopic,
+      primaryKeyword: first.primaryKeyword,
+      requiredClaimId: "amount",
+      canonicalSourceUrl: "https://www.gov.kr/official",
+      evidenceExcerpt: "bounded excerpt",
+      rejectionCode: "coverage_incomplete",
+      rejectionStage: "coverage",
+      coverageStatus: "incomplete",
+      sourcePolicyCompliance: "passed",
+      requiredClaimIds: ["claim-1", "claim-2"],
+      coveredClaimIds: ["claim-1"],
+      missingClaimIds: ["claim-2"],
+      coverageSources: [{
+        url: "https://example.gov/source",
+        supportingClaimIds: ["claim-1"],
+        rejectedClaimIds: ["claim-2"],
+        officialness: "passed",
+        relevance: "passed",
+        anchor: "passed",
+        semantic: "passed",
+      }],
+      rawWebSourceCount: 47,
+      assistantDeclaredSourceCount: 3,
+      parsedSourceCount: 3,
+      normalizedSourceCount: 3,
+      canonicalUrlValidCount: 3,
+      officialnessEvaluatedCount: 3,
+      officialnessPassCount: 2,
+      policyRetainedCount: 1,
+      relevanceEvaluatedCount: 2,
+      relevancePassCount: 1,
+      rejectionSamples: [{ rejectionStage: "officialness", rejectionCode: "official_source_rejected", hostname: "example.gov" }],
+    };
+    const failed = failContentPlanning(generating, {
+      workspaceId: "workspace-1", projectId: "project-1", contentId: "content-1", operationId: "generation-diagnostic", error: "coverage blocked",
+      retryFrom: "generation", approvalSourcePreflightDiagnostic: diagnostic,
+      aiProviderDiagnostic: { stage: "source_preflight", completionStatus: "incomplete_max_output_tokens", responseId: "resp-test", configuredMaxOutputTokens: 4_000 },
+      now: "2026-07-18T00:05:00.000Z",
+    });
+    expect(failed.contents[0].planningWorkflow?.approvalSourcePreflightDiagnostic).toEqual(diagnostic);
+    expect(failed.contents[0].planningWorkflow?.aiProviderDiagnostic).toMatchObject({ stage: "source_preflight", completionStatus: "incomplete_max_output_tokens" });
+    const restored = mergeUserDataSnapshot(undefined, JSON.parse(JSON.stringify(failed)));
+    expect(restored.contents[0].planningWorkflow?.approvalSourcePreflightDiagnostic).toEqual(diagnostic);
+    const stale = {
+      ...failed,
+      contents: [{
+        ...failed.contents[0],
+        planningWorkflow: { ...failed.contents[0].planningWorkflow!, approvalSourcePreflightDiagnostic: undefined, aiProviderDiagnostic: undefined },
+        updatedAt: "2026-07-18T00:06:00.000Z",
+      }],
+    } as UserData;
+    const merged = mergeUserDataSnapshot(failed, JSON.parse(JSON.stringify(stale)));
+    expect(merged.contents[0].planningWorkflow?.approvalSourcePreflightDiagnostic).toEqual(diagnostic);
+    expect(merged.contents[0].planningWorkflow?.aiProviderDiagnostic).toMatchObject({ completionStatus: "incomplete_max_output_tokens" });
   });
 
   it("does not let an equal or older workflow revision overwrite a newer selected candidate or other Content fields", () => {

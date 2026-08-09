@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   evaluateApprovalReadiness,
+  resolveApprovalPolicySnapshot,
   type ApprovalDuplicateCheckSnapshot,
   type ApprovalEvidencePack,
   type SiteApprovalReadinessSnapshot,
@@ -189,7 +190,35 @@ describe("ApprovalReadiness", () => {
     }), [], true, false);
 
     expect(report.applicationReady).toBe(true);
-    expect(report.checks).toContainEqual(expect.objectContaining({ key: "evidence", status: "passed" }));
+    expect(report.checks).toContainEqual(expect.objectContaining({
+      key: "evidence",
+      status: "passed",
+      applicable: false,
+    }));
+  });
+
+  it("does not let a stale legacy Evidence diagnostic block a now non-applicable check", () => {
+    const report = evaluateApprovalReadiness(document({
+      approvalEvidence: {
+        version: "1.0",
+        status: "missing",
+        coverageStatus: "missing",
+        presentationStatus: "conflict",
+        presentationReasons: ["legacy conflict"],
+        sources: [],
+      },
+      approvalDuplicateCheck: duplicate,
+      siteApprovalReadiness: site,
+      internalLinkCatalogStatus: "evaluated",
+      availableRelatedContentCandidates: 0,
+    }), [], true, false);
+
+    expect(report.applicationReady).toBe(true);
+    expect(report.checks).toContainEqual(expect.objectContaining({
+      key: "evidence",
+      status: "passed",
+      applicable: false,
+    }));
   });
 
   it("requires official evidence when explicit verification is required", () => {
@@ -208,6 +237,47 @@ describe("ApprovalReadiness", () => {
   it("passes required official evidence when a verified HTTPS source is present", () => {
     const report = evaluateApprovalReadiness(document({
       approvalEvidence: evidence,
+      approvalDuplicateCheck: duplicate,
+      siteApprovalReadiness: site,
+      internalLinkCatalogStatus: "evaluated",
+      availableRelatedContentCandidates: 0,
+    }), [], true, true);
+
+    expect(report.applicationReady).toBe(true);
+    expect(report.checks).toContainEqual(expect.objectContaining({ key: "evidence", status: "passed" }));
+  });
+
+  it("does not let an approval profile create Evidence applicability", () => {
+    const policy = resolveApprovalPolicySnapshot("adsense_approval", "wordpress_life_economy_v1")!;
+    const report = evaluateApprovalReadiness(document({
+      approvalPolicy: policy,
+      approvalEvidence: { version: "1.0", status: "missing", sources: [] },
+      approvalDuplicateCheck: duplicate,
+      siteApprovalReadiness: site,
+      internalLinkCatalogStatus: "evaluated",
+      availableRelatedContentCandidates: 0,
+    }), [], true, false);
+
+    expect(report.applicationReady).toBe(true);
+    expect(report.checks).toContainEqual(expect.objectContaining({
+      key: "evidence",
+      status: "passed",
+      applicable: false,
+    }));
+  });
+
+  it("passes mandatory Evidence from complete Claim coverage", () => {
+    const policy = resolveApprovalPolicySnapshot("adsense_approval", "wordpress_life_economy_v1")!;
+    const coveredEvidence: ApprovalEvidencePack = {
+      ...evidence,
+      coverageStatus: "verified",
+      requiredFactFields: ["eligibility", "amount", "schedule"],
+      verifiedFactFields: ["eligibility", "amount", "schedule"],
+      unverifiedFactFields: [],
+    };
+    const report = evaluateApprovalReadiness(document({
+      approvalPolicy: policy,
+      approvalEvidence: coveredEvidence,
       approvalDuplicateCheck: duplicate,
       siteApprovalReadiness: site,
       internalLinkCatalogStatus: "evaluated",

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { AIWorkflow } from "../../../../core/ai/AIWorkflow";
 import {
-  AIWorkflow,
   createAIUsageRecord,
   type AIProvider,
   type AIRequest,
@@ -124,6 +124,7 @@ function source(input: Readonly<{
   url?: string;
   sourceExcerpt?: string;
   claims?: readonly Readonly<{
+    claimId?: string;
     field: string;
     value: string;
     evidenceExcerpt: string;
@@ -133,11 +134,12 @@ function source(input: Readonly<{
     url: input.url ?? sourceUrl,
     title: "정부24 공식 안내",
     evidenceExcerpt: input.sourceExcerpt ?? sourceEvidenceExcerpt,
-    claims: input.claims ?? [{
+    claims: (input.claims ?? [{
+      claimId: "eligibility",
       field: "eligibility",
       value: eligibilityValue,
       evidenceExcerpt: eligibilityEvidenceExcerpt,
-    }],
+    }]).map((claim) => ({ claimId: claim.claimId ?? claim.field, ...claim })),
   };
 }
 
@@ -370,6 +372,28 @@ describe("Approval Source Preflight", () => {
     await expect(
       new AIWorkflow(provider, strategy).generate(generationInput()),
     ).rejects.toThrow("미확보 Claim: eligibility");
+    expect(provider.requests).toHaveLength(1);
+  });
+
+  it("blocks manuscript Generation when a relevant official source has only paraphrased source evidence", async () => {
+    const provider = new QueueProvider([preflightResponse({
+      sources: [source({
+        sourceExcerpt: "A paraphrase of the official page that does not occur in the page.",
+        claims: [{
+          field: "eligibility",
+          value: eligibilityValue,
+          evidenceExcerpt: eligibilityEvidenceExcerpt,
+        }],
+      })],
+    })]);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      pageHtml(),
+      { status: 200, headers: { "content-type": "text/html; charset=utf-8" } },
+    )));
+
+    await expect(
+      new AIWorkflow(provider, strategy).generate(generationInput()),
+    ).rejects.toThrow();
     expect(provider.requests).toHaveLength(1);
   });
 

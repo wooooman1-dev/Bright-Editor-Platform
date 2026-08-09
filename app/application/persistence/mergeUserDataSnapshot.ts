@@ -4,7 +4,7 @@ import { assertConfirmedContentOpportunity, hasCurrentContentOpportunityFingerpr
 import type { UserContent, UserData, UserProject } from "../../user-flow/user-data";
 
 export function mergeUserDataSnapshot(current: UserData | undefined, input: unknown): UserData {
-  const incoming = assertUserDataSnapshot(input);
+  const incoming = normalizeEmptyVerificationPlans(assertUserDataSnapshot(input));
   if (!current) return incoming;
 
   const incomingProjectIds = new Set(incoming.projects.map((project) => project.id));
@@ -123,7 +123,17 @@ function preserveNewerPlanningWorkflow(server: UserContent | undefined, incoming
   if (incomingWorkflow?.status === "failed") {
     return Object.freeze({
       ...incoming,
-      planningWorkflow: incomingWorkflow,
+      planningWorkflow: Object.freeze({
+        ...incomingWorkflow,
+        ...(currentWorkflow.approvalSourcePreflightDiagnostic
+          && !incomingWorkflow.approvalSourcePreflightDiagnostic
+          ? { approvalSourcePreflightDiagnostic: currentWorkflow.approvalSourcePreflightDiagnostic }
+          : {}),
+        ...(currentWorkflow.aiProviderDiagnostic
+          && !incomingWorkflow.aiProviderDiagnostic
+          ? { aiProviderDiagnostic: currentWorkflow.aiProviderDiagnostic }
+          : {}),
+      }),
       planning: server?.planning,
       naturalLanguageRequest: server?.naturalLanguageRequest ?? incoming.naturalLanguageRequest,
     });
@@ -277,4 +287,35 @@ function toMap<T>(values: readonly T[] | undefined, keyOf: (item: T) => string):
 
 function sameValue(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function normalizeEmptyVerificationPlans(data: UserData): UserData {
+  const contents = data.contents.map((content) => {
+    const planningCandidates = content.planning?.opportunityCandidates;
+    const normalizedCandidates = planningCandidates?.map(removeEmptyVerificationPlan);
+    const normalizedOpportunity = content.opportunity
+      ? removeEmptyVerificationPlan(content.opportunity)
+      : undefined;
+    if (!normalizedCandidates || normalizedCandidates.every((candidate, index) => candidate === planningCandidates?.[index])
+      && normalizedOpportunity === content.opportunity) return content;
+    return Object.freeze({
+      ...content,
+      ...(content.planning && normalizedCandidates ? {
+        planning: Object.freeze({ ...content.planning, opportunityCandidates: Object.freeze(normalizedCandidates) }),
+      } : {}),
+      ...(normalizedOpportunity ? { opportunity: normalizedOpportunity } : {}),
+    });
+  });
+  return contents.every((content, index) => content === data.contents[index])
+    ? data
+    : Object.freeze({ ...data, contents: Object.freeze(contents) });
+}
+
+function removeEmptyVerificationPlan<T extends Record<string, unknown>>(value: T): T {
+  const plan = value.verificationPlan;
+  if (!plan || typeof plan !== "object" || !Array.isArray((plan as { claims?: unknown }).claims)
+    || (plan as { claims: unknown[] }).claims.length > 0) return value;
+  const { verificationPlan: _verificationPlan, ...withoutPlan } = value;
+  void _verificationPlan;
+  return Object.freeze(withoutPlan) as T;
 }

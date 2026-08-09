@@ -60,18 +60,7 @@ export class OpportunityEvidenceService {
       if (userSpecifiedFallback && duplicate) limitations.push("현재 Project에 유사한 공개 콘텐츠가 있을 수 있습니다. 중복 여부를 확인해 주세요.");
       if (userSpecifiedFallback && !aligned) limitations.push("현재 Project 전략과의 연관성이 자동으로 확인되지 않았습니다. 사용자가 지정한 주제를 우선하여 계속 진행합니다.");
       return [createContentOpportunityCandidate({
-        sourceRequest: candidate.sourceRequest,
-        selectionMode: candidate.selectionMode,
-        selectedTopic: candidate.selectedTopic,
-        primaryKeyword: candidate.primaryKeyword,
-        secondaryKeywords: candidate.secondaryKeywords,
-        searchIntent: candidate.searchIntent,
-        audience: candidate.audience,
-        contentType: candidate.contentType,
-        contentAngle: candidate.contentAngle,
-        readerProblem: candidate.readerProblem,
-        expectedCoverage: candidate.expectedCoverage,
-        selectionRationale: candidate.selectionRationale,
+        ...candidate,
         opportunityEvidence: summaries,
         recommendationType,
         evidenceIds: matched.map((value) => value.evidenceId),

@@ -7,7 +7,7 @@ import { editorialRevisionId, type QualityCategory, type QualityReport } from ".
 import { PageContainer } from "../shared/ui/PageContainer";
 import { applyCanonicalDocument, type UserContent, type UserData, type UserProject } from "./user-data";
 import { editorPublishingPlatformVisibility } from "./editor-publishing-platform";
-import { normalizeQualityReview, type NormalizedQualityReview } from "./quality-review-ui";
+import { normalizeQualityReview, visibleApprovalReadinessChecks, type NormalizedQualityReview } from "./quality-review-ui";
 import { ContentDocumentEditor } from "./ContentDocumentEditor";
 import { ContentDangerZone } from "./ContentDangerZone";
 import { ContentSeoTitleStatus } from "./ContentSeoTitleStatus";
@@ -550,7 +550,7 @@ function ApprovalReadinessStatus({ review }: { review: NormalizedQualityReview }
       </div>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        {readiness.checks.map((check) => {
+        {visibleApprovalReadinessChecks(readiness).map((check) => {
           const statusLabel = check.status === "passed"
             ? "통과"
             : check.status === "blocked"

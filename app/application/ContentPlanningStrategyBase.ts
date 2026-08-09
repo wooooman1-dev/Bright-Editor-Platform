@@ -1,4 +1,4 @@
-import type { AIProvider } from "../../core/ai";
+import { AIProviderError, type AIProvider } from "../../core/ai";
 import {
   approvalPolicyPromptContext,
   resolveApprovalPolicySnapshot,
@@ -14,7 +14,7 @@ import {
 } from "../../core/content";
 import type { ContentPlanningResult, ProjectContentStrategy, WorkspacePlatform } from "../user-flow/user-data";
 import type { OpportunityEvidenceRecord } from "../../core/intelligence";
-import type { VerificationClaimKind, VerificationClaimSpec, VerificationTemporalRequirement } from "../../core/approval";
+import type { VerificationClaimKind, VerificationClaimRisk, VerificationClaimSpec, VerificationTemporalRequirement } from "../../core/approval";
 import { verificationClaimId } from "../../core/approval";
 import { createContentOpportunityVerificationPlan } from "../../core/content";
 import { isExplicitVerificationPlanningEnabled } from "./ExplicitVerificationPlanningPolicy";
@@ -22,6 +22,15 @@ export type { PlanningVerificationClaimDraft } from "./PlanningContracts";
 import { planningVerificationClaimMaximum } from "./PlanningContracts";
 
 const DISCLOSURE = "Keyword competition and opportunity are AI estimates, not measured search-volume, CPC, or competition data.";
+const criticalVerificationKinds = new Set<VerificationClaimKind>([
+  "money",
+  "ratio",
+  "date",
+  "dateRange",
+  "duration",
+  "eligibility",
+  "legal",
+]);
 const SEARCH_TASK_SUFFIXES = new Set(["방법", "가이드", "비교", "기준", "조건", "순서", "계산", "신청", "설정", "추천", "정리"]);
 
 type ApprovalAwareStrategy = ProjectContentStrategy & Readonly<{
@@ -86,10 +95,16 @@ export class ContentPlanningStrategy {
     const modeInstruction = context.selectionMode === "automatic"
       ? "The user delegated topic selection. Compare content gaps, then return 2-4 complete and mutually coherent opportunities. Select topic and primary keyword together."
       : "The user explicitly specified a topic. Keep every opportunity within that topic and search intent; never replace it with an adjacent topic because it seems more attractive.";
+    const approvalSourceRequirementInstruction = explicitVerificationPlanningEnabled
+      && typeof context.projectContext === "string"
+      && context.projectContext.includes("Content purpose: adsense_approval")
+      ? "Approval evidence policy is risk-based. Do not require sources for every approval-profile article. Return verificationClaims only for Claims that genuinely need external verification. Classify omitted ordinary advice/checklists as NONE by leaving them out. Use risk=verify for verifiable general facts that can be removed or generalized if unsupported. Use risk=critical and required=true only for money amounts, dates, eligibility, legal rules, tax rates, actual rates, official conditions, or similar facts that cannot safely remain without Evidence. If no VERIFY or CRITICAL Claim is needed, return an empty verificationClaims array; that is a valid N/A state."
+      : "";
     const response = await this.provider.generate({
       instruction: `Analyze this content request as an editorial strategist. Do not write the final content. ${modeInstruction}
 Request: ${request}
-${explicitVerificationPlanningEnabled ? "Verification claims rule: expectedCoverage is editorial scope only. verificationClaims contains only concrete externally verifiable facts (specific values, dates, eligibility, legal provisions, locations, rates). Exclude editorial instructions, section titles, search intent, strategy, and abstract facts; do not duplicate between arrays; return [] when none are needed; never include claimId, fingerprint, status, normalizedValue, or source data. Every verification Claim must include temporalRequirement: use mode=current only when the Claim asserts a currently applicable value; mode=asOf with date YYYY-MM-DD for a value explicitly tied to one reference date; mode=period with start/end YYYY-MM-DD for an explicit historical/reference period; mode=notRequired only when time validity is genuinely irrelevant; use mode=unknown when the temporal meaning cannot be safely classified. Never invent dates to satisfy this field." : ""}
+${explicitVerificationPlanningEnabled ? "Verification claims rule: expectedCoverage is editorial scope only. verificationClaims contains only concrete externally verifiable facts that need Evidence management. Each verificationClaims item must set atomicity to single_assertion and represent exactly one independently verifiable factual proposition. If the article needs separate facts such as definition, operator, scope, identity verification, and payout procedure, emit separate Claims with separate fields/statements; never combine them into one list-like statement. This is a structured contract rule, not a punctuation-based string-splitting rule. Use risk=verify and required=false for verifiable general facts that are useful but can be removed or generalized if not verified. Use risk=critical and required=true for money, dates, eligibility, legal rules, tax rates, actual rates, official conditions, and other high-risk factual claims. Do not emit NONE claims; ordinary advice, checklists, generic steps, and editorial guidance belong only in coverage arrays. For approval-policy planning, an empty verificationClaims array is valid when no Evidence-managed Claim is needed. Exclude editorial instructions, section titles, search intent, strategy, and abstract facts; do not duplicate between arrays; never include claimId, fingerprint, status, normalizedValue, or source data. Every verification Claim must include temporalRequirement: use mode=current only for time-sensitive currently applicable values; mode=asOf with date YYYY-MM-DD for a value explicitly tied to one reference date; mode=period with start/end YYYY-MM-DD for an explicit historical/reference period; mode=notRequired when time validity is irrelevant; use mode=unknown when the temporal meaning cannot be safely classified. Never invent dates to satisfy this field." : ""}
+${approvalSourceRequirementInstruction}
 Project strategy: ${context.projectContext ?? "Use only the request and supplied project context."}
 Project-owned labels that are identity, not default search keywords: ${JSON.stringify(ownedBrandTerms)}. Do not use these labels as the complete selectedTopic or primaryKeyword, and do not prefix selectedTopic or primaryKeyword with them unless the user's request explicitly makes that label the search subject. Keep third-party product, institution, and service names when they are genuinely part of the search task.
 Existing content to avoid duplicating: ${(context.existingContent ?? []).join(" | ") || "none supplied"}
@@ -100,7 +115,17 @@ Only the supplied server Evidence is factual. Do not invent monthly volume, CPC,
   Build each candidate as a coherent information contract before returning it. The primaryKeyword must be the concise phrase a reader would actually search, including a task modifier such as 방법, 비교, 기준, 조건, 계산, 신청, or 설정 when that modifier is essential to the search intent. The selectedTopic should naturally contain the primaryKeyword phrase when that reads well; otherwise it must preserve all of the keyword's core concepts without switching to an adjacent search task. searchIntent must state the concrete question or task the reader wants resolved, not only a classification label such as informational, transactional, commercial, or navigational. readerProblem must describe the reader's decision or action obstacle. Make coreQuestions directly answerable, make requiredContentElements concrete enough to judge as missing/mentioned/sufficient, and keep expectedCoverage items mutually distinct. decisionCriteria, examplesNeeded, warningsOrExceptions, and actionableNextSteps must each add a non-duplicative editorial role. Required elements identify information the reader needs, not merely words that should appear. Topic, keyword, intent, coverage, and supporting keywords in each candidate must describe one search task.`,
       metadata: { task: "content-planning", ...(explicitVerificationPlanningEnabled ? { explicitVerificationPlanning: "1" } : {}) },
     });
-    const plan = parsePlanningResult(response.content, { ...context, ownedBrandTerms, sourceRequest: request, explicitVerificationPlanningEnabled });
+    let plan: ContentPlanningResult;
+    try {
+      plan = parsePlanningResult(response.content, { ...context, ownedBrandTerms, sourceRequest: request, explicitVerificationPlanningEnabled });
+    } catch (error) {
+      if (error instanceof AIProviderError) throw error;
+      throw AIProviderError.parse({
+        stage: "planning",
+        message: error instanceof Error ? error.message : "Planning response could not be parsed.",
+        diagnostic: response.diagnostics,
+      });
+    }
     return enabledPlatforms ? filterPlanningPlatforms(plan, enabledPlatforms) : plan;
   }
 }
@@ -288,6 +313,7 @@ function parseOpportunityCandidates(
 
 function createPlanningVerificationPlan(raw: unknown) {
   if (!Array.isArray(raw) || raw.length > planningVerificationClaimMaximum) throw new Error("Explicit planning response requires verificationClaims array.");
+  if (raw.length === 0) return undefined;
   const seen = new Set<string>();
   const claims = raw.map((item, index) => {
     if (!item || typeof item !== "object") throw new Error(`Invalid verification claim at index ${index}.`);
@@ -298,13 +324,26 @@ function createPlanningVerificationPlan(raw: unknown) {
     if (typeof value.required !== "boolean" || !value.qualifiers || typeof value.qualifiers !== "object" || Array.isArray(value.qualifiers)) throw new Error(`Invalid verification claim at index ${index}.`);
     const qualifiers = Object.freeze(Object.fromEntries(Object.entries(value.qualifiers as Record<string, unknown>).map(([key, itemValue]) => { if (!["subject", "scope", "basis", "note"].includes(key) || typeof itemValue !== "string") throw new Error(`Invalid verification qualifier at index ${index}.`); return [key, itemValue.trim()]; })));
     const temporalRequirement = parsePlanningTemporalRequirement(value.temporalRequirement, index);
-    const draft = { field: textValue("field"), kind: value.kind as VerificationClaimKind, statement: textValue("statement").replace(/\s+/g, " "), ...(typeof value.rawValue === "string" && value.rawValue.trim() ? { rawValue: value.rawValue.trim() } : {}), qualifiers, temporalRequirement, required: value.required, ...(typeof value.policyId === "string" && value.policyId.trim() ? { policyId: value.policyId.trim() } : {}) } as Omit<VerificationClaimSpec, "claimId">;
+    if (value.atomicity !== "single_assertion") throw new Error(`Verification claim must declare atomicity=single_assertion at index ${index}.`);
+    const risk = parsePlanningClaimRisk(value.risk, value.required, value.kind as VerificationClaimKind, index);
+    const draft = { atomicity: "single_assertion" as const, field: textValue("field"), kind: value.kind as VerificationClaimKind, statement: textValue("statement").replace(/\s+/g, " "), ...(typeof value.rawValue === "string" && value.rawValue.trim() ? { rawValue: value.rawValue.trim() } : {}), qualifiers, temporalRequirement, required: risk === "critical", risk, ...(typeof value.policyId === "string" && value.policyId.trim() ? { policyId: value.policyId.trim() } : {}) } as Omit<VerificationClaimSpec, "claimId">;
     const claim = Object.freeze({ ...draft, claimId: verificationClaimId(draft) });
     if (seen.has(claim.claimId)) throw new Error(`Duplicate verification claim at index ${index}.`);
     seen.add(claim.claimId);
     return claim;
   });
   return createContentOpportunityVerificationPlan(claims);
+}
+
+function parsePlanningClaimRisk(
+  raw: unknown,
+  required: boolean,
+  kind: VerificationClaimKind,
+  index: number,
+): VerificationClaimRisk {
+  if (raw === "none" || raw === "verify" || raw === "critical") return raw;
+  if (raw !== undefined) throw new Error(`Invalid verification claim risk at index ${index}.`);
+  return required || criticalVerificationKinds.has(kind) ? "critical" : "verify";
 }
 
 function parsePlanningTemporalRequirement(raw: unknown, index: number): VerificationTemporalRequirement {

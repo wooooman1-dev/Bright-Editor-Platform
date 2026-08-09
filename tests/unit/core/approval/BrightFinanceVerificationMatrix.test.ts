@@ -180,7 +180,7 @@ describe("Bright Finance explicit verification matrix", () => {
       expect(gate.ready).toBe(true);
       expect(gate.blockingClaimIds).toEqual([]);
       expect(new Set(gate.verifiedClaimIds)).toEqual(
-        new Set(scenario.claims.map((claim) => claim.claimId)),
+        new Set(scenario.claims.filter((claim) => claim.required).map((claim) => claim.claimId)),
       );
       for (const claim of scenario.claims.filter((item) => item.required)) {
         const result = snapshot.results.find((item) => item.claimId === claim.claimId);

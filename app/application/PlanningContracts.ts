@@ -1,7 +1,9 @@
-import type { VerificationClaimKind, VerificationClaimQualifiers, VerificationTemporalRequirement } from "../../core/approval";
+import type { VerificationClaimKind, VerificationClaimQualifiers, VerificationClaimRisk, VerificationTemporalRequirement } from "../../core/approval";
 
 export const planningVerificationClaimMaximum = 12;
+export type PlanningVerificationClaimAtomicity = "single_assertion";
 export type PlanningVerificationClaimDraft = Readonly<{
+  atomicity: PlanningVerificationClaimAtomicity;
   field: string;
   kind: VerificationClaimKind;
   statement: string;
@@ -9,6 +11,7 @@ export type PlanningVerificationClaimDraft = Readonly<{
   qualifiers: VerificationClaimQualifiers;
   temporalRequirement: VerificationTemporalRequirement;
   required: boolean;
+  risk: VerificationClaimRisk;
   policyId?: string;
 }>;
 
@@ -32,6 +35,7 @@ const qualifierProperties = {
 } as const;
 
 const verificationClaimProperties = {
+  atomicity: { type: "string", enum: ["single_assertion"], description: "Exactly one independently verifiable factual assertion per Claim." },
   field: { type: "string" },
   kind: { type: "string", enum: ["money", "ratio", "date", "dateRange", "duration", "location", "eligibility", "legal", "general"] },
   statement: { type: "string" },
@@ -44,6 +48,7 @@ const verificationClaimProperties = {
   },
   temporalRequirement,
   required: { type: "boolean" },
+  risk: { type: "string", enum: ["verify", "critical"] },
   policyId: { type: "string", description: "Explicit policy identifier when supplied by Planning context; otherwise return an empty string." },
 } as const;
 
@@ -53,7 +58,7 @@ const verificationClaims = {
   items: {
     type: "object",
     additionalProperties: false,
-    required: ["field", "kind", "statement", "rawValue", "qualifiers", "temporalRequirement", "required", "policyId"],
+    required: ["atomicity", "field", "kind", "statement", "rawValue", "qualifiers", "temporalRequirement", "required", "risk", "policyId"],
     properties: verificationClaimProperties,
   },
 } as const;

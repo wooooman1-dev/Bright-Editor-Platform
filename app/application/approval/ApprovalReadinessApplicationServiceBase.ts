@@ -1,8 +1,11 @@
 import {
   canonicalizeApprovalEvidenceUrl,
+  createNotRequiredApprovalEvidencePack,
+  isCriticalVerificationClaim,
   evaluateApprovalPreparationText,
   evaluateApprovalReadiness,
   normalizeContentPurpose,
+  resolveApprovalEvidenceRequirement,
   verifyApprovalEvidence,
   type ApprovalEvidenceVerificationResult,
   type ApprovalPolicyProfileId,
@@ -102,6 +105,9 @@ export class ApprovalReadinessApplicationService {
     if (storedResult) return storedResult;
 
     const checkedAt = this.now();
+    const evidenceRequirement = resolveApprovalEvidenceRequirement(content.opportunity);
+    const evidenceApplicable = evidenceRequirement !== "not_required";
+    const evidenceRequired = evidenceRequirement === "required";
     const documentWithInternalLinks = await this.internalLinks.evaluate({
       workspaceId: input.data.workspace.id,
       projectId: project.id,
@@ -111,17 +117,24 @@ export class ApprovalReadinessApplicationService {
       selectedTarget: input.selectedTarget === true,
       refresh: true,
     });
-    const candidateUrls = documentWithInternalLinks.metadata?.approvalEvidence?.sources
+    const candidateUrls = evidenceApplicable ? documentWithInternalLinks.metadata?.approvalEvidence?.sources
       .map((source) => canonicalizeApprovalEvidenceUrl(source.url))
-      .filter(Boolean) ?? [];
+      .filter(Boolean) ?? [] : [];
     const uniqueCandidateUrls = [...new Set(candidateUrls)];
     const sourcePages = await fetchApprovalSourcePages(uniqueCandidateUrls, this.fetcher);
-    const evidence = verifyApprovalEvidence(
-      documentWithInternalLinks,
-      aware.approvalProfileId as ApprovalPolicyProfileId,
-      sourcePages,
-      checkedAt,
-    );
+    const evidence: ApprovalEvidenceVerificationResult = evidenceApplicable
+      ? verifyApprovalEvidence(
+          documentWithInternalLinks,
+          aware.approvalProfileId as ApprovalPolicyProfileId,
+          sourcePages,
+          checkedAt,
+        )
+      : Object.freeze({
+          pack: createNotRequiredApprovalEvidencePack(),
+          verifiedSourceCount: 0,
+          rejectedSourceCount: 0,
+          reasons: Object.freeze([]),
+        });
     const provisionalEvidence = evidence.pack;
 
     const siteReadiness = await resolveSiteReadiness({
@@ -180,6 +193,13 @@ export class ApprovalReadinessApplicationService {
               .filter((source) => source.provenance !== "search_candidate")
               .map((source) => source.canonicalUrl ?? source.url),
             reviewedAt: stableEvidence.reviewedAt,
+            coverageStatus: stableEvidence.coverageStatus ?? stableEvidence.status,
+            requiredFactFields: stableEvidence.requiredFactFields,
+            verifiedFactFields: stableEvidence.verifiedFactFields,
+            unverifiedFactFields: stableEvidence.unverifiedFactFields,
+            evidenceRequired,
+            timeSensitiveEvidenceRequired: evidenceRequired && Boolean(content.opportunity?.verificationPlan?.claims.some((claim) =>
+              isCriticalVerificationClaim(claim) && claim.temporalRequirement?.mode !== "notRequired")),
           },
         )
       : Object.freeze([]);
@@ -187,7 +207,7 @@ export class ApprovalReadinessApplicationService {
       nextDocument,
       policyIssues,
       true,
-      Boolean(content.opportunity?.verificationPlan),
+      evidenceApplicable,
     );
     const quality = Object.freeze({
       ...content.quality,

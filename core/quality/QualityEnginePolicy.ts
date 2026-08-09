@@ -2,6 +2,8 @@ import {
   evaluateApprovalPreparationText,
   evaluateApprovalReadiness,
   evaluateGeneratedClaimVerificationIntegrity,
+  isCriticalVerificationClaim,
+  resolveApprovalEvidenceRequirement,
   type ApprovalReadinessReport,
 } from "../approval";
 import {
@@ -43,6 +45,9 @@ export class QualityEngine extends BaseQualityEngine {
     if (!snapshot) return report;
 
     const evidence = document.metadata?.approvalEvidence;
+    const evidenceRequirement = resolveApprovalEvidenceRequirement(context.opportunity);
+    const evidenceApplicable = evidenceRequirement !== "not_required";
+    const evidenceRequired = evidenceRequirement === "required";
     const issues = evaluateApprovalPreparationText(
       canonicalDocumentText(document),
       snapshot,
@@ -51,6 +56,13 @@ export class QualityEngine extends BaseQualityEngine {
           .filter((source) => source.provenance !== "search_candidate")
           .map((source) => source.canonicalUrl ?? source.url),
         reviewedAt: evidence?.reviewedAt,
+        coverageStatus: evidence?.coverageStatus ?? evidence?.status,
+        requiredFactFields: evidence?.requiredFactFields,
+        verifiedFactFields: evidence?.verifiedFactFields,
+        unverifiedFactFields: evidence?.unverifiedFactFields,
+        evidenceRequired,
+        timeSensitiveEvidenceRequired: evidenceRequired && Boolean(context.opportunity?.verificationPlan?.claims.some((claim) =>
+          isCriticalVerificationClaim(claim) && claim.temporalRequirement?.mode !== "notRequired")),
       },
     );
     const standardQualityApproved = isBaseStandardQualityApproved(report);
@@ -58,7 +70,7 @@ export class QualityEngine extends BaseQualityEngine {
       document,
       issues,
       standardQualityApproved,
-      Boolean(context.opportunity?.verificationPlan),
+      evidenceApplicable,
     );
 
     return Object.freeze({
@@ -100,7 +112,7 @@ function applyGeneratedClaimVerificationIntegrity(
   context: QualityReviewContext,
 ): QualityReport {
   const plan = context.opportunity?.verificationPlan;
-  if (!plan) return report;
+  if (!plan || !plan.claims.some(isCriticalVerificationClaim)) return report;
 
   const integrity = evaluateGeneratedClaimVerificationIntegrity({
     document,

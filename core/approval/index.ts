@@ -1,5 +1,6 @@
 export * from "./ApprovalPolicy";
 export * from "./ApprovalReadiness";
+export * from "./ApprovalEvidenceRequirement";
 export * from "./ApprovalDuplicatePolicy";
 export * from "./ApprovalSourceDocumentAdapter";
 export * from "./ApprovalSourceUrlPolicy";
@@ -22,8 +23,18 @@ export {
 } from "./ApprovalEvidenceSelection";
 export * from "./ApprovalEvidenceClaimPolicy";
 export * from "./ApprovalSourcePreflightCoverage";
+export { createApprovalRequiredEvidenceContract } from "./ApprovalSourcePreflightClaimScope";
+export {
+  evaluateApprovalSourceRelevance,
+  type ApprovalSourceRelevanceResult,
+} from "./ApprovalSourcePreflightRelevance";
+export {
+  createApprovalSourcePreflightDiagnostic,
+  type ApprovalSourcePreflightDiagnostic,
+} from "./ApprovalSourcePreflightDiagnostic";
 export * from "./ApprovalRequiredEvidenceCandidates";
 export * from "./ApprovalOfficialSourcePolicy";
+export * from "./ApprovalSourceAuthority";
 export * from "./ApprovalDateOwnership";
 export * from "./SiteApprovalReadinessAdapter";
 export {

@@ -1,11 +1,49 @@
-import type { ConfirmedContentOpportunity } from "../content";
+import type { ContentOpportunityCandidate } from "../content";
 import {
   hasConcreteApprovalSourcePreflightPlannedValue,
+  requiredApprovalSourcePreflightClaims,
+  type ApprovalRequiredEvidenceContract,
   type ApprovalSourcePreflightRequirement,
 } from "./ApprovalSourcePreflightCoverage";
+import type { ApprovalPolicySnapshot } from "./ApprovalPolicy";
+import { isCriticalVerificationClaim } from "./VerificationClaim";
+
+export function createApprovalRequiredEvidenceContract(
+  opportunity: ContentOpportunityCandidate,
+  snapshot: ApprovalPolicySnapshot,
+): ApprovalRequiredEvidenceContract {
+  const scopedClaims = scopeApprovalSourcePreflightRequirements(
+    opportunity,
+    requiredApprovalSourcePreflightClaims(opportunity, snapshot.profileId),
+  );
+  const requiredClaims = scopedClaims;
+  const identity = JSON.stringify({
+    schemaVersion: 1,
+    policyId: snapshot.policyId,
+    policyVersion: snapshot.policyVersion,
+    profileId: snapshot.profileId,
+    profileVersion: snapshot.profileVersion,
+    profileSourceRequirementApplicable: requiredClaims.length > 0,
+    explicitVerificationRequired: Boolean(opportunity.verificationPlan?.claims.some(isCriticalVerificationClaim)),
+    sourceRequirements: snapshot.sourceRequirements,
+    requiredClaims,
+  });
+  return Object.freeze({
+    schemaVersion: 1,
+    contractId: stableContractId(identity),
+    policyId: snapshot.policyId,
+    policyVersion: snapshot.policyVersion,
+    profileId: snapshot.profileId,
+    profileVersion: snapshot.profileVersion,
+    profileSourceRequirementApplicable: requiredClaims.length > 0,
+    explicitVerificationRequired: Boolean(opportunity.verificationPlan?.claims.some(isCriticalVerificationClaim)),
+    sourceRequirements: Object.freeze([...snapshot.sourceRequirements]),
+    requiredClaims: Object.freeze([...requiredClaims]),
+  });
+}
 
 export function scopeApprovalSourcePreflightRequirements(
-  opportunity: ConfirmedContentOpportunity,
+  opportunity: ContentOpportunityCandidate,
   requirements: readonly ApprovalSourcePreflightRequirement[],
 ): readonly ApprovalSourcePreflightRequirement[] {
   const topicText = primaryTopicText(opportunity);
@@ -35,7 +73,7 @@ export function scopeApprovalSourcePreflightRequirements(
   }));
 }
 
-function primaryTopicText(opportunity: ConfirmedContentOpportunity): string {
+function primaryTopicText(opportunity: ContentOpportunityCandidate): string {
   return [
     opportunity.sourceRequest,
     opportunity.selectedTopic,
@@ -45,6 +83,15 @@ function primaryTopicText(opportunity: ConfirmedContentOpportunity): string {
     opportunity.contentAngle,
     opportunity.readerProblem,
   ].join("\n");
+}
+
+function stableContractId(value: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `approval-evidence-contract-${(hash >>> 0).toString(16).padStart(8, "0")}`;
 }
 
 const genericScalarFields = new Set([

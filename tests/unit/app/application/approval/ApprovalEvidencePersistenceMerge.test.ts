@@ -3,11 +3,13 @@ import { describe, expect, it } from "vitest";
 import { applyApprovalPersistencePolicy } from "../../../../../app/application/approval/ApprovalAwarePersistenceStore";
 import type { ApprovalAwareContent } from "../../../../../app/application/approval/ApprovalContentPolicy";
 import type { ApprovalEvidenceSource } from "../../../../../core/approval";
-import type { UserData } from "../../../../../app/user-flow/user-data";
+import type { UserContent, UserData } from "../../../../../app/user-flow/user-data";
 
 function candidateData(
   paragraph: string,
   sources: readonly ApprovalEvidenceSource[],
+  opportunity?: UserContent["opportunity"],
+  includeInitialEvidence = true,
 ): UserData {
   const content: ApprovalAwareContent = {
     id: "content-1",
@@ -37,14 +39,17 @@ function candidateData(
         version: 1,
         videoCount: 0,
         wordCount: 10,
-        approvalEvidence: {
-          version: "1.0",
-          status: "needs_review",
-          sources,
-        },
+        ...(includeInitialEvidence ? {
+          approvalEvidence: {
+            version: "1.0" as const,
+            status: "needs_review" as const,
+            sources,
+          },
+        } : {}),
       },
       blocks: [{ id: "p1", type: "paragraph", text: paragraph }],
     },
+    ...(opportunity ? { opportunity } : {}),
   };
 
   return {
@@ -77,6 +82,37 @@ const webCandidate: ApprovalEvidenceSource = {
 };
 
 describe("approval Evidence persistence merge", () => {
+  it("persists the canonical not-required state when Planning proves no mandatory Evidence applies", () => {
+    const opportunity = {
+      requiredEvidenceContract: {
+        schemaVersion: 1,
+        contractId: "contract-1",
+        policyId: "adsense_approval_mode",
+        policyVersion: "1.0",
+        profileId: "wordpress_life_economy_v1",
+        profileVersion: "1.0",
+        profileSourceRequirementApplicable: false,
+        explicitVerificationRequired: false,
+        sourceRequirements: [],
+        requiredClaims: [],
+      },
+    } as unknown as UserContent["opportunity"];
+    const saved = applyApprovalPersistencePolicy(undefined, candidateData(
+      "변경 가능한 필수 사실이 없는 일반 안내입니다.",
+      [],
+      opportunity,
+      false,
+    ));
+
+    expect(saved.contents[0]?.document?.metadata?.approvalEvidence).toEqual({
+      version: "1.0",
+      status: "not_required",
+      coverageStatus: "not_required",
+      sourcePolicyCompliance: "not_required",
+      sources: [],
+    });
+  });
+
   it("drops a search-only candidate that is not linked to a Content Claim", () => {
     const saved = applyApprovalPersistencePolicy(undefined, candidateData(
       "공식 안내를 바탕으로 계좌 역할을 설명합니다.",

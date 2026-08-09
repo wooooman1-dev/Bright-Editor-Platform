@@ -378,4 +378,40 @@ describe("Approval Source Preflight universal Claim coverage", () => {
     expect(claims.map((item) => item.field)).not.toContain("eligibility");
     expect(claims.map((item) => item.field)).not.toContain("statutoryBasis");
   });
+
+  it("uses claimId identity when multiple required Claims share one field", () => {
+    const result = evaluate({
+      requiredClaims: [
+        { claimId: "claim-a", field: "amount", statement: "첫 번째 금액", plannedValue: "100만원" },
+        { claimId: "claim-b", field: "amount", statement: "두 번째 금액", plannedValue: "200만원" },
+      ],
+      sources: [{
+        page: page({ text: "첫 번째 금액은 100만원이고 두 번째 금액은 200만원입니다." }),
+        claims: [
+          { claimId: "claim-a", field: "amount", value: "100만원", evidenceExcerpt: "첫 번째 금액은 100만원" },
+          { claimId: "claim-b", field: "amount", value: "200만원", evidenceExcerpt: "두 번째 금액은 200만원" },
+        ],
+      }],
+    });
+
+    expect(result.status).toBe("covered");
+    expect(result.coveredClaimIds).toEqual(["claim-a", "claim-b"]);
+    expect(result.uncoveredClaimIds).toEqual([]);
+  });
+
+  it("does not let one Claim cover another Claim with the same field", () => {
+    const result = evaluate({
+      requiredClaims: [
+        { claimId: "claim-a", field: "amount", plannedValue: "100만원" },
+        { claimId: "claim-b", field: "amount", plannedValue: "200만원" },
+      ],
+      sources: [{
+        page: page({ text: "첫 번째 금액은 100만원입니다." }),
+        claims: [{ claimId: "claim-a", field: "amount", value: "100만원", evidenceExcerpt: "첫 번째 금액은 100만원" }],
+      }],
+    });
+
+    expect(result.status).toBe("incomplete");
+    expect(result.uncoveredClaimIds).toEqual(["claim-b"]);
+  });
 });

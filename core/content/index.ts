@@ -37,6 +37,7 @@ export {
   createContentOpportunityVerificationPlan,
   detectContentOpportunitySelectionMode,
   hasSelfConsistentVerificationPlan,
+  hasUsableContentOpportunityVerificationPlan,
   hasCurrentContentOpportunityFingerprint,
   resolveContentOpportunityVerificationMode,
   opportunityEvidenceLabel,

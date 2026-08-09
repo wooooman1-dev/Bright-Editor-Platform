@@ -1,4 +1,4 @@
-import type { ConfirmedContentOpportunity } from "../content";
+import type { ContentOpportunityCandidate } from "../content";
 import {
   approvalEvidenceClaimFieldsForSourceUrl,
   approvalFactMatchesPage,
@@ -6,13 +6,34 @@ import {
 } from "./ApprovalEvidenceClaimPolicy";
 import type { ApprovalPolicyProfileId } from "./ApprovalPolicy";
 import type { ApprovalSourcePage } from "./ApprovalEvidenceVerification";
+import { isCriticalVerificationClaim, type VerificationClaimKind, type VerificationClaimQualifiers, type VerificationTemporalRequirement } from "./VerificationClaim";
 
 export type ApprovalSourcePreflightRequirement = Readonly<{
+  claimId?: string;
   field: string;
+  statement?: string;
+  kind?: VerificationClaimKind;
+  qualifiers?: VerificationClaimQualifiers;
+  temporalRequirement?: VerificationTemporalRequirement;
+  required?: boolean;
   plannedValue?: string;
 }>;
 
+export type ApprovalRequiredEvidenceContract = Readonly<{
+  schemaVersion: 1;
+  contractId: string;
+  policyId: string;
+  policyVersion: string;
+  profileId: ApprovalPolicyProfileId;
+  profileVersion: string;
+  profileSourceRequirementApplicable: boolean;
+  explicitVerificationRequired: boolean;
+  sourceRequirements: readonly string[];
+  requiredClaims: readonly ApprovalSourcePreflightRequirement[];
+}>;
+
 export type ApprovalSourcePreflightClaim = Readonly<{
+  claimId?: string;
   field: string;
   value: string;
   evidenceExcerpt: string;
@@ -21,6 +42,8 @@ export type ApprovalSourcePreflightClaim = Readonly<{
 export type ApprovalSourcePreflightCoverageSource = Readonly<{
   url: string;
   hintedClaimFields: readonly string[];
+  coveredClaimIds?: readonly string[];
+  rejectedClaimIds?: readonly string[];
   coveredClaimFields: readonly string[];
   rejectedClaimFields: readonly string[];
 }>;
@@ -33,13 +56,15 @@ export type ApprovalSourcePreflightCoverageStatus =
 export type ApprovalSourcePreflightCoverageResult = Readonly<{
   status: ApprovalSourcePreflightCoverageStatus;
   requiredClaims: readonly ApprovalSourcePreflightRequirement[];
+  coveredClaimIds?: readonly string[];
+  uncoveredClaimIds?: readonly string[];
   coveredClaimFields: readonly string[];
   uncoveredClaimFields: readonly string[];
   sources: readonly ApprovalSourcePreflightCoverageSource[];
 }>;
 
 export function requiredApprovalSourcePreflightClaims(
-  opportunity: ConfirmedContentOpportunity,
+  opportunity: ContentOpportunityCandidate,
   profileId: ApprovalPolicyProfileId,
 ): readonly ApprovalSourcePreflightRequirement[] {
   const text = planningText(opportunity);
@@ -49,13 +74,38 @@ export function requiredApprovalSourcePreflightClaims(
   const add = (field: string, plannedValue?: string) => {
     const normalizedField = field.trim();
     const normalizedValue = plannedValue?.replace(/\s+/gu, " ").trim();
-    if (!normalizedField || required.has(normalizedField)) return;
+    if (!normalizedField || [...required.values()].some((claim) => claim.field === normalizedField)) return;
     required.set(normalizedField, Object.freeze({
       field: normalizedField,
       ...(normalizedValue ? { plannedValue: normalizedValue } : {}),
     }));
   };
   const addKnown = (field: string) => add(field, factualValues.get(field));
+
+  // Structured Planning Claims are already topic-owned factual assertions.
+  // Preserve their canonical fields in the contract without manufacturing a
+  // generic fallback Claim from the profile requirement itself.
+  for (const claim of opportunity.verificationPlan?.claims ?? []) {
+    if (!isCriticalVerificationClaim(claim)) continue;
+    const key = claim.claimId.trim() || claim.field.trim();
+    if (!key || required.has(key)) continue;
+    required.set(key, Object.freeze({
+      claimId: claim.claimId,
+      field: claim.field.trim(),
+      statement: claim.statement.trim(),
+      kind: claim.kind,
+      qualifiers: claim.qualifiers,
+      temporalRequirement: claim.temporalRequirement,
+      required: claim.required,
+      ...(claim.rawValue?.trim() || claim.statement.trim()
+        ? { plannedValue: claim.rawValue?.trim() || claim.statement.trim() }
+        : {}),
+    }));
+  }
+
+  // An explicit plan owns Claim applicability. Profile source quality guidance
+  // must not manufacture Evidence requirements for NONE or VERIFY content.
+  if (opportunity.verificationPlan) return Object.freeze([...required.values()]);
 
   if (profileId === "tistory_vivarain_art_v1") {
     artRequiredFields.forEach(addKnown);
@@ -111,7 +161,7 @@ export function requiredApprovalSourcePreflightClaims(
 }
 
 export function hasConcreteApprovalSourcePreflightPlannedValue(
-  opportunity: ConfirmedContentOpportunity,
+  opportunity: ContentOpportunityCandidate,
   requirement: ApprovalSourcePreflightRequirement,
 ): boolean {
   const plannedValue = requirement.plannedValue?.replace(/\s+/gu, " ").trim();
@@ -122,6 +172,15 @@ export function hasConcreteApprovalSourcePreflightPlannedValue(
   if (!genericScalarFieldsRequiringExplicitLabel.has(requirement.field)) {
     return true;
   }
+
+  const structuredClaim = opportunity.verificationPlan?.claims.find((claim) =>
+    claim.field === requirement.field
+    && (
+      claim.rawValue?.trim() === plannedValue
+      || claim.statement.trim() === plannedValue
+      || (claim.rawValue?.trim() && plannedValue.includes(claim.rawValue.trim()))
+    ));
+  if (structuredClaim) return true;
 
   const fieldLabel = genericPlanningSignalByField.get(requirement.field);
   if (!fieldLabel) return false;
@@ -144,7 +203,7 @@ export function hasConcreteApprovalSourcePreflightPlannedValue(
 
 export function evaluateApprovalSourcePreflightCoverage(input: Readonly<{
   profileId: ApprovalPolicyProfileId;
-  opportunity: ConfirmedContentOpportunity;
+  opportunity: ContentOpportunityCandidate;
   sources: readonly Readonly<{
     page: ApprovalSourcePage;
     claims?: readonly ApprovalSourcePreflightClaim[];
@@ -155,10 +214,9 @@ export function evaluateApprovalSourcePreflightCoverage(input: Readonly<{
     ...(input.requiredClaims
       ?? requiredApprovalSourcePreflightClaims(input.opportunity, input.profileId)),
   ]);
-  const requiredByField = new Map(
-    requiredClaims.map((claim) => [claim.field, claim]),
-  );
   const covered = new Set<string>();
+  const requirementKey = (claim: ApprovalSourcePreflightRequirement): string =>
+    claim.claimId?.trim() || claim.field;
 
   const sources = input.sources.map(({ page, claims = [] }) => {
     const hintedClaimFields = unique([
@@ -166,42 +224,62 @@ export function evaluateApprovalSourcePreflightCoverage(input: Readonly<{
       ...(approvalEvidenceClaimFieldsForSourceUrl(page.finalUrl) ?? []),
     ]);
     const candidatesByField = new Map<string, ApprovalSourcePreflightClaim[]>();
+    const candidatesByClaimId = new Map<string, ApprovalSourcePreflightClaim[]>();
 
     for (const claim of claims) {
       const normalized = normalizeSubmittedClaim(claim);
-      if (!requiredByField.has(normalized.field)) continue;
       const candidates = candidatesByField.get(normalized.field) ?? [];
       candidates.push(normalized);
       candidatesByField.set(normalized.field, candidates);
+      if (normalized.claimId?.trim()) {
+        const claimIdCandidates = candidatesByClaimId.get(normalized.claimId) ?? [];
+        claimIdCandidates.push(normalized);
+        candidatesByClaimId.set(normalized.claimId, claimIdCandidates);
+      }
     }
 
     const accepted: string[] = [];
     const rejected: string[] = [];
+    const acceptedIds: string[] = [];
+    const rejectedIds: string[] = [];
     for (const requirement of requiredClaims) {
-      const matches = (candidatesByField.get(requirement.field) ?? [])
+      const candidates = requirement.claimId?.trim()
+        ? (candidatesByClaimId.get(requirement.claimId) ?? [])
+        : (candidatesByField.get(requirement.field) ?? []);
+      const matches = candidates
         .some((claim) => claimMatchesRequirement(page, requirement, claim));
       if (matches) {
         accepted.push(requirement.field);
-        covered.add(requirement.field);
+        acceptedIds.push(requirementKey(requirement));
+        covered.add(requirementKey(requirement));
       } else {
         rejected.push(requirement.field);
+        rejectedIds.push(requirementKey(requirement));
       }
     }
 
     return Object.freeze({
       url: page.finalUrl || page.requestedUrl,
       hintedClaimFields: Object.freeze(hintedClaimFields),
+      coveredClaimIds: Object.freeze(unique(acceptedIds)),
+      rejectedClaimIds: Object.freeze(unique(rejectedIds)),
       coveredClaimFields: Object.freeze(unique(accepted)),
       rejectedClaimFields: Object.freeze(unique(rejected)),
     });
   });
 
+  const coveredClaimIds = requiredClaims
+    .map(requirementKey)
+    .filter((key) => covered.has(key));
+  const uncoveredClaimIds = requiredClaims
+    .map(requirementKey)
+    .filter((key) => !covered.has(key));
   const coveredClaimFields = requiredClaims
-    .map((claim) => claim.field)
-    .filter((field) => covered.has(field));
+    .filter((claim) => covered.has(requirementKey(claim)))
+    .map((claim) => claim.field);
   const uncoveredClaimFields = requiredClaims
-    .map((claim) => claim.field)
-    .filter((field) => !covered.has(field));
+    .filter((claim) => !covered.has(requirementKey(claim)))
+    .map((claim) => claim.field);
 
   return Object.freeze({
     status: requiredClaims.length === 0
@@ -210,6 +288,8 @@ export function evaluateApprovalSourcePreflightCoverage(input: Readonly<{
         ? "covered"
         : "incomplete",
     requiredClaims,
+    coveredClaimIds: Object.freeze(unique(coveredClaimIds)),
+    uncoveredClaimIds: Object.freeze(unique(uncoveredClaimIds)),
     coveredClaimFields: Object.freeze(coveredClaimFields),
     uncoveredClaimFields: Object.freeze(uncoveredClaimFields),
     sources: Object.freeze(sources),
@@ -229,7 +309,9 @@ function claimMatchesRequirement(
   requirement: ApprovalSourcePreflightRequirement,
   claim: ApprovalSourcePreflightClaim,
 ): boolean {
-  if (claim.field !== requirement.field) return false;
+  if (requirement.claimId?.trim()) {
+    if (claim.claimId !== requirement.claimId) return false;
+  } else if (claim.field !== requirement.field) return false;
   if (!claim.value || !claim.evidenceExcerpt) return false;
   if (page.status < 200 || page.status >= 400) return false;
   if (page.extractionStatus !== "extracted") return false;
@@ -265,6 +347,7 @@ function normalizeSubmittedClaim(
   claim: ApprovalSourcePreflightClaim,
 ): ApprovalSourcePreflightClaim {
   return Object.freeze({
+    ...(claim.claimId?.trim() ? { claimId: claim.claimId.trim() } : {}),
     field: claim.field.trim(),
     value: claim.value.replace(/\s+/gu, " ").trim(),
     evidenceExcerpt: claim.evidenceExcerpt.replace(/\s+/gu, " ").trim(),
@@ -322,10 +405,15 @@ function canonicalQuantitiesMatch(expected: string, observed: string): boolean {
 }
 
 function explicitPlanningFactValues(
-  opportunity: ConfirmedContentOpportunity,
+  opportunity: ContentOpportunityCandidate,
   profileId: ApprovalPolicyProfileId,
 ): ReadonlyMap<string, string> {
   const found = new Map<string, string>();
+  for (const claim of opportunity.verificationPlan?.claims ?? []) {
+    const field = claim.field.trim();
+    const value = claim.rawValue?.trim() || claim.statement.trim();
+    if (field && value && !found.has(field)) found.set(field, value);
+  }
   for (const line of explicitPlanningLines(opportunity)) {
     for (const fact of extractProfileApprovalFactsFromText(line, profileId)) {
       if (!concretePlanningFact(line, fact.field, fact.value)) continue;
@@ -346,7 +434,7 @@ function explicitPlanningFactValues(
 }
 
 function explicitPlanningLines(
-  opportunity: ConfirmedContentOpportunity,
+  opportunity: ContentOpportunityCandidate,
 ): readonly string[] {
   return Object.freeze([
     ...opportunity.expectedCoverage,
@@ -484,7 +572,7 @@ function scalarPlanningField(field: string): boolean {
   return scalarPlanningFields.has(field) || field.startsWith("genericClaim:");
 }
 
-function planningText(opportunity: ConfirmedContentOpportunity): string {
+function planningText(opportunity: ContentOpportunityCandidate): string {
   return [
     opportunity.sourceRequest,
     opportunity.selectedTopic,
@@ -501,7 +589,7 @@ function planningText(opportunity: ConfirmedContentOpportunity): string {
 }
 
 function qualityTargetLines(
-  opportunity: ConfirmedContentOpportunity,
+  opportunity: ContentOpportunityCandidate,
 ): readonly string[] {
   return Object.freeze([
     ...opportunity.qualityTarget.requiredContentElements,

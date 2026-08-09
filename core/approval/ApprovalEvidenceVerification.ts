@@ -66,6 +66,7 @@ export function verifyApprovalEvidence(
       pack: Object.freeze({
         version: "1.0",
         status: "missing",
+        sourcePolicyCompliance: "failed" as const,
         sources: Object.freeze([]),
       }),
       verifiedSourceCount: 0,
@@ -362,6 +363,7 @@ export function verifyApprovalEvidence(
     version: "1.0",
     status: verified ? "verified" : "needs_review",
     coverageStatus: verified ? "verified" : "needs_review",
+    sourcePolicyCompliance: verified ? "passed" : "failed",
     ...(verified ? { reviewedAt } : {}),
     requiredFactFields: Object.freeze([...requiredFactFields]),
     verifiedFactFields: Object.freeze([...verifiedFactFields]),

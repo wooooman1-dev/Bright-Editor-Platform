@@ -10,6 +10,7 @@ import {
   type GeneratedFactualClaim,
   type VerificationSnapshot,
 } from "../approval";
+import type { ApprovalSourcePreflightCoverageResult } from "../approval/ApprovalSourcePreflightCoverage";
 import {
   findUnrequestedOwnedIdentityOccurrences,
   findUnrequestedOwnedIdentityPrefixes,
@@ -18,7 +19,7 @@ import {
   type ContentDocument,
 } from "../content";
 import { editorialRevisionId } from "../quality/QualityEngine";
-import type { AIProvider, AIResponse, AIWebSource } from "./AIProvider";
+import { AIProviderError, type AIProvider, type AIResponse, type AIWebSource } from "./AIProvider";
 import {
   runApprovalSourcePreflight,
   withApprovalSourcePreflightInstruction,
@@ -29,7 +30,11 @@ import {
   parseGeneratedFactualClaimDrafts,
   withGeneratedFactualClaimResponseInstruction,
 } from "./GeneratedFactualClaimResponse";
-import { requireExplicitVerificationGenerationBundle } from "./VerificationGenerationBundle";
+import {
+  requireApprovalGenerationEvidence,
+  requireExplicitVerificationGenerationBundle,
+} from "./VerificationGenerationBundle";
+import { isCriticalVerificationClaim } from "../approval/VerificationClaim";
 
 export type PlatformId = string & { readonly __platformId: unique symbol };
 export type ContentTypeId = string & { readonly __contentTypeId: unique symbol };
@@ -103,18 +108,26 @@ export class AIWorkflow {
           })
         : undefined;
       const generationPreflight = sourcePreflight
-        && input.contentOpportunity?.verificationPlan
+        && input.contentOpportunity?.verificationPlan?.claims.some(isCriticalVerificationClaim)
         ? requireExplicitVerificationGenerationBundle({
             plan: input.contentOpportunity.verificationPlan,
             snapshot: sourcePreflight.verificationSnapshot,
             sources: sourcePreflight.sources,
             claimSources: sourcePreflight.claimSources,
+            coverage: sourcePreflight.coverage,
+            sourcePolicyCompliance: sourcePreflight.sourcePolicyCompliance,
           })
         : sourcePreflight;
+      if (sourcePreflight) {
+        requireApprovalGenerationEvidence({
+          preflight: sourcePreflight,
+          contract: input.contentOpportunity?.requiredEvidenceContract,
+        });
+      }
       const explicitVerificationGeneration = Boolean(
         generationPreflight
         && "gate" in generationPreflight
-        && input.contentOpportunity?.verificationPlan
+        && input.contentOpportunity?.verificationPlan?.claims.some(isCriticalVerificationClaim)
         && sourcePreflight?.verificationSnapshot,
       );
       const request = this.strategy.createRequest(input);
@@ -132,9 +145,9 @@ export class AIWorkflow {
             canonicalInstruction,
             approvalSnapshot,
           );
-      const instruction = explicitVerificationGeneration
+      const instruction = withVerificationClaimRiskInstruction(explicitVerificationGeneration
         ? withGeneratedFactualClaimResponseInstruction(preflightInstruction)
-        : preflightInstruction;
+        : preflightInstruction, input.contentOpportunity);
       const response = await this.provider.generate({
         ...request,
         instruction,
@@ -166,7 +179,17 @@ export class AIWorkflow {
             : {}),
         },
       });
-      const parsedDocument = this.strategy.parse(response.content, input);
+      let parsedDocument: ContentDocument;
+      try {
+        parsedDocument = this.strategy.parse(response.content, input);
+      } catch (error) {
+        if (error instanceof AIProviderError) throw error;
+        throw AIProviderError.parse({
+          stage: "generation",
+          message: error instanceof Error ? error.message : "Generation response could not be parsed.",
+          diagnostic: response.diagnostics,
+        });
+      }
       const policyDocument = withApprovalPolicyMetadata(
         parsedDocument,
         input.editorialContext,
@@ -177,6 +200,8 @@ export class AIWorkflow {
         generationPreflight?.sources ?? response.diagnostics?.webSources ?? [],
         undefined,
         generationPreflight?.claimSources,
+        generationPreflight?.coverage,
+        generationPreflight?.sourcePolicyCompliance,
       );
       const preflightUsageDocument = appendAIUsageToDocument(
         evidenceDocument,
@@ -192,7 +217,7 @@ export class AIWorkflow {
       if (
         generationPreflight
         && "gate" in generationPreflight
-        && input.contentOpportunity?.verificationPlan
+        && input.contentOpportunity?.verificationPlan?.claims.some(isCriticalVerificationClaim)
         && sourcePreflight?.verificationSnapshot
       ) {
         const semanticValidation = validateGeneratedFactualClaimDrafts({
@@ -212,7 +237,7 @@ export class AIWorkflow {
 
       const generatedClaimVerification = generationPreflight
         && "gate" in generationPreflight
-        && input.contentOpportunity?.verificationPlan
+        && input.contentOpportunity?.verificationPlan?.claims.some(isCriticalVerificationClaim)
         && sourcePreflight?.verificationSnapshot
         ? createGeneratedClaimVerificationRecord({
             document: generatedDocument,
@@ -259,6 +284,16 @@ export class AIWorkflow {
   }
 }
 
+function withVerificationClaimRiskInstruction(
+  instruction: string,
+  opportunity: ConfirmedContentOpportunity | undefined,
+): string {
+  const verifyClaims = opportunity?.verificationPlan?.claims.filter((claim) =>
+    !isCriticalVerificationClaim(claim) && claim.risk === "verify") ?? [];
+  if (!verifyClaims.length) return instruction;
+  return `${instruction}\n\nVerification risk rule: the following VERIFY Claims are optional and have no mandatory Evidence bundle: ${JSON.stringify(verifyClaims.map((claim) => ({ claimId: claim.claimId, statement: claim.statement, rawValue: claim.rawValue })))}. Do not state an unsupported concrete VERIFY value as fact. When it cannot be supported by the available Evidence, remove it or generalize it into non-factual guidance. NONE Claims are editorial guidance and require no source.`;
+}
+
 export function withCanonicalEditorialContext(
   instruction: string,
   editorialContext?: string,
@@ -294,6 +329,8 @@ export function withApprovalEvidenceMetadata(
   webSources: readonly AIWebSource[],
   retrievedAt = new Date().toISOString(),
   claimSources: readonly ApprovalSourcePreflightClaimSource[] = [],
+  coverage?: ApprovalSourcePreflightCoverageResult,
+  sourcePolicyCompliance?: "passed" | "failed" | "not_required",
 ): ContentDocument {
   const snapshot = approvalPolicySnapshotFromEditorialContext(editorialContext);
   if (!snapshot || !webSources.length) return document;
@@ -317,6 +354,17 @@ export function withApprovalEvidenceMetadata(
       approvalEvidence: Object.freeze({
         version: "1.0" as const,
         status: "needs_review" as const,
+        ...(coverage ? {
+          coverageStatus: coverage.status === "covered"
+            ? "verified" as const
+            : coverage.status === "incomplete"
+              ? "needs_review" as const
+              : "missing" as const,
+          requiredFactFields: Object.freeze(coverage.requiredClaims.map((claim) => claim.field)),
+          verifiedFactFields: Object.freeze([...coverage.coveredClaimFields]),
+          unverifiedFactFields: Object.freeze([...coverage.uncoveredClaimFields]),
+        } : {}),
+        ...(sourcePolicyCompliance ? { sourcePolicyCompliance } : {}),
         sources: candidates,
       }),
     }),

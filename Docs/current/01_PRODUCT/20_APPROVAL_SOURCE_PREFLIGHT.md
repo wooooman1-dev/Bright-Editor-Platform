@@ -1,5 +1,60 @@
 # Approval Source Preflight
 
+## Claim Risk Applicability (v2)
+
+Evidence applicability is Claim-based, not article-wide and not inferred from
+the approval profile alone.
+
+- `NONE`: editorial advice, observation guidance, and checklists. Evidence is
+  N/A.
+- `VERIFY`: a generally verifiable statement. Verification is preferred, but a
+  failed verification removes or generalizes that statement; it does not block
+  manuscript Generation.
+- `CRITICAL`: money, dates, eligibility, legal or tax rules, actual rates, and
+  official conditions. Evidence is mandatory. Complete Evidence Coverage means
+  complete coverage of these Claims only.
+
+When no CRITICAL Claim applies, Source Preflight makes no provider call and
+Generation may continue with an N/A Evidence state. A CRITICAL Claim that is
+not verified is removed when the remaining article still satisfies the search
+intent; otherwise Generation is blocked. An approval profile defines the
+quality of the authoritative primary source for a Claim. It does not make a
+source mandatory for every article. Information-as-of dates are required only
+for time-sensitive CRITICAL Claims.
+
+## Claim-context Source Authority
+
+Authoritative primary-source status is determined from the owner of the Claim,
+not from government-domain membership alone.
+
+- law and legal requirements use the official law source or responsible
+  government authority;
+- tax Claims use the tax authority, applicable law, or responsible authority;
+- government support and application conditions use the public body that
+  actually administers the program;
+- financial regulation and system Claims use the responsible regulator or
+  official institution;
+- a named bank, card issuer, insurer, or other entity's product rate, fee,
+  cancellation condition, disclosure, description, or terms use that same
+  entity's first-party official page or official document.
+
+The existing profile allowlist remains authoritative for government-owned
+Claims. Entity-owned product Claims are not required to use a government domain,
+but they must pass all of the following independently:
+
+1. Claim subject/entity and observed source owner match;
+2. HTTPS;
+3. an owner-bound official domain or formal first-party official document;
+4. Claim relevance;
+5. exact `evidenceExcerptMatches()` anchoring;
+6. semantic, temporal, and complete CRITICAL Claim Coverage verification.
+
+Authority and relevance are separate decisions. A first-party page from another
+entity fails source-owner authority. A first-party page from the correct entity
+still fails when it does not address the Claim. Search snippets, secondary
+articles, copied documents, and self-declared sources without the owner match do
+not become official Evidence.
+
 ## Purpose
 
 Approval-preparation content must not begin manuscript Generation until Bright Studio has verified every factual Claim required by the confirmed Content Opportunity against actual official source pages.

@@ -14,15 +14,38 @@ import {
 import type { AIWebSource } from "./AIProvider";
 import {
   ApprovalSourcePreflightError,
+  type ApprovalSourcePreflightResult,
   type ApprovalSourcePreflightClaimSource,
 } from "./ApprovalSourcePreflight";
+import type { ApprovalRequiredEvidenceContract } from "../approval/ApprovalSourcePreflightCoverage";
+import type { ApprovalSourcePreflightCoverageResult } from "../approval/ApprovalSourcePreflightCoverage";
 
 export type VerificationGenerationBundle = Readonly<{
   gate: VerificationGenerationGateResult;
   sources: readonly AIWebSource[];
   claimSources: readonly ApprovalSourcePreflightClaimSource[];
   verificationClaims: readonly VerificationGenerationClaimEvidence[];
+  coverage?: ApprovalSourcePreflightCoverageResult;
+  sourcePolicyCompliance?: "passed" | "failed" | "not_required";
 }>;
+
+export function requireApprovalGenerationEvidence(input: Readonly<{
+  preflight: ApprovalSourcePreflightResult;
+  contract?: ApprovalRequiredEvidenceContract;
+}>): ApprovalSourcePreflightResult {
+  const contract = input.contract;
+  if (!contract?.profileSourceRequirementApplicable) return input.preflight;
+  const hasRequiredClaims = !contract.explicitVerificationRequired
+    && contract.requiredClaims.length > 0;
+  if (input.preflight.sourcePolicyCompliance !== "passed"
+    || input.preflight.sources.length === 0
+    || (hasRequiredClaims && input.preflight.coverage.status !== "covered")) {
+    throw new ApprovalSourcePreflightError(
+      "?꾩옱 ?꾨줈?꾩씠???꾩슂??Evidence coverage ?먮뒗 source policy瑜?Generation ?꾩뿉 ?뺤씤?섏? 紐삵뻽?듬땲??",
+    );
+  }
+  return input.preflight;
+}
 
 /**
  * Converts the diagnostic-rich explicit preflight result into the only evidence
@@ -33,6 +56,8 @@ export function requireExplicitVerificationGenerationBundle(input: Readonly<{
   snapshot?: VerificationSnapshot;
   sources: readonly AIWebSource[];
   claimSources: readonly ApprovalSourcePreflightClaimSource[];
+  coverage?: ApprovalSourcePreflightCoverageResult;
+  sourcePolicyCompliance?: "passed" | "failed" | "not_required";
 }>): VerificationGenerationBundle {
   const gate = evaluateVerificationGenerationGate({
     plan: input.plan,
@@ -115,6 +140,8 @@ export function requireExplicitVerificationGenerationBundle(input: Readonly<{
     sources,
     claimSources,
     verificationClaims,
+    ...(input.coverage ? { coverage: input.coverage } : {}),
+    ...(input.sourcePolicyCompliance ? { sourcePolicyCompliance: input.sourcePolicyCompliance } : {}),
   });
 }
 

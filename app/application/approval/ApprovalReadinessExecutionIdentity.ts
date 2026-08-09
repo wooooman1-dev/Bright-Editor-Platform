@@ -7,7 +7,7 @@ import { editorialRevisionId } from "../../../core/quality";
 import type { UserContent } from "../../user-flow/user-data";
 import { internalLinkCatalogContextKey } from "../publishing/InternalLinkCatalogPolicy";
 
-export const approvalReadinessInspectionVersion = "3.0" as const;
+export const approvalReadinessInspectionVersion = "4.0" as const;
 
 export function approvalReadinessExecutionIdentity(
   content: UserContent,
@@ -23,9 +23,24 @@ export function approvalReadinessExecutionIdentity(
   const revisionId = editorialRevisionId(content.document);
   const publishingContextKey = internalLinkCatalogContextKey(content, connectionId);
   const evidenceFingerprint = approvalEvidenceFingerprint(content.document);
+  const policy = content.document.metadata?.approvalPolicy;
+  const policyIdentity = policy
+    ? [policy.policyId, policy.policyVersion, policy.profileId, policy.profileVersion].join("@")
+    : undefined;
+  const applicabilityIdentity = policy?.sourceRequirements.length
+    ? "profile-source-required"
+    : "profile-source-not-applicable";
   return Object.freeze({
     version: approvalReadinessInspectionVersion,
-    key: [approvalReadinessInspectionVersion, content.id, revisionId, publishingContextKey, evidenceFingerprint].join("::"),
+    key: [
+      approvalReadinessInspectionVersion,
+      policyIdentity ?? "no-approval-policy",
+      applicabilityIdentity,
+      content.id,
+      revisionId,
+      publishingContextKey,
+      evidenceFingerprint,
+    ].join("::"),
     editorialRevisionId: revisionId,
     publishingContextKey,
     evidenceFingerprint,

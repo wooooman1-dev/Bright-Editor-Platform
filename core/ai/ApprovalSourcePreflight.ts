@@ -2,10 +2,12 @@ import {
   approvalOfficialDomains,
   approvalSourcePreflightClaimMatchesPage,
   canonicalizeApprovalEvidenceUrl,
+  evaluateApprovalSourceAuthority,
   evaluateApprovalSourcePreflightCoverage,
   evaluateApprovalSourceUrlSafety,
-  normalizeApprovalSourceDocument,
   officialSourceAllowed,
+  createApprovalSourcePreflightDiagnostic,
+  evaluateApprovalSourceRelevance,
   requiredApprovalSourcePreflightClaims,
   type ApprovalPolicySnapshot,
   type ApprovalSourcePage,
@@ -13,7 +15,9 @@ import {
   type ApprovalSourcePreflightCoverageResult,
   type ApprovalSourcePreflightRequirement,
   type SiteApprovalReadinessFetch,
+  type ApprovalSourcePreflightDiagnostic,
 } from "../approval";
+import { normalizeApprovalSourceDocumentServer } from "../approval/ApprovalSourceDocumentServerAdapter";
 import { scopeApprovalSourcePreflightRequirements } from "../approval/ApprovalSourcePreflightClaimScope";
 import { assessmentsFromExplicitDiscovery, createVerificationSnapshot, type ExplicitDiscoveredSource } from "../approval/ExplicitVerificationPreflight";
 import {
@@ -21,11 +25,17 @@ import {
   groupVerificationGenerationClaimEvidence,
   type VerificationGenerationClaimSourceProjection,
 } from "../approval/VerificationGenerationEvidence";
-import type { ConfirmedContentOpportunity } from "../content";
-import type { AIProvider, AIResponse, AIWebSource } from "./AIProvider";
+import { hasUsableContentOpportunityVerificationPlan, type ConfirmedContentOpportunity } from "../content";
+import { isCriticalVerificationClaim } from "../approval/VerificationClaim";
+import { AIProviderError, type AIProvider, type AIResponse, type AIWebSource } from "./AIProvider";
 
 export const approvalSourcePreflightTask = "approval-source-preflight";
-export const approvalSourcePreflightMaximumClaimsPerSource = 40;
+/**
+ * A source may support several Claims, but the Provider must not serialize an
+ * unbounded Claim matrix into one response. Coverage remains Claim-ID based;
+ * this is only an output-size ceiling.
+ */
+export const approvalSourcePreflightMaximumClaimsPerSource = 12;
 
 export type ApprovalSourcePreflightClaimSource = Readonly<{
   url: string;
@@ -41,14 +51,21 @@ export type ApprovalSourcePreflightResult = Readonly<{
   coverage: ApprovalSourcePreflightCoverageResult;
   diagnostics?: AIResponse["diagnostics"];
   verificationSnapshot?: import("../approval").VerificationSnapshot;
+  sourcePolicyCompliance?: "passed" | "failed" | "not_required";
 }>;
 
 export class ApprovalSourcePreflightError extends Error {
   readonly code = "APPROVAL_SOURCE_NOT_READY";
+  readonly diagnostic?: ApprovalSourcePreflightDiagnostic;
 
-  constructor(message: string) {
+  constructor(
+    message: string,
+    diagnostic?: ApprovalSourcePreflightDiagnostic,
+    readonly providerDiagnostics?: AIResponse["diagnostics"],
+  ) {
     super(message);
     this.name = "ApprovalSourcePreflightError";
+    this.diagnostic = diagnostic;
   }
 }
 
@@ -60,15 +77,27 @@ export async function runApprovalSourcePreflight(input: Readonly<{
   contentType: string;
   fetcher?: SiteApprovalReadinessFetch;
 }>): Promise<ApprovalSourcePreflightResult> {
-  if (input.opportunity.verificationPlan) return runExplicitPreflight(input);
+  if (hasUsableContentOpportunityVerificationPlan(input.opportunity.verificationPlan)) {
+    if (input.opportunity.verificationPlan.claims.some(isCriticalVerificationClaim)) return runExplicitPreflight(input);
+    return notRequiredExplicitPreflight(input);
+  }
+  const contract = input.opportunity.requiredEvidenceContract;
+  const profileSourceRequirementApplicable = contract?.profileSourceRequirementApplicable === true;
   const requiredClaims = scopeApprovalSourcePreflightRequirements(
     input.opportunity,
-    requiredApprovalSourcePreflightClaims(
-      input.opportunity,
-      input.snapshot.profileId,
-    ),
+    contract?.requiredClaims
+      ?? requiredApprovalSourcePreflightClaims(input.opportunity, input.snapshot.profileId),
   );
-  if (!requiredClaims.length) {
+  if (profileSourceRequirementApplicable && !requiredClaims.length) {
+    throw new ApprovalSourcePreflightError(
+      "Planning에서 공식 출처로 검증할 구조화 Claim이 없어 원고 생성을 시작하지 않았습니다.",
+      createPreflightDiagnostic(input, {
+        rejectionCode: "planning_contract_missing",
+        rejectionStage: "contract",
+      }),
+    );
+  }
+  if (!requiredClaims.length && !profileSourceRequirementApplicable) {
     const coverage = evaluateApprovalSourcePreflightCoverage({
       profileId: input.snapshot.profileId,
       opportunity: input.opportunity,
@@ -79,6 +108,7 @@ export async function runApprovalSourcePreflight(input: Readonly<{
       sources: Object.freeze([]),
       claimSources: Object.freeze([]),
       coverage,
+      sourcePolicyCompliance: "not_required",
     });
   }
 
@@ -98,7 +128,16 @@ export async function runApprovalSourcePreflight(input: Readonly<{
     },
   });
 
-  const discovered = parseDiscoveredSources(response.content);
+  let discovered: ReturnType<typeof parseDiscoveredSources>;
+  try {
+    discovered = parseDiscoveredSources(response.content);
+  } catch (error) {
+    throw AIProviderError.parse({
+      stage: "source_preflight",
+      message: error instanceof Error ? error.message : "Source Preflight response could not be parsed.",
+      diagnostic: response.diagnostics,
+    });
+  }
   const observedUrls = new Set((response.diagnostics?.webSources ?? [])
     .map((source) => canonicalizeApprovalEvidenceUrl(source.url)));
   const eligible = discovered.filter((source) => observedUrls.has(source.url));
@@ -123,7 +162,13 @@ export async function runApprovalSourcePreflight(input: Readonly<{
   for (const source of eligible) {
     const page = pageByRequestedUrl.get(source.url);
     const rejection = page
-      ? preflightPageRejection(input.snapshot, page, source.evidenceExcerpt)
+      ? preflightPageRejection(
+        input.snapshot,
+        page,
+        source.evidenceExcerpt,
+        input.opportunity,
+        sourceRelevanceScope(input.opportunity, source.claims),
+      )
       : "출처 응답을 확인하지 못했습니다.";
     if (rejection) {
       rejected.push(`${source.url}: ${rejection}`);
@@ -143,6 +188,35 @@ export async function runApprovalSourcePreflight(input: Readonly<{
   ).values()];
   if (!uniqueAccepted.length) {
     const detail = rejected.slice(0, 4).join(" | ");
+    const relevanceFailure = eligible
+      .map((source) => ({ source, page: pageByRequestedUrl.get(source.url) }))
+      .filter((item): item is { source: DiscoveredSource; page: ApprovalSourcePage } => Boolean(item.page))
+      .map(({ source, page }) => evaluateApprovalSourceRelevance({
+        profileId: input.snapshot.profileId,
+        opportunity: input.opportunity,
+        page,
+        additionalScope: sourceRelevanceScope(input.opportunity, source.claims),
+      }))
+      .find((result) => result.status === "rejected");
+    const diagnostic = createPreflightDiagnostic(input, {
+      canonicalSourceUrl: eligible[0]?.url,
+      sourceTitle: eligible[0]?.title,
+      evidenceExcerpt: eligible[0]?.evidenceExcerpt,
+      rejectionCode: relevanceFailure?.diagnosticCode ?? "all_sources_rejected",
+      rejectionStage: relevanceFailure ? "relevance" : "source",
+      sourcePolicyCompliance: "failed",
+      ...(relevanceFailure ? {
+        relevanceStatus: "rejected" as const,
+        matchedSignals: relevanceFailure.matchedSignals,
+      } : {}),
+      ...preflightDiagnosticMetadata(response),
+    });
+    if (diagnostic) {
+      throw new ApprovalSourcePreflightError(
+        `사용 가능한 공식 출처를 확보하지 못해 원고 생성을 시작하지 않았습니다.${detail ? ` ${detail}` : ""}`,
+        diagnostic,
+      );
+    }
     throw new ApprovalSourcePreflightError(
       `사용 가능한 공식 출처를 확보하지 못해 원고 생성을 시작하지 않았습니다.${detail ? ` ${detail}` : ""}`,
     );
@@ -158,6 +232,19 @@ export async function runApprovalSourcePreflight(input: Readonly<{
     })),
   });
   if (coverage.status === "incomplete") {
+    const diagnostic = createPreflightDiagnostic(input, {
+      requiredClaimId: coverage.uncoveredClaimIds?.[0] ?? coverage.uncoveredClaimFields[0],
+      rejectionCode: "coverage_incomplete",
+      rejectionStage: "coverage",
+      coverageStatus: coverage.status,
+      sourcePolicyCompliance: "passed",
+    });
+    if (diagnostic) {
+      throw new ApprovalSourcePreflightError(
+        `필수 사실 근거가 완전히 검증되지 않아 원고 생성을 시작하지 않았습니다. 미확보 Claim: ${coverage.uncoveredClaimFields.join(", ")}`,
+        diagnostic,
+      );
+    }
     throw new ApprovalSourcePreflightError(
       `필수 사실 근거가 완전히 검증되지 않아 원고 생성을 시작하지 않았습니다. 미확보 Claim: ${coverage.uncoveredClaimFields.join(", ")}`,
     );
@@ -193,24 +280,44 @@ export async function runApprovalSourcePreflight(input: Readonly<{
     sources: Object.freeze(sources),
     claimSources: Object.freeze(claimSources),
     coverage,
+    sourcePolicyCompliance: "passed",
     ...(response.diagnostics ? { diagnostics: response.diagnostics } : {}),
+  });
+}
+
+function notRequiredExplicitPreflight(input: Readonly<Parameters<typeof runApprovalSourcePreflight>[0]>): ApprovalSourcePreflightResult {
+  const plan = input.opportunity.verificationPlan!;
+  return Object.freeze({
+    sources: Object.freeze([]),
+    claimSources: Object.freeze([]),
+    coverage: evaluateApprovalSourcePreflightCoverage({
+      profileId: input.snapshot.profileId,
+      opportunity: input.opportunity,
+      requiredClaims: [],
+      sources: [],
+    }),
+    verificationSnapshot: createVerificationSnapshot({ plan, assessments: [] }),
+    sourcePolicyCompliance: "not_required",
   });
 }
 
 async function runExplicitPreflight(input: Readonly<Parameters<typeof runApprovalSourcePreflight>[0]>): Promise<ApprovalSourcePreflightResult> {
   const plan = input.opportunity.verificationPlan!;
-  if (!plan.claims.length) {
-    return Object.freeze({
-      sources: Object.freeze([]),
-      claimSources: Object.freeze([]),
-      coverage: evaluateApprovalSourcePreflightCoverage({
-        profileId: input.snapshot.profileId,
-        opportunity: input.opportunity,
-        requiredClaims: [],
-        sources: [],
+  const contract = input.opportunity.requiredEvidenceContract;
+  const profileSourceRequirementApplicable = contract?.profileSourceRequirementApplicable === true;
+  const profileRequiredClaims = scopeApprovalSourcePreflightRequirements(
+    input.opportunity,
+    contract?.requiredClaims
+      ?? requiredApprovalSourcePreflightClaims(input.opportunity, input.snapshot.profileId),
+  );
+  if (profileSourceRequirementApplicable && !profileRequiredClaims.length) {
+    throw new ApprovalSourcePreflightError(
+      "Planning에서 공식 출처로 검증할 구조화 Claim을 만들지 못해 원고 생성을 시작할 수 없습니다.",
+      createPreflightDiagnostic(input, {
+        rejectionCode: "planning_contract_missing",
+        rejectionStage: "contract",
       }),
-      verificationSnapshot: createVerificationSnapshot({ plan, assessments: [] }),
-    });
+    );
   }
   const response = await input.provider.generate({
     instruction: explicitPreflightInstruction(input.snapshot, input.opportunity),
@@ -224,10 +331,78 @@ async function runExplicitPreflight(input: Readonly<Parameters<typeof runApprova
       contentType: input.contentType,
     },
   });
-  const discovered = parseExplicitSources(response.content);
+  let parsedSources: ReturnType<typeof parseExplicitSources>;
+  try {
+    parsedSources = parseExplicitSources(
+      response.content,
+      new Set(plan.claims.filter(isCriticalVerificationClaim).map((claim) => claim.claimId)),
+    );
+  } catch (error) {
+    throw AIProviderError.parse({
+      stage: "source_preflight",
+      message: error instanceof Error ? error.message : "Source Preflight response could not be parsed.",
+      diagnostic: response.diagnostics,
+    });
+  }
+  const discovered = parsedSources.sources;
+  const pipelineMetrics: SourcePipelineMetrics = {
+    ...parsedSources.metrics,
+    officialnessEvaluatedCount: 0,
+    officialnessPassCount: 0,
+    policyRetainedCount: 0,
+    relevanceEvaluatedCount: 0,
+    relevancePassCount: 0,
+    fetchAttemptedCount: 0,
+    fetchSucceededCount: 0,
+    extractionAttemptedCount: 0,
+    extractionSucceededCount: 0,
+    evidenceAnchorEvaluatedCount: 0,
+    evidenceAnchorPassCount: 0,
+    semanticVerificationEvaluatedCount: 0,
+    semanticVerificationPassCount: 0,
+  };
+  const linkageFailureSources = discovered.filter((source) =>
+    source.diagnostics?.includes("source_claim_linkage_missing")
+    || source.diagnostics?.includes("source_claim_id_unknown"),
+  );
+  if (linkageFailureSources.length) {
+    const linkageCode = linkageFailureSources.some((source) =>
+      source.diagnostics?.includes("source_claim_id_unknown"),
+    )
+      ? "source_claim_id_unknown"
+      : "source_claim_linkage_missing";
+    const linkageDiagnostic = createPreflightDiagnostic(input, {
+      rejectionCode: linkageCode,
+      rejectionStage: "contract",
+      requiredClaimIds: Object.freeze(plan.claims.map((claim) => claim.claimId)),
+      coveredClaimIds: Object.freeze([]),
+      missingClaimIds: Object.freeze(plan.claims.map((claim) => claim.claimId)),
+      coverageStatus: "incomplete",
+      sourcePolicyCompliance: "failed",
+      coverageSources: Object.freeze(linkageFailureSources.slice(0, 6).map((source) => Object.freeze({
+        url: source.requestedUrl,
+        ...(source.title ? { title: source.title } : {}),
+        supportingClaimIds: Object.freeze(source.claims.map((claim) => claim.claimId)),
+        rejectedClaimIds: Object.freeze(plan.claims.map((claim) => claim.claimId)),
+        officialness: "unknown" as const,
+        relevance: "unknown" as const,
+        anchor: "unknown" as const,
+        semantic: "unknown" as const,
+        ...(source.evidenceExcerpt ? { evidenceExcerpt: source.evidenceExcerpt } : {}),
+      }))),
+      ...preflightDiagnosticMetadata(response),
+      ...preflightPipelineMetadata(response, pipelineMetrics),
+    });
+    throw new ApprovalSourcePreflightError(
+      "Source evidence Claim linkage did not satisfy the canonical required Claim contract.",
+      linkageDiagnostic,
+      response.diagnostics,
+    );
+  }
   const observed = new Set((response.diagnostics?.webSources ?? [])
     .map((source) => canonicalizeApprovalEvidenceUrl(source.url)));
   const eligible = discovered.filter((source) => !observed.size || observed.has(source.requestedUrl));
+  pipelineMetrics.fetchAttemptedCount = eligible.length;
   const pages = await fetchPreflightPages(
     eligible.map((source) => source.requestedUrl),
     input.fetcher ?? fetch,
@@ -239,7 +414,21 @@ async function runExplicitPreflight(input: Readonly<Parameters<typeof runApprova
   const accepted: ExplicitDiscoveredSource[] = [];
   for (const source of eligible) {
     const page = byUrl.get(source.requestedUrl);
-    if (!page || page.extractionStatus !== "extracted") {
+    if (page && !page.fetchError && page.status >= 200 && page.status < 400) {
+      pipelineMetrics.fetchSucceededCount += 1;
+      pipelineMetrics.extractionAttemptedCount += 1;
+    }
+    if (page?.extractionStatus === "extracted") pipelineMetrics.extractionSucceededCount += 1;
+    if (!page || page.fetchError) {
+      if (pipelineMetrics.rejectionSamples.length < 3) pipelineMetrics.rejectionSamples.push(Object.freeze({
+        url: source.requestedUrl,
+        canonicalUrl: source.requestedUrl,
+        title: source.title,
+        ...(page ? { status: page.status, contentType: page.contentType, documentFormat: page.documentFormat, extractionStatus: page.extractionStatus } : {}),
+        rejectionStage: "evidence",
+        rejectionCode: "source_fetch_failed",
+        reason: page?.fetchError ?? "source page was not returned",
+      }));
       accepted.push({
         ...source,
         role: "independentCorroborating",
@@ -248,12 +437,91 @@ async function runExplicitPreflight(input: Readonly<Parameters<typeof runApprova
       });
       continue;
     }
+    if (page.extractionStatus !== "extracted") {
+      if (pipelineMetrics.rejectionSamples.length < 3) pipelineMetrics.rejectionSamples.push(Object.freeze({
+        url: source.requestedUrl,
+        canonicalUrl: page.finalUrl,
+        title: source.title,
+        status: page.status,
+        contentType: page.contentType,
+        documentFormat: page.documentFormat,
+        extractionStatus: page.extractionStatus,
+        rejectionStage: "evidence",
+        rejectionCode: "source_document_extraction_failed",
+        reason: page.extractionReason ?? "source document was not extracted",
+      }));
+      accepted.push({
+        ...source,
+        finalUrl: page.finalUrl,
+        pageText: page.text,
+        role: "independentCorroborating",
+        authoritative: false,
+        fresh: false,
+        diagnostics: ["source_document_extraction_failed"],
+      });
+      continue;
+    }
+    pipelineMetrics.officialnessEvaluatedCount += 1;
+    const authorityClaims = explicitSourceAuthorityClaims(plan.claims, source.claims);
+    const authority = evaluateApprovalSourceAuthority({
+      profileId: input.snapshot.profileId,
+      page,
+      claims: authorityClaims,
+    });
+    const official = authority.status === "passed";
+    if (official) pipelineMetrics.officialnessPassCount += 1;
+    if (!official && pipelineMetrics.rejectionSamples.length < 3) pipelineMetrics.rejectionSamples.push(Object.freeze({
+      url: source.requestedUrl,
+      canonicalUrl: page.finalUrl,
+      hostname: (() => { try { return new URL(page.finalUrl).hostname; } catch { return undefined; } })(),
+      title: source.title,
+      rejectionStage: "officialness",
+      rejectionCode: authority.diagnosticCode ?? "official_source_rejected",
+      reason: authority.diagnosticCode ?? "Claim-context source authority rejected the page",
+    }));
+    if (official) {
+      pipelineMetrics.relevanceEvaluatedCount += 1;
+      if (evaluateApprovalSourceRelevance({
+        profileId: input.snapshot.profileId,
+        opportunity: input.opportunity,
+        page,
+        additionalScope: sourceRelevanceScope(input.opportunity, source.claims),
+        ...(authority.authorityKinds.includes("entity_product")
+          ? { minimumClaimCoverage: 0.5 }
+          : {}),
+      }).status === "passed") pipelineMetrics.relevancePassCount += 1;
+      else if (pipelineMetrics.rejectionSamples.length < 3) pipelineMetrics.rejectionSamples.push(Object.freeze({
+        url: source.requestedUrl,
+        canonicalUrl: page.finalUrl,
+        title: source.title,
+        rejectionStage: "relevance",
+        rejectionCode: "source_topic_relevance_unverified",
+        reason: "Claim/source relevance verifier rejected the page",
+      }));
+    }
+    pipelineMetrics.evidenceAnchorEvaluatedCount += 1;
+    if (evidenceExcerptMatches(page.text, source.evidenceExcerpt)) pipelineMetrics.evidenceAnchorPassCount += 1;
     const rejection = preflightPageRejection(
       input.snapshot,
       page,
       source.evidenceExcerpt,
+      input.opportunity,
+      sourceRelevanceScope(input.opportunity, source.claims),
+      authorityClaims,
     );
     if (rejection) {
+      if (pipelineMetrics.rejectionSamples.length < 3) pipelineMetrics.rejectionSamples.push(Object.freeze({
+        url: source.requestedUrl,
+        canonicalUrl: page.finalUrl,
+        title: source.title,
+        status: page.status,
+        contentType: page.contentType,
+        documentFormat: page.documentFormat,
+        extractionStatus: page.extractionStatus,
+        rejectionStage: rejection.includes("relevance") ? "relevance" : "evidence",
+        rejectionCode: rejection,
+        reason: rejection,
+      }));
       accepted.push({
         ...source,
         finalUrl: page.finalUrl,
@@ -270,7 +538,7 @@ async function runExplicitPreflight(input: Readonly<Parameters<typeof runApprova
       finalUrl: page.finalUrl,
       pageText: page.text,
       publisherId: page.publisher,
-      authoritative: officialSourceAllowed(input.snapshot.profileId, page),
+      authoritative: official,
       diagnostics: [],
     });
   }
@@ -290,9 +558,18 @@ async function runExplicitPreflight(input: Readonly<Parameters<typeof runApprova
         ? "officialCorroborating" as const
         : "independentCorroborating" as const,
   }));
+  pipelineMetrics.policyRetainedCount = classifiedAccepted.filter((source) =>
+    source.authoritative === true && source.diagnostics?.length === 0).length;
   const assessments = assessmentsFromExplicitDiscovery({
     claims: plan.claims,
     sources: classifiedAccepted,
+  });
+  const semanticSources = classifiedAccepted.filter((source) =>
+    source.diagnostics?.length === 0,
+  );
+  const semanticAssessments = assessmentsFromExplicitDiscovery({
+    claims: plan.claims,
+    sources: semanticSources,
   });
   const results = plan.claims.map((claim) => {
     const claimAssessments = assessments.filter((assessment) =>
@@ -318,11 +595,129 @@ async function runExplicitPreflight(input: Readonly<Parameters<typeof runApprova
     assessments,
     results,
   });
+  pipelineMetrics.semanticVerificationEvaluatedCount = semanticAssessments.length;
+  pipelineMetrics.semanticVerificationPassCount = semanticAssessments.filter((assessment) => assessment.supports).length;
   const claimSources = explicitClaimSources(
     plan.claims,
     classifiedAccepted,
     verificationSnapshot,
   );
+  if (profileSourceRequirementApplicable && !classifiedAccepted.some((source) =>
+    source.authoritative === true && source.diagnostics?.length === 0)) {
+    const relevanceFailure = classifiedAccepted.find((source) =>
+      source.diagnostics?.includes("source_topic_relevance_unverified"));
+    const anchorFailure = classifiedAccepted.find((source) =>
+      source.diagnostics?.includes("evidence_anchor_unverified"));
+    const evidenceFailure = classifiedAccepted.find((source) =>
+      source.diagnostics?.includes("source_document_extraction_failed")
+      || source.diagnostics?.includes("source_fetch_failed"));
+    const semanticFailure = classifiedAccepted.find((source) =>
+      source.diagnostics?.includes("semantic_verification_failed"));
+    const rejectionCode = pipelineMetrics.relevancePassCount > 0
+      && pipelineMetrics.evidenceAnchorPassCount === 0
+      ? "evidence_anchor_unverified"
+      : pipelineMetrics.evidenceAnchorPassCount > 0
+        && pipelineMetrics.semanticVerificationPassCount === 0
+        ? "semantic_verification_failed"
+        : relevanceFailure && pipelineMetrics.relevancePassCount === 0
+          ? "source_topic_relevance_unverified"
+          : semanticFailure
+            ? "semantic_verification_failed"
+            : anchorFailure
+              ? "evidence_anchor_unverified"
+              : evidenceFailure?.diagnostics?.includes("source_document_extraction_failed")
+                ? "source_document_extraction_failed"
+                : evidenceFailure?.diagnostics?.includes("source_fetch_failed")
+                  ? "source_fetch_failed"
+                  : "official_source_missing";
+    const failureSource = rejectionCode === "evidence_anchor_unverified"
+      ? anchorFailure
+      : rejectionCode === "semantic_verification_failed"
+        ? semanticFailure
+        : rejectionCode === "source_topic_relevance_unverified"
+          ? relevanceFailure
+          : evidenceFailure;
+    const failureStage = rejectionCode === "source_topic_relevance_unverified"
+      ? "relevance" as const
+      : rejectionCode === "official_source_missing"
+        ? "source" as const
+        : rejectionCode === "semantic_verification_failed"
+          ? "coverage" as const
+          : "evidence" as const;
+    const diagnostic = createPreflightDiagnostic(input, {
+      rejectionCode,
+      rejectionStage: failureStage,
+      sourcePolicyCompliance: "failed",
+      ...(failureSource ? {
+        canonicalSourceUrl: failureSource.finalUrl ?? failureSource.requestedUrl,
+        sourceTitle: failureSource.title,
+        evidenceExcerpt: failureSource.evidenceExcerpt,
+        relevanceStatus: "rejected" as const,
+      } : {}),
+      ...preflightDiagnosticMetadata(response),
+      ...preflightPipelineMetadata(response, pipelineMetrics),
+    });
+    if (diagnostic) {
+      throw new ApprovalSourcePreflightError(
+        "사용 가능한 공식 출처를 확인하지 못했습니다.",
+        diagnostic,
+      );
+    }
+    throw new ApprovalSourcePreflightError(
+      "사용 가능한 공식 출처를 확인하지 못했습니다.",
+    );
+  }
+  const profileCoverage = profileSourceRequirementApplicable
+    ? evaluateApprovalSourcePreflightCoverage({
+      profileId: input.snapshot.profileId,
+      opportunity: input.opportunity,
+      requiredClaims: profileRequiredClaims,
+      sources: classifiedAccepted
+        .filter((source) => source.diagnostics?.length === 0)
+        .map((source) => Object.freeze({
+          page: Object.freeze({
+            requestedUrl: source.requestedUrl,
+            finalUrl: source.finalUrl ?? source.requestedUrl,
+            status: 200,
+            contentType: "text/html",
+            title: source.title ?? "",
+            publisher: source.publisherId ?? source.finalUrl ?? source.requestedUrl,
+            text: source.pageText ?? "",
+            documentFormat: "html" as const,
+            extractionStatus: "extracted" as const,
+            contentLength: (source.pageText ?? "").length,
+          }),
+          claims: source.claims.flatMap((claim) => {
+            const spec = plan.claims.find((item) => item.claimId === claim.claimId);
+            return spec
+              ? [{ claimId: claim.claimId, field: spec.field, value: claim.value, evidenceExcerpt: claim.evidenceExcerpt }]
+              : [];
+          }),
+        })),
+    })
+    : evaluateApprovalSourcePreflightCoverage({
+      profileId: input.snapshot.profileId,
+      opportunity: input.opportunity,
+      requiredClaims: [],
+      sources: [],
+    });
+  if (profileCoverage.status === "incomplete") {
+    const diagnostic = createPreflightDiagnostic(input, {
+      requiredClaimId: profileCoverage.uncoveredClaimFields[0],
+      ...preflightDiagnosticMetadata(response),
+      ...preflightPipelineMetadata(response, pipelineMetrics),
+      ...coverageDiagnosticMetadata(plan, profileCoverage, classifiedAccepted, semanticAssessments),
+      rejectionCode: "coverage_incomplete",
+      rejectionStage: "coverage",
+      coverageStatus: profileCoverage.status,
+      sourcePolicyCompliance: "passed",
+    });
+    throw new ApprovalSourcePreflightError(
+      "필수 사실 근거가 완전히 검증되지 않아 원고 생성을 시작하지 않았습니다.",
+      diagnostic,
+      response.diagnostics,
+    );
+  }
   return Object.freeze({
     sources: Object.freeze(classifiedAccepted.map((source) => Object.freeze({
       url: source.finalUrl ?? source.requestedUrl,
@@ -331,12 +726,8 @@ async function runExplicitPreflight(input: Readonly<Parameters<typeof runApprova
       provenance: "citation" as const,
     }))),
     claimSources,
-    coverage: evaluateApprovalSourcePreflightCoverage({
-      profileId: input.snapshot.profileId,
-      opportunity: input.opportunity,
-      requiredClaims: [],
-      sources: [],
-    }),
+    coverage: profileCoverage,
+    sourcePolicyCompliance: profileSourceRequirementApplicable ? "passed" : "not_required",
     verificationSnapshot,
     ...(response.diagnostics ? { diagnostics: response.diagnostics } : {}),
   });
@@ -421,10 +812,38 @@ function explicitPreflightInstruction(
   snapshot: ApprovalPolicySnapshot,
   opportunity: ConfirmedContentOpportunity,
 ): string {
-  return `Perform explicit source discovery only. Use each claimId exactly as provided. Claims: ${JSON.stringify(opportunity.verificationPlan!.claims)}. Profile: ${snapshot.profileDisplayName}. Return JSON with sources containing url,title,evidenceExcerpt and claims containing claimId,value,evidenceExcerpt.`;
+  const criticalClaims = opportunity.verificationPlan!.claims.filter(isCriticalVerificationClaim);
+  return `Perform explicit source discovery only. Use each claimId exactly as provided. Search within the confirmed topic scope and do not substitute an adjacent topic. Topic: ${opportunity.selectedTopic}. Primary keyword: ${opportunity.primaryKeyword}. Reader problem: ${opportunity.readerProblem}. Search intent: ${opportunity.searchIntent}. Required Claims: ${JSON.stringify(criticalClaims)}. These are CRITICAL Claims only. Profile: ${snapshot.profileDisplayName}. Every required CRITICAL Claim must be deliberately searched and supported by its authoritative primary source. Determine authority from the Claim context: laws from the official law or responsible government authority; taxes from the tax authority, applicable law, or responsible authority; government benefits from the actual administering public body; financial regulation from the responsible regulator; and a named bank, card, insurance, or other entity's product terms from that same entity's official product page, disclosure, description, or terms. A government domain is not automatically authoritative for an entity-owned product Claim, and an official entity page must not be used for another entity's Claim. A single source may support multiple Claims, and multiple sources may divide Claim coverage; do not stop after finding one source. Each returned source must include at least one claims item with an exact canonical required claimId; omit any source that supports no required Claim. For each source, attach only the Claim fields that the exact page supports. Every attached claim must include its exact provided claimId. If a required Claim cannot be supported, omit unsupported evidence; the server will deterministically return its missing Claim ID and block Generation. Each source evidenceExcerpt must be a contiguous verbatim passage from the canonical extracted text of that fetched document body, including visible headings but excluding page title, metadata, search snippets, navigation, scripts, and styles. Do not paraphrase, summarize, or synthesize separate passages into a new sentence. If the source has no directly quotable supporting passage, omit that source instead of inventing or rewriting evidence. Choose the shortest passage that is sufficient to support the source relevance. Return JSON with sources containing url,title,evidenceExcerpt and claims containing claimId,value,evidenceExcerpt.`;
 }
 
-function parseExplicitSources(raw: string): readonly ExplicitDiscoveredSource[] {
+type SourcePipelineMetrics = {
+  assistantDeclaredSourceCount: number;
+  parsedSourceCount: number;
+  normalizedSourceCount: number;
+  canonicalUrlValidCount: number;
+  officialnessEvaluatedCount: number;
+  officialnessPassCount: number;
+  policyRetainedCount: number;
+  relevanceEvaluatedCount: number;
+  relevancePassCount: number;
+  fetchAttemptedCount: number;
+  fetchSucceededCount: number;
+  extractionAttemptedCount: number;
+  extractionSucceededCount: number;
+  evidenceAnchorEvaluatedCount: number;
+  evidenceAnchorPassCount: number;
+  semanticVerificationEvaluatedCount: number;
+  semanticVerificationPassCount: number;
+  rejectionSamples: Array<NonNullable<ApprovalSourcePreflightDiagnostic["rejectionSamples"]>[number]>;
+};
+
+function parseExplicitSources(
+  raw: string,
+  requiredClaimIds: ReadonlySet<string>,
+): Readonly<{
+  sources: readonly ExplicitDiscoveredSource[];
+  metrics: Pick<SourcePipelineMetrics, "assistantDeclaredSourceCount" | "parsedSourceCount" | "normalizedSourceCount" | "canonicalUrlValidCount" | "rejectionSamples">;
+}> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(stripFence(raw));
@@ -441,36 +860,87 @@ function parseExplicitSources(raw: string): readonly ExplicitDiscoveredSource[] 
       "Explicit source discovery response requires sources.",
     );
   }
-  return Object.freeze(values.slice(0, maximumPreflightSources).flatMap((item) => {
-    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+  const metrics = {
+    assistantDeclaredSourceCount: values.length,
+    parsedSourceCount: 0,
+    normalizedSourceCount: 0,
+    canonicalUrlValidCount: 0,
+    rejectionSamples: [] as SourcePipelineMetrics["rejectionSamples"],
+  };
+  const sources = values.slice(0, maximumPreflightSources).flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      if (metrics.rejectionSamples.length < 3) metrics.rejectionSamples.push(Object.freeze({ rejectionStage: "parse", rejectionCode: "source_shape_invalid", reason: "Source item was not an object." }));
+      return [];
+    }
+    metrics.parsedSourceCount += 1;
     const value = item as Record<string, unknown>;
     const rawUrl = typeof value.url === "string" ? value.url.trim() : "";
     const safety = evaluateApprovalSourceUrlSafety(rawUrl);
-    if (!safety.safe || !safety.normalizedUrl) return [];
-    const claims = Array.isArray(value.claims)
-      ? value.claims.flatMap((item) => {
+    if (!safety.safe || !safety.normalizedUrl) {
+      if (metrics.rejectionSamples.length < 3) metrics.rejectionSamples.push(Object.freeze({ url: rawUrl || undefined, rejectionStage: "normalize", rejectionCode: "source_url_unsafe", reason: safety.reason }));
+      return [];
+    }
+    metrics.normalizedSourceCount += 1;
+    const requestedUrl = canonicalizeApprovalEvidenceUrl(safety.normalizedUrl);
+    const canonicalSafety = evaluateApprovalSourceUrlSafety(requestedUrl);
+    if (!canonicalSafety.safe || !canonicalSafety.normalizedUrl) {
+      if (metrics.rejectionSamples.length < 3) metrics.rejectionSamples.push(Object.freeze({ url: rawUrl, canonicalUrl: requestedUrl, rejectionStage: "normalize", rejectionCode: "canonical_url_invalid", reason: canonicalSafety.reason }));
+      return [];
+    }
+    metrics.canonicalUrlValidCount += 1;
+    const rawClaims = Array.isArray(value.claims) ? value.claims : [];
+    const claims = rawClaims.flatMap((item) => {
           if (!item || typeof item !== "object" || Array.isArray(item)) return [];
           const claim = item as Record<string, unknown>;
           return typeof claim.claimId === "string"
+            && claim.claimId.trim().length > 0
             && typeof claim.value === "string"
+            && claim.value.trim().length > 0
             && typeof claim.evidenceExcerpt === "string"
+            && claim.evidenceExcerpt.trim().length > 0
             ? [{
                 claimId: claim.claimId.trim(),
                 value: claim.value.trim(),
                 evidenceExcerpt: claim.evidenceExcerpt.trim(),
               }]
             : [];
-        })
-      : [];
+        });
+    const malformedClaim = rawClaims.some((item) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) return true;
+        const claim = item as Record<string, unknown>;
+        return typeof claim.claimId !== "string"
+          || !claim.claimId.trim()
+          || typeof claim.value !== "string"
+          || !claim.value.trim()
+          || typeof claim.evidenceExcerpt !== "string"
+          || !claim.evidenceExcerpt.trim();
+      });
+    const unknownClaim = claims.some((claim) => !requiredClaimIds.has(claim.claimId));
+    const linkageFailure = !rawClaims.length || malformedClaim || unknownClaim;
+    if (linkageFailure && metrics.rejectionSamples.length < 3) {
+      metrics.rejectionSamples.push(Object.freeze({
+        url: requestedUrl,
+        canonicalUrl: requestedUrl,
+        rejectionStage: "parse",
+        rejectionCode: unknownClaim ? "source_claim_id_unknown" : "source_claim_linkage_missing",
+        reason: unknownClaim
+          ? "A source claim contained a Claim ID outside the confirmed required Claim set."
+          : "A source must contain at least one valid claimId, value, and evidenceExcerpt.",
+      }));
+    }
     return [{
-      requestedUrl: canonicalizeApprovalEvidenceUrl(safety.normalizedUrl),
+      requestedUrl,
       title: typeof value.title === "string" ? value.title.trim() : "",
       evidenceExcerpt: typeof value.evidenceExcerpt === "string"
         ? value.evidenceExcerpt.trim()
         : "",
-      claims,
+      claims: linkageFailure ? [] : claims,
+      ...(linkageFailure
+        ? { diagnostics: Object.freeze([unknownClaim ? "source_claim_id_unknown" : "source_claim_linkage_missing"]) }
+        : {}),
     }];
-  }));
+  });
+  return Object.freeze({ sources: Object.freeze(sources), metrics: Object.freeze(metrics) });
 }
 
 export function withApprovalSourcePreflightInstruction(
@@ -548,7 +1018,13 @@ function approvalSourceDiscoveryInstruction(
     scopeBoundaries: opportunity.qualityTarget.scopeBoundaries,
   };
   const requiredClaimContract = requiredClaims.map((claim) => ({
+    ...(claim.claimId ? { claimId: claim.claimId } : {}),
     field: claim.field,
+    ...(claim.statement ? { statement: claim.statement } : {}),
+    ...(claim.kind ? { kind: claim.kind } : {}),
+    ...(claim.qualifiers ? { qualifiers: claim.qualifiers } : {}),
+    ...(claim.temporalRequirement ? { temporalRequirement: claim.temporalRequirement } : {}),
+    ...(claim.required !== undefined ? { required: claim.required } : {}),
     ...(claim.plannedValue ? { plannedValue: claim.plannedValue } : {}),
   }));
   return `Perform source discovery and Claim submission only. Do not write, outline, or draft the article.
@@ -561,11 +1037,11 @@ Rules:
 - Open or inspect each proposed page during this call.
 - Return a direct detail, guidance, law, notice, application, collection, or institutional record page; never return a search-result page, navigation page, copied article, community post, or secondary blog.
 - Every URL must be HTTPS and must appear in the web-search sources from this same response.
-- Source evidenceExcerpt must be one short verbatim factual passage from that exact page proving that the page is relevant. Do not paraphrase, invent, or combine text from another page.
-- For every required Claim field, attach the Claim to at least one source in claims.
-- Every Claim must contain field, value, and evidenceExcerpt.
+- Source evidenceExcerpt must be one short contiguous verbatim factual passage from the canonical extracted text of that fetched document body, including visible headings but excluding title, metadata, search snippets, navigation, scripts, and styles. Do not paraphrase, invent, or combine text from another page.
+- For every required Claim ID, attach the same claimId to at least one source in claims.
+- Every Claim must contain the exact required claimId, value, and evidenceExcerpt; never substitute a field name or another Claim ID.
 - Claim value must be a concise exact factual value or sentence proved by that same page.
-- Claim evidenceExcerpt must be a short verbatim passage from that same page containing or directly proving the Claim value.
+- Claim evidenceExcerpt must be a short contiguous verbatim passage from that same canonical extracted document text containing or directly proving the Claim value.
 - Do not attach a Claim field that the page does not support.
 - Several official sources may divide the Claims, but the complete sources array must cover every required Claim.
 - If a required Claim cannot be verified, return the usable sources and omit the unsupported Claim. The server will block Generation.
@@ -640,6 +1116,9 @@ function parseDiscoveredSources(raw: string): readonly DiscoveredSource[] {
 function parseClaim(value: unknown): readonly ApprovalSourcePreflightClaim[] {
   if (!value || typeof value !== "object" || Array.isArray(value)) return [];
   const claim = value as Record<string, unknown>;
+  const claimId = typeof claim.claimId === "string"
+    ? claim.claimId.trim().slice(0, maximumClaimFieldLength)
+    : "";
   const field = typeof claim.field === "string"
     ? claim.field.trim().slice(0, maximumClaimFieldLength)
     : "";
@@ -650,8 +1129,8 @@ function parseClaim(value: unknown): readonly ApprovalSourcePreflightClaim[] {
     ? normalizeClaimText(claim.evidenceExcerpt)
       .slice(0, maximumClaimEvidenceLength)
     : "";
-  return field && factValue && evidenceExcerpt
-    ? [Object.freeze({ field, value: factValue, evidenceExcerpt })]
+  return claimId && field && factValue && evidenceExcerpt
+    ? [Object.freeze({ claimId, field, value: factValue, evidenceExcerpt })]
     : [];
 }
 
@@ -664,7 +1143,7 @@ async function fetchPreflightPages(
   return Object.freeze(pages);
 }
 
-async function fetchPreflightPage(
+export async function fetchPreflightPage(
   requestedUrl: string,
   fetcher: SiteApprovalReadinessFetch,
 ): Promise<ApprovalSourcePage> {
@@ -689,7 +1168,7 @@ async function fetchPreflightPage(
       fetched.response,
       sourcePreflightMaximumBytes,
     );
-    const extracted = normalizeApprovalSourceDocument({
+    const extracted = normalizeApprovalSourceDocumentServer({
       requestedUrl,
       finalUrl: fetched.finalUrl,
       status: fetched.response.status,
@@ -820,6 +1299,9 @@ function preflightPageRejection(
   snapshot: ApprovalPolicySnapshot,
   page: ApprovalSourcePage,
   evidenceExcerpt: string,
+  opportunity: ConfirmedContentOpportunity,
+  additionalScope: readonly string[] = [],
+  authorityClaims?: readonly import("../approval").VerificationClaimSpec[],
 ): string | undefined {
   if (page.fetchError) return `페이지 요청 실패: ${page.fetchError}`;
   if (page.status < 200 || page.status >= 400) {
@@ -832,15 +1314,31 @@ function preflightPageRejection(
   if (page.text.trim().length < minimumExtractedPageLength) {
     return "추출된 본문이 사실 확인에 사용하기에는 너무 짧습니다.";
   }
-  if (!officialSourceAllowed(snapshot.profileId, page)) {
-    return "활성 승인 프로필의 공식 출처로 확인되지 않았습니다.";
+  const authority = authorityClaims
+    ? evaluateApprovalSourceAuthority({
+      profileId: snapshot.profileId,
+      page,
+      claims: authorityClaims,
+    })
+    : undefined;
+  if (authority ? authority.status !== "passed" : !officialSourceAllowed(snapshot.profileId, page)) {
+    return authority?.diagnosticCode
+      ?? "활성 승인 프로필의 공식 출처로 확인되지 않았습니다.";
   }
-  if (!evidenceExcerptMatches([
-    page.title,
-    page.publisher,
-    page.text,
-  ].join("\n"), evidenceExcerpt)) {
-    return "제시된 근거 문구를 실제 페이지 본문에서 확인하지 못했습니다.";
+  const relevance = evaluateApprovalSourceRelevance({
+    profileId: snapshot.profileId,
+    opportunity,
+    page,
+    additionalScope,
+    ...(authority?.authorityKinds.includes("entity_product")
+      ? { minimumClaimCoverage: 0.5 }
+      : {}),
+  });
+  if (relevance.status !== "passed") {
+    return relevance.diagnosticCode;
+  }
+  if (!evidenceExcerptMatches(page.text, evidenceExcerpt)) {
+    return "evidence_anchor_unverified";
   }
   return undefined;
 }
@@ -850,6 +1348,189 @@ function evidenceExcerptMatches(pageText: string, excerpt: string): boolean {
   const candidate = normalizeComparableText(excerpt);
   return candidate.length >= minimumEvidenceExcerptLength
     && page.includes(candidate);
+}
+
+function sourceRelevanceScope(
+  opportunity: ConfirmedContentOpportunity,
+  claims: readonly Readonly<{
+    field?: string;
+    claimId?: string;
+    value: string;
+    evidenceExcerpt: string;
+  }>[],
+): readonly string[] {
+  const fields = new Set(claims.flatMap((claim) => claim.field ? [claim.field] : []));
+  const claimIds = new Set(claims.flatMap((claim) => claim.claimId ? [claim.claimId] : []));
+  const plannedClaims = opportunity.verificationPlan?.claims
+    .filter((claim) => fields.has(claim.field) || claimIds.has(claim.claimId))
+    .flatMap((claim) => [
+      claim.field,
+      claim.statement,
+      claim.rawValue ?? "",
+      claim.qualifiers.subject,
+      claim.qualifiers.scope,
+      claim.qualifiers.basis,
+    ]) ?? [];
+  const contractClaims = opportunity.requiredEvidenceContract?.requiredClaims
+    .filter((claim) => fields.has(claim.field) || opportunity.verificationPlan?.claims.some((planned) =>
+      claimIds.has(planned.claimId) && planned.field === claim.field))
+    .flatMap((claim) => [claim.field, claim.plannedValue ?? ""]) ?? [];
+  return Object.freeze([
+    ...plannedClaims,
+    ...contractClaims,
+  ].filter((value): value is string => Boolean(value)));
+}
+
+function explicitSourceAuthorityClaims(
+  plannedClaims: readonly import("../approval").VerificationClaimSpec[],
+  sourceClaims: readonly Readonly<{ claimId: string }>[],
+): readonly import("../approval").VerificationClaimSpec[] {
+  const claimIds = new Set(sourceClaims.map((claim) => claim.claimId));
+  return Object.freeze(plannedClaims.filter((claim) => claimIds.has(claim.claimId)));
+}
+
+function createPreflightDiagnostic(
+  input: Readonly<Parameters<typeof runApprovalSourcePreflight>[0]>,
+  values: Pick<ApprovalSourcePreflightDiagnostic, "rejectionCode" | "rejectionStage">
+    & Partial<Omit<ApprovalSourcePreflightDiagnostic, "schemaVersion" | "rejectionCode" | "rejectionStage">>,
+): ApprovalSourcePreflightDiagnostic {
+  const scope = [
+    input.opportunity.selectedTopic,
+    input.opportunity.primaryKeyword,
+    ...input.opportunity.secondaryKeywords,
+  ].join("|");
+  let hash = 2166136261;
+  for (let index = 0; index < scope.length; index += 1) {
+    hash ^= scope.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  const { rejectionCode, rejectionStage, ...optionalValues } = values;
+  return createApprovalSourcePreflightDiagnostic({
+    preflightExecutionId: `preflight-${input.opportunity.opportunityId}`,
+    contractId: input.opportunity.requiredEvidenceContract?.contractId,
+    contractVersion: input.opportunity.requiredEvidenceContract?.schemaVersion,
+    topicScopeFingerprint: `topic-${(hash >>> 0).toString(16).padStart(8, "0")}`,
+    selectedTopic: input.opportunity.selectedTopic,
+    primaryKeyword: input.opportunity.primaryKeyword,
+    profileId: input.snapshot.profileId,
+    rejectionCode,
+    rejectionStage,
+    ...optionalValues,
+  });
+}
+
+function preflightDiagnosticMetadata(
+  response: AIResponse,
+): Partial<Pick<ApprovalSourcePreflightDiagnostic, "preflightResponseId" | "webSearchCalls" | "webSourceCount">> {
+  const diagnostics = response.diagnostics;
+  return {
+    ...(diagnostics?.responseId ? { preflightResponseId: diagnostics.responseId } : {}),
+    ...(typeof diagnostics?.webSearchCalls === "number" ? { webSearchCalls: diagnostics.webSearchCalls } : {}),
+    ...(diagnostics?.webSources ? { webSourceCount: diagnostics.webSources.length } : {}),
+  };
+}
+
+function preflightPipelineMetadata(
+  response: AIResponse,
+  metrics: SourcePipelineMetrics,
+): Partial<Pick<ApprovalSourcePreflightDiagnostic,
+  | "rawWebSourceCount"
+  | "assistantDeclaredSourceCount"
+  | "parsedSourceCount"
+  | "normalizedSourceCount"
+  | "canonicalUrlValidCount"
+  | "officialnessEvaluatedCount"
+  | "officialnessPassCount"
+  | "policyRetainedCount"
+  | "relevanceEvaluatedCount"
+  | "relevancePassCount"
+  | "fetchAttemptedCount"
+  | "fetchSucceededCount"
+  | "extractionAttemptedCount"
+  | "extractionSucceededCount"
+  | "evidenceAnchorEvaluatedCount"
+  | "evidenceAnchorPassCount"
+  | "semanticVerificationEvaluatedCount"
+  | "semanticVerificationPassCount"
+  | "rejectionSamples"
+>> {
+  return {
+    rawWebSourceCount: response.diagnostics?.webSources?.length ?? 0,
+    assistantDeclaredSourceCount: metrics.assistantDeclaredSourceCount,
+    parsedSourceCount: metrics.parsedSourceCount,
+    normalizedSourceCount: metrics.normalizedSourceCount,
+    canonicalUrlValidCount: metrics.canonicalUrlValidCount,
+    officialnessEvaluatedCount: metrics.officialnessEvaluatedCount,
+    officialnessPassCount: metrics.officialnessPassCount,
+    policyRetainedCount: metrics.policyRetainedCount,
+    relevanceEvaluatedCount: metrics.relevanceEvaluatedCount,
+    relevancePassCount: metrics.relevancePassCount,
+    fetchAttemptedCount: metrics.fetchAttemptedCount,
+    fetchSucceededCount: metrics.fetchSucceededCount,
+    extractionAttemptedCount: metrics.extractionAttemptedCount,
+    extractionSucceededCount: metrics.extractionSucceededCount,
+    evidenceAnchorEvaluatedCount: metrics.evidenceAnchorEvaluatedCount,
+    evidenceAnchorPassCount: metrics.evidenceAnchorPassCount,
+    semanticVerificationEvaluatedCount: metrics.semanticVerificationEvaluatedCount,
+    semanticVerificationPassCount: metrics.semanticVerificationPassCount,
+    ...(metrics.rejectionSamples.length
+      ? { rejectionSamples: Object.freeze(metrics.rejectionSamples.slice(0, 3)) }
+      : {}),
+  };
+}
+
+function coverageDiagnosticMetadata(
+  plan: { claims: readonly import("../approval").VerificationClaimSpec[] },
+  coverage: ApprovalSourcePreflightCoverageResult,
+  sources: readonly Readonly<{
+    finalUrl?: string;
+    requestedUrl: string;
+    title?: string;
+    claims: readonly Readonly<{ claimId: string; value: string; evidenceExcerpt: string }>[];
+    authoritative?: boolean;
+    diagnostics?: readonly string[];
+    pageText?: string;
+  }>[],
+  semanticAssessments: readonly import("../approval").VerificationSourceAssessment[] = [],
+): Pick<ApprovalSourcePreflightDiagnostic, "requiredClaimIds" | "coveredClaimIds" | "missingClaimIds" | "coverageSources"> {
+  const sourceCoverage = new Map(coverage.sources.map((source) => [source.url, source]));
+  return {
+    requiredClaimIds: Object.freeze(plan.claims.map((claim) => claim.claimId)),
+    coveredClaimIds: Object.freeze([...(coverage.coveredClaimIds ?? [])]),
+    missingClaimIds: Object.freeze([...(coverage.uncoveredClaimIds ?? [])]),
+    coverageSources: Object.freeze(sources.slice(0, 6).map((source) => {
+      const url = source.finalUrl ?? source.requestedUrl;
+      const status = sourceCoverage.get(url);
+      const diagnostics = source.diagnostics ?? [];
+      const sourceSemanticAssessments = semanticAssessments.filter((assessment) =>
+        assessment.canonicalUrl === url,
+      );
+      const semantic = sourceSemanticAssessments.length === 0
+        ? "unknown" as const
+        : sourceSemanticAssessments.every((assessment) => assessment.supports)
+          ? "passed" as const
+          : "rejected" as const;
+      return Object.freeze({
+        url,
+        ...(source.title ? { title: source.title } : {}),
+        supportingClaimIds: Object.freeze([...(status?.coveredClaimIds ?? [])]),
+        rejectedClaimIds: Object.freeze([...(status
+          ? (status.rejectedClaimIds ?? [])
+          : source.claims.map((claim) => claim.claimId))]),
+        officialness: source.authoritative === true
+          ? "passed" as const
+          : diagnostics.includes("official_source_rejected") ? "rejected" as const : "unknown" as const,
+        relevance: diagnostics.includes("source_topic_relevance_unverified")
+          ? "rejected" as const
+          : source.authoritative === true ? "passed" as const : "unknown" as const,
+        anchor: diagnostics.includes("evidence_anchor_unverified")
+          ? "rejected" as const
+          : source.pageText ? "passed" as const : "unknown" as const,
+        semantic,
+        ...(source.claims[0]?.evidenceExcerpt ? { evidenceExcerpt: source.claims[0].evidenceExcerpt } : {}),
+      });
+    })),
+  };
 }
 
 function normalizeComparableText(value: string): string {

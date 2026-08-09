@@ -1,9 +1,11 @@
 import type { PersistenceMutation, PersistenceStore } from "../../../core/data";
 import {
   canonicalizeApprovalEvidenceUrl,
+  createNotRequiredApprovalEvidencePack,
   evaluateApprovalDuplicateRisk,
   extractProfileApprovalFactsFromText,
   normalizeContentPurpose,
+  resolveApprovalEvidenceRequirement,
   type ApprovalDuplicateCheckSnapshot,
   type ApprovalEvidencePack,
   type ApprovalEvidenceProvenance,
@@ -205,6 +207,21 @@ function attachApprovalEvidenceCandidatePacks(data: UserData): UserData {
     if (normalizeContentPurpose(aware.contentPurpose) !== "adsense_approval" || !content.document?.metadata) return content;
 
     const existing = content.document.metadata.approvalEvidence;
+    const requirement = resolveApprovalEvidenceRequirement(content.opportunity);
+    if (requirement === "not_required") {
+      const pack = existing && !emptyMissingEvidencePack(existing)
+        ? existing
+        : createNotRequiredApprovalEvidencePack();
+      if (JSON.stringify(existing) === JSON.stringify(pack)) return content;
+      changed = true;
+      return {
+        ...content,
+        document: {
+          ...content.document,
+          metadata: { ...content.document.metadata, approvalEvidence: pack },
+        },
+      } as UserContent;
+    }
     if (existing?.reviewedRevisionId === editorialRevisionId(content.document)) return content;
 
     const visibleCandidates = collectEvidenceCandidates(content.document, aware.approvalProfileId);
@@ -428,6 +445,13 @@ function collectEvidenceCandidates(
     }
   }
   return Object.freeze([...found.values()]);
+}
+
+function emptyMissingEvidencePack(pack: ApprovalEvidencePack): boolean {
+  return pack.status === "missing"
+    && pack.sources.length === 0
+    && !pack.reviewedAt
+    && !pack.reviewedRevisionId;
 }
 
 function linkedClaimBlockIds(

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
+  approvalEvidenceIsApplicable,
   isApprovalEvidenceSelectedSource,
   type ApprovalEvidenceSource,
   type SiteApprovalReadinessSnapshot,
@@ -26,13 +27,14 @@ export type ApprovalReadinessAutoRunDecision = Readonly<{
   publishingContextKey: string;
   hasStoredResult: boolean;
   shouldRun: boolean;
+  evidenceApplicable: boolean;
   sources: readonly ApprovalEvidenceSource[];
   evidenceSummary?: ApprovalEvidenceSummary;
 }>;
 
 type ApprovalEvidenceSummary = Readonly<{
-  status: "verified" | "needs_review" | "missing";
-  coverageStatus?: "verified" | "needs_review" | "missing";
+  status: "verified" | "needs_review" | "missing" | "not_required";
+  coverageStatus?: "verified" | "needs_review" | "missing" | "not_required";
   reviewedAt?: string;
   informationAsOf?: string;
   presentationStatus?: "ready" | "conflict" | "not_projected";
@@ -62,7 +64,7 @@ export function approvalReadinessIdentityContamination(data: UserData | undefine
 }
 
 export function approvalReadinessAutoRunDecision(content: UserContent | undefined): ApprovalReadinessAutoRunDecision {
-  if (!content?.document) return Object.freeze({ currentRevisionId: "", publishingContextKey: "", hasStoredResult: false, shouldRun: false, sources: Object.freeze([]) });
+  if (!content?.document) return Object.freeze({ currentRevisionId: "", publishingContextKey: "", hasStoredResult: false, shouldRun: false, evidenceApplicable: true, sources: Object.freeze([]) });
   const approvalContent = content as UserContent & Readonly<{ contentPurpose?: string }>;
   const currentRevisionId = editorialRevisionId(content.document);
   const publishingContextKey = internalLinkCatalogContextKey(content);
@@ -70,6 +72,7 @@ export function approvalReadinessAutoRunDecision(content: UserContent | undefine
   const siteReadiness = content.document.metadata?.siteApprovalReadiness;
   const execution = content.document.metadata?.approvalReadinessExecution;
   const evidenceFingerprint = approvalEvidenceFingerprint(content.document);
+  const evidenceApplicable = approvalEvidenceIsApplicable(content.opportunity);
   const hasStoredResult = execution?.version === approvalReadinessInspectionVersion
     && evidence?.reviewedRevisionId === currentRevisionId
     && isCurrentSiteReadinessSnapshot(siteReadiness)
@@ -86,8 +89,9 @@ export function approvalReadinessAutoRunDecision(content: UserContent | undefine
     publishingContextKey,
     hasStoredResult,
     shouldRun: approvalContent.contentPurpose === "adsense_approval" && !hasStoredResult && qualityIsCurrent && publishingContextIsFinalized(content),
-    sources: Object.freeze([...(evidence?.sources ?? [])]),
-    ...(evidence ? { evidenceSummary: Object.freeze({ status: evidence.status, coverageStatus: evidence.coverageStatus, reviewedAt: evidence.reviewedAt, informationAsOf: evidence.informationAsOf, presentationStatus: evidence.presentationStatus }) } : {}),
+    evidenceApplicable,
+    sources: evidenceApplicable ? Object.freeze([...(evidence?.sources ?? [])]) : Object.freeze([]),
+    ...(evidenceApplicable && evidence ? { evidenceSummary: Object.freeze({ status: evidence.status, coverageStatus: evidence.coverageStatus, reviewedAt: evidence.reviewedAt, informationAsOf: evidence.informationAsOf, presentationStatus: evidence.presentationStatus }) } : {}),
   });
 }
 
@@ -103,6 +107,7 @@ export function ApprovalReadinessActions(props: Readonly<{
   const [sources, setSources] = useState<readonly ApprovalEvidenceSource[]>([]);
   const [summary, setSummary] = useState<ApprovalEvidenceSummary>();
   const [stored, setStored] = useState(false);
+  const [evidenceApplicable, setEvidenceApplicable] = useState(true);
   const [identityContamination, setIdentityContamination] = useState<readonly string[]>([]);
   const running = useRef(false);
   const inspected = useRef("");
@@ -113,27 +118,34 @@ export function ApprovalReadinessActions(props: Readonly<{
     if (running.current) return;
     running.current = true;
     setState("running");
-    setMessage(trigger === "automatic" ? "현재 문서 버전의 공식 출처와 공개 사이트를 자동 검사하고 있습니다." : "공식 출처와 공개 사이트를 다시 검사하고 있습니다.");
+    setMessage(evidenceApplicable
+      ? trigger === "automatic" ? "현재 문서 버전의 공식 출처와 공개 사이트를 자동 검사하고 있습니다." : "공식 출처와 공개 사이트를 다시 검사하고 있습니다."
+      : trigger === "automatic" ? "현재 문서 버전의 공개 사이트를 자동 검사하고 있습니다." : "공개 사이트 상태를 다시 검사하고 있습니다.");
     try {
       const response = await fetch("/api/approval/readiness", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ workspaceId: props.workspaceId, contentId: props.contentId }) });
       const result = await response.json() as { data?: UserData; document?: ContentDocument; quality?: QualityReport; evidence?: { status: ApprovalEvidenceSummary["status"]; coverageStatus?: ApprovalEvidenceSummary["coverageStatus"]; reviewedAt?: string; informationAsOf?: string; presentationStatus?: ApprovalEvidenceSummary["presentationStatus"]; verifiedSourceCount: number; rejectedSourceCount: number; sources: readonly ApprovalEvidenceSource[] }; siteReadiness?: { status: "passed" | "needs_review" | "blocked" }; error?: string };
       if (!response.ok || !result.data || !result.document || !result.quality) throw new Error(result.error ?? "승인 준비 검사를 완료하지 못했습니다.");
       await onCompleted.current({ data: result.data, document: result.document, quality: result.quality });
-      setSources(result.evidence?.sources ?? []);
-      setSummary(result.evidence ? { status: result.evidence.status, coverageStatus: result.evidence.coverageStatus, reviewedAt: result.evidence.reviewedAt, informationAsOf: result.evidence.informationAsOf, presentationStatus: result.evidence.presentationStatus } : undefined);
+      const resultContent = result.data.contents.find((item) => item.id === props.contentId);
+      const resultEvidenceApplicable = approvalEvidenceIsApplicable(resultContent?.opportunity);
+      setEvidenceApplicable(resultEvidenceApplicable);
+      setSources(resultEvidenceApplicable ? result.evidence?.sources ?? [] : []);
+      setSummary(resultEvidenceApplicable && result.evidence ? { status: result.evidence.status, coverageStatus: result.evidence.coverageStatus, reviewedAt: result.evidence.reviewedAt, informationAsOf: result.evidence.informationAsOf, presentationStatus: result.evidence.presentationStatus } : undefined);
       setStored(true);
       setState("success");
-      const evidenceLabel = result.evidence?.status === "verified"
+      const evidenceLabel = !resultEvidenceApplicable
+        ? ""
+        : result.evidence?.status === "verified"
         ? `채택된 공식 근거 ${result.evidence.verifiedSourceCount}개 검증 완료`
         : result.evidence?.status === "missing"
           ? "공식 출처 없음"
           : `채택 근거 확인 필요 ${result.evidence?.rejectedSourceCount ?? 0}개`;
-      setMessage(`${trigger === "automatic" ? "자동 검사 완료" : "저장 결과 확인 완료"} · ${evidenceLabel}`);
+      setMessage([trigger === "automatic" ? "자동 검사 완료" : "저장 결과 확인 완료", evidenceLabel].filter(Boolean).join(" · "));
     } catch (error) {
       setState("error");
       setMessage(error instanceof Error ? error.message : "승인 준비 검사를 완료하지 못했습니다.");
     } finally { running.current = false; }
-  }, [props.contentId, props.workspaceId]);
+  }, [evidenceApplicable, props.contentId, props.workspaceId]);
 
   useEffect(() => {
     if (props.disabled || running.current) return;
@@ -151,6 +163,7 @@ export function ApprovalReadinessActions(props: Readonly<{
         if (inspected.current === key) return;
         inspected.current = key;
         setIdentityContamination(contamination);
+        setEvidenceApplicable(decision.evidenceApplicable);
         setSources(decision.sources);
         setSummary(decision.evidenceSummary);
         setStored(decision.hasStoredResult);
@@ -169,7 +182,7 @@ export function ApprovalReadinessActions(props: Readonly<{
     <button className="rounded-xl border border-[#ff6b6b] bg-white px-4 py-2.5 text-sm font-semibold text-[#d94f4f] disabled:opacity-50" disabled={props.disabled || state === "running" || identityBlocked} onClick={() => void execute("manual")} type="button">{state === "running" ? "승인 준비 검사 중…" : stored ? "승인 준비 다시 검사" : "승인 준비 검사 실행"}</button>
     <p className="max-w-[640px] text-right text-xs text-[#77777f]">자동 검사는 공개 사이트 상태를 진단하며 애드센스 승인을 보장하지 않습니다.</p>
     {message ? <p aria-live="polite" className={`max-w-[640px] text-right text-xs ${state === "error" ? "text-red-700" : state === "success" ? "text-emerald-700" : "text-[#77777f]"}`}>{message}</p> : null}
-    {sources.length ? <details className="mt-2 w-full rounded-xl border border-black/6 bg-[#fafafa] p-4 text-left">
+    {evidenceApplicable && sources.length ? <details className="mt-2 w-full rounded-xl border border-black/6 bg-[#fafafa] p-4 text-left">
       <summary className="cursor-pointer text-sm font-semibold">공식 근거 {selectedSources.length}개 · 검색 후보 {candidateSources.length}개</summary>
       {summary ? <p className="mt-2 text-xs text-[#66666f]">필수 Claim coverage: {summary.coverageStatus ?? summary.status} · Claim 최종 검토일: {summary.reviewedAt?.slice(0, 10) ?? "미완료"} · 원고 정보 기준일: {summary.informationAsOf ?? "미기록"}</p> : null}
       {selectedSources.length ? <section className="mt-3"><h4 className="text-xs font-semibold">채택된 공식 근거</h4><div className="mt-2 space-y-2">{selectedSources.map((source, index) => <EvidenceSourceCard key={`${source.sourceId}-selected-${index}`} source={source} index={index} candidate={false} />)}</div></section> : <p className="mt-3 rounded-lg bg-amber-50 p-3 text-xs text-amber-900">현재 원고의 필수 Claim을 뒷받침하도록 채택된 공식 근거가 없습니다.</p>}

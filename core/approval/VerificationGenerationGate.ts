@@ -8,6 +8,7 @@ import {
   verificationSnapshotFingerprint,
 } from "./VerificationClaimFingerprint";
 import { evaluateVerificationClaim } from "./VerificationClaimPolicy";
+import { isCriticalVerificationClaim } from "./VerificationClaim";
 
 export type VerificationGenerationPlan = Readonly<{
   claims: readonly VerificationClaimSpec[];
@@ -37,7 +38,7 @@ export function evaluateVerificationGenerationGate(input: Readonly<{
 }>): VerificationGenerationGateResult {
   const diagnostics: string[] = [];
   const requiredClaimIds = input.plan.claims
-    .filter((claim) => claim.required)
+    .filter(isCriticalVerificationClaim)
     .map((claim) => claim.claimId);
 
   if (verificationPlanFingerprint(input.plan.claims) !== input.plan.fingerprint) {
@@ -86,9 +87,10 @@ export function evaluateVerificationGenerationGate(input: Readonly<{
   const verifiedCanonicalUrls = new Set<string>();
 
   for (const claim of input.plan.claims) {
+    if (!isCriticalVerificationClaim(claim)) continue;
     const result = resultByClaimId.get(claim.claimId);
     if (!result || result.status !== "verified") {
-      if (claim.required) blockingClaimIds.push(claim.claimId);
+      blockingClaimIds.push(claim.claimId);
       continue;
     }
 
@@ -104,7 +106,7 @@ export function evaluateVerificationGenerationGate(input: Readonly<{
     });
     if (reevaluated.status !== "verified") {
       diagnostics.push(`verification_claim_policy_recheck_failed:${claim.claimId}`);
-      if (claim.required) blockingClaimIds.push(claim.claimId);
+      blockingClaimIds.push(claim.claimId);
       continue;
     }
 
@@ -112,7 +114,7 @@ export function evaluateVerificationGenerationGate(input: Readonly<{
     const usableWithUrl = usable.filter((assessment) => Boolean(assessment.canonicalUrl?.trim()));
     if (!usableWithUrl.length) {
       diagnostics.push(`verification_verified_claim_missing_generation_source:${claim.claimId}`);
-      if (claim.required) blockingClaimIds.push(claim.claimId);
+      blockingClaimIds.push(claim.claimId);
       continue;
     }
 

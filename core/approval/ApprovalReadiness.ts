@@ -1,6 +1,9 @@
 import type { ContentDocument } from "../content/ContentDocument";
 import { serializeStructuredList } from "../content/StructuredText";
-import { evaluateApprovalPreparationText, type ApprovalPreparationIssue } from "./ApprovalPolicy";
+import {
+  evaluateApprovalPreparationText,
+  type ApprovalPreparationIssue,
+} from "./ApprovalPolicy";
 import type {
   ApprovalSourceDocumentFormat,
   ApprovalSourceExtractionStatus,
@@ -93,11 +96,12 @@ export type ApprovalEvidenceSource = Readonly<{
 
 export type ApprovalEvidencePack = Readonly<{
   version: "1.0";
-  status: "verified" | "needs_review" | "missing";
+  status: "verified" | "needs_review" | "missing" | "not_required";
   reviewedAt?: string;
   reviewedRevisionId?: string;
   informationAsOf?: string;
-  coverageStatus?: "verified" | "needs_review" | "missing";
+  coverageStatus?: "verified" | "needs_review" | "missing" | "not_required";
+  sourcePolicyCompliance?: "passed" | "failed" | "not_required";
   presentationStatus?: "ready" | "conflict" | "not_projected";
   presentationReasons?: readonly string[];
   requiredFactFields?: readonly string[];
@@ -105,6 +109,16 @@ export type ApprovalEvidencePack = Readonly<{
   unverifiedFactFields?: readonly string[];
   sources: readonly ApprovalEvidenceSource[];
 }>;
+
+export function createNotRequiredApprovalEvidencePack(): ApprovalEvidencePack {
+  return Object.freeze({
+    version: "1.0",
+    status: "not_required",
+    coverageStatus: "not_required",
+    sourcePolicyCompliance: "not_required",
+    sources: Object.freeze([]),
+  });
+}
 
 export type ApprovalDuplicateCheckSnapshot = Readonly<{
   version: "1.0";
@@ -139,6 +153,7 @@ export type ApprovalReadinessCheck = Readonly<{
   status: ApprovalReadinessCheckStatus;
   message: string;
   action?: string;
+  applicable?: boolean;
 }>;
 
 export type ApprovalReadinessReport = Readonly<{
@@ -168,6 +183,12 @@ export function evaluateApprovalDraftIntegrity(
         .filter((source) => source.provenance !== "search_candidate")
         .map((source) => source.canonicalUrl ?? source.url),
       reviewedAt: evidence?.reviewedAt,
+      coverageStatus: evidence?.coverageStatus ?? evidence?.status,
+      requiredFactFields: evidence?.requiredFactFields,
+      verifiedFactFields: evidence?.verifiedFactFields,
+      unverifiedFactFields: evidence?.unverifiedFactFields,
+      evidenceRequired: verificationRequired,
+      timeSensitiveEvidenceRequired: verificationRequired,
     },
   );
   const readiness = evaluateApprovalReadiness(document, issues, true, verificationRequired);
@@ -237,9 +258,15 @@ function approvalPolicyCheck(issues: readonly ApprovalPreparationIssue[]): Appro
   });
 }
 
-function evidenceCheck(document: ContentDocument, verificationRequired: boolean): ApprovalReadinessCheck {
+function evidenceCheck(
+  document: ContentDocument,
+  verificationRequired: boolean,
+): ApprovalReadinessCheck {
   const pack = document.metadata?.approvalEvidence;
   const verifiedSources = pack?.sources.filter(validVerifiedSource) ?? [];
+  if (!verificationRequired) {
+    return Object.freeze({ key: "evidence", status: "passed", applicable: false, message: "현재 원고에는 mandatory Evidence가 적용되지 않습니다." });
+  }
   if (pack?.presentationStatus === "conflict") {
     return Object.freeze({
       key: "evidence",
@@ -248,10 +275,11 @@ function evidenceCheck(document: ContentDocument, verificationRequired: boolean)
       action: pack.presentationReasons?.join(" ") || "중복 출처 섹션의 소유권을 확인하세요.",
     });
   }
-  if (!verificationRequired) {
-    return Object.freeze({ key: "evidence", status: "passed", message: "현재 원고에는 explicit Verification Claim Gate가 필요하지 않아 공식 출처 검사를 적용하지 않았습니다." });
-  }
-  if (pack?.status === "verified" && pack.coverageStatus !== "needs_review" && pack.reviewedAt && verifiedSources.length > 0) {
+  if (pack?.status === "verified"
+    && (pack.coverageStatus === "verified" || pack.coverageStatus === undefined)
+    && pack.reviewedAt
+    && verifiedSources.length > 0
+    && (pack.unverifiedFactFields?.length ?? 0) === 0) {
     return Object.freeze({ key: "evidence", status: "passed", message: `공식 출처 ${verifiedSources.length}개와 최종 검토일을 확인했습니다.` });
   }
   if (pack?.status === "missing") {

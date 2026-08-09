@@ -1,10 +1,11 @@
+import { deflateSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 
 import {
   approvalSourceDocumentFormats,
-  normalizeApprovalSourceDocument,
   type ApprovalSourceExtractionStatus,
-} from "../../../../core/approval";
+} from "../../../../core/approval/ApprovalSourceDocumentAdapter";
+import { normalizeApprovalSourceDocumentServer as normalizeApprovalSourceDocument } from "../../../../core/approval/ApprovalSourceDocumentServerAdapter";
 
 const statuses = new Set<ApprovalSourceExtractionStatus>([
   "extracted",
@@ -47,6 +48,16 @@ describe("ApprovalSourceDocumentAdapter", () => {
     expect(result.text).not.toContain("ignore()");
   });
 
+  it("keeps visible headings in the canonical HTML document text", () => {
+    const result = normalizeApprovalSourceDocument(input(
+      "<html><head><title>Metadata title</title></head><body><h2>Visible legal heading</h2><p>Body passage with enough text for extraction.</p></body></html>",
+      "text/html; charset=utf-8",
+    ));
+
+    expect(result.text).toContain("Visible legal heading");
+    expect(result.text).not.toContain("Metadata title");
+  });
+
   it("sniffs and extracts textual bodies even when the MIME header is generic", () => {
     const result = normalizeApprovalSourceDocument(input(
       "공식 기관 안내\n지원 대상과 신청 기간 및 금액 기준을 설명하는 공개 문서입니다.",
@@ -78,18 +89,30 @@ describe("ApprovalSourceDocumentAdapter", () => {
     expect(csv.text).toContain("amount | 10만원");
   });
 
-  it("extracts a text-layer PDF and safely rejects a compressed or image-only PDF", () => {
+  it("extracts direct and Flate-compressed text-layer PDFs and rejects an image-only PDF", () => {
     const textPdf = normalizeApprovalSourceDocument(input(
       "%PDF-1.4\n1 0 obj<</Title (Official Claim)>>endobj\nBT (Continuing transaction official claim text with enough readable evidence for deterministic comparison.) Tj ET\n%%EOF",
       "application/pdf",
     ));
+    const compressedText = deflateSync(Buffer.from(
+      "BT (Compressed official claim text with enough evidence for deterministic comparison.) Tj ET",
+      "latin1",
+    ));
+    const compressedPdf = new Uint8Array([
+      ...new TextEncoder().encode("%PDF-1.7\n1 0 obj<</Filter/FlateDecode/Length 99>>\nstream\n"),
+      ...compressedText,
+      ...new TextEncoder().encode("\nendstream\n%%EOF"),
+    ]);
     const imagePdf = normalizeApprovalSourceDocument(input(
       new TextEncoder().encode("%PDF-1.7\n1 0 obj<</Filter/FlateDecode/Length 99>>stream\nx\u009c\u0000\u0001\u0002\nendstream\n%%EOF"),
       "application/pdf",
     ));
+    const compressed = normalizeApprovalSourceDocument(input(compressedPdf, "application/pdf"));
 
     expect(textPdf).toMatchObject({ format: "pdf", extractionStatus: "extracted", title: "Official Claim" });
     expect(textPdf.text).toContain("deterministic comparison");
+    expect(compressed).toMatchObject({ format: "pdf", extractionStatus: "extracted" });
+    expect(compressed.text).toContain("Compressed official claim text");
     expect(imagePdf).toMatchObject({ format: "pdf", extractionStatus: "unsupported" });
   });
 

@@ -13,6 +13,7 @@ import type {
   VerificationSnapshot,
   VerificationTemporalRequirement,
 } from "./VerificationClaim";
+import { isCriticalVerificationClaim } from "./VerificationClaim";
 import type {
   VerificationGenerationGateResult,
   VerificationGenerationPlan,
@@ -78,7 +79,7 @@ export function validateGeneratedFactualClaimDrafts(input: Readonly<{
     const surfaceText = draft.surfaceText.trim();
     const spec = specs.get(claimId);
     const result = results.get(claimId);
-    if (!claimId || !spec || !verifiedClaimIds.has(claimId)) {
+    if (!claimId || !spec || !isCriticalVerificationClaim(spec) || !verifiedClaimIds.has(claimId)) {
       reasons.push(`Generation이 검증되지 않은 Claim ID를 구조화 사실로 반환했습니다: ${claimId || "(empty)"}.`);
       continue;
     }

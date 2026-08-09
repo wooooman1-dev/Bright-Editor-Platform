@@ -187,4 +187,40 @@ describe("ApprovalPolicy", () => {
     expect(issues).not.toContainEqual(expect.objectContaining({ code: "PROFILE_SOURCE_URL_MISSING" }));
     expect(issues).not.toContainEqual(expect.objectContaining({ code: "PROFILE_REVIEW_DATE_MISSING" }));
   });
+
+  it("uses verified Claim coverage instead of a fixed source count", () => {
+    const snapshot = resolveApprovalPolicySnapshot("adsense_approval", "wordpress_life_economy_v1")!;
+    const issues = evaluateApprovalPreparationText(
+      "핵심 Claim을 공식 자료로 확인했습니다. 정보 기준일: 2026-08-01",
+      snapshot,
+      {
+        sourceUrls: ["https://official.example/claims"],
+        reviewedAt: "2026-08-02T00:00:00.000Z",
+        coverageStatus: "verified",
+        requiredFactFields: ["eligibility", "amount", "schedule"],
+        verifiedFactFields: ["eligibility", "amount", "schedule"],
+        unverifiedFactFields: [],
+      },
+    );
+
+    expect(issues).toEqual([]);
+  });
+
+  it("blocks profile evidence when Claim coverage is incomplete even with a source URL", () => {
+    const snapshot = resolveApprovalPolicySnapshot("adsense_approval", "wordpress_life_economy_v1")!;
+    const issues = evaluateApprovalPreparationText(
+      "핵심 Claim을 공식 자료로 확인했습니다. 정보 기준일: 2026-08-01",
+      snapshot,
+      {
+        sourceUrls: ["https://official.example/claims"],
+        reviewedAt: "2026-08-02T00:00:00.000Z",
+        coverageStatus: "needs_review",
+        requiredFactFields: ["eligibility", "amount", "schedule"],
+        verifiedFactFields: ["eligibility", "amount"],
+        unverifiedFactFields: ["schedule"],
+      },
+    );
+
+    expect(issues).toContainEqual(expect.objectContaining({ code: "PROFILE_SOURCE_REQUIREMENT_MISSING" }));
+  });
 });

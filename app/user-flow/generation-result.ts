@@ -1,5 +1,7 @@
 import type { ContentDocument, LongFormDiagnostic } from "../../core/content";
 import type { QualityReport } from "../../core/quality";
+import type { ApprovalSourcePreflightDiagnostic } from "../../core/approval";
+import type { AIResponse } from "../../core/ai";
 import type { UserData } from "./user-data";
 
 export type GenerationCompletionResult = Readonly<{
@@ -10,10 +12,17 @@ export type GenerationCompletionResult = Readonly<{
   qualityTargetBlocked?: boolean;
   reachedTarget?: boolean;
   diagnostic?: LongFormDiagnostic;
+  approvalSourcePreflightDiagnostic?: ApprovalSourcePreflightDiagnostic;
+  aiProviderDiagnostic?: AIResponse["diagnostics"];
 }>;
 
 export class GenerationCompletionError extends Error {
-  constructor(message: string, readonly diagnostic?: LongFormDiagnostic) {
+  constructor(
+    message: string,
+    readonly diagnostic?: LongFormDiagnostic,
+    readonly approvalSourcePreflightDiagnostic?: ApprovalSourcePreflightDiagnostic,
+    readonly aiProviderDiagnostic?: AIResponse["diagnostics"],
+  ) {
     super(message);
     this.name = "GenerationCompletionError";
   }

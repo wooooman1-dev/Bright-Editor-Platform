@@ -11,6 +11,8 @@ import {
   type LongFormDiagnostic,
 } from "../../core/content";
 import type { QualityReport } from "../../core/quality";
+import type { ApprovalSourcePreflightDiagnostic } from "../../core/approval";
+import type { AIResponse } from "../../core/ai";
 
 export type ThemePreference = "system" | "light" | "dark";
 export const supportedWorkspacePlatforms = ["tistory", "wordpress", "youtube", "naver_cafe"] as const;
@@ -121,6 +123,8 @@ export type ContentPlanningWorkflow = Readonly<{
   createdAt: string;
   updatedAt: string;
   longFormDiagnostic?: LongFormDiagnostic;
+  approvalSourcePreflightDiagnostic?: ApprovalSourcePreflightDiagnostic;
+  aiProviderDiagnostic?: AIResponse["diagnostics"];
 }>;
 
 export type UserContentStatus = "planning" | "configuration_required" | "draft" | "in_review" | "ready" | "draft_saved";
@@ -386,6 +390,8 @@ export function failContentPlanning(data: UserData, input: Readonly<{
   error: string;
   retryFrom: "planning" | "generation" | "review";
   diagnostic?: LongFormDiagnostic;
+  approvalSourcePreflightDiagnostic?: ApprovalSourcePreflightDiagnostic;
+  aiProviderDiagnostic?: AIResponse["diagnostics"];
   now: string;
 }>): UserData {
   try {
@@ -400,6 +406,12 @@ export function failContentPlanning(data: UserData, input: Readonly<{
           retryFrom: input.retryFrom,
           failedStep: input.retryFrom,
           ...(input.diagnostic ? { longFormDiagnostic: input.diagnostic } : {}),
+          ...(input.approvalSourcePreflightDiagnostic
+            ? { approvalSourcePreflightDiagnostic: input.approvalSourcePreflightDiagnostic }
+            : {}),
+          ...(input.aiProviderDiagnostic
+            ? { aiProviderDiagnostic: input.aiProviderDiagnostic }
+            : {}),
         }),
         generationError: input.retryFrom === "generation" ? input.error : content.generationError,
         reviewError: input.retryFrom === "review" ? input.error : content.reviewError,

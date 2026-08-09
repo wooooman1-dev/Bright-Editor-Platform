@@ -70,8 +70,11 @@ describe("approval preparation Quality policy", () => {
 
     expect(report.approvalReadiness?.checks).toContainEqual(expect.objectContaining({
       key: "approval_policy",
-      status: "blocked",
-      action: expect.stringContaining("출처 또는 검토 기준 표시"),
+      status: "passed",
+    }));
+    expect(report.approvalReadiness?.checks).toContainEqual(expect.objectContaining({
+      key: "evidence",
+      status: "not_evaluated",
     }));
     expect(report.tasks.some((task) => task.message.startsWith("[승인 준비 정책]"))).toBe(false);
   });

@@ -839,6 +839,18 @@ MVP에서 다음은 제외한다.
 
 ---
 
+# D-037 Claim-context Source Authority
+
+Status: Accepted
+
+Source Authority는 고정 정부 도메인 여부와 동일한 개념으로 판정하지 않고 Claim의 실제 정보 소유자 또는 권위 주체를 기준으로 판정한다. 법률·세금·정부지원·금융 규제 Claim은 국가법령정보센터, 실제 담당 정부·공공기관, 국세청, 금융위원회·금융감독원 등 해당 공적 권위 주체를 사용하며 기존 승인 프로필 allowlist와 공공기관 검증을 유지한다.
+
+특정 은행·카드사·보험사 또는 그 밖의 사업자가 소유한 상품의 금리, 중도해지, 상품조건, 수수료, 보험조건 Claim은 해당 Claim subject와 동일한 source owner의 HTTPS 공식 홈페이지, 상품공시, 상품설명서 또는 약관을 authoritative primary source로 인정할 수 있다. 특정 사업자 이름이나 도메인을 Core에 하드코딩하지 않고 공통 entity/source-owner matching 정책을 사용한다.
+
+Source Authority와 Claim relevance는 독립 Gate로 유지한다. 다른 사업자의 공식 페이지는 owner mismatch로 거부하고, 올바른 사업자의 공식 페이지라도 Claim과 무관하면 relevance로 거부한다. 모든 채택 Evidence는 기존 exact excerpt anchor, semantic·temporal verification과 CRITICAL Claim 100% Coverage를 통과해야 한다. NONE은 Evidence N/A, VERIFY는 실패 시 전체 Generation을 차단하지 않고 같은 Generation Prompt에서 해당 구체 Claim을 제거하거나 일반화하며, CRITICAL에만 mandatory Source Preflight와 Generation Gate를 적용한다. Generation 1회와 Quality Review 1회 정책은 변경하지 않는다.
+
+---
+
 # 통합 결과
 
 이 완성본은 다음 문제를 해결합니다.

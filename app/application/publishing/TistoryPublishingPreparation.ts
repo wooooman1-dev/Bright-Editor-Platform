@@ -5,6 +5,7 @@ import type { PlatformConnection } from "../../../core/connections";
 import {
   evaluateApprovalDraftIntegrity,
   evaluateGeneratedClaimVerificationIntegrity,
+  isCriticalVerificationClaim,
 } from "../../../core/approval";
 import { analyzeLongFormDocument } from "../../../core/content";
 import { editorialRevisionId, isStandardQualityApproved, QualityEngine } from "../../../core/quality";
@@ -191,7 +192,7 @@ export async function calculateTistoryReadiness(input: Readonly<{
           : Object.freeze([]),
       });
   const approvalIntegrity = content.document
-    ? evaluateApprovalDraftIntegrity(content.document, Boolean(content.opportunity?.verificationPlan))
+    ? evaluateApprovalDraftIntegrity(content.document, Boolean(content.opportunity?.verificationPlan?.claims.some(isCriticalVerificationClaim)))
     : Object.freeze({ passed: false, reasons: Object.freeze(["기준 원고가 없습니다."]) });
   const qualityPassed = Boolean(content.quality
     && currentRuleQuality

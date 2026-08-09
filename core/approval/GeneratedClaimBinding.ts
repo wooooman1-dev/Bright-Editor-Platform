@@ -12,6 +12,7 @@ import {
   type VerificationGenerationGateResult,
   type VerificationGenerationPlan,
 } from "./VerificationGenerationGate";
+import { isCriticalVerificationClaim } from "./VerificationClaim";
 
 export type GeneratedClaimLocation =
   | Readonly<{ kind: "title" }>
@@ -64,6 +65,7 @@ export function bindGeneratedClaims(input: Readonly<{
   const verifiedSourceIds = new Set(input.gate.verifiedSourceIds);
   const resultByClaimId = new Map(input.snapshot.results.map((result) => [result.claimId, result]));
   const claimMatchers = input.plan.claims.flatMap((claim) => {
+    if (!isCriticalVerificationClaim(claim)) return [];
     if (!verifiedClaimIds.has(claim.claimId)) return [];
     const result = resultByClaimId.get(claim.claimId);
     if (!result || result.status !== "verified") return [];

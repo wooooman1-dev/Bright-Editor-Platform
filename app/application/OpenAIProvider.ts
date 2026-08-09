@@ -1,12 +1,14 @@
 import {
-  approvalSourcePreflightMaximumClaimsPerSource,
   aiUsageStageForTask,
   createAIUsageRecord,
+  AIProviderError,
   type AIProvider,
   type AIRequest,
   type AIResponse,
+  type AIProviderStage,
   type AIWebSource,
 } from "../../core/ai";
+import { approvalSourcePreflightMaximumClaimsPerSource } from "../../core/ai/ApprovalSourcePreflight";
 import {
   approvalOfficialDomains,
   canonicalizeApprovalEvidenceUrl,
@@ -64,13 +66,34 @@ export class OpenAIProvider implements AIProvider {
         signal: controller.signal,
       });
     } catch (error) {
-      if (controller.signal.aborted) throw new Error(`OpenAI request timed out after ${this.timeoutMs}ms.`);
-      throw error;
+      if (controller.signal.aborted) {
+        throw AIProviderError.provider({
+          stage: aiProviderStageForTask(request.metadata?.task),
+          message: `OpenAI request timed out after ${this.timeoutMs}ms.`,
+        });
+      }
+      throw AIProviderError.provider({
+        stage: aiProviderStageForTask(request.metadata?.task),
+        message: error instanceof Error ? error.message : "OpenAI request failed.",
+      });
     } finally {
       clearTimeout(timeout);
     }
-    if (!response.ok) throw new Error(`OpenAI request failed (${response.status}).`);
-    const responseBody = await response.json() as OpenAIResponseBody;
+    if (!response.ok) {
+      throw AIProviderError.provider({
+        stage: aiProviderStageForTask(request.metadata?.task),
+        message: `OpenAI request failed (${response.status}).`,
+      });
+    }
+    let responseBody: OpenAIResponseBody;
+    try {
+      responseBody = await response.json() as OpenAIResponseBody;
+    } catch (error) {
+      throw AIProviderError.parse({
+        stage: aiProviderStageForTask(request.metadata?.task),
+        message: error instanceof Error ? error.message : "OpenAI response JSON could not be parsed.",
+      });
+    }
     const content = responseBody.output_text ?? responseBody.output?.flatMap((item) => item.content ?? []).map((item) => item.text ?? "").join("");
     const webSources = extractWebSources(responseBody.output ?? []);
     const model = responseBody.model ?? this.model;
@@ -92,6 +115,8 @@ export class OpenAIProvider implements AIProvider {
       webSearchCalls,
     });
     const diagnostics = Object.freeze({
+      stage: aiProviderStageForTask(request.metadata?.task),
+      completionStatus: "completed" as const,
       ...(responseBody.id ? { responseId: responseBody.id } : {}),
       ...(responseBody.status ? { status: responseBody.status } : {}),
       ...(responseBody.incomplete_details?.reason ? { incompleteReason: responseBody.incomplete_details.reason } : {}),
@@ -102,6 +127,8 @@ export class OpenAIProvider implements AIProvider {
       ...(typeof usage?.output_tokens_details?.reasoning_tokens === "number" ? { reasoningTokens: usage.output_tokens_details.reasoning_tokens } : {}),
       ...(typeof usage?.total_tokens === "number" ? { totalTokens: usage.total_tokens } : {}),
       webSearchCalls,
+      ...(editorialOutput ? { configuredMaxOutputTokens: editorialOutput.maxOutputTokens } : {}),
+      structuredOutputPresent: Boolean(content?.trim()),
       requestTimeoutMs: this.timeoutMs,
       elapsedMs: Date.now() - startedAt,
       ...(webSources.length ? { webSources } : {}),
@@ -112,8 +139,21 @@ export class OpenAIProvider implements AIProvider {
       model,
       webSourceCount: webSources.length,
     });
-    if (responseBody.status === "incomplete") throw new Error(`OpenAI response was incomplete${responseBody.incomplete_details?.reason ? `: ${responseBody.incomplete_details.reason}` : "."}`);
-    if (!content?.trim()) throw new Error("OpenAI returned an empty response.");
+    const stage = aiProviderStageForTask(request.metadata?.task);
+    if (responseBody.status === "incomplete") {
+      throw AIProviderError.incomplete({
+        stage,
+        reason: responseBody.incomplete_details?.reason,
+        diagnostic: diagnostics,
+      });
+    }
+    if (!content?.trim()) {
+      throw AIProviderError.parse({
+        stage,
+        message: "OpenAI returned an empty response.",
+        diagnostic: diagnostics,
+      });
+    }
     assertOpenAIResponseOwnedIdentityPolicy(request.instruction, content);
     return Object.freeze({ content, model, diagnostics });
   }
@@ -321,11 +361,18 @@ function readTimeout(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+export function aiProviderStageForTask(task: string | undefined): AIProviderStage {
+  if (task === "content-planning") return "planning";
+  if (task === "approval-source-preflight") return "source_preflight";
+  if (task === "content-generation") return "generation";
+  return "quality_review";
+}
+
 function editorialOutputPolicy(metadata?: Readonly<Record<string, string>>) {
   if (metadata?.task === "content-planning" && metadata.explicitVerificationPlanning === "1") return { maxOutputTokens: 12_000, verbosity: "medium" as const, format: explicitPlanningOutputFormat };
   if (metadata?.task === "approval-source-preflight") {
     return {
-      maxOutputTokens: 2_500,
+      maxOutputTokens: 4_000,
       verbosity: "low" as const,
       format: metadata.verificationMode === "explicit" ? explicitApprovalSourcePreflightFormat : approvalSourcePreflightFormat,
     };
@@ -361,20 +408,29 @@ export const approvalSourcePreflightFormat = {
           additionalProperties: false,
           required: ["url", "title", "evidenceExcerpt", "claims"],
           properties: {
-            url: { type: "string" },
-            title: { type: "string" },
-            evidenceExcerpt: { type: "string" },
+            url: { type: "string", maxLength: 2048 },
+            title: { type: "string", maxLength: 240 },
+            evidenceExcerpt: {
+              type: "string",
+              maxLength: 600,
+              description: "A contiguous verbatim passage from the canonical extracted text of the fetched document body, including visible headings and excluding title, metadata, search snippets, navigation, scripts, and styles. Do not paraphrase, summarize, or synthesize passages.",
+            },
             claims: {
               type: "array",
+              minItems: 1,
               maxItems: approvalSourcePreflightMaximumClaimsPerSource,
               items: {
                 type: "object",
                 additionalProperties: false,
                 required: ["field", "value", "evidenceExcerpt"],
                 properties: {
-                  field: { type: "string" },
-                  value: { type: "string" },
-                  evidenceExcerpt: { type: "string" },
+                  field: { type: "string", maxLength: 160 },
+                  value: { type: "string", maxLength: 400 },
+                  evidenceExcerpt: {
+                    type: "string",
+                    maxLength: 600,
+                    description: "A contiguous verbatim passage from the canonical extracted text of this fetched document body supporting the Claim. Do not paraphrase or synthesize.",
+                  },
                 },
               },
             },
@@ -402,10 +458,22 @@ export const explicitApprovalSourcePreflightFormat = {
           additionalProperties: false,
           required: ["url", "title", "evidenceExcerpt", "claims"],
           properties: {
-            url: { type: "string" }, title: { type: "string" }, evidenceExcerpt: { type: "string" },
-            claims: { type: "array", maxItems: approvalSourcePreflightMaximumClaimsPerSource, items: {
+            url: { type: "string", maxLength: 2048 }, title: { type: "string", maxLength: 240 }, evidenceExcerpt: {
+              type: "string",
+              maxLength: 600,
+              description: "A contiguous verbatim passage from the canonical extracted text of the fetched document body, including visible headings and excluding title, metadata, search snippets, navigation, scripts, and styles. Do not paraphrase, summarize, or synthesize passages.",
+            },
+            claims: { type: "array", minItems: 1, maxItems: approvalSourcePreflightMaximumClaimsPerSource, items: {
               type: "object", additionalProperties: false, required: ["claimId", "value", "evidenceExcerpt"],
-              properties: { claimId: { type: "string" }, value: { type: "string" }, evidenceExcerpt: { type: "string" } },
+              properties: {
+                claimId: { type: "string", maxLength: 160 },
+                value: { type: "string", maxLength: 400 },
+                evidenceExcerpt: {
+                  type: "string",
+                  maxLength: 600,
+                  description: "A contiguous verbatim passage from the canonical extracted text of this fetched document body supporting the Claim. Do not paraphrase or synthesize.",
+                },
+              },
             } },
           },
         },

@@ -253,6 +253,7 @@ describe("EditorialQualityPipeline", () => {
     expect(result.reachedTarget).toBe(false);
     expect(result.document.title).toBe("초기 원고");
     expect(result.attemptHistory[0]?.rejectionReason).toBe("invalid_content_document");
+    expect(result.providerDiagnostics).toMatchObject({ stage: "quality_review", completionStatus: "parse_error" });
   });
 
   it("restores verified editorial links and removes links invented by the Review response", async () => {

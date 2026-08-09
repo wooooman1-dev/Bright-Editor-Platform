@@ -13,6 +13,7 @@ import type {
   VerificationClaimSpec,
   VerificationTemporalRequirement,
 } from "../approval/VerificationClaim";
+import type { ApprovalRequiredEvidenceContract } from "../approval/ApprovalSourcePreflightCoverage";
 
 export type ContentOpportunitySelectionMode = "automatic" | "userSpecified";
 export type OpportunityEvidenceSource = "verified" | "estimated" | "inferred" | "unknown";
@@ -70,6 +71,7 @@ export type ContentOpportunityCandidate = Readonly<{
   cautions: readonly string[];
   projectId: string;
   verificationPlan?: ContentOpportunityVerificationPlan;
+  requiredEvidenceContract?: ApprovalRequiredEvidenceContract;
 }>;
 
 export type ConfirmedContentOpportunity = ContentOpportunityCandidate & Readonly<{
@@ -117,7 +119,13 @@ export function hasSelfConsistentVerificationPlan(
 export function resolveContentOpportunityVerificationMode(
   value: Pick<ContentOpportunityCandidate, "verificationPlan">,
 ): "legacy" | "explicit" {
-  return value.verificationPlan ? "explicit" : "legacy";
+  return hasUsableContentOpportunityVerificationPlan(value.verificationPlan) ? "explicit" : "legacy";
+}
+
+export function hasUsableContentOpportunityVerificationPlan(
+  value: ContentOpportunityVerificationPlan | undefined,
+): value is ContentOpportunityVerificationPlan {
+  return hasSelfConsistentVerificationPlan(value) && value.claims.length > 0;
 }
 
 export function createContentOpportunityCandidate(input: ContentOpportunityDraft): ContentOpportunityCandidate {
@@ -316,7 +324,10 @@ function canonicalOpportunityValue(input: ContentOpportunityDraft | ContentOppor
     confidence: Number.isFinite(input.confidence) ? Math.max(0, Math.min(1, input.confidence)) : 0,
     cautions: cleanList(input.cautions),
     projectId: required(input.projectId, "projectId"),
-    ...(input.verificationPlan ? { verificationPlan: normalizeVerificationPlan(input.verificationPlan) } : {}),
+    ...(hasUsableContentOpportunityVerificationPlan(input.verificationPlan)
+      ? { verificationPlan: normalizeVerificationPlan(input.verificationPlan) }
+      : {}),
+    ...(input.requiredEvidenceContract ? { requiredEvidenceContract: input.requiredEvidenceContract } : {}),
   });
 }
 

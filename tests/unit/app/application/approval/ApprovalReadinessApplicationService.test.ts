@@ -170,6 +170,47 @@ function fetcher() {
 }
 
 describe("ApprovalReadinessApplicationService", () => {
+  it("skips source verification and persists not-required Evidence when Planning has no mandatory Claim", async () => {
+    const noEvidenceData: UserData = {
+      ...data,
+      contents: [{
+        ...data.contents[0]!,
+        opportunity: {
+          requiredEvidenceContract: {
+            schemaVersion: 1,
+            contractId: "contract-optional-evidence",
+            policyId: "adsense_approval_mode",
+            policyVersion: "1.0",
+            profileId: "tistory_vivarain_art_v1",
+            profileVersion: "1.0",
+            profileSourceRequirementApplicable: false,
+            explicitVerificationRequired: false,
+            sourceRequirements: [],
+            requiredClaims: [],
+          },
+        },
+      } as unknown as UserData["contents"][number]],
+    };
+    const request = fetcher();
+    const result = await new ApprovalReadinessApplicationService(
+      request,
+      () => "2026-07-27T10:30:00.000Z",
+    ).execute({ data: noEvidenceData, contentId: "content-1", connection });
+
+    expect(request.mock.calls.some(([input]) => String(input) === sourceUrl)).toBe(false);
+    expect(result.evidence.pack).toMatchObject({
+      status: "not_required",
+      coverageStatus: "not_required",
+      sourcePolicyCompliance: "not_required",
+      sources: [],
+    });
+    expect((result.quality as ApprovalAwareQualityReport).approvalReadiness?.checks).toContainEqual(expect.objectContaining({
+      key: "evidence",
+      status: "passed",
+      applicable: false,
+    }));
+  });
+
   it("verifies official Evidence, adds visible review metadata, audits the public Tistory site, and persists new snapshots", async () => {
     const result = await new ApprovalReadinessApplicationService(
       fetcher(),

@@ -140,6 +140,31 @@ function checkedDocument(
 }
 
 describe("ApprovalReadinessActions auto run decision", () => {
+  it("suppresses Evidence details when the Planning contract proves Evidence is not applicable", () => {
+    const value = {
+      ...content(),
+      opportunity: {
+        requiredEvidenceContract: {
+          schemaVersion: 1,
+          contractId: "contract-1",
+          policyId: "adsense_approval_mode",
+          policyVersion: "1.0",
+          profileId: "wordpress_life_economy_v1",
+          profileVersion: "1.0",
+          profileSourceRequirementApplicable: false,
+          explicitVerificationRequired: false,
+          sourceRequirements: [],
+          requiredClaims: [],
+        },
+      },
+    } as unknown as UserContent;
+    const decision = approvalReadinessAutoRunDecision(value);
+
+    expect(decision.evidenceApplicable).toBe(false);
+    expect(decision.sources).toEqual([]);
+    expect(decision.evidenceSummary).toBeUndefined();
+  });
+
   it("runs automatically once after the current revision receives standard quality approval", () => {
     const decision = approvalReadinessAutoRunDecision(content());
 

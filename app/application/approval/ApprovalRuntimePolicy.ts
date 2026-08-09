@@ -1,4 +1,4 @@
-import { withCanonicalEditorialContext } from "../../../core/ai";
+import { withCanonicalEditorialContext } from "../../../core/ai/AIWorkflow";
 import { normalizeApprovalDateOwnership } from "../../../core/approval";
 import type { ContentDocument } from "../../../core/content";
 import { projectStrategyAIContext } from "../ContentPlanningStrategy";

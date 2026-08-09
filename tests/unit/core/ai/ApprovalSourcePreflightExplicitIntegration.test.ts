@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { runApprovalSourcePreflight, type ApprovalSourcePreflightResult } from "../../../../core/ai/ApprovalSourcePreflight";
 import { assessmentsFromExplicitDiscovery } from "../../../../core/approval/ExplicitVerificationPreflight";
 import { resolveApprovalPolicySnapshot } from "../../../../core/approval";
+import { ensureApprovalEvidenceContract } from "../../../../app/application/ContentPlanningStrategy";
 import { createContentOpportunityCandidate, createContentOpportunityVerificationPlan, confirmContentOpportunity } from "../../../../core/content";
 import type { AIProvider, AIResponse } from "../../../../core/ai";
 import type { VerificationClaimSpec } from "../../../../core/approval";
@@ -14,10 +15,12 @@ const currentClaim: VerificationClaimSpec = { ...claim, temporalRequirement: { m
 
 class FixtureProvider implements AIProvider {
   calls = 0;
-  constructor(private readonly sources: readonly unknown[]) {}
-  async generate(): Promise<AIResponse> {
+  requests: Array<{ instruction: string }> = [];
+  constructor(private readonly sources: readonly unknown[], private readonly responseDiagnostics: AIResponse["diagnostics"] = { webSources: [] }) {}
+  async generate(request: { instruction: string }): Promise<AIResponse> {
     this.calls += 1;
-    return { content: JSON.stringify({ sources: this.sources }), model: "fixture", diagnostics: { webSources: [] } };
+    this.requests.push({ instruction: request.instruction });
+    return { content: JSON.stringify({ sources: this.sources }), model: "fixture", diagnostics: this.responseDiagnostics };
   }
 }
 
@@ -42,18 +45,286 @@ async function run(sources: readonly unknown[], fetcher: (url: string | URL) => 
 }
 
 describe("runApprovalSourcePreflight explicit integration", () => {
+  it("skips Source Preflight for NONE and VERIFY-only Claims", async () => {
+    const verifyClaim: VerificationClaimSpec = {
+      ...claim,
+      claimId: "verify-only",
+      required: false,
+      risk: "verify",
+    };
+    const { result, provider } = await run([], async () => page(), [verifyClaim]);
+    expect(provider.calls).toBe(0);
+    expect(result.coverage.status).toBe("not_required");
+    expect(result.sourcePolicyCompliance).toBe("not_required");
+    expect(result.verificationSnapshot?.overallStatus).toBe("not_required");
+  });
+
+  it("keeps raw web-source count distinct from assistant-declared and parsed source counts", async () => {
+    const provider = new FixtureProvider([], {
+      responseId: "preflight-observability-fixture",
+      webSearchCalls: 3,
+      webSources: Array.from({ length: 47 }, (_, index) => ({
+        url: `https://www.gov.kr/search-${index}`,
+        provenance: "search_candidate" as const,
+      })),
+    });
+    await expect(runApprovalSourcePreflight({
+      provider,
+      snapshot,
+      opportunity: ensureApprovalEvidenceContract(opportunity(), snapshot),
+      platform: "wordpress",
+      contentType: "article",
+      fetcher: async () => page(),
+    })).rejects.toMatchObject({
+      diagnostic: expect.objectContaining({
+        rawWebSourceCount: 47,
+        assistantDeclaredSourceCount: 0,
+        parsedSourceCount: 0,
+        normalizedSourceCount: 0,
+        canonicalUrlValidCount: 0,
+      }),
+    });
+  });
+
+  it("persists provider diagnostics and Claim-ID coverage when explicit coverage is incomplete", async () => {
+    const secondClaim: VerificationClaimSpec = {
+      ...claim,
+      claimId: "claim-second",
+      field: "loanScope",
+      kind: "general",
+      statement: "지원 기간은 공식 안내에서 확인해야 한다.",
+    };
+    const providerDiagnostics: AIResponse["diagnostics"] = {
+      stage: "source_preflight",
+      completionStatus: "completed",
+      responseId: "preflight-coverage-fixture",
+      configuredMaxOutputTokens: 4_000,
+      inputTokens: 120,
+      outputTokens: 240,
+      reasoningTokens: 0,
+      webSearchCalls: 1,
+      structuredOutputPresent: true,
+    };
+    const provider = new FixtureProvider(
+      [source(urls[0])],
+      { ...providerDiagnostics, webSources: [{ url: urls[0], provenance: "search_candidate" }] },
+    );
+    await expect(runApprovalSourcePreflight({
+      provider,
+      snapshot,
+      opportunity: ensureApprovalEvidenceContract(opportunity([claim, secondClaim]), snapshot),
+      platform: "wordpress",
+      contentType: "article",
+      fetcher: async () => page(),
+    })).rejects.toMatchObject({
+      providerDiagnostics: expect.objectContaining({
+        responseId: "preflight-coverage-fixture",
+        stage: "source_preflight",
+        completionStatus: "completed",
+      }),
+      diagnostic: expect.objectContaining({
+        preflightResponseId: "preflight-coverage-fixture",
+        requiredClaimIds: ["claim-amount", "claim-second"],
+        coveredClaimIds: ["claim-amount"],
+        missingClaimIds: ["claim-second"],
+        coverageSources: [expect.objectContaining({
+          supportingClaimIds: ["claim-amount"],
+          rejectedClaimIds: ["claim-second"],
+        })],
+      }),
+    });
+  });
+
+  it("keeps source semantic diagnostics aligned with the aggregate when semantic verification fails", async () => {
+    const provider = new FixtureProvider(
+      [source(urls[0], "100留뚯썝")],
+      { webSources: [{ url: urls[0], provenance: "search_candidate" }] },
+    );
+    await expect(runApprovalSourcePreflight({
+      provider,
+      snapshot,
+      opportunity: ensureApprovalEvidenceContract(opportunity(), snapshot),
+      platform: "wordpress",
+      contentType: "article",
+      fetcher: async () => page("50留뚯썝"),
+    })).rejects.toMatchObject({
+      diagnostic: expect.objectContaining({
+        semanticVerificationEvaluatedCount: 1,
+        semanticVerificationPassCount: 0,
+        coverageSources: [expect.objectContaining({ semantic: "rejected" })],
+      }),
+    });
+  });
+
+  it("records missing Claim-ID linkage instead of silently treating a malformed source as covered", async () => {
+    const provider = new FixtureProvider([{
+      url: urls[0],
+      title: "Official fixture",
+      evidenceExcerpt: defaultExcerpt,
+      claims: [{ field: "amount", value: "50만원", evidenceExcerpt: defaultExcerpt }],
+    }], { webSources: [{ url: urls[0], provenance: "search_candidate" }] });
+    await expect(runApprovalSourcePreflight({
+      provider,
+      snapshot,
+      opportunity: ensureApprovalEvidenceContract(opportunity(), snapshot),
+      platform: "wordpress",
+      contentType: "article",
+      fetcher: async () => page(),
+    })).rejects.toMatchObject({
+      diagnostic: expect.objectContaining({
+        rejectionSamples: expect.arrayContaining([expect.objectContaining({ rejectionCode: "source_claim_linkage_missing" })]),
+      }),
+    });
+  });
+
+  it.each([
+    ["empty claims", { claims: [] }, "source_claim_linkage_missing"],
+    ["unknown Claim ID", { claims: [{ claimId: "unknown-claim", value: "50留뚯썝", evidenceExcerpt: defaultExcerpt }] }, "source_claim_id_unknown"],
+  ])("fails closed for %s", async (_label, override, rejectionCode) => {
+    const provider = new FixtureProvider([{
+      ...source(urls[0]),
+      ...override,
+    }], { webSources: [{ url: urls[0], provenance: "search_candidate" }] });
+    await expect(runApprovalSourcePreflight({
+      provider,
+      snapshot,
+      opportunity: ensureApprovalEvidenceContract(opportunity(), snapshot),
+      platform: "wordpress",
+      contentType: "article",
+      fetcher: async () => page(),
+    })).rejects.toMatchObject({
+      diagnostic: expect.objectContaining({
+        rejectionSamples: expect.arrayContaining([expect.objectContaining({ rejectionCode })]),
+        missingClaimIds: ["claim-amount"],
+      }),
+    });
+  });
+
+  it("distinguishes a fetched but unextractable document from a fetch failure", async () => {
+    const provider = new FixtureProvider([source("https://law.go.kr/LSW/lsPdfPrint.do?lsiSeq=1")], {
+      responseId: "preflight-extraction-fixture",
+      webSearchCalls: 1,
+      webSources: [{ url: "https://law.go.kr/LSW/lsPdfPrint.do?lsiSeq=1", provenance: "search_candidate" }],
+    });
+    const contracted = ensureApprovalEvidenceContract(opportunity(), snapshot);
+    await expect(runApprovalSourcePreflight({
+      provider,
+      snapshot,
+      opportunity: contracted,
+      platform: "wordpress",
+      contentType: "article",
+      fetcher: async () => new Response("%PDF-1.7\n1 0 obj<</Filter/FlateDecode/Length 8>>stream\ncompressed\nendstream\n%%EOF", {
+        status: 200,
+        headers: { "content-type": "application/pdf" },
+      }),
+    })).rejects.toMatchObject({
+      diagnostic: expect.objectContaining({
+        rejectionStage: "evidence",
+        rejectionCode: "source_document_extraction_failed",
+        fetchSucceededCount: 1,
+        extractionAttemptedCount: 1,
+        extractionSucceededCount: 0,
+        rejectionSamples: [expect.objectContaining({
+          documentFormat: "pdf",
+          extractionStatus: "unsupported",
+          rejectionCode: "source_document_extraction_failed",
+        })],
+      }),
+    });
+  });
   it("returns an explicit empty Snapshot without provider or fetcher calls", async () => {
     const provider = new FixtureProvider([]); let fetchCalls = 0;
     const result = await runApprovalSourcePreflight({ provider, snapshot, opportunity: opportunity([]), platform: "wordpress", contentType: "article", fetcher: async () => { fetchCalls += 1; return page(); } });
-    expect(provider.calls).toBe(0); expect(fetchCalls).toBe(0); expect(result.sources).toEqual([]); expect(result.verificationSnapshot?.overallStatus).toBe("not_required");
+    expect(provider.calls).toBe(0); expect(fetchCalls).toBe(0); expect(result.sources).toEqual([]); expect(result.coverage.status).toBe("not_required"); expect(result.verificationSnapshot).toBeUndefined();
   });
 
   it("keeps ordinary successful fetched pages freshness-unknown when the Claim has no temporal requirement", async () => {
     const { result, provider } = await run(urls.map((url) => source(url)), async () => page());
     expect(provider.calls).toBe(1);
+    expect(provider.requests[0]?.instruction).toContain("Topic:");
+    expect(provider.requests[0]?.instruction).toContain("Primary keyword:");
+    expect(provider.requests[0]?.instruction).toContain("Required Claims:");
     expect(result.verificationSnapshot?.results[0]).toMatchObject({ status: "insufficient", independentInstitutionCount: 0, primarySourceFound: false });
     expect(result.verificationSnapshot?.results[0]?.diagnostics).toContain("freshness_unknown");
     expect(result.claimSources).toEqual([]);
+  });
+
+  it("requires explicit source evidence to be a verbatim page passage", async () => {
+    const provider = new FixtureProvider([source(urls[0], "50留뚯썝", "怨듭떇 ?덈궡??湲덉븸???댁젙?섏뼱 ?좎껌?섍린 ?쎄쾶 ?섍퀬 ?덈Т ?쨌???", "claim-amount")], {
+      webSources: [{ url: urls[0], provenance: "search_candidate" }],
+    });
+    await expect(runApprovalSourcePreflight({
+      provider,
+      snapshot,
+      opportunity: ensureApprovalEvidenceContract(opportunity(), snapshot),
+      platform: "wordpress",
+      contentType: "article",
+      fetcher: async () => page(),
+    })).rejects.toMatchObject({
+      diagnostic: expect.objectContaining({
+        rejectionStage: "evidence",
+        rejectionCode: "evidence_anchor_unverified",
+        evidenceAnchorPassCount: 0,
+      }),
+    });
+    expect(provider.calls).toBe(1);
+    expect(provider.requests[0]?.instruction).toMatch(/verbatim/i);
+    expect(provider.requests[0]?.instruction).toMatch(/paraphrase/i);
+    expect(provider.requests[0]?.instruction).toMatch(/synthesi[sz]e/i);
+    expect(provider.requests[0]?.instruction).toMatch(/claimId/i);
+  });
+
+  it("rejects synthesized evidence while preserving exact claim evidence", async () => {
+    const synthesized = "怨듭떇 ?덈궡??吏????곴낵??50留뚯썝?대ŉ ?좎껌??吏???덈궡??湲곗?濡??④릿?섎뒗 ?곹뭹?낅땲??";
+    const provider = new FixtureProvider([{
+      ...source(urls[0], "50留뚯썝", synthesized),
+      claims: [{ claimId: "claim-amount", value: "50留뚯썝", evidenceExcerpt: defaultExcerpt }],
+    }], { webSources: [{ url: urls[0], provenance: "search_candidate" }] });
+    await expect(runApprovalSourcePreflight({
+      provider,
+      snapshot,
+      opportunity: ensureApprovalEvidenceContract(opportunity(), snapshot),
+      platform: "wordpress",
+      contentType: "article",
+      fetcher: async () => page(),
+    })).rejects.toMatchObject({
+      diagnostic: expect.objectContaining({
+        rejectionCode: "evidence_anchor_unverified",
+        evidenceAnchorPassCount: 0,
+      }),
+    });
+  });
+
+  it("selects anchor failure when two relevant sources have no anchors and one official source is irrelevant", async () => {
+    const paraphrase = "怨듭떇 ?덈궡??吏????곴낵??50留뚯썝?좎쓣 ?좎껌??吏???덈궡?섎뒗 ?섏씠吏?낅땲??";
+    const unrelatedUrl = urls[2];
+    const provider = new FixtureProvider(([
+      { ...source(urls[0], "50留뚯썝", paraphrase), claims: [{ claimId: "claim-amount", value: "50留뚯썝", evidenceExcerpt: defaultExcerpt }] },
+      { ...source(urls[1], "50留뚯썝", paraphrase), claims: [{ claimId: "claim-amount", value: "50留뚯썝", evidenceExcerpt: defaultExcerpt }] },
+      source(unrelatedUrl, "50留뚯썝", "留ㅼ슜 ?섏씠吏???댁슜?낅땲??"),
+    ] as Array<Record<string, unknown>>), { webSources: urls.map((url) => ({ url, provenance: "search_candidate" })) });
+    await expect(runApprovalSourcePreflight({
+      provider,
+      snapshot,
+      opportunity: ensureApprovalEvidenceContract(opportunity(), snapshot),
+      platform: "wordpress",
+      contentType: "article",
+      fetcher: async (url) => String(url) === unrelatedUrl
+        ? new Response("<html><head><title>留ㅼ슜 ?댁슜</title></head><body>留ㅼ슜 ?섏씠吏??寃利앸맂 ?댁슜?낅땲??</body></html>", { status: 200, headers: { "content-type": "text/html" } })
+        : page(),
+    })).rejects.toMatchObject({
+      diagnostic: expect.objectContaining({
+        rejectionCode: "evidence_anchor_unverified",
+        rejectionStage: "evidence",
+        officialnessPassCount: 3,
+        relevancePassCount: 2,
+        evidenceAnchorEvaluatedCount: 3,
+        evidenceAnchorPassCount: 0,
+        semanticVerificationEvaluatedCount: 0,
+        semanticVerificationPassCount: 0,
+      }),
+    });
+    expect(provider.calls).toBe(1);
   });
 
   it("verifies a current money Claim from three independent institutions when each Claim excerpt owns an active period", async () => {
@@ -169,12 +440,11 @@ describe("runApprovalSourcePreflight explicit integration", () => {
     await expect(run(urls.map((url) => source(url)), async () => { throw new Error("fixture failure"); })).resolves.toMatchObject({ result: { verificationSnapshot: { overallStatus: "insufficient" } } });
   });
 
-  it("does not crash on unknown claim IDs and keeps same-field claim identities separate", async () => {
+  it("fails closed on unknown claim IDs before coverage can use the source", async () => {
     const plan = opportunity([{ ...claim, claimId: "claim-a" }, { ...claim, claimId: "claim-b", rawValue: undefined }]);
     const provider = new FixtureProvider([{ url: urls[0], title: "공식", evidenceExcerpt: defaultExcerpt, claims: [{ claimId: "unknown", value: "50만원", evidenceExcerpt: defaultExcerpt }, { claimId: "claim-a", value: "50만원", evidenceExcerpt: defaultExcerpt }] }]);
-    const result = await runApprovalSourcePreflight({ provider, snapshot, opportunity: plan, platform: "wordpress", contentType: "article", fetcher: async () => page() });
-    expect(result.verificationSnapshot?.results.map((item) => item.claimId)).toEqual(["claim-a", "claim-b"]);
-    expect(result.verificationSnapshot?.results[1]?.sourceAssessments).toEqual([]);
+    await expect(runApprovalSourcePreflight({ provider, snapshot, opportunity: plan, platform: "wordpress", contentType: "article", fetcher: async () => page() }))
+      .rejects.toMatchObject({ diagnostic: expect.objectContaining({ rejectionCode: "source_claim_id_unknown", missingClaimIds: ["claim-a", "claim-b"] }) });
   });
 
   it("treats an expired current Claim as stale when no fresh proof remains", async () => {

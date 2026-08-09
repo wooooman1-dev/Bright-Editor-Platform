@@ -1,4 +1,8 @@
-import { canonicalizeApprovalEvidenceUrl } from "../../../core/approval";
+import {
+  canonicalizeApprovalEvidenceUrl,
+  createNotRequiredApprovalEvidencePack,
+  resolveApprovalEvidenceRequirement,
+} from "../../../core/approval";
 import type { ApprovalEvidenceProvenance, ApprovalEvidenceSource } from "../../../core/approval";
 import { contentBlockOwnership } from "../../../core/content";
 import type { UserData } from "../../user-flow/user-data";
@@ -9,6 +13,23 @@ export function normalizeApprovalEvidenceCandidates(
 ): UserData {
   let changed = false;
   const contents = data.contents.map((content) => {
+    const evidence = content.document?.metadata?.approvalEvidence;
+    if (content.id === contentId
+      && evidence
+      && resolveApprovalEvidenceRequirement(content.opportunity) === "not_required"
+      && evidence.sources.length === 0
+      && evidence.status === "missing") {
+      const pack = createNotRequiredApprovalEvidencePack();
+      if (JSON.stringify(evidence) === JSON.stringify(pack)) return content;
+      changed = true;
+      return {
+        ...content,
+        document: {
+          ...content.document!,
+          metadata: { ...content.document!.metadata!, approvalEvidence: pack },
+        },
+      };
+    }
     if (content.id !== contentId || !content.document?.metadata?.approvalEvidence?.sources.length) return content;
     const sources = canonicalSources(content.document.metadata.approvalEvidence.sources);
     const before = content.document.metadata.approvalEvidence.sources;

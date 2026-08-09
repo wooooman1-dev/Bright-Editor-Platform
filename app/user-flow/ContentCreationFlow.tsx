@@ -367,7 +367,12 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
           if (generatedDocumentEditable(result)) onOpenEditor(contentId);
           return;
         }
-        throw new GenerationCompletionError(result.error ?? "Generation failed.", result.diagnostic);
+        throw new GenerationCompletionError(
+          result.error ?? "Generation failed.",
+          result.diagnostic,
+          result.approvalSourcePreflightDiagnostic,
+          result.aiProviderDiagnostic,
+        );
       }
       if (!response.ok || !result.document) throw new Error(result.error ?? "Generation failed.");
       if (result.data) {
@@ -390,6 +395,12 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
           error: message(error),
           retryFrom: "generation",
           ...(error instanceof GenerationCompletionError && error.diagnostic ? { diagnostic: error.diagnostic } : {}),
+          ...(error instanceof GenerationCompletionError && error.approvalSourcePreflightDiagnostic
+            ? { approvalSourcePreflightDiagnostic: error.approvalSourcePreflightDiagnostic }
+            : {}),
+          ...(error instanceof GenerationCompletionError && error.aiProviderDiagnostic
+            ? { aiProviderDiagnostic: error.aiProviderDiagnostic }
+            : {}),
           now: now(),
         });
       }

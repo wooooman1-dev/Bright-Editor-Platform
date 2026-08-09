@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { parsePlanningResult } from "../../../../app/application/ContentPlanningStrategy";
 import { contentBoundEditorialContext } from "../../../../app/application/approval/ApprovalContentPolicy";
 import type { UserContent } from "../../../../app/user-flow/user-data";
-import { assertOwnedIdentityKeywordPolicy } from "../../../../core/ai";
+import { assertOwnedIdentityKeywordPolicy } from "../../../../core/ai/AIWorkflow";
 import {
   confirmContentOpportunity,
   createContentOpportunityCandidate,

@@ -2,14 +2,17 @@
 
 import { studioStore } from "../../application/studio-store";
 import { mergeServerMutationSnapshot, mergeUserDataSnapshot } from "../../application/persistence/mergeUserDataSnapshot";
-import { AIWorkflow, ApprovalSourcePreflightError } from "../../../core/ai";
+import { AIWorkflow } from "../../../core/ai/AIWorkflow";
+import { AIProviderError } from "../../../core/ai";
+import { ApprovalSourcePreflightError } from "../../../core/ai/ApprovalSourcePreflight";
 import { contentRevisionId, editorialRevisionId, evaluateQualityImprovement, evaluateQualityReviewReadiness, isStandardQualityApproved, qualityImprovementRejectionMessage, QualityEngine } from "../../../core/quality";
 import { contentOpportunityAIContext, EditorialGenerationStrategy } from "../../application/EditorialGenerationStrategy";
+import { approvalPolicySnapshotFromEditorialContext } from "../../../core/approval";
 import { OpenAIProvider } from "../../application/OpenAIProvider";
 import { openAIGenerationModel, openAIReviewModel } from "../../application/OpenAIModelPolicy";
 import { contentDocumentAIContext, EditorialQualityPipeline } from "../../application/EditorialQualityPipeline";
 import { preserveCanonicalSeoMetadata } from "../../application/SeoMetadataPolicy";
-import { ContentPlanningStrategy, createManualPlanningResult, projectStrategyAIContext } from "../../application/ContentPlanningStrategy";
+import { attachApprovalEvidenceContracts, ContentPlanningStrategy, createManualPlanningResult, ensureApprovalEvidenceContract, projectStrategyAIContext } from "../../application/ContentPlanningStrategy";
 import { approvalAwareInstruction, contentEditorialContext, preserveContentApprovalPolicy } from "../../application/approval/ApprovalRuntimePolicy";
 import { TistoryPublishingAdapter } from "../../../apps/tistory/publishing/TistoryPublishingAdapter";
 import { WordPressHtmlRenderer } from "../../../apps/wordpress/WordPressHtmlRenderer";
@@ -115,8 +118,13 @@ export async function POST(request: Request) {
         secondaryKeywords: input.secondaryKeywords,
         keywords: input.keywords,
       });
-      const { keywords, opportunity } = generationContract;
       const editorialContext = contentEditorialContext(owned, existing);
+      const resolvedOpportunity = generationContract.opportunity;
+      const approvalSnapshot = approvalPolicySnapshotFromEditorialContext(editorialContext);
+      const opportunity = approvalSnapshot
+        ? ensureApprovalEvidenceContract(resolvedOpportunity, approvalSnapshot)
+        : resolvedOpportunity;
+      const keywords = generationContract.keywords;
       const provider = new OpenAIProvider(undefined, openAIGenerationModel());
       const workflow = new AIWorkflow(provider, new EditorialGenerationStrategy());
       const generationStartedAt = new Date();
@@ -489,10 +497,13 @@ Quality tasks: ${JSON.stringify(currentQuality.tasks)}
     const code = error instanceof ApprovalSourcePreflightError
       ? error.code
       : undefined;
+    const approvalDiagnostic = approvalSourcePreflightDiagnostic(error);
     return NextResponse.json({
       error: message(error),
       ...(code ? { code } : {}),
       ...(diagnostic ? { diagnostic } : {}),
+      ...(approvalDiagnostic ? { approvalSourcePreflightDiagnostic: approvalDiagnostic } : {}),
+      ...(aiProviderDiagnostic(error) ? { aiProviderDiagnostic: aiProviderDiagnostic(error) } : {}),
     }, { status });
   }
 }
@@ -630,12 +641,16 @@ async function performPlanning(data: UserData, project: UserData["projects"][num
       hasVerifiedKeywordData: evidenceBundle.some((value) => value.provider !== "brightStudio" && value.verified),
       evidenceBundle,
     });
-  const classified = opportunityEvidenceService.classifyCandidates(rawPlan.opportunityCandidates ?? [], evidenceBundle, data, project)
+  const approvalSnapshot = approvalPolicySnapshotFromEditorialContext(projectContext);
+  const contractedPlan = approvalSnapshot
+    ? attachApprovalEvidenceContracts(rawPlan, approvalSnapshot)
+    : rawPlan;
+  const classified = opportunityEvidenceService.classifyCandidates(contractedPlan.opportunityCandidates ?? [], evidenceBundle, data, project)
     .map((candidate) => applyContentDepthPolicy(candidate, {
       domain: rawPlan.domain,
       projectStrategy: projectContext,
     }));
-  const plan = withClassifiedCandidates(rawPlan, classified);
+  const plan = withClassifiedCandidates(contractedPlan, classified);
   const saved = await persistPlanningResult(data, input, plan);
   return { plan, data: saved };
 }
@@ -653,6 +668,12 @@ async function persistWorkflowFailure(body: { action?: string; input?: Record<st
       error: message(error),
       retryFrom,
       ...(longFormDiagnostic(error) ? { diagnostic: longFormDiagnostic(error) } : {}),
+      ...(approvalSourcePreflightDiagnostic(error)
+        ? { approvalSourcePreflightDiagnostic: approvalSourcePreflightDiagnostic(error) }
+        : {}),
+      ...(aiProviderDiagnostic(error)
+        ? { aiProviderDiagnostic: aiProviderDiagnostic(error) }
+        : {}),
       now: new Date().toISOString(),
     }) : (() => { throw new Error("Workspace was not found."); })());
   } catch (persistenceError) {
@@ -662,6 +683,15 @@ async function persistWorkflowFailure(body: { action?: string; input?: Record<st
 
 function longFormDiagnostic(error: unknown): LongFormDiagnostic | undefined {
   return error instanceof LongFormValidationError ? error.diagnostic : undefined;
+}
+
+function approvalSourcePreflightDiagnostic(error: unknown) {
+  return error instanceof ApprovalSourcePreflightError ? error.diagnostic : undefined;
+}
+
+function aiProviderDiagnostic(error: unknown) {
+  if (error instanceof AIProviderError) return error.diagnostic;
+  return error instanceof ApprovalSourcePreflightError ? error.providerDiagnostics : undefined;
 }
 
 function isPublishReady(document: ContentDocument, quality: ReturnType<QualityEngine["review"]>): boolean {

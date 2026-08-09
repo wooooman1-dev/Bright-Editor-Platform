@@ -1,5 +1,6 @@
 import {
   appendAIUsageToDocument,
+  type AIResponse,
   type AIProvider,
 } from "../../core/ai";
 import { isApprovalPolicyProfileId, resolveApprovalPolicySnapshot, type ApprovalPolicySnapshot } from "../../core/approval";
@@ -112,7 +113,9 @@ export class EditorialQualityPipeline {
       finalReviewQuality,
       quality: best.quality,
       qualityHistory: Object.freeze([generationQuality, finalReviewQuality]),
-      ...(finalResponse.diagnostics ? { providerDiagnostics: finalResponse.diagnostics } : {}),
+      ...(finalResponse.diagnostics || finalCandidate.rejectionReason === "invalid_content_document"
+        ? { providerDiagnostics: qualityReviewDiagnostics(finalResponse.diagnostics, finalCandidate.rejectionReason) }
+        : {}),
       reachedTarget: meetsStandardApprovalTarget(document, best.quality),
     });
   }
@@ -150,6 +153,19 @@ export class EditorialQualityPipeline {
       return { document: current, quality: this.qualityEngine.review(current, qualityContext), rejectionReason: "invalid_content_document" };
     }
   }
+}
+
+function qualityReviewDiagnostics(
+  diagnostics: AIResponse["diagnostics"],
+  rejectionReason?: string,
+): NonNullable<AIResponse["diagnostics"]> {
+  return Object.freeze({
+    ...(diagnostics ?? {}),
+    stage: "quality_review" as const,
+    ...(rejectionReason === "invalid_content_document"
+      ? { completionStatus: "parse_error" as const }
+      : { completionStatus: diagnostics?.completionStatus ?? "completed" as const }),
+  });
 }
 
 function singlePassFinalReviewInstruction(
