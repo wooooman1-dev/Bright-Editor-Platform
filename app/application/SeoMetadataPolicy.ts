@@ -22,6 +22,9 @@ export function preserveCanonicalSeoMetadata(
   if (current.metadata?.generatedClaimVerification) {
     metadata.generatedClaimVerification = current.metadata.generatedClaimVerification;
   }
+  if (current.metadata?.generatedFactualClaimInventory) {
+    metadata.generatedFactualClaimInventory = current.metadata.generatedFactualClaimInventory;
+  }
 
   return Object.freeze({
     ...candidate,

@@ -152,6 +152,58 @@ export function analyzeLongFormDocument(document: ContentDocument, requestedTarg
   });
 }
 
+/**
+ * Generation-provided sectionType is an untrusted semantic hint until the
+ * normalized blocks actually support that role. Reconcile only structurally
+ * defined roles; rich but shallow content remains incomplete instead of being
+ * silently downgraded.
+ */
+export function normalizeGeneratedSectionSemantics(
+  document: ContentDocument,
+  requestedTarget?: ContentPlanQualityTarget,
+): ContentDocument {
+  const structure = document.metadata?.longFormStructure;
+  if (!structure || !document.metadata) return document;
+  const target = requestedTarget ?? document.metadata.qualityTarget
+    ?? determineContentPlanQualityTarget({ contentType: "article" });
+  const byId = new Map(document.blocks.map((block) => [block.id, block]));
+  let changed = false;
+  const sections = structure.sections.map((section) => {
+    const declared = section.sectionType ?? "explanation";
+    if (!structuralSectionTypes.has(declared)) return section;
+    const heading = headingForId(section.headingBlockId, byId);
+    const blocks = section.paragraphBlockIds.flatMap((id) => {
+      const block = byId.get(id);
+      return block ? [block] : [];
+    });
+    const text = normalizeStructuredText(blocks.map(blockStructuredText).filter(Boolean).join("\n"));
+    if (sectionDiagnostic(heading, declared, text, target).completeness === "sufficient") return section;
+    const candidates: ContentSectionType[] = [
+      ...(blocks.some((block) => block.type === "list" && block.style === "ordered") ? ["steps" as const] : []),
+      ...(blocks.some((block) => block.type === "list" && block.style === "unordered") ? ["checklist" as const] : []),
+      ...(blocks.some((block) => block.type === "table") ? ["comparison" as const] : []),
+      "explanation",
+    ];
+    const resolved = candidates.find((candidate) =>
+      candidate !== declared
+      && sectionDiagnostic(heading, candidate, text, target).completeness === "sufficient");
+    if (!resolved) return section;
+    changed = true;
+    return Object.freeze({ ...section, sectionType: resolved });
+  });
+  if (!changed) return document;
+  return Object.freeze({
+    ...document,
+    metadata: Object.freeze({
+      ...document.metadata,
+      longFormStructure: Object.freeze({
+        ...structure,
+        sections: Object.freeze(sections),
+      }),
+    }),
+  });
+}
+
 export function requiresLongFormValidation(document: ContentDocument): boolean {
   return Boolean(document.metadata?.qualityTarget || document.metadata?.longFormStructure)
     || document.blocks.some((block) => block.type === "heading" && block.level === 2);
@@ -187,7 +239,7 @@ function sectionDiagnostic(heading: string, sectionType: ContentSectionType, tex
   const guidance = target.sectionGuidance[sectionType];
   const structureSatisfied =
     (sectionType === "checklist" ? listItemCount >= guidance.minimumListItems || informationElementCount >= guidance.minimumInformationElements + 1 : true)
-    && (sectionType === "steps" ? listItemCount >= guidance.minimumListItems || orderedActionSignals(normalizedText) >= 3 : true)
+    && (sectionType === "steps" ? orderedListItemCount(normalizedText) >= guidance.minimumListItems || orderedActionSignals(normalizedText) >= 3 : true)
     && (sectionType === "comparison" ? tableCount > 0 || comparisonSignals(normalizedText) >= 3 : true)
     && (sectionType === "faq" ? questionAnswerSignals(normalizedText) >= 2 : true);
   const completeness: InformationSufficiencyStatus = !normalizedText
@@ -304,6 +356,9 @@ function orderedActionSignals(text: string): number {
   return count(normalized, /(?:^|\n)\s*\d+[.)]\s+\S/gm)
     + count(normalized, /먼저|다음(?:으로)?|마지막(?:으로)?|첫째|둘째|셋째/g);
 }
+function orderedListItemCount(text: string): number {
+  return [...normalizeStructuredText(text).matchAll(/(?:^|\n)\s*\d+[.)]\s+[^\n]+/gm)].length;
+}
 function comparisonSignals(text: string): number { return count(text, /비교|차이|장점|단점|반면|기준|선택|적합/g); }
 function questionAnswerSignals(text: string): number { return count(text, /\?|질문|답변|Q[:.]|A[:.]/gi); }
 
@@ -360,3 +415,5 @@ function blockStructuredText(block: ContentDocument["blocks"][number]): string {
 function withoutWhitespace(value: string): number { return value.replace(/\s/g, "").length; }
 function count(value: string, pattern: RegExp): number { return [...value.matchAll(pattern)].length; }
 function escapeRegExp(value: string): string { return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+
+const structuralSectionTypes = new Set<ContentSectionType>(["steps", "comparison", "faq"]);

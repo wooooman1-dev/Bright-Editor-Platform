@@ -79,6 +79,7 @@ export {
   assertLongFormSafetyTarget,
   formatLongFormDiagnostic,
   LongFormValidationError,
+  normalizeGeneratedSectionSemantics,
   requiresLongFormValidation,
   type LongFormDiagnostic,
   type LongFormSectionDiagnostic,

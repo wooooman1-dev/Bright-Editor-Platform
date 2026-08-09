@@ -12,7 +12,10 @@ export function evaluateVerificationClaim(spec: VerificationClaimSpec, result: O
   const staleSupporting = sources.some((source) => source.supports && source.normalizedValue && source.freshnessStatus === "stale");
   const unknownSupporting = sources.some((source) => source.supports && source.normalizedValue && source.freshnessStatus === "unknown")
     || result.diagnostics.some((diagnostic) => diagnostic === "freshness_unknown");
-  const thresholdPassed = !highRisk || (independentInstitutionCount >= 3 && authoritativeInstitutionCount >= 2 && primarySourceFound);
+  // CRITICAL is an authority and complete-Coverage policy, not a popularity
+  // vote. One fresh authoritative primary source can own a Claim; additional
+  // sources are useful for conflict detection but are never a universal quota.
+  const thresholdPassed = !highRisk || (authoritativeInstitutionCount >= 1 && primarySourceFound);
   const freshnessPassed = usableFresh.length > 0 && thresholdPassed;
   const status = result.unresolvedConflict
     ? "conflicted"

@@ -225,7 +225,7 @@ describe("ApprovalReadinessApplicationService", () => {
     expect(result.document.blocks).toContainEqual(expect.objectContaining({
       id: "approval-review-date",
       ownership: "system_source_projection",
-      text: "출처 확인일: 2026-07-27 · Claim 최종 검토일: 2026-07-27",
+      text: "출처 확인일: 2026-07-27",
     }));
     expect(result.document.blocks).toContainEqual(expect.objectContaining({
       id: "approval-source-link-1",

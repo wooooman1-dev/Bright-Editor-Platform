@@ -10,7 +10,7 @@ Document Type: Architecture Specification
 
 Owner: Core Platform
 
-Implementation Status: Presentation Contract Foundation Implemented; Presentation Runtime and Scheduling Not Implemented
+Implementation Status: Presentation Contract Foundation and deterministic section-role projection implemented; full RenderArtifact Runtime and Scheduling Not Implemented
 
 ---
 

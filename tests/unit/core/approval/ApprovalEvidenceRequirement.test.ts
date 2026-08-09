@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   approvalEvidenceIsApplicable,
+  isTimeSensitiveCriticalVerificationClaim,
   resolveApprovalEvidenceRequirement,
+  resolveApprovalTemporalRequirement,
 } from "../../../../core/approval";
 import { createContentOpportunityVerificationPlan } from "../../../../core/content";
 
@@ -75,5 +77,40 @@ describe("Approval Evidence requirement", () => {
     expect(resolveApprovalEvidenceRequirement(undefined)).toBe("unknown");
     expect(resolveApprovalEvidenceRequirement({})).toBe("unknown");
     expect(approvalEvidenceIsApplicable(undefined)).toBe(true);
+  });
+
+  it("distinguishes time-sensitive and non-temporal CRITICAL Claims", () => {
+    expect(isTimeSensitiveCriticalVerificationClaim(claim("critical"))).toBe(true);
+    expect(isTimeSensitiveCriticalVerificationClaim({
+      ...claim("critical"),
+      temporalRequirement: { mode: "notRequired" },
+    })).toBe(false);
+  });
+
+  it("resolves temporal applicability from the same canonical Planning contract", () => {
+    expect(resolveApprovalTemporalRequirement({
+      verificationPlan: createContentOpportunityVerificationPlan([claim("critical")]),
+    })).toBe("required");
+    expect(resolveApprovalTemporalRequirement({
+      verificationPlan: createContentOpportunityVerificationPlan([{
+        ...claim("critical"),
+        temporalRequirement: { mode: "notRequired" },
+      }]),
+    })).toBe("not_required");
+    expect(resolveApprovalTemporalRequirement({
+      requiredEvidenceContract: {
+        schemaVersion: 1,
+        contractId: "contract-empty",
+        policyId: "adsense_approval_mode",
+        policyVersion: "1.0",
+        profileId: "wordpress_life_economy_v1",
+        profileVersion: "1.0",
+        explicitVerificationRequired: false,
+        profileSourceRequirementApplicable: false,
+        sourceRequirements: [],
+        requiredClaims: [],
+      },
+    })).toBe("not_required");
+    expect(resolveApprovalTemporalRequirement(undefined)).toBe("unknown");
   });
 });

@@ -28,5 +28,7 @@ type Usable = { institutionGroupId: string; authoritative?: boolean; role?: Veri
 function usable(sources: readonly Usable[]): readonly Usable[] { return sources.filter((source) => source.supports !== false && source.freshnessStatus !== "unknown" && source.freshnessStatus !== "stale" && source.fresh !== false && (!("normalizedValue" in source) || source.normalizedValue !== undefined)); }
 export function countIndependentInstitutions(sources: readonly Usable[]): number { return new Set(usable(sources).map((source) => source.institutionGroupId)).size; }
 export function countAuthoritativeInstitutions(sources: readonly Usable[]): number { return new Set(usable(sources).filter((source) => source.authoritative).map((source) => source.institutionGroupId)).size; }
-export function hasPrimaryOfficial(sources: readonly Usable[]): boolean { return usable(sources).some((source) => source.role === "primaryOfficial"); }
+export function hasPrimaryOfficial(sources: readonly Usable[]): boolean {
+  return usable(sources).some((source) => source.role === "primaryOfficial" && source.authoritative === true);
+}
 function stableId(value: string, prefix = "vsi"): string { let hash = 2166136261; for (let index = 0; index < value.length; index += 1) { hash ^= value.charCodeAt(index); hash = Math.imul(hash, 16777619); } return `${prefix}-${(hash >>> 0).toString(16).padStart(8, "0")}`; }

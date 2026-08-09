@@ -6,7 +6,8 @@ import {
 } from "./ApprovalEvidenceClaimPolicy";
 import type { ApprovalPolicyProfileId } from "./ApprovalPolicy";
 import type { ApprovalSourcePage } from "./ApprovalEvidenceVerification";
-import { isCriticalVerificationClaim, type VerificationClaimKind, type VerificationClaimQualifiers, type VerificationTemporalRequirement } from "./VerificationClaim";
+import { canonicalizeApprovalEvidenceUrl } from "./ApprovalEvidenceVerification";
+import { isCriticalVerificationClaim, type VerificationClaimKind, type VerificationClaimQualifiers, type VerificationSnapshot, type VerificationTemporalRequirement } from "./VerificationClaim";
 
 export type ApprovalSourcePreflightRequirement = Readonly<{
   claimId?: string;
@@ -700,6 +701,79 @@ function hasPeriodQuantity(value: string): boolean {
     if (quantity.startsWith("date:")) return true;
     if (!quantity.startsWith("duration:")) return false;
     return !/^duration:20\d{2}:년$/u.test(quantity);
+  });
+}
+
+/**
+ * Explicit Planning has one canonical semantic verdict: VerificationSnapshot.
+ * This projection prevents the legacy field/value matcher from independently
+ * overturning or authorizing an explicit Claim.
+ */
+export function evaluateExplicitApprovalSourcePreflightCoverage(input: Readonly<{
+  requiredClaims: readonly ApprovalSourcePreflightRequirement[];
+  snapshot: VerificationSnapshot;
+  sources: readonly Readonly<{
+    page: ApprovalSourcePage;
+    claims: readonly ApprovalSourcePreflightClaim[];
+  }>[];
+}>): ApprovalSourcePreflightCoverageResult {
+  const requiredClaims = Object.freeze([...input.requiredClaims]);
+  const resultById = new Map(input.snapshot.results.map((result) => [result.claimId, result]));
+  const covered = new Set<string>();
+  const requirementKey = (claim: ApprovalSourcePreflightRequirement): string =>
+    claim.claimId?.trim() || claim.field;
+
+  const sources = input.sources.map(({ page, claims }) => {
+    const finalUrl = canonicalizeApprovalEvidenceUrl(page.finalUrl || page.requestedUrl);
+    const attachedIds = new Set(claims.flatMap((claim) => claim.claimId?.trim() ? [claim.claimId.trim()] : []));
+    const coveredIds: string[] = [];
+    const rejectedIds: string[] = [];
+    const coveredFields: string[] = [];
+    const rejectedFields: string[] = [];
+    for (const requirement of requiredClaims) {
+      const key = requirementKey(requirement);
+      const result = requirement.claimId ? resultById.get(requirement.claimId) : undefined;
+      const sourceSupports = Boolean(result?.sourceAssessments.some((assessment) =>
+        canonicalizeApprovalEvidenceUrl(assessment.canonicalUrl ?? "") === finalUrl
+        && assessment.supports
+        && assessment.fresh));
+      const matches = Boolean(
+        requirement.claimId
+        && attachedIds.has(requirement.claimId)
+        && result?.status === "verified"
+        && sourceSupports,
+      );
+      if (matches) {
+        covered.add(key);
+        coveredIds.push(key);
+        coveredFields.push(requirement.field);
+      } else {
+        rejectedIds.push(key);
+        rejectedFields.push(requirement.field);
+      }
+    }
+    return Object.freeze({
+      url: finalUrl,
+      hintedClaimFields: Object.freeze([] as string[]),
+      coveredClaimIds: Object.freeze(unique(coveredIds)),
+      rejectedClaimIds: Object.freeze(unique(rejectedIds)),
+      coveredClaimFields: Object.freeze(unique(coveredFields)),
+      rejectedClaimFields: Object.freeze(unique(rejectedFields)),
+    });
+  });
+
+  const coveredClaims = requiredClaims.filter((claim) => covered.has(requirementKey(claim)));
+  const uncoveredClaims = requiredClaims.filter((claim) => !covered.has(requirementKey(claim)));
+  return Object.freeze({
+    status: requiredClaims.length === 0
+      ? "not_required"
+      : uncoveredClaims.length === 0 ? "covered" : "incomplete",
+    requiredClaims,
+    coveredClaimIds: Object.freeze(unique(coveredClaims.map(requirementKey))),
+    uncoveredClaimIds: Object.freeze(unique(uncoveredClaims.map(requirementKey))),
+    coveredClaimFields: Object.freeze(coveredClaims.map((claim) => claim.field)),
+    uncoveredClaimFields: Object.freeze(uncoveredClaims.map((claim) => claim.field)),
+    sources: Object.freeze(sources),
   });
 }
 

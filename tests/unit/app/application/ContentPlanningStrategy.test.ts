@@ -83,6 +83,9 @@ describe("natural-language content planning", () => {
     expect(instruction).toContain("not only a classification label");
     expect(instruction).toContain("missing/mentioned/sufficient");
     expect(instruction).toContain("Project-owned labels that are identity, not default search keywords");
+    expect(instruction).toContain("Topic-selection policy: prefer a specific reader problem");
+    expect(instruction).toContain("Do not choose a topic merely because search volume, trend, scarcity, or low competition appears attractive");
+    expect(instruction).toContain("Prefer claims that can be defended with the existing VERIFY/CRITICAL policy");
     expect(instruction).not.toContain("targetLengthRange");
     expect(plan.recommendedPrimaryKeyword).toBe("50대 혈당 관리 가이드");
     expect(plan.estimateDisclosure).toContain("not measured");

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { mergeUserDataSnapshot } from "../../../../app/application/persistence/mergeUserDataSnapshot";
 import type { UserData } from "../../../../app/user-flow/user-data";
-import type { GeneratedClaimVerificationRecord } from "../../../../core/approval";
+import type { GeneratedClaimVerificationRecord, GeneratedFactualClaimInventoryRecord } from "../../../../core/approval";
 
 const storedRecord: GeneratedClaimVerificationRecord = Object.freeze({
   schemaVersion: 1,
@@ -78,6 +78,35 @@ function data(record: GeneratedClaimVerificationRecord | undefined, updatedAt: s
 }
 
 describe("Generated Claim verification persistence", () => {
+  it("preserves the server-owned factual inventory when a client write omits it", () => {
+    const inventory: GeneratedFactualClaimInventoryRecord = Object.freeze({
+      schemaVersion: 1,
+      items: Object.freeze([Object.freeze({
+        claimId: "claim-verify", origin: "generation" as const, risk: "verify" as const,
+        surfaceText: "취소 처리와 청구 반영은 다른 단계일 수 있습니다.",
+        statement: "취소 처리와 청구 반영은 다른 단계일 수 있습니다.", kind: "general" as const,
+        normalizedValueJson: "{}", qualifiers: Object.freeze({}), locations: Object.freeze([{ kind: "block" as const, blockId: "p1" }]),
+        disposition: "retained" as const, evidenceStatus: "verify_verified" as const,
+        evidenceUrl: "https://www.fss.or.kr/card", evidenceExcerpt: "취소 처리와 청구 반영은 다른 단계일 수 있습니다.",
+      })]),
+      retainedClaimIds: Object.freeze(["claim-verify"]), removedClaimCount: 0,
+    });
+    const base = data(undefined, "2026-08-08T00:00:00.000Z", "취소 처리와 청구 반영은 다른 단계일 수 있습니다.");
+    const current: UserData = Object.freeze({
+      ...base,
+      contents: Object.freeze([Object.freeze({
+        ...base.contents[0]!,
+        document: Object.freeze({
+          ...base.contents[0]!.document!,
+          metadata: Object.freeze({ ...base.contents[0]!.document!.metadata!, generatedFactualClaimInventory: inventory }),
+        }),
+      })]),
+    });
+    const incoming = data(undefined, "2026-08-08T01:00:00.000Z", "클라이언트 수정 본문");
+    const merged = mergeUserDataSnapshot(current, incoming);
+    expect(merged.contents[0]?.document?.metadata?.generatedFactualClaimInventory).toEqual(inventory);
+  });
+
   it("preserves the server-owned verification record when a newer client write omits it", () => {
     const current = data(storedRecord, "2026-08-08T00:00:00.000Z", "현재 지원 금액은 50만원입니다.");
     const incoming = data(undefined, "2026-08-08T01:00:00.000Z", "본문을 사용자가 수정했습니다.");

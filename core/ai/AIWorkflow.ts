@@ -1,6 +1,7 @@
 import {
   approvalPolicySnapshotFromEditorialContext,
   canonicalizeApprovalEvidenceUrl,
+  applyGeneratedFactualClaimInventory,
   createGeneratedClaimVerificationRecord,
   validateGeneratedFactualClaimDrafts,
   type ApprovalEvidenceFact,
@@ -8,6 +9,7 @@ import {
   type ApprovalPolicySnapshot,
   type GeneratedClaimBinding,
   type GeneratedFactualClaim,
+  type SiteApprovalReadinessFetch,
   type VerificationSnapshot,
 } from "../approval";
 import type { ApprovalSourcePreflightCoverageResult } from "../approval/ApprovalSourcePreflightCoverage";
@@ -27,9 +29,12 @@ import {
 } from "./ApprovalSourcePreflight";
 import { appendAIUsageToDocument } from "./AIUsageCost";
 import {
+  hasGeneratedFactualClaimInventoryResponse,
+  parseGeneratedFactualClaimInventoryDrafts,
   parseGeneratedFactualClaimDrafts,
   withGeneratedFactualClaimResponseInstruction,
 } from "./GeneratedFactualClaimResponse";
+import { evaluateGeneratedFactualClaimDecisions } from "./GeneratedVerifyEvidence";
 import {
   requireApprovalGenerationEvidence,
   requireExplicitVerificationGenerationBundle,
@@ -82,6 +87,7 @@ export class AIWorkflow {
   constructor(
     private readonly provider: AIProvider,
     private readonly strategy: ContentGenerationStrategy,
+    private readonly options: Readonly<{ verifyEvidenceFetcher?: SiteApprovalReadinessFetch }> = {},
   ) {}
 
   getState(): AIWorkflowState {
@@ -124,11 +130,8 @@ export class AIWorkflow {
           contract: input.contentOpportunity?.requiredEvidenceContract,
         });
       }
-      const explicitVerificationGeneration = Boolean(
-        generationPreflight
-        && "gate" in generationPreflight
-        && input.contentOpportunity?.verificationPlan?.claims.some(isCriticalVerificationClaim)
-        && sourcePreflight?.verificationSnapshot,
+      const factualInventoryGeneration = Boolean(
+        approvalSnapshot && input.structuredLongFormOutput && input.contentOpportunity,
       );
       const request = this.strategy.createRequest(input);
       const canonicalInstruction = withCanonicalEditorialContext(
@@ -145,7 +148,7 @@ export class AIWorkflow {
             canonicalInstruction,
             approvalSnapshot,
           );
-      const instruction = withVerificationClaimRiskInstruction(explicitVerificationGeneration
+      const instruction = withVerificationClaimRiskInstruction(factualInventoryGeneration
         ? withGeneratedFactualClaimResponseInstruction(preflightInstruction)
         : preflightInstruction, input.contentOpportunity);
       const response = await this.provider.generate({
@@ -157,8 +160,8 @@ export class AIWorkflow {
           ...(input.structuredLongFormOutput
             ? { task: "content-generation" }
             : {}),
-          ...(explicitVerificationGeneration
-            ? { verificationGenerationMode: "structured_claims_v1" }
+          ...(factualInventoryGeneration
+            ? { verificationGenerationMode: "structured_claims_v2" }
             : {}),
           ...(input.contentOpportunity?.qualityTarget
             ? {
@@ -172,9 +175,9 @@ export class AIWorkflow {
                 approvalPurpose: approvalSnapshot.contentPurpose,
                 approvalProfileId: approvalSnapshot.profileId,
                 approvalPolicyVersion: approvalSnapshot.policyVersion,
-                approvalEvidenceMode: sourcePreflight
+                approvalEvidenceMode: generationPreflight?.sources.length
                   ? "preflight_verified"
-                  : "inline_search",
+                  : "verify_best_effort",
               }
             : {}),
         },
@@ -213,6 +216,13 @@ export class AIWorkflow {
       );
       assertGeneratedDocumentOwnedIdentityPolicy(generatedDocument, input);
 
+      const inventoryDrafts = factualInventoryGeneration
+        ? parseGeneratedFactualClaimInventoryDrafts(response.content)
+        : Object.freeze([]);
+      if (factualInventoryGeneration && !hasGeneratedFactualClaimInventoryResponse(response.content)) {
+        throw new Error("Generation response is missing the factual Claim inventory.");
+      }
+
       let semanticClaims: readonly GeneratedFactualClaim[] | undefined;
       if (
         generationPreflight
@@ -225,7 +235,10 @@ export class AIWorkflow {
           plan: input.contentOpportunity.verificationPlan,
           snapshot: sourcePreflight.verificationSnapshot,
           gate: generationPreflight.gate,
-          drafts: parseGeneratedFactualClaimDrafts(response.content),
+          drafts: parseGeneratedFactualClaimDrafts(response.content).filter((draft) =>
+            input.contentOpportunity!.verificationPlan!.claims.some((claim) =>
+              isCriticalVerificationClaim(claim) && claim.claimId === draft.claimId,
+            )),
         });
         if (!semanticValidation.passed) {
           throw new Error(
@@ -235,27 +248,45 @@ export class AIWorkflow {
         semanticClaims = semanticValidation.claims;
       }
 
+      const inventoryApplied = factualInventoryGeneration && approvalSnapshot && input.contentOpportunity
+        ? applyGeneratedFactualClaimInventory({
+            document: generatedDocument,
+            drafts: inventoryDrafts,
+            decisions: await evaluateGeneratedFactualClaimDecisions({
+              drafts: inventoryDrafts,
+              opportunity: input.contentOpportunity,
+              snapshot: approvalSnapshot,
+              webSources: response.diagnostics?.webSources ?? [],
+              verifiedCriticalClaimIds: generationPreflight && "gate" in generationPreflight
+                ? generationPreflight.gate.verifiedClaimIds
+                : [],
+              ...(this.options.verifyEvidenceFetcher ? { fetcher: this.options.verifyEvidenceFetcher } : {}),
+            }),
+            fallbackTitle: input.contentOpportunity.selectedTopic,
+          }).document
+        : generatedDocument;
+
       const generatedClaimVerification = generationPreflight
         && "gate" in generationPreflight
         && input.contentOpportunity?.verificationPlan?.claims.some(isCriticalVerificationClaim)
         && sourcePreflight?.verificationSnapshot
         ? createGeneratedClaimVerificationRecord({
-            document: generatedDocument,
+            document: inventoryApplied,
             plan: input.contentOpportunity.verificationPlan,
             snapshot: sourcePreflight.verificationSnapshot,
-            boundEditorialRevisionId: editorialRevisionId(generatedDocument),
+            boundEditorialRevisionId: editorialRevisionId(inventoryApplied),
             semanticClaims,
           })
         : undefined;
       const canonicalGeneratedDocument = generatedClaimVerification
         ? Object.freeze({
-            ...generatedDocument,
-            metadata: Object.freeze({
-              ...generatedDocument.metadata!,
+              ...inventoryApplied,
+              metadata: Object.freeze({
+              ...inventoryApplied.metadata!,
               generatedClaimVerification,
             }),
           })
-        : generatedDocument;
+        : inventoryApplied;
       const result = Object.freeze({
         document: canonicalGeneratedDocument,
         rawResponse: response.content,

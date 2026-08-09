@@ -17,6 +17,20 @@ const document: ContentDocument = {
 };
 
 describe("ContentDocumentEditor derived table of contents", () => {
+  it("uses the active Publishing Target for image Draft terminology", () => {
+    const imageDocument: ContentDocument = {
+      id: "image-content",
+      title: "대표이미지",
+      blocks: [{ id: "hero", type: "image", source: "", alt: "대표이미지", purpose: "hero" }],
+    };
+    const wordpress = renderToStaticMarkup(<ContentDocumentEditor candidates={[]} disabled={false} document={imageDocument} onChange={vi.fn()} publishingPlatform="wordpress" />);
+    const tistory = renderToStaticMarkup(<ContentDocumentEditor candidates={[]} disabled={false} document={imageDocument} onChange={vi.fn()} publishingPlatform="tistory" />);
+    expect(wordpress).toContain("WordPress 임시저장");
+    expect(wordpress).not.toContain("Tistory 임시저장");
+    expect(tistory).toContain("Tistory 임시저장");
+    expect(tistory).not.toContain("WordPress 임시저장");
+  });
+
   it("uses the same H2/H3 outline as publishing without storing a TOC block", () => {
     expect(createContentOutline(document)).toEqual([
       { id: "h2-1", level: 2, text: "준비와 안전" },

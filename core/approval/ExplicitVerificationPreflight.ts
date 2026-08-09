@@ -6,6 +6,7 @@ import { evaluateVerificationClaim } from "./VerificationClaimPolicy";
 import { normalizeVerificationValue } from "./VerificationClaimNormalizer";
 import { canonicalizeVerificationSourceIdentity } from "./VerificationSourceIdentity";
 import { evaluateVerificationTemporalEvidence } from "./VerificationTemporalPolicy";
+import { evaluateVerificationClaimEvidenceMatch } from "./VerificationClaimEvidenceMatch";
 
 export type ExplicitVerificationClock = () => string;
 export type ExplicitVerificationInput = Readonly<{
@@ -30,17 +31,23 @@ export function assessmentsFromExplicitDiscovery(input: Readonly<{ claims: reado
     for (const claim of source.claims) {
       const spec = specs.get(claim.claimId);
       if (!spec) continue;
-      const normalized = normalizeExplicitClaimValue(spec, claim.value);
-      const plannedRawValue = spec.rawValue ? normalizeExplicitClaimValue(spec, spec.rawValue) : undefined;
-      const page = (source.pageText ?? "").replace(/\s+/gu, " ").normalize("NFKC");
-      const excerptFound = page.includes(claim.evidenceExcerpt.replace(/\s+/gu, " ").normalize("NFKC"));
-      const valueFound = page.includes(claim.value.replace(/\s+/gu, " ").normalize("NFKC"));
+      const sourceContext = [source.title ?? "", claim.evidenceExcerpt, (source.pageText ?? "").slice(0, 2_000)].join(" ");
+      const normalized = normalizeExplicitClaimValue(spec, claim.value, sourceContext);
+      const plannedRawValue = spec.rawValue ? normalizeExplicitClaimValue(spec, spec.rawValue, sourceContext) : undefined;
       const rawMatches = !spec.rawValue || Boolean(
         normalized
         && plannedRawValue
         && canonicalValue(normalized) === canonicalValue(plannedRawValue),
       );
-      const supports = Boolean(claim.evidenceExcerpt.trim() && excerptFound && valueFound && rawMatches && normalized);
+      const evidenceMatch = evaluateVerificationClaimEvidenceMatch({
+        spec,
+        submittedValue: claim.value,
+        evidenceExcerpt: claim.evidenceExcerpt,
+        pageText: source.pageText ?? "",
+        normalizedValuePresent: Boolean(normalized),
+        normalizedValueMatchesPlanned: rawMatches,
+      });
+      const supports = evidenceMatch.matched;
       const temporal = spec.temporalRequirement
         ? evaluateVerificationTemporalEvidence({
           claimKind: spec.kind,
@@ -49,12 +56,13 @@ export function assessmentsFromExplicitDiscovery(input: Readonly<{ claims: reado
           pageText: source.pageText ?? "",
           claimValue: claim.value,
           observedAt: source.observedAt ?? (source.pageText ? now() : undefined),
+          authoritative: source.authoritative === true,
         })
         : legacyFixtureFreshness(source);
       output.push(Object.freeze({
         ...identity,
         supports,
-        ...(normalized && valueFound ? { normalizedValue: normalized } : {}),
+        ...(normalized && supports ? { normalizedValue: normalized } : {}),
         freshnessStatus: temporal.freshnessStatus,
         ...(temporal.observedAt ? { observedAt: temporal.observedAt } : {}),
         ...(temporal.effectiveFrom ? { effectiveFrom: temporal.effectiveFrom } : {}),
@@ -63,10 +71,7 @@ export function assessmentsFromExplicitDiscovery(input: Readonly<{ claims: reado
         fresh: temporal.fresh,
         diagnostics: Object.freeze([
           ...baseDiagnostics,
-          ...(excerptFound ? [] : ["claim_evidence_excerpt_not_found"]),
-          ...(valueFound ? [] : ["claim_value_not_found"]),
-          ...(rawMatches ? [] : ["claim_raw_value_mismatch"]),
-          ...(normalized ? [] : ["claim_normalization_failed"]),
+          ...evidenceMatch.diagnostics,
           ...temporal.diagnostics,
           `claim:${claim.claimId}`,
         ]),
@@ -119,18 +124,18 @@ function freezeAssessments(values: readonly VerificationSourceAssessment[]): rea
   return Object.freeze(values.map((value) => Object.freeze({ ...value, diagnostics: Object.freeze([...value.diagnostics]) })));
 }
 
-function normalizeExplicitClaimValue(spec: VerificationClaimSpec, value: string): VerificationSourceAssessment["normalizedValue"] {
+function normalizeExplicitClaimValue(spec: VerificationClaimSpec, value: string, sourceContext = ""): VerificationSourceAssessment["normalizedValue"] {
   const text = value.normalize("NFKC").replace(/\s+/gu, " ").trim();
   if (!text) return undefined;
-  if (spec.kind === "general") return { kind: "general", value: { statement: text } };
+  if (spec.kind === "general") return { kind: "general", value: { statement: spec.rawValue ? text : spec.statement.trim() || text } };
   if (spec.kind === "money") return normalizeExplicitMoney(text, spec);
   if (spec.kind === "ratio") return normalizeExplicitRatio(text, spec);
   if (spec.kind === "date") return normalizeExplicitDate(text, spec);
   if (spec.kind === "dateRange") return normalizeExplicitDateRange(text);
   if (spec.kind === "duration") return normalizeExplicitDuration(text);
-  if (spec.kind === "location") return normalizeExplicitLocation(text);
-  if (spec.kind === "eligibility") return normalizeExplicitEligibility(text, spec);
-  if (spec.kind === "legal") return normalizeExplicitLegal(text, spec);
+  if (spec.kind === "location") return normalizeExplicitLocation(spec.rawValue ? text : spec.qualifiers.scope?.trim() || spec.statement.trim() || text);
+  if (spec.kind === "eligibility") return normalizeExplicitEligibility(spec.rawValue ? text : spec.statement.trim() || text, spec);
+  if (spec.kind === "legal") return normalizeExplicitLegal(text, spec, sourceContext);
   return undefined;
 }
 
@@ -241,24 +246,28 @@ function normalizeExplicitEligibility(text: string, spec: VerificationClaimSpec)
   };
 }
 
-function normalizeExplicitLegal(text: string, spec: VerificationClaimSpec): VerificationSourceAssessment["normalizedValue"] {
-  const articleMatch = text.match(/제\s*(\d+)\s*조(?:의\s*(\d+))?/u);
-  const paragraphMatch = text.match(/제\s*(\d+)\s*항/u);
-  const lawName = legalName(text) ?? legalName(spec.statement);
-  if (!lawName || !spec.statement.trim()) return undefined;
-  const sourceClass = /(?:시행령|시행규칙)/u.test(lawName)
+function normalizeExplicitLegal(text: string, spec: VerificationClaimSpec, sourceContext: string): VerificationSourceAssessment["normalizedValue"] {
+  const canonicalContext = spec.rawValue
+    ? text
+    : [spec.statement, spec.qualifiers.basis ?? ""].join(" ");
+  const articleMatch = canonicalContext.match(/제\s*(\d+)\s*조(?:의\s*(\d+))?/u);
+  const paragraphMatch = canonicalContext.match(/제\s*(\d+)\s*항/u);
+  const lawName = legalName(canonicalContext) ?? (!spec.rawValue ? legalName(sourceContext) : undefined);
+  if (!spec.statement.trim()) return undefined;
+  const sourceClassContext = `${lawName ?? ""} ${canonicalContext} ${sourceContext}`;
+  const sourceClass = /(?:시행령|시행규칙)/u.test(sourceClassContext)
     ? "regulation" as const
-    : /(?:고시|지침|가이드|안내)/u.test(`${lawName} ${spec.statement}`)
+    : /(?:고시|지침|가이드|안내)/u.test(sourceClassContext)
       ? "officialGuidance" as const
-      : /(?:판결|대법원|법원)/u.test(`${lawName} ${spec.statement}`)
+      : /(?:판결|대법원|법원)/u.test(sourceClassContext)
         ? "caseLaw" as const
-        : /(?:해석|유권해석)/u.test(`${lawName} ${spec.statement}`)
+        : /(?:해석|유권해석)/u.test(sourceClassContext)
           ? "interpretation" as const
           : "statute" as const;
   return {
     kind: "legal",
     value: {
-      lawName,
+      ...(lawName ? { lawName } : {}),
       ...(articleMatch ? { article: `제${articleMatch[1]}조${articleMatch[2] ? `의${articleMatch[2]}` : ""}` } : {}),
       ...(paragraphMatch ? { paragraph: `제${paragraphMatch[1]}항` } : {}),
       proposition: spec.statement.replace(/\s+/gu, " ").trim(),

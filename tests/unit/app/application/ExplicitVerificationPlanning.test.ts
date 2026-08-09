@@ -41,7 +41,8 @@ describe("explicit planning contract", () => {
     expect(parsed.opportunityCandidates?.[0].verificationPlan?.claims[0]).not.toHaveProperty("status");
     expect(Object.isFrozen(parsed.opportunityCandidates?.[0].verificationPlan?.claims[0]?.temporalRequirement)).toBe(true);
     const empty = parsePlanningResult(JSON.stringify({ ...planning, opportunityCandidates: [{ ...candidate, verificationClaims: [] }] }), { projectId: "p", selectionMode: "automatic", explicitVerificationPlanningEnabled: true });
-    expect(empty.opportunityCandidates?.[0].verificationPlan).toBeUndefined();
+    expect(empty.opportunityCandidates?.[0].verificationPlan).toMatchObject({ mode: "explicit", claims: [] });
+    expect(empty.opportunityCandidates?.[0].verificationPlan?.fingerprint).toMatch(/^vfp-/);
     expect(() => parsePlanningResult(JSON.stringify({ ...planning, opportunityCandidates: [{ ...candidate, verificationClaims: undefined }] }), { projectId: "p", selectionMode: "automatic", explicitVerificationPlanningEnabled: true })).toThrow();
     expect(() => parsePlanningResult(JSON.stringify({ ...planning, opportunityCandidates: [{ ...candidate, verificationClaims: [{ ...candidate.verificationClaims[0], atomicity: undefined }] }] }), { projectId: "p", selectionMode: "automatic", explicitVerificationPlanningEnabled: true })).toThrow("atomicity");
     expect(() => parsePlanningResult(JSON.stringify({ ...planning, opportunityCandidates: [{ ...candidate, verificationClaims: [{ ...candidate.verificationClaims[0], kind: "bad" }] }] }), { projectId: "p", selectionMode: "automatic", explicitVerificationPlanningEnabled: true })).toThrow();
@@ -104,7 +105,7 @@ describe("explicit planning contract", () => {
     expect(generate).toHaveBeenCalledTimes(1);
     expect(generate.mock.calls[0]?.[0].instruction).toContain("Verification claims rule");
     expect(generate.mock.calls[0]?.[0].instruction).toContain("Approval evidence policy is risk-based");
-    expect(generate.mock.calls[0]?.[0].instruction).toContain("empty verificationClaims array is valid");
+    expect(generate.mock.calls[0]?.[0].instruction).toContain("explicit empty array is a valid completed N/A state");
     expect(generate.mock.calls[0]?.[0].metadata?.explicitVerificationPlanning).toBe("1");
     expect(result.opportunityCandidates?.[0].verificationPlan?.mode).toBe("explicit");
     expect(result.opportunityCandidates?.[0].requiredEvidenceContract).toMatchObject({

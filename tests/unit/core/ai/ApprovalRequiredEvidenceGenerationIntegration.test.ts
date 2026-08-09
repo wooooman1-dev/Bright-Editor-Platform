@@ -120,7 +120,7 @@ function preflightResponse(): AIResponse {
 }
 
 function generationResponse(): AIResponse {
-  return { content: "generated", model: "test" };
+  return { content: JSON.stringify({ verificationClaimsUsed: [] }), model: "test" };
 }
 
 function input(selected = opportunity()) {

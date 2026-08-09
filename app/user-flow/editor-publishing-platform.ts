@@ -7,6 +7,14 @@ import {
 
 export type EditorPublishingPlatform = "tistory" | "wordpress";
 
+export function publishingDraftDestinationLabel(
+  platform: EditorPublishingPlatform | undefined,
+): string {
+  if (platform === "wordpress") return "WordPress 임시저장";
+  if (platform === "tistory") return "Tistory 임시저장";
+  return "외부 임시저장";
+}
+
 export type EditorPublishingPlatformVisibility = Readonly<{
   activePlatform?: EditorPublishingPlatform;
   tistoryEnabled: boolean;

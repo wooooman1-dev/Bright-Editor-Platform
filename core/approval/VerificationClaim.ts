@@ -13,7 +13,7 @@ export type NormalizedDuration = Readonly<{ value: number; unit: "day" | "week" 
 export type NormalizedLocation = Readonly<{ country?: string; region?: string; city?: string; address?: string; venue?: string; hall?: string; scope: "national" | "regional" | "local" | "specific" }>;
 export type EligibilityPredicate = Readonly<{ field: string; operator: string; value: string | number | boolean | readonly (string | number)[] } | { all: readonly EligibilityPredicate[] } | { any: readonly EligibilityPredicate[] }>;
 export type NormalizedEligibility = Readonly<{ predicate: EligibilityPredicate }>;
-export type NormalizedLegalClaim = Readonly<{ lawName: string; article?: string; paragraph?: string; effectiveDate?: string; proposition: string; sourceClass: "statute" | "regulation" | "officialGuidance" | "caseLaw" | "interpretation" }>;
+export type NormalizedLegalClaim = Readonly<{ lawName?: string; article?: string; paragraph?: string; effectiveDate?: string; proposition: string; sourceClass: "statute" | "regulation" | "officialGuidance" | "caseLaw" | "interpretation" }>;
 export type NormalizedGeneralClaim = Readonly<{ statement: string }>;
 export type VerificationNormalizedValue =
   | Readonly<{ kind: "money"; value: NormalizedMoney }> | Readonly<{ kind: "ratio"; value: NormalizedRatio }>
@@ -63,4 +63,11 @@ export function verificationClaimRisk(claim: Pick<VerificationClaimSpec, "requir
 
 export function isCriticalVerificationClaim(claim: Pick<VerificationClaimSpec, "required" | "risk" | "kind">): boolean {
   return verificationClaimRisk(claim) === "critical";
+}
+
+export function isTimeSensitiveCriticalVerificationClaim(
+  claim: Pick<VerificationClaimSpec, "required" | "risk" | "kind" | "temporalRequirement">,
+): boolean {
+  return isCriticalVerificationClaim(claim)
+    && claim.temporalRequirement?.mode !== "notRequired";
 }

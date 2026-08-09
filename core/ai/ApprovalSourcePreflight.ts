@@ -4,6 +4,7 @@ import {
   canonicalizeApprovalEvidenceUrl,
   evaluateApprovalSourceAuthority,
   evaluateApprovalSourcePreflightCoverage,
+  evaluateExplicitApprovalSourcePreflightCoverage,
   evaluateApprovalSourceUrlSafety,
   officialSourceAllowed,
   createApprovalSourcePreflightDiagnostic,
@@ -547,16 +548,14 @@ async function runExplicitPreflight(input: Readonly<Parameters<typeof runApprova
       right.finalUrl ?? right.requestedUrl,
     ),
   );
-  const primaryIndex = orderedAccepted.findIndex((source) =>
-    source.authoritative === true && source.diagnostics?.length === 0,
-  );
-  const classifiedAccepted = orderedAccepted.map((source, index) => Object.freeze({
+  const classifiedAccepted = orderedAccepted.map((source) => Object.freeze({
     ...source,
-    role: index === primaryIndex
+    // Authority is Claim-owned. Every accepted authoritative source is the
+    // primary official source for the Claim IDs attached to that source; array
+    // order must never demote another Claim's only authority.
+    role: source.authoritative && source.diagnostics?.length === 0
       ? "primaryOfficial" as const
-      : source.authoritative && source.diagnostics?.length === 0
-        ? "officialCorroborating" as const
-        : "independentCorroborating" as const,
+      : "independentCorroborating" as const,
   }));
   pipelineMetrics.policyRetainedCount = classifiedAccepted.filter((source) =>
     source.authoritative === true && source.diagnostics?.length === 0).length;
@@ -597,6 +596,19 @@ async function runExplicitPreflight(input: Readonly<Parameters<typeof runApprova
   });
   pipelineMetrics.semanticVerificationEvaluatedCount = semanticAssessments.length;
   pipelineMetrics.semanticVerificationPassCount = semanticAssessments.filter((assessment) => assessment.supports).length;
+  for (const assessment of semanticAssessments.filter((item) => !item.supports)) {
+    if (pipelineMetrics.rejectionSamples.length >= 3) break;
+    const claimDiagnostic = assessment.diagnostics.find((item) => item.startsWith("claim:"));
+    const rejectionCode = assessment.diagnostics.find((item) => !item.startsWith("claim:"))
+      ?? "semantic_verification_failed";
+    pipelineMetrics.rejectionSamples.push(Object.freeze({
+      ...(assessment.canonicalUrl ? { url: assessment.canonicalUrl, canonicalUrl: assessment.canonicalUrl } : {}),
+      ...(claimDiagnostic ? { claimId: claimDiagnostic.slice("claim:".length) } : {}),
+      rejectionStage: "coverage",
+      rejectionCode,
+      reason: rejectionCode,
+    }));
+  }
   const claimSources = explicitClaimSources(
     plan.claims,
     classifiedAccepted,
@@ -668,10 +680,9 @@ async function runExplicitPreflight(input: Readonly<Parameters<typeof runApprova
     );
   }
   const profileCoverage = profileSourceRequirementApplicable
-    ? evaluateApprovalSourcePreflightCoverage({
-      profileId: input.snapshot.profileId,
-      opportunity: input.opportunity,
+    ? evaluateExplicitApprovalSourcePreflightCoverage({
       requiredClaims: profileRequiredClaims,
+      snapshot: verificationSnapshot,
       sources: classifiedAccepted
         .filter((source) => source.diagnostics?.length === 0)
         .map((source) => Object.freeze({
@@ -813,7 +824,7 @@ function explicitPreflightInstruction(
   opportunity: ConfirmedContentOpportunity,
 ): string {
   const criticalClaims = opportunity.verificationPlan!.claims.filter(isCriticalVerificationClaim);
-  return `Perform explicit source discovery only. Use each claimId exactly as provided. Search within the confirmed topic scope and do not substitute an adjacent topic. Topic: ${opportunity.selectedTopic}. Primary keyword: ${opportunity.primaryKeyword}. Reader problem: ${opportunity.readerProblem}. Search intent: ${opportunity.searchIntent}. Required Claims: ${JSON.stringify(criticalClaims)}. These are CRITICAL Claims only. Profile: ${snapshot.profileDisplayName}. Every required CRITICAL Claim must be deliberately searched and supported by its authoritative primary source. Determine authority from the Claim context: laws from the official law or responsible government authority; taxes from the tax authority, applicable law, or responsible authority; government benefits from the actual administering public body; financial regulation from the responsible regulator; and a named bank, card, insurance, or other entity's product terms from that same entity's official product page, disclosure, description, or terms. A government domain is not automatically authoritative for an entity-owned product Claim, and an official entity page must not be used for another entity's Claim. A single source may support multiple Claims, and multiple sources may divide Claim coverage; do not stop after finding one source. Each returned source must include at least one claims item with an exact canonical required claimId; omit any source that supports no required Claim. For each source, attach only the Claim fields that the exact page supports. Every attached claim must include its exact provided claimId. If a required Claim cannot be supported, omit unsupported evidence; the server will deterministically return its missing Claim ID and block Generation. Each source evidenceExcerpt must be a contiguous verbatim passage from the canonical extracted text of that fetched document body, including visible headings but excluding page title, metadata, search snippets, navigation, scripts, and styles. Do not paraphrase, summarize, or synthesize separate passages into a new sentence. If the source has no directly quotable supporting passage, omit that source instead of inventing or rewriting evidence. Choose the shortest passage that is sufficient to support the source relevance. Return JSON with sources containing url,title,evidenceExcerpt and claims containing claimId,value,evidenceExcerpt.`;
+  return `Perform explicit source discovery only. Use each claimId exactly as provided. Search within the confirmed topic scope and do not substitute an adjacent topic. Topic: ${opportunity.selectedTopic}. Primary keyword: ${opportunity.primaryKeyword}. Reader problem: ${opportunity.readerProblem}. Search intent: ${opportunity.searchIntent}. Required Claims: ${JSON.stringify(criticalClaims)}. These are CRITICAL Claims only. Profile: ${snapshot.profileDisplayName}. Every required CRITICAL Claim must be deliberately searched and supported by its authoritative primary source. Determine authority from the Claim context: laws from the official law or responsible government authority; taxes from the tax authority, applicable law, or responsible authority; government benefits from the actual administering public body; financial regulation from the responsible regulator; and a named bank, card, insurance, or other entity's product terms from that same entity's official product page, disclosure, description, or terms. A government domain is not automatically authoritative for an entity-owned product Claim, and an official entity page must not be used for another entity's Claim. A single source may support multiple Claims, and multiple sources may divide Claim coverage; do not stop after finding one source. Prefer directly readable HTML pages. Use a PDF only when it has a directly readable text layer and the required passage can be quoted from it. Each returned source must include at least one claims item with an exact canonical required claimId; omit any source that supports no required Claim. For each source, attach only the Claim fields that the exact page supports. Every attached claim must include its exact provided claimId. If a required Claim cannot be supported, omit unsupported evidence; the server will deterministically return its missing Claim ID and block Generation. Each source evidenceExcerpt must be a contiguous verbatim passage from the canonical extracted text of that fetched document body, including visible headings but excluding page title, metadata, search snippets, navigation, scripts, and styles. Do not paraphrase, summarize, or synthesize separate passages into a new sentence. Each claim value should be the shortest verbatim factual phrase contained inside its claim evidenceExcerpt; do not use a paraphrase as value. If the source has no directly quotable supporting passage, omit that source instead of inventing or rewriting evidence. Choose the shortest passage that is sufficient to support the source relevance. Return JSON with sources containing url,title,evidenceExcerpt and claims containing claimId,value,evidenceExcerpt.`;
 }
 
 type SourcePipelineMetrics = {
@@ -1493,9 +1504,10 @@ function coverageDiagnosticMetadata(
   }>[],
   semanticAssessments: readonly import("../approval").VerificationSourceAssessment[] = [],
 ): Pick<ApprovalSourcePreflightDiagnostic, "requiredClaimIds" | "coveredClaimIds" | "missingClaimIds" | "coverageSources"> {
+  const requiredClaims = plan.claims.filter(isCriticalVerificationClaim);
   const sourceCoverage = new Map(coverage.sources.map((source) => [source.url, source]));
   return {
-    requiredClaimIds: Object.freeze(plan.claims.map((claim) => claim.claimId)),
+    requiredClaimIds: Object.freeze(requiredClaims.map((claim) => claim.claimId)),
     coveredClaimIds: Object.freeze([...(coverage.coveredClaimIds ?? [])]),
     missingClaimIds: Object.freeze([...(coverage.uncoveredClaimIds ?? [])]),
     coverageSources: Object.freeze(sources.slice(0, 6).map((source) => {

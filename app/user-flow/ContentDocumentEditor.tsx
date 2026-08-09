@@ -5,6 +5,7 @@ import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { ContentNormalizer, createContentOutline, type ContentBlock, type ContentDocument, type ContentOutlineEntry, type PublicPostCandidate } from "../../core/content";
 import { brightBodyVisualContent, isFreeBodyVisualBlock } from "../../core/media";
 import { ImageBlockEditor } from "./ImageBlockEditor";
+import type { EditorPublishingPlatform } from "./editor-publishing-platform";
 
 type ButtonPurpose = "cta" | "internal_link" | "monetization" | "related_post" | "source";
 
@@ -13,11 +14,13 @@ export function ContentDocumentEditor({
   candidates,
   disabled,
   onChange,
+  publishingPlatform,
 }: {
   document: ContentDocument;
   candidates: readonly PublicPostCandidate[];
   disabled: boolean;
   onChange: (document: ContentDocument, message: string) => Promise<void>;
+  publishingPlatform?: EditorPublishingPlatform;
 }) {
   const [draggedId, setDraggedId] = useState<string>();
   const document = useMemo(
@@ -127,8 +130,8 @@ export function ContentDocumentEditor({
         {block.type === "list" ? <div className="flex items-start gap-2"><select aria-label="목록 종류" className="mt-2 rounded-md border bg-white px-2 py-1 text-xs" disabled={disabled} onChange={(event) => void replace(block.id, { ...block, style: event.target.value as "ordered" | "unordered" })} value={block.style}><option value="ordered">순서 목록</option><option value="unordered">글머리 목록</option></select><textarea className="w-full resize-none overflow-hidden border-0 bg-transparent px-1 py-2 text-[17px] leading-8 outline-none" defaultValue={block.items.join("\n")} onBlur={(event) => { const items = event.target.value.split("\n").map((item) => item.trim()).filter(Boolean); if (items.join("\n") !== block.items.join("\n")) void replace(block.id, { ...block, items }); }} rows={Math.max(2, block.items.length)} /></div> : null}
         {block.type === "table" ? <TableEditor block={block} disabled={disabled} onChange={(next) => replace(block.id, next)} /> : null}
         {block.type === "image" ? block.source || !isFreeBodyVisualBlock(block)
-          ? <ImageBlockEditor key={`${block.id}:${block.alt}:${block.prompt ?? ""}:${block.purpose ?? ""}`} block={block} contentId={document.id} disabled={disabled} onChange={(next) => replace(block.id, next)} />
-          : <FreeBodyVisualCard block={block} contentId={document.id} disabled={disabled} onChange={(next) => replace(block.id, next)} />
+          ? <ImageBlockEditor key={`${block.id}:${block.alt}:${block.prompt ?? ""}:${block.purpose ?? ""}`} block={block} contentId={document.id} disabled={disabled} onChange={(next) => replace(block.id, next)} publishingPlatform={publishingPlatform} />
+          : <FreeBodyVisualCard block={block} contentId={document.id} disabled={disabled} onChange={(next) => replace(block.id, next)} publishingPlatform={publishingPlatform} />
           : null}
         {block.type === "button" ? <ButtonEditor block={block} disabled={disabled} onChange={(next) => replace(block.id, next)} /> : null}
         {block.type === "video" ? <p className="rounded-lg bg-[#f8f8fa] p-3 text-sm">비디오: {block.source}</p> : null}
@@ -150,11 +153,12 @@ function DerivedTableOfContents({ outline }: { outline: readonly ContentOutlineE
   </nav>;
 }
 
-function FreeBodyVisualCard({ block, contentId, disabled, onChange }: {
+function FreeBodyVisualCard({ block, contentId, disabled, onChange, publishingPlatform }: {
   block: Extract<ContentBlock, { type: "image" }>;
   contentId: string;
   disabled: boolean;
   onChange: (block: Extract<ContentBlock, { type: "image" }>) => Promise<void>;
+  publishingPlatform?: EditorPublishingPlatform;
 }) {
   const content = brightBodyVisualContent(block);
   const tone = content.purpose === "warning"
@@ -173,7 +177,7 @@ function FreeBodyVisualCard({ block, contentId, disabled, onChange }: {
     </aside>
     <details className="mt-3 rounded-xl border bg-white p-4">
       <summary className="cursor-pointer text-sm font-semibold">Project 이미지·파일·AI로 교체</summary>
-      <div className="mt-4"><ImageBlockEditor block={block} contentId={contentId} disabled={disabled} onChange={onChange} /></div>
+      <div className="mt-4"><ImageBlockEditor block={block} contentId={contentId} disabled={disabled} onChange={onChange} publishingPlatform={publishingPlatform} /></div>
     </details>
   </div>;
 }

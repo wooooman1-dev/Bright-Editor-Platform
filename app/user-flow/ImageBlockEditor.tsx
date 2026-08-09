@@ -6,6 +6,7 @@ import { useRef, useState, type ChangeEvent } from "react";
 import type { ImageBlock } from "../../core/content";
 import { isBrightComponentPurpose } from "../../core/media";
 import type { ImageGenerationQuality, ImageGenerationSize, MediaAsset, ProjectMediaAsset } from "../../core/media";
+import { publishingDraftDestinationLabel, type EditorPublishingPlatform } from "./editor-publishing-platform";
 
 type ImagePurpose = NonNullable<ImageBlock["purpose"]>;
 
@@ -27,11 +28,13 @@ export function ImageBlockEditor({
   contentId,
   disabled,
   onChange,
+  publishingPlatform,
 }: {
   block: ImageBlock;
   contentId: string;
   disabled: boolean;
   onChange: (block: ImageBlock) => Promise<void>;
+  publishingPlatform?: EditorPublishingPlatform;
 }) {
   const fileInput = useRef<HTMLInputElement>(null);
   const [alt, setAlt] = useState(block.alt);
@@ -46,6 +49,7 @@ export function ImageBlockEditor({
   const isHero = purpose === "hero";
   const isFreeCard = isBrightComponentPurpose(purpose);
   const canGenerate = isHero || isFreeCard;
+  const draftDestination = publishingDraftDestinationLabel(publishingPlatform);
 
   const savePlanningFields = async () => {
     if (alt === block.alt && prompt === (block.prompt ?? "") && purpose === (block.purpose ?? "inline")) return;
@@ -186,7 +190,7 @@ export function ImageBlockEditor({
         <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#77777f]">이미지 전략</p>
         <strong className="mt-1 block">{block.source ? "이미지 연결 완료" : isHero ? "고유 대표이미지 · 제작 필요" : isFreeCard ? "무료 카드 · 필요할 때 AI 이미지로 교체" : "본문 이미지 · 무료 방식"}</strong>
         <p className="mt-1 text-sm text-[#66666f]">{isHero
-          ? "대표이미지는 새로 생성·업로드하거나, 아직 Tistory 임시저장에 보내지 않은 Project 대표이미지를 재사용합니다."
+          ? `대표이미지는 새로 생성·업로드하거나, 아직 ${draftDestination}에 보내지 않은 Project 대표이미지를 재사용합니다.`
           : isFreeCard
             ? "무료 카드를 그대로 사용하거나 Project 이미지·파일로 교체할 수 있으며, AI 생성은 버튼을 직접 눌렀을 때만 실행됩니다."
             : "본문 이미지는 비용 없는 Project 이미지 재사용 또는 파일 업로드를 사용합니다."}</p>
@@ -198,12 +202,12 @@ export function ImageBlockEditor({
 
     {isHero ? <div className="mt-4 rounded-xl border bg-white/85 p-4">
       <strong className="text-sm">대표이미지 중복 방지</strong>
-      <p className="mt-2 text-xs leading-5 text-[#77777f]">Tistory 임시저장에 실제로 사용된 대표이미지는 목록에서 제외합니다. 같은 콘텐츠를 다시 열었을 때는 현재 연결된 대표이미지를 그대로 유지합니다.</p>
+      <p className="mt-2 text-xs leading-5 text-[#77777f]">{draftDestination}에 실제로 사용된 대표이미지는 목록에서 제외합니다. 같은 콘텐츠를 다시 열었을 때는 현재 연결된 대표이미지를 그대로 유지합니다.</p>
     </div> : null}
     <details className="mt-4 rounded-xl border bg-white/85 p-4" onToggle={(event) => { if (event.currentTarget.open && libraryState === "idle") void loadLibrary(); }}>
       <summary className="cursor-pointer text-sm font-semibold">{isHero ? "미사용 대표이미지 재사용" : "Project 이미지 재사용"}</summary>
       <p className="mt-2 text-xs leading-5 text-[#77777f]">{isHero
-        ? "같은 Project에서 생성했지만 Tistory 임시저장에 보내지 않았고 현재 다른 원고에도 연결되지 않은 대표이미지만 표시합니다. 선택해도 파일 복사본은 만들지 않습니다."
+        ? `같은 Project에서 생성했지만 ${draftDestination}에 보내지 않았고 현재 다른 원고에도 연결되지 않은 대표이미지만 표시합니다. 선택해도 파일 복사본은 만들지 않습니다.`
         : "같은 Project의 본문용 이미지 중 대표이미지 사용 이력이 없는 자산만 표시합니다. 선택해도 파일 복사본은 만들지 않습니다."}</p>
       {libraryState === "loading" ? <p className="mt-4 text-sm text-[#66666f]">Project 이미지를 불러오는 중입니다.</p> : null}
       {libraryState === "error" ? <button className="mt-4 rounded-lg border px-3 py-2 text-sm font-semibold" disabled={busy} onClick={() => void loadLibrary()} type="button">다시 불러오기</button> : null}

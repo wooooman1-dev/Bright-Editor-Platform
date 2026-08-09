@@ -23,12 +23,11 @@ export function evaluateVerificationTemporalEvidence(input: Readonly<{
   pageText: string;
   claimValue: string;
   observedAt?: string;
+  authoritative?: boolean;
 }>): VerificationTemporalEvaluation {
   const requirement = input.requirement ?? { mode: "unknown" as const };
   if (requirement.mode === "notRequired") {
-    return input.claimKind === "general"
-      ? frozen({ freshnessStatus: "fresh", fresh: true, diagnostics: ["freshness_not_required"] })
-      : unknown(["temporal_not_required_disallowed", "freshness_unknown"]);
+    return frozen({ freshnessStatus: "fresh", fresh: true, diagnostics: ["freshness_not_required"] });
   }
   if (requirement.mode === "unknown") return unknown(["freshness_unknown"]);
 
@@ -39,7 +38,12 @@ export function evaluateVerificationTemporalEvidence(input: Readonly<{
       evidenceExcerpt: claimExcerpt,
       claimValue: input.claimValue,
     });
-  if (!evidence) return unknown(["temporal_evidence_missing", "freshness_unknown"]);
+  if (!evidence) {
+    if (requirement.mode === "current" && input.authoritative && input.observedAt) {
+      return observedCurrent(input.observedAt);
+    }
+    return unknown(["temporal_evidence_missing", "freshness_unknown"]);
+  }
   const page = normalizeWhitespace(input.pageText);
   const excerpt = normalizeWhitespace(evidence.evidenceExcerpt);
   if (!excerpt || !page.includes(excerpt)) return unknown(["temporal_evidence_excerpt_not_found", "freshness_unknown"]);
@@ -224,6 +228,17 @@ function unknown(diagnostics: readonly string[], evidence?: VerificationTemporal
     ...(evidence?.end ? { effectiveUntil: evidence.end } : {}),
     ...(evidence ? { temporalEvidence: evidence } : {}),
     diagnostics,
+  });
+}
+
+function observedCurrent(observedAt: string): VerificationTemporalEvaluation {
+  const observed = timestampDay(observedAt);
+  if (!observed) return unknown(["temporal_observation_missing", "freshness_unknown"]);
+  return frozen({
+    freshnessStatus: "fresh",
+    fresh: true,
+    observedAt,
+    diagnostics: ["freshness_observed_at_authoritative_source"],
   });
 }
 

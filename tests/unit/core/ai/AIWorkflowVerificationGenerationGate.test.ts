@@ -299,9 +299,9 @@ describe("AIWorkflow explicit Verification Generation Gate", () => {
     const generated = await new AIWorkflow(provider, strategy).generate(input);
 
     expect(provider.calls).toBe(1);
-    expect(provider.request?.metadata?.verificationGenerationMode).toBe("structured_claims_v1");
+    expect(provider.request?.metadata?.verificationGenerationMode).toBe("structured_claims_v2");
     expect(provider.request?.instruction).toContain("Explicit verification Generation bundle");
-    expect(provider.request?.instruction).toContain("Structured generated factual-Claim contract");
+    expect(provider.request?.instruction).toContain("Structured generated factual-Claim inventory");
     expect(provider.request?.instruction).toContain('"claimId":"claim-amount"');
     expect(provider.request?.instruction).toContain('"basis":"monthly"');
     expect(provider.request?.instruction).toContain('"qualifiers":{"basis":"monthly"}');

@@ -1,11 +1,12 @@
 import {
+  approvalSourceReviewPresentationText,
   canonicalizeApprovalEvidenceUrl,
   createNotRequiredApprovalEvidencePack,
-  isCriticalVerificationClaim,
   evaluateApprovalPreparationText,
   evaluateApprovalReadiness,
   normalizeContentPurpose,
   resolveApprovalEvidenceRequirement,
+  resolveApprovalTemporalRequirement,
   verifyApprovalEvidence,
   type ApprovalEvidenceVerificationResult,
   type ApprovalPolicyProfileId,
@@ -106,6 +107,7 @@ export class ApprovalReadinessApplicationService {
 
     const checkedAt = this.now();
     const evidenceRequirement = resolveApprovalEvidenceRequirement(content.opportunity);
+    const temporalRequirement = resolveApprovalTemporalRequirement(content.opportunity);
     const evidenceApplicable = evidenceRequirement !== "not_required";
     const evidenceRequired = evidenceRequirement === "required";
     const documentWithInternalLinks = await this.internalLinks.evaluate({
@@ -198,8 +200,7 @@ export class ApprovalReadinessApplicationService {
             verifiedFactFields: stableEvidence.verifiedFactFields,
             unverifiedFactFields: stableEvidence.unverifiedFactFields,
             evidenceRequired,
-            timeSensitiveEvidenceRequired: evidenceRequired && Boolean(content.opportunity?.verificationPlan?.claims.some((claim) =>
-              isCriticalVerificationClaim(claim) && claim.temporalRequirement?.mode !== "notRequired")),
+            timeSensitiveEvidenceRequired: temporalRequirement === "required",
           },
         )
       : Object.freeze([]);
@@ -307,7 +308,6 @@ function upsertVerifiedSourceSection(
   presentationReasons: readonly string[];
 }> {
   const reviewedAt = pack!.reviewedAt!;
-  const date = reviewedAt.slice(0, 10);
   const verifiedSources = pack!.sources.filter((source) =>
     source.verified
     && source.claimVerificationStatus !== "failed"
@@ -343,7 +343,10 @@ function upsertVerifiedSourceSection(
         id: "approval-review-date",
         type: "paragraph" as const,
         ownership: "system_source_projection" as const,
-        text: `출처 확인일: ${date} · Claim 최종 검토일: ${date}${pack!.informationAsOf ? ` · 정보 기준일: ${pack!.informationAsOf}` : ""}`,
+        text: approvalSourceReviewPresentationText({
+          sourceReviewedAt: reviewedAt,
+          ...(pack!.informationAsOf ? { informationAsOf: pack!.informationAsOf } : {}),
+        }),
       }),
       ]),
     },

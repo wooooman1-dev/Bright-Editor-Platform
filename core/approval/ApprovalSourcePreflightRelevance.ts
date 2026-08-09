@@ -30,17 +30,18 @@ export function evaluateApprovalSourceRelevance(input: Readonly<{
     });
   }
 
-  const pageTokens = new Set(meaningfulTokens([
+  const pageText = [
     input.page.title,
     input.page.publisher,
     input.page.text,
-  ].join(" ")));
+  ].join(" ");
+  const pageTokens = meaningfulTokens(pageText);
   const claimScopeTokens = meaningfulTokens((input.additionalScope ?? []).join(" "));
   const topicMatches = scopeTokens
-    .filter((token) => pageTokens.has(token))
+    .filter((token) => tokenMatchesPage(token, pageTokens, pageText))
     .map((token) => `topic:${token}`);
   const claimMatches = claimScopeTokens
-    .filter((token) => pageTokens.has(token))
+    .filter((token) => tokenMatchesPage(token, pageTokens, pageText))
     .map((token) => `claim:${token}`);
   const uniqueClaimTokens = new Set(claimScopeTokens);
   const uniqueClaimMatchCount = new Set(claimMatches.map((match) => match.slice("claim:".length))).size;
@@ -64,12 +65,27 @@ export function evaluateApprovalSourceRelevance(input: Readonly<{
   });
 }
 
+function tokenMatchesPage(token: string, pageTokens: readonly string[], pageText: string): boolean {
+  const normalized = compact(token);
+  const page = compact(pageText);
+  if (normalized.length >= 2 && page.includes(normalized)) return true;
+  if (normalized.length >= 5 && normalized.endsWith("권") && page.includes(normalized.slice(0, -1))) return true;
+  return pageTokens.some((candidate) => compact(candidate) === normalized);
+}
+
+function compact(value: string): string {
+  return value.normalize("NFKC")
+    .toLocaleLowerCase("ko-KR")
+    .replace(/[\s\p{P}\p{S}]+/gu, "");
+}
+
 function meaningfulTokens(value: string): readonly string[] {
   const tokens = value.normalize("NFKC").toLocaleLowerCase("ko-KR")
     .match(/[0-9a-z가-힣]{2,}/gu) ?? [];
   const stopWords = new Set([
     "방법", "기준", "확인", "관리", "정보", "공식", "내용", "관련", "안내",
     "대상", "필요", "점검", "순서", "정리", "자료", "페이지", "사이트",
+    "product", "terms", "page", "official", "information", "guide",
   ]);
   return Object.freeze([...new Set(tokens.filter((token) => !stopWords.has(token)))].slice(0, 80));
 }

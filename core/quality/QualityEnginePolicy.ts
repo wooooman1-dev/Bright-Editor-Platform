@@ -4,6 +4,7 @@ import {
   evaluateGeneratedClaimVerificationIntegrity,
   isCriticalVerificationClaim,
   resolveApprovalEvidenceRequirement,
+  resolveApprovalTemporalRequirement,
   type ApprovalReadinessReport,
 } from "../approval";
 import {
@@ -46,6 +47,7 @@ export class QualityEngine extends BaseQualityEngine {
 
     const evidence = document.metadata?.approvalEvidence;
     const evidenceRequirement = resolveApprovalEvidenceRequirement(context.opportunity);
+    const temporalRequirement = resolveApprovalTemporalRequirement(context.opportunity);
     const evidenceApplicable = evidenceRequirement !== "not_required";
     const evidenceRequired = evidenceRequirement === "required";
     const issues = evaluateApprovalPreparationText(
@@ -61,8 +63,7 @@ export class QualityEngine extends BaseQualityEngine {
         verifiedFactFields: evidence?.verifiedFactFields,
         unverifiedFactFields: evidence?.unverifiedFactFields,
         evidenceRequired,
-        timeSensitiveEvidenceRequired: evidenceRequired && Boolean(context.opportunity?.verificationPlan?.claims.some((claim) =>
-          isCriticalVerificationClaim(claim) && claim.temporalRequirement?.mode !== "notRequired")),
+        timeSensitiveEvidenceRequired: temporalRequirement === "required",
       },
     );
     const standardQualityApproved = isBaseStandardQualityApproved(report);
@@ -112,11 +113,12 @@ function applyGeneratedClaimVerificationIntegrity(
   context: QualityReviewContext,
 ): QualityReport {
   const plan = context.opportunity?.verificationPlan;
-  if (!plan || !plan.claims.some(isCriticalVerificationClaim)) return report;
+  const criticalPlan = plan?.claims.some(isCriticalVerificationClaim) ? plan : undefined;
+  if (!criticalPlan && !document.metadata?.generatedFactualClaimInventory) return report;
 
   const integrity = evaluateGeneratedClaimVerificationIntegrity({
     document,
-    plan,
+    plan: criticalPlan,
     currentRevisionId: context.revisionId ?? editorialRevisionId(document),
   });
   const uniqueIssues = integrity.reasons;

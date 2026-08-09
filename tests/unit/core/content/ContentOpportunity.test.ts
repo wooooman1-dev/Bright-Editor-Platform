@@ -43,14 +43,14 @@ describe("Content Opportunity contract", () => {
     expect(value).not.toHaveProperty("verificationPlan");
   });
 
-  it("normalizes an explicit empty plan to the legacy non-applicable state", () => {
+  it("preserves an explicit empty plan as distinct from legacy absence", () => {
     const plan = createContentOpportunityVerificationPlan([]);
     const value = createContentOpportunityCandidate({ ...candidate(), verificationPlan: plan });
     expect(plan.mode).toBe("explicit");
     expect(plan.schemaVersion).toBe(1);
     expect(plan.claims).toEqual([]);
-    expect(resolveContentOpportunityVerificationMode(value)).toBe("legacy");
-    expect(value).not.toHaveProperty("verificationPlan");
+    expect(resolveContentOpportunityVerificationMode(value)).toBe("explicit");
+    expect(value.verificationPlan).toEqual(plan);
     expect(value.version).toBe(1);
   });
 

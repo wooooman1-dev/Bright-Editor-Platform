@@ -39,7 +39,7 @@ export function evaluateApprovalPreparationText(
 ): readonly ApprovalPreparationIssue[] {
   return Object.freeze([
     ...baseEvaluateApprovalPreparationText(text, snapshot, evidence),
-    ...dateRolePreparationIssues(text, snapshot),
+    ...dateRolePreparationIssues(text, snapshot, evidence),
     ...legalScopePreparationIssues(text, snapshot, evidence),
   ]);
 }
@@ -47,6 +47,7 @@ export function evaluateApprovalPreparationText(
 export function evaluateApprovalDraftIntegrity(
   document: ContentDocument,
   verificationRequired = true,
+  timeSensitiveEvidenceRequired = verificationRequired,
 ): ApprovalDraftIntegrity {
   const base = baseEvaluateApprovalDraftIntegrity(document, verificationRequired);
   const snapshot = document.metadata?.approvalPolicy;
@@ -54,7 +55,10 @@ export function evaluateApprovalDraftIntegrity(
   const evidence = document.metadata?.approvalEvidence;
   const text = canonicalDocumentText(document);
   const profileIssues = [
-    ...dateRolePreparationIssues(text, snapshot),
+    ...dateRolePreparationIssues(text, snapshot, {
+      evidenceRequired: verificationRequired,
+      timeSensitiveEvidenceRequired,
+    }),
     ...legalScopePreparationIssues(text, snapshot, {
       sourceUrls: evidence?.sources
         .filter((source) => source.provenance !== "search_candidate")
@@ -82,6 +86,7 @@ export function assertApprovalDraftIntegrity(document: ContentDocument): void {
 function dateRolePreparationIssues(
   text: string,
   snapshot: ApprovalPolicySnapshot,
+  evidence: ApprovalPreparationEvidenceContext,
 ): readonly ApprovalPreparationIssue[] {
   if (snapshot.profileId !== "wordpress_life_economy_v1") return Object.freeze([]);
   const normalized = text.replace(/\s+/g, " ").trim();
@@ -95,7 +100,7 @@ function dateRolePreparationIssues(
   }
 
   const hasInformationDate = /정보\s*기준일\s*(?:은|는|이|가)?\s*[:：]?\s*(?:20\d{2}[-./년]\s*\d{1,2}(?:[-./월]\s*\d{1,2})?|20\d{2}[-./]\d{1,2}(?:[-./]\d{1,2})?)/iu.test(normalized);
-  if (!hasInformationDate) {
+  if (!hasInformationDate && evidence.timeSensitiveEvidenceRequired !== false) {
     issues.push(blockingIssue(
       "원고가 기준으로 삼은 날짜를 '정보 기준일'로 명확히 표시해야 합니다.",
       "PROFILE_REVIEW_DATE_MISSING",

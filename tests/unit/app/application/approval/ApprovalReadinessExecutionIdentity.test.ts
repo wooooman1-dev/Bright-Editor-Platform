@@ -36,4 +36,29 @@ describe("ApprovalReadinessExecutionIdentity", () => {
     expect(approvalReadinessExecutionIdentity(content("wordpress_life_economy_v1")).key)
       .toBe(wordpress.key);
   });
+
+  it("uses Claim applicability instead of profile source rules in the reusable key", () => {
+    const value = {
+      ...content("wordpress_life_economy_v1"),
+      opportunity: {
+        requiredEvidenceContract: {
+          schemaVersion: 1,
+          contractId: "contract-not-required",
+          policyId: "adsense_approval_mode",
+          policyVersion: "1.0",
+          profileId: "wordpress_life_economy_v1",
+          profileVersion: "1.0",
+          profileSourceRequirementApplicable: false,
+          explicitVerificationRequired: false,
+          sourceRequirements: ["official HTTPS source"],
+          requiredClaims: [],
+        },
+      },
+    } as unknown as UserContent;
+    const identity = approvalReadinessExecutionIdentity(value);
+
+    expect(identity.version).toBe("4.0");
+    expect(identity.key).toContain("evidence-not_required@temporal-not_required");
+    expect(identity.key).not.toContain("profile-source-required");
+  });
 });

@@ -91,13 +91,13 @@ describe("VerificationTemporalPolicy", () => {
     expect(deriveVerificationTemporalEvidence({ requirement: { mode: "current" }, evidenceExcerpt: excerpt, claimValue: "50만원" })).toBeUndefined();
   });
 
-  it("allows notRequired only for general Claims", () => {
+  it("accepts explicit notRequired for any Claim whose Planning contract says time validity is irrelevant", () => {
     const general = evaluateVerificationTemporalEvidence({ claimKind: "general", requirement: { mode: "notRequired" }, pageText: "정적 사실", claimValue: "정적 사실" });
     expect(general).toMatchObject({ freshnessStatus: "fresh", fresh: true });
     expect(general.diagnostics).toContain("freshness_not_required");
 
     const money = evaluateVerificationTemporalEvidence({ claimKind: "money", requirement: { mode: "notRequired" }, pageText: "50만원", claimValue: "50만원" });
-    expect(money).toMatchObject({ freshnessStatus: "unknown", fresh: false });
-    expect(money.diagnostics).toContain("temporal_not_required_disallowed");
+    expect(money).toMatchObject({ freshnessStatus: "fresh", fresh: true });
+    expect(money.diagnostics).toContain("freshness_not_required");
   });
 });

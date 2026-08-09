@@ -15,6 +15,9 @@ describe("EditorialGenerationStrategy information sufficiency target", () => {
     expect(request.instruction).toContain("coverage map");
     expect(request.instruction).toContain("exactly one primary H2");
     expect(request.instruction).toContain("do not repeat the same caution or next action in every H2");
+    expect(request.instruction).toContain("Choose the representation by information type");
+    expect(request.instruction).toContain("a table is reserved for genuine multi-column comparison or lookup");
+    expect(request.instruction).toContain("sectionType is semantic presentation intent, not a quota");
     expect(request.instruction).not.toMatch(/\b(?:2000|3500|5500|5,500)\b/);
   });
 
@@ -57,7 +60,38 @@ describe("EditorialGenerationStrategy information sufficiency target", () => {
     expect(document.metadata?.generationDiagnostic?.actualSectionCount).toBe(3);
     expect(document.metadata?.generationDiagnostic?.violations).toEqual([]);
     expect(document.metadata?.longFormStructure?.sections[0]?.sectionType).toBe("checklist");
+    expect(document.metadata?.longFormStructure?.sections[1]?.sectionType).toBe("steps");
     expect(document.metadata?.generationDiagnostic).not.toHaveProperty("targetLengthRange");
+  });
+
+  it("reconciles an unsupported generated steps label to the structure actually present", () => {
+    const generated = JSON.parse(response("quick")) as Generated;
+    generated.sections[1] = section(
+      "1단계: 최근 사용 내역 기록하기",
+      "steps",
+      "먼저 최근 사용 내역을 한곳에 기록합니다. 서로 다른 달을 같은 기준으로 맞추면 변화가 보입니다. 표를 채운 뒤 특이한 달의 이유를 메모합니다.\n\n| 구분 | 1개월 전 | 최근 1개월 |\n|---|---|---|\n| 사용량 | 직접 기록 | 직접 기록 |\n| 납부액 | 직접 기록 | 직접 기록 |",
+    );
+
+    const document = new EditorialGenerationStrategy().parse(JSON.stringify(generated), input("quick"));
+
+    expect(document.metadata?.longFormStructure?.sections[1]?.sectionType).toBe("comparison");
+    expect(document.metadata?.generationDiagnostic?.violations).not.toContainEqual(expect.objectContaining({
+      code: "CONTENT_INCOMPLETE_SECTION",
+      heading: "1단계: 최근 사용 내역 기록하기",
+    }));
+  });
+
+  it("does not hide a genuinely shallow steps section through semantic reconciliation", () => {
+    const generated = JSON.parse(response("quick")) as Generated;
+    generated.sections[1] = section("실행 순서", "steps", "기록합니다.");
+
+    const document = new EditorialGenerationStrategy().parse(JSON.stringify(generated), input("quick"));
+
+    expect(document.metadata?.longFormStructure?.sections[1]?.sectionType).toBe("steps");
+    expect(document.metadata?.generationDiagnostic?.violations).toContainEqual(expect.objectContaining({
+      code: "CONTENT_INCOMPLETE_SECTION",
+      heading: "실행 순서",
+    }));
   });
 
   it("preserves a shallow deep draft with diagnostics for editor correction", () => {

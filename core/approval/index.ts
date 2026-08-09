@@ -23,6 +23,7 @@ export {
 } from "./ApprovalEvidenceSelection";
 export * from "./ApprovalEvidenceClaimPolicy";
 export * from "./ApprovalSourcePreflightCoverage";
+export * from "./ApprovalSourcePresentation";
 export { createApprovalRequiredEvidenceContract } from "./ApprovalSourcePreflightClaimScope";
 export {
   evaluateApprovalSourceRelevance,
@@ -44,6 +45,7 @@ export {
   evaluateApprovalPreparationText,
 } from "./ApprovalLegalScopePolicy";
 export * from "./VerificationClaim";
+export * from "./VerificationClaimEvidenceMatch";
 export * from "./VerificationClaimNormalizer";
 export * from "./VerificationSourceIdentity";
 export * from "./VerificationClaimFingerprint";
@@ -54,4 +56,6 @@ export * from "./VerificationGenerationEvidence";
 export * from "./ExplicitVerificationPreflight";
 export * from "./GeneratedClaimBinding";
 export * from "./GeneratedFactualClaim";
+export * from "./GeneratedFactualClaimInventory";
+export * from "./QualityReviewFactualGuard";
 export * from "./GeneratedClaimVerificationIntegrity";

@@ -32,3 +32,12 @@ export {
   type PresentationValidationIssueCode,
   type PresentationValidationResult,
 } from "./PresentationValidator";
+export {
+  resolveContentSectionPresentations,
+  type ContentSectionPresentation,
+  type ContentSectionTreatment,
+} from "./ContentSectionPresentation";
+export {
+  resolveTablePresentation,
+  type TablePresentation,
+} from "./TablePresentation";

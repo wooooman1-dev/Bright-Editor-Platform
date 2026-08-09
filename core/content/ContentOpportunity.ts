@@ -125,7 +125,7 @@ export function resolveContentOpportunityVerificationMode(
 export function hasUsableContentOpportunityVerificationPlan(
   value: ContentOpportunityVerificationPlan | undefined,
 ): value is ContentOpportunityVerificationPlan {
-  return hasSelfConsistentVerificationPlan(value) && value.claims.length > 0;
+  return hasSelfConsistentVerificationPlan(value);
 }
 
 export function createContentOpportunityCandidate(input: ContentOpportunityDraft): ContentOpportunityCandidate {

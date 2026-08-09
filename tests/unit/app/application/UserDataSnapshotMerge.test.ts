@@ -4,7 +4,7 @@ import { mergeServerMutationSnapshot, mergeUserDataSnapshot } from "../../../../
 import type { MediaAsset } from "../../../../core/media";
 import type { UserData } from "../../../../app/user-flow/user-data";
 import type { PublishingExecutionRecord } from "../../../../core/publishing";
-import { confirmContentOpportunity, createContentOpportunityCandidate } from "../../../../core/content";
+import { confirmContentOpportunity, createContentOpportunityCandidate, createContentOpportunityVerificationPlan, resolveContentOpportunityVerificationMode } from "../../../../core/content";
 
 const mediaAsset: MediaAsset = Object.freeze({
   id: "asset-server",
@@ -36,6 +36,22 @@ function snapshot(overrides: Partial<UserData> = {}): UserData {
 }
 
 describe("mergeUserDataSnapshot", () => {
+  it("preserves explicit empty verification Planning while legacy absence remains unknown", () => {
+    const base = createContentOpportunityCandidate({
+      sourceRequest: "명세서 확인", selectionMode: "userSpecified", selectedTopic: "명세서 확인 방법",
+      primaryKeyword: "명세서 확인 방법", secondaryKeywords: [], searchIntent: "확인 순서", audience: "이용자",
+      contentType: "article", contentAngle: "순서", readerProblem: "판단 어려움", expectedCoverage: ["확인"],
+      selectionRationale: "실용", opportunityEvidence: [], confidence: 0.8, cautions: [], projectId: "project-1",
+      verificationPlan: createContentOpportunityVerificationPlan([]),
+    });
+    const opportunity = confirmContentOpportunity(base, { workspaceId: "workspace-1", projectId: "project-1", contentId: "content-1", confirmedAt: "2026-08-09T00:00:00.000Z" });
+    const persisted = mergeUserDataSnapshot(undefined, JSON.parse(JSON.stringify(snapshot({ contents: [{ ...snapshot().contents[0], opportunity }] }))));
+    expect(persisted.contents[0].opportunity?.verificationPlan).toMatchObject({ mode: "explicit", claims: [] });
+    expect(resolveContentOpportunityVerificationMode(persisted.contents[0].opportunity!)).toBe("explicit");
+
+    expect(resolveContentOpportunityVerificationMode({})).toBe("legacy");
+  });
+
   it("preserves the latest server media metadata during a stale full-state save", () => {
     const current = snapshot({ mediaMetadata: [mediaAsset] });
     const incoming = snapshot({

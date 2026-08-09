@@ -10,7 +10,7 @@ import type { VerificationClaimSpec } from "../../../../core/approval";
 const snapshot = resolveApprovalPolicySnapshot("adsense_approval", "wordpress_life_economy_v1")!;
 const urls = ["https://www.gov.kr/amount", "https://law.go.kr/amount", "https://www.nts.go.kr/amount"];
 const defaultExcerpt = "공식 안내에 따르면 지원 금액은 50만원이며 신청 전에 세부 기준을 확인해야 합니다.";
-const claim: VerificationClaimSpec = { claimId: "claim-amount", field: "amount", kind: "money", statement: "지원 금액", rawValue: "50만원", qualifiers: {}, required: true };
+const claim: VerificationClaimSpec = { claimId: "claim-amount", field: "amount", kind: "money", statement: "지원 금액", rawValue: "50만원", qualifiers: {}, required: true, temporalRequirement: { mode: "notRequired" } };
 const currentClaim: VerificationClaimSpec = { ...claim, temporalRequirement: { mode: "current" } };
 
 class FixtureProvider implements AIProvider {
@@ -152,6 +152,10 @@ describe("runApprovalSourcePreflight explicit integration", () => {
         semanticVerificationEvaluatedCount: 1,
         semanticVerificationPassCount: 0,
         coverageSources: [expect.objectContaining({ semantic: "rejected" })],
+        rejectionSamples: expect.arrayContaining([expect.objectContaining({
+          claimId: "claim-amount",
+          rejectionCode: "claim_value_not_found",
+        })]),
       }),
     });
   });
@@ -235,11 +239,12 @@ describe("runApprovalSourcePreflight explicit integration", () => {
   it("returns an explicit empty Snapshot without provider or fetcher calls", async () => {
     const provider = new FixtureProvider([]); let fetchCalls = 0;
     const result = await runApprovalSourcePreflight({ provider, snapshot, opportunity: opportunity([]), platform: "wordpress", contentType: "article", fetcher: async () => { fetchCalls += 1; return page(); } });
-    expect(provider.calls).toBe(0); expect(fetchCalls).toBe(0); expect(result.sources).toEqual([]); expect(result.coverage.status).toBe("not_required"); expect(result.verificationSnapshot).toBeUndefined();
+    expect(provider.calls).toBe(0); expect(fetchCalls).toBe(0); expect(result.sources).toEqual([]); expect(result.coverage.status).toBe("not_required"); expect(result.verificationSnapshot).toMatchObject({ verificationMode: "explicit", overallStatus: "not_required", results: [] });
   });
 
-  it("keeps ordinary successful fetched pages freshness-unknown when the Claim has no temporal requirement", async () => {
-    const { result, provider } = await run(urls.map((url) => source(url)), async () => page());
+  it("keeps explicit unknown temporal requirements fail-closed", async () => {
+    const unknownTemporalClaim: VerificationClaimSpec = { ...claim, temporalRequirement: { mode: "unknown" } };
+    const { result, provider } = await run(urls.map((url) => source(url)), async () => page(), [unknownTemporalClaim]);
     expect(provider.calls).toBe(1);
     expect(provider.requests[0]?.instruction).toContain("Topic:");
     expect(provider.requests[0]?.instruction).toContain("Primary keyword:");
@@ -272,6 +277,8 @@ describe("runApprovalSourcePreflight explicit integration", () => {
     expect(provider.requests[0]?.instruction).toMatch(/paraphrase/i);
     expect(provider.requests[0]?.instruction).toMatch(/synthesi[sz]e/i);
     expect(provider.requests[0]?.instruction).toMatch(/claimId/i);
+    expect(provider.requests[0]?.instruction).toMatch(/readable HTML/i);
+    expect(provider.requests[0]?.instruction).toMatch(/shortest verbatim factual phrase/i);
   });
 
   it("rejects synthesized evidence while preserving exact claim evidence", async () => {
@@ -394,7 +401,7 @@ describe("runApprovalSourcePreflight explicit integration", () => {
       return page();
     });
 
-    expect(result.result.verificationSnapshot?.overallStatus).toBe("insufficient");
+    expect(result.result.verificationSnapshot?.overallStatus).toBe("verified");
     expect(result.result.verificationSnapshot?.results[0]?.sourceAssessments)
       .toEqual(expect.arrayContaining([
         expect.objectContaining({ sourceId: expect.stringContaining("approval-source-") }),
@@ -402,11 +409,11 @@ describe("runApprovalSourcePreflight explicit integration", () => {
       ]));
   });
 
-  it("does not count multiple URLs from one institution toward a current high-risk Claim", async () => {
+  it("does not impose a universal institution quota on an authoritative current Claim", async () => {
     const excerpt = "공식 안내에 따르면 지원 금액 50만원의 적용 기간은 2020-01-01부터 2099-12-31까지입니다.";
     const same = await run([source(urls[0], "50만원", excerpt), source("https://www.gov.kr/amount-2", "50만원", excerpt), source(urls[1], "50만원", excerpt)], async () => page("50만원", excerpt), [currentClaim]);
     expect(same.result.verificationSnapshot?.results[0]?.independentInstitutionCount).toBe(2);
-    expect(same.result.verificationSnapshot?.results[0]?.status).toBe("insufficient");
+    expect(same.result.verificationSnapshot?.results[0]?.status).toBe("verified");
   });
 
   it("preserves fetched-page diagnostics for missing value, excerpt, and raw mismatch", async () => {
@@ -464,18 +471,21 @@ describe("runApprovalSourcePreflight explicit integration", () => {
     expect(result.result.verificationSnapshot?.results[0]?.sourceAssessments.some((item) => item.freshnessStatus === "stale")).toBe(true);
   });
 
-  it("does not treat an unknown-freshness primary source as a usable primary", async () => {
+  it("uses the observation date of a fetched authoritative current source when no explicit validity interval exists", async () => {
     const unknownExcerpt = defaultExcerpt;
     const freshExcerpt = "공식 안내에 따르면 지원 금액 50만원의 적용 기간은 2020-01-01부터 2099-12-31까지입니다.";
     const result = await run([source(urls[0], "50만원", unknownExcerpt), source(urls[1], "50만원", freshExcerpt), source(urls[2], "50만원", freshExcerpt)], async (url) => String(url) === urls[0] ? page("50만원", unknownExcerpt) : page("50만원", freshExcerpt), [currentClaim]);
-    expect(result.result.verificationSnapshot?.results[0]).toMatchObject({ status: "insufficient", primarySourceFound: true, independentInstitutionCount: 2 });
+    expect(result.result.verificationSnapshot?.results[0]).toMatchObject({ status: "verified", primarySourceFound: true, independentInstitutionCount: 3 });
+    expect(result.result.verificationSnapshot?.results[0]?.sourceAssessments.some((assessment) =>
+      assessment.diagnostics.includes("freshness_observed_at_authoritative_source"))).toBe(true);
   });
 
   it("keeps trusted fixture freshness compatibility but never makes effectiveUntil alone fresh", () => {
+    const claimWithoutTemporal: VerificationClaimSpec = { ...claim, temporalRequirement: undefined };
     const base = { requestedUrl: urls[0], pageText: defaultExcerpt, evidenceExcerpt: defaultExcerpt, claims: [{ claimId: "claim-amount", value: "50만원", evidenceExcerpt: defaultExcerpt }], role: "primaryOfficial" as const, authoritative: true };
-    const trustedFresh = assessmentsFromExplicitDiscovery({ claims: [claim], sources: [{ ...base, fresh: true }] })[0]!;
-    const stale = assessmentsFromExplicitDiscovery({ claims: [claim], sources: [{ ...base, observedAt: "2026-02-01T00:00:00.000Z", effectiveUntil: "2026-01-01" }] })[0]!;
-    const noObservation = assessmentsFromExplicitDiscovery({ claims: [claim], sources: [{ ...base, effectiveUntil: "2099-01-01" }] })[0]!;
+    const trustedFresh = assessmentsFromExplicitDiscovery({ claims: [claimWithoutTemporal], sources: [{ ...base, fresh: true }] })[0]!;
+    const stale = assessmentsFromExplicitDiscovery({ claims: [claimWithoutTemporal], sources: [{ ...base, observedAt: "2026-02-01T00:00:00.000Z", effectiveUntil: "2026-01-01" }] })[0]!;
+    const noObservation = assessmentsFromExplicitDiscovery({ claims: [claimWithoutTemporal], sources: [{ ...base, effectiveUntil: "2099-01-01" }] })[0]!;
     expect(trustedFresh).toMatchObject({ freshnessStatus: "fresh", fresh: true });
     expect(stale).toMatchObject({ freshnessStatus: "stale", fresh: false }); expect(stale.diagnostics).toContain("claim_stale");
     expect(noObservation).toMatchObject({ freshnessStatus: "unknown", fresh: false }); expect(noObservation.diagnostics).toContain("freshness_unknown");

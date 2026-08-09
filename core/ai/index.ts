@@ -30,3 +30,9 @@ export type {
   GenerationResult,
   PlatformId,
 } from "./AIWorkflow";
+export {
+  hasGeneratedFactualClaimInventoryResponse,
+  parseGeneratedFactualClaimInventoryDrafts,
+  parseGeneratedFactualClaimDrafts,
+  withGeneratedFactualClaimResponseInstruction,
+} from "./GeneratedFactualClaimResponse";

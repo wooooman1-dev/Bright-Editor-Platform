@@ -91,6 +91,80 @@ describe("approval date-role and legal-scope policy", () => {
     expect(issues).not.toContainEqual(expect.objectContaining({ code: "PROFILE_REVIEW_DATE_MISSING" }));
   });
 
+  it("does not require an information date when mandatory temporal Evidence is not applicable", () => {
+    const issues = evaluateApprovalPreparationText(
+      "카드 명세서를 거래일, 금액, 거래처, 결제 방식 순서로 확인합니다.",
+      snapshot,
+      {
+        evidenceRequired: false,
+        timeSensitiveEvidenceRequired: false,
+        coverageStatus: "not_required",
+      },
+    );
+
+    expect(issues).not.toContainEqual(expect.objectContaining({ code: "PROFILE_REVIEW_DATE_MISSING" }));
+  });
+
+  it("does not make a non-temporal CRITICAL Claim require an information date", () => {
+    const issues = evaluateApprovalPreparationText(
+      "공식 자료로 확인한 변하지 않는 법적 정의를 설명합니다.",
+      snapshot,
+      {
+        evidenceRequired: true,
+        timeSensitiveEvidenceRequired: false,
+        sourceUrls: [dutiesUrl],
+        reviewedAt: "2026-08-02T00:00:00.000Z",
+        coverageStatus: "verified",
+        requiredFactFields: ["legalDefinition"],
+        verifiedFactFields: ["legalDefinition"],
+        unverifiedFactFields: [],
+      },
+    );
+
+    expect(issues).not.toContainEqual(expect.objectContaining({ code: "PROFILE_REVIEW_DATE_MISSING" }));
+  });
+
+  it("keeps a missing information date fail-closed for time-sensitive CRITICAL Evidence", () => {
+    const issues = evaluateApprovalPreparationText(
+      "현재 적용되는 변동 정보를 공식 자료로 확인했습니다.",
+      snapshot,
+      {
+        evidenceRequired: true,
+        timeSensitiveEvidenceRequired: true,
+        sourceUrls: [dutiesUrl],
+        reviewedAt: "2026-08-02T00:00:00.000Z",
+        coverageStatus: "verified",
+        requiredFactFields: ["currentRate"],
+        verifiedFactFields: ["currentRate"],
+        unverifiedFactFields: [],
+      },
+    );
+
+    expect(issues).toContainEqual(expect.objectContaining({
+      code: "PROFILE_REVIEW_DATE_MISSING",
+      message: expect.stringContaining("정보 기준일"),
+    }));
+  });
+
+  it("passes the temporal date check when time-sensitive CRITICAL Evidence has an information date", () => {
+    const issues = evaluateApprovalPreparationText(
+      `현재 적용되는 변동 정보를 공식 자료로 확인했습니다. ${informationDate}`,
+      snapshot,
+      {
+        evidenceRequired: true,
+        timeSensitiveEvidenceRequired: true,
+        sourceUrls: [dutiesUrl],
+        reviewedAt: "2026-08-02T00:00:00.000Z",
+        coverageStatus: "verified",
+        requiredFactFields: ["currentRate"],
+        verifiedFactFields: ["currentRate"],
+        unverifiedFactFields: [],
+      },
+    );
+
+    expect(issues).not.toContainEqual(expect.objectContaining({ code: "PROFILE_REVIEW_DATE_MISSING" }));
+  });
+
   it("blocks a continuing-transaction statement that omits definition, scope, thresholds, and their official sources", () => {
     const issues = evaluateApprovalPreparationText(incompleteClaim, snapshot, {
       sourceUrls: [dutiesUrl],

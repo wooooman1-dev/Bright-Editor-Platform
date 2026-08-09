@@ -175,7 +175,7 @@ function preflightResponse(input: Readonly<{
 
 function generationResponse(): AIResponse {
   return {
-    content: "generated",
+    content: JSON.stringify({ verificationClaimsUsed: [] }),
     model: "gpt-5.6-terra",
     diagnostics: {
       aiUsage: createAIUsageRecord({

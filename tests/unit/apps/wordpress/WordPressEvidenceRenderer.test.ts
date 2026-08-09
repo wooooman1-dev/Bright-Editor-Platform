@@ -75,6 +75,8 @@ describe("WordPress verified Evidence rendering", () => {
     expect(html).toContain('<a class="wp-block-button__link" href="https://law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202&amp;lsJoLnkSeq=1025033501"');
     expect(html).toContain("방문판매 등에 관한 법률 제30조·제32조 · 국가법령정보센터");
     expect(html).toContain("출처 확인일: 2026-08-01");
+    expect(html).not.toContain("Claim 최종 검토일");
+    expect(value.metadata?.approvalEvidence?.reviewedAt).toBe("2026-08-01T02:00:00.000Z");
     expect(html).not.toContain("(law.go.kr)");
     expect(html).not.toContain(`출처: ${rawSourceUrl}`);
     expect(evaluateHtmlIntegrity(value, html)).toEqual({ passed: true, issues: [] });

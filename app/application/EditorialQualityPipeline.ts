@@ -1,9 +1,11 @@
 import {
   appendAIUsageToDocument,
+  hasGeneratedFactualClaimInventoryResponse,
+  parseGeneratedFactualClaimInventoryDrafts,
   type AIResponse,
   type AIProvider,
 } from "../../core/ai";
-import { isApprovalPolicyProfileId, resolveApprovalPolicySnapshot, type ApprovalPolicySnapshot } from "../../core/approval";
+import { activeGeneratedFactualClaims, guardQualityReviewFactualClaims, isApprovalPolicyProfileId, resolveApprovalPolicySnapshot, type ApprovalPolicySnapshot } from "../../core/approval";
 import { analyzeLongFormDocument, normalizeContentPlanQualityTarget, restoreProtectedImageAssets, restoreVerifiedEditorialLinks, type ContentDocument, type ContentPlanQualityTarget } from "../../core/content";
 import { editorialRevisionId, evaluateQualityReviewReadiness, QualityEngine, type QualityReviewContext } from "../../core/quality";
 import { contentOpportunityAIContext, EditorialGenerationStrategy } from "./EditorialGenerationStrategy";
@@ -30,7 +32,7 @@ export type EditorialQualityPipelineResult = Readonly<{
 
 export function contentDocumentAIContext(document: ContentDocument): Readonly<Record<string, unknown>> {
   if (!document.metadata) return document;
-  const excluded = new Set(["qualityTarget", "generationDiagnostic", "reviewDiagnostic", "aiUsage", "generatedClaimVerification"]);
+  const excluded = new Set(["qualityTarget", "generationDiagnostic", "reviewDiagnostic", "aiUsage", "generatedClaimVerification", "generatedFactualClaimInventory"]);
   const metadataEntries = Object.fromEntries(
     Object.entries(document.metadata).filter(([key]) => !excluded.has(key)),
   );
@@ -82,7 +84,12 @@ export class EditorialQualityPipeline {
         input.requiredInformation ?? [],
         input.parseInput.contentOpportunity,
       ),
-      metadata: { task: "quality-final-edit" },
+      metadata: {
+        task: "quality-final-edit",
+        ...(input.document.metadata?.generatedFactualClaimInventory
+          ? { factualInventoryMode: "structured_claims_v2" }
+          : {}),
+      },
     });
     const finalCandidate = await this.evaluateCandidate(
       finalResponse.content,
@@ -132,16 +139,30 @@ export class EditorialQualityPipeline {
         current,
         restoreProtectedImageAssets(current, this.strategy.parse(response, parseInput)),
       ));
-      const parsedQuality = this.qualityEngine.review(parsed, { ...qualityContext, revisionId: editorialRevisionId(parsed) });
-      const parsedDiagnostic = analyzeLongFormDocument(parsed, parseInput.contentOpportunity?.qualityTarget ?? parsed.metadata?.qualityTarget);
-      const readiness = evaluateQualityReviewReadiness(parsed, parsedQuality, parsedDiagnostic);
-      const linkError = verifiedLinkError(current, parsed);
-      const safetyError = manuscriptSafetyError(current, parsed);
-      const shapeError = editorialShapeError(parsed, parseInput) ?? (readiness.fatal ? readiness.fatalReasons[0] : undefined);
-      if (linkError || safetyError || shapeError) {
-        return { document: parsed, quality: parsedQuality, rejectionReason: linkError ?? safetyError ?? shapeError };
+      const factualGuard = current.metadata?.generatedFactualClaimInventory
+        ? hasGeneratedFactualClaimInventoryResponse(response)
+          ? guardQualityReviewFactualClaims({
+              current,
+              candidate: parsed,
+              drafts: parseGeneratedFactualClaimInventoryDrafts(response),
+            })
+          : { passed: false as const, document: parsed, reason: "quality_factual_inventory_response_missing" }
+        : { passed: true as const, document: parsed };
+      if (!factualGuard.passed) {
+        const quality = this.qualityEngine.review(parsed, { ...qualityContext, revisionId: editorialRevisionId(parsed) });
+        return { document: parsed, quality, rejectionReason: factualGuard.reason };
       }
-      const document = await place(parsed);
+      const guarded = factualGuard.document;
+      const parsedQuality = this.qualityEngine.review(guarded, { ...qualityContext, revisionId: editorialRevisionId(guarded) });
+      const parsedDiagnostic = analyzeLongFormDocument(guarded, parseInput.contentOpportunity?.qualityTarget ?? guarded.metadata?.qualityTarget);
+      const readiness = evaluateQualityReviewReadiness(guarded, parsedQuality, parsedDiagnostic);
+      const linkError = verifiedLinkError(current, guarded);
+      const safetyError = manuscriptSafetyError(current, guarded);
+      const shapeError = editorialShapeError(guarded, parseInput) ?? (readiness.fatal ? readiness.fatalReasons[0] : undefined);
+      if (linkError || safetyError || shapeError) {
+        return { document: guarded, quality: parsedQuality, rejectionReason: linkError ?? safetyError ?? shapeError };
+      }
+      const document = await place(guarded);
       const quality = this.qualityEngine.review(document, { ...qualityContext, revisionId: editorialRevisionId(document) });
       const placedDiagnostic = analyzeLongFormDocument(document, parseInput.contentOpportunity?.qualityTarget ?? document.metadata?.qualityTarget);
       const placedReadiness = evaluateQualityReviewReadiness(document, quality, placedDiagnostic);
@@ -201,10 +222,12 @@ Mandatory server approval contract after your edit:
 - preserve every required content element: ${target.requiredContentElements.join(" | ")}
 - repeated core advice = 0
   Work from the explicit priority list below. Correct blocked and below-threshold dimensions first, using their reasons, tasks, and evidence. Do not rewrite or expand a dimension that already meets its threshold unless a priority correction requires a small consistency edit. Judge every required element as missing, merely mentioned, or sufficiently explained. Only sufficient information counts as complete. Add only a small missing fact, criterion, example, caution, or next action when needed. Remove repetition and verbose explanation. When repeatedCoreAdviceCount is nonzero, keep the strongest occurrence in its owning H2 and delete or replace later repetitions with genuinely new section-specific information. When practicalToolSignals are insufficient, convert existing generic advice into a usable checklist, ordered decision path, comparison criteria, or worked application instead of appending general prose. A comparison may use a table, criteria, and lists instead of prose when that is clearer. When two candidates have equal quality, prefer the more concise result. Stop editing when the search intent and reader problem are fully resolved. This is not another AI call.
+Presentation semantics must remain useful and restrained. Preserve ordinary prose when it is sufficient. Use an unordered list for a real checklist, an ordered list for sequential actions, and a table only for genuine multi-column comparison or lookup; do not turn steps or reminders into tables and do not add decorative card-like sections. Preserve the current longFormStructure sectionType ownership so the deterministic renderer can distinguish checklist, warning, summary, comparison, steps, and standard content without changing factual text.
 Reader usefulness is a mandatory final-edit contract. Do not respond to a low usefulness score by merely adding sentences, rephrasing the same point, or filling length with general advice. Use the Quality report, manuscript diagnostics, required information, confirmed search intent, outline, H2 headings, and current section structure to identify which H2 fails to fulfill its own heading and editorial purpose, which H2 duplicates another section, which section lacks the concrete information appropriate to its purpose, and whether the conclusion lacks a useful next step. For every deficient section: identify the section purpose implied by the confirmed search intent, outline, and H2 heading; identify the information currently missing; add only the section-appropriate value such as a core concept, mechanism, distinguishing criterion, situation-specific difference, selection criterion, observable check, step sequence, applicability, exception, common mistake, or next action; remove or merge duplicate prose; and replace abstract encouragement with concrete explanation. Do not force methods, examples, cautions, or checklists into sections that do not need them. Every H2 must provide distinct new information, no H2 may consist only of generalities, and the conclusion must help the reader make a next decision or action rather than simply repeat the article. Preserve all already strong sections and do not damage approved keyword placement, links, images, or structure. Before returning JSON, verify for each H2: fulfillment of its heading and editorial purpose, the new information, the section-appropriate concrete value, and its distinction from every other section. If any H2 fails that check, revise it before returning the manuscript.
 Evidence integrity is a mandatory final-edit contract. Do not preserve or add any unsupported research, survey, statistic, percentage, probability, ranking, market-volume, treatment-effect, expert-consensus, or causal claim unless the current canonical document or supplied editorial context contains the exact approved evidence and source. Do not preserve or add fabricated first-person experience, product-use experience, treatment experience, or testimonial language unless the user explicitly supplied it as verified source material. When the Quality report or diagnostics signals unsupportedClaimSignal, fabricatedExperienceRisk, an unsupported evidence claim, or a blocked usefulness finding, remove the offending sentence or rewrite it as accurate general guidance, observable criteria, conditional wording, or a statement that individual results may differ. Never solve this by inventing a citation, source, number, or personal story. Before returning JSON, scan the full manuscript and ensure no such claim remains; a manuscript containing even one is not complete and must not be returned.
 Verified factual surfaces are protected server-owned facts. For every item in Protected verified factual surfaces below, preserve surfaceText verbatim in the same factual meaning. Do not change its amount, rate, comparator, basis, date, period, subject, scope, eligibility condition, location, legal proposition, or temporal meaning. If surrounding prose needs improvement, edit around the protected surface instead of paraphrasing or replacing it. Do not add new factual variants of the same Claim. The server will revalidate the current manuscript against these canonical Claim IDs after this response.
 Protected verified factual surfaces: ${JSON.stringify(protectedClaims)}
+  ${document.metadata?.generatedFactualClaimInventory ? "Return the complete current factual inventory as top-level verificationClaimsUsed. It must contain every protected factual surface exactly once with the same claimId, origin, risk, statement, surfaceText, Evidence URL/excerpt, semantic JSON, qualifiers, and temporal requirement. Do not use origin=quality_review and do not add a new factual item. If a correction would require a new fact, keep the existing supported wording or use NONE advice instead. The server rejects this candidate if the inventory is missing, changed, incomplete, or contains a new Claim." : "Do not add new externally verifiable facts during this edit."}
   Preserve the exact primary keyword naturally in the article title, SEO title, introduction, a relevant heading, distributed body prose, conclusion or summary, meta description, and a relevant image ALT; preserve every confirmed secondary keyword in the section that explains it. Preserve all verified links, tags, related posts, attached image assets and prompts, and longFormStructure metadata. Never create a URL that is not already verified and supplied. Preserve and fulfill the immutable Content Opportunity: ${JSON.stringify(opportunityContext ?? null)}.
   Current Rule Quality report: ${JSON.stringify(quality)}
   Priority corrections: ${JSON.stringify(priorities)}
@@ -238,6 +261,26 @@ function qualityPriorities(quality: QualityReport) {
 }
 
 function protectedGeneratedFactualClaims(document: ContentDocument) {
+  const inventory = activeGeneratedFactualClaims(document.metadata?.generatedFactualClaimInventory);
+  if (document.metadata?.generatedFactualClaimInventory) return Object.freeze(inventory.map((claim) => Object.freeze({
+    claimId: claim.claimId,
+    planningClaimId: claim.planningClaimId ?? "",
+    origin: claim.origin,
+    risk: claim.risk,
+    surfaceText: claim.surfaceText,
+    statement: claim.statement,
+    kind: claim.kind,
+    normalizedValueJson: claim.normalizedValueJson,
+    qualifiers: {
+      subject: claim.qualifiers.subject ?? "",
+      scope: claim.qualifiers.scope ?? "",
+      basis: claim.qualifiers.basis ?? "",
+      note: claim.qualifiers.note ?? "",
+    },
+    temporalRequirementJson: claim.temporalRequirement ? JSON.stringify(claim.temporalRequirement) : "null",
+    evidenceUrl: claim.evidenceUrl ?? "",
+    evidenceExcerpt: claim.evidenceExcerpt ?? "",
+  })));
   const stored = document.metadata?.generatedClaimVerification;
   if (stored?.semanticContractVersion !== 1 || !stored.semanticClaims?.length) return Object.freeze([]);
   return Object.freeze(stored.semanticClaims.map((claim) => Object.freeze({
@@ -345,15 +388,34 @@ function preserveReviewMetadata(current: ContentDocument, candidate: ContentDocu
   const metadata = {
     ...baseMetadata,
     qualityTarget: current.metadata?.qualityTarget ?? protectedCandidate.metadata?.qualityTarget,
-    longFormStructure: protectedCandidate.metadata?.longFormStructure ?? current.metadata?.longFormStructure,
+    longFormStructure: preserveSectionTypeOwnership(
+      current.metadata?.longFormStructure,
+      protectedCandidate.metadata?.longFormStructure,
+    ),
     ...(protectedCandidate.metadata?.tags?.length ? { tags: protectedCandidate.metadata.tags } : current.metadata?.tags?.length ? { tags: current.metadata.tags } : {}),
     ...(current.metadata?.approvalEvidence ? { approvalEvidence: current.metadata.approvalEvidence } : {}),
     ...(current.metadata?.generatedClaimVerification ? { generatedClaimVerification: current.metadata.generatedClaimVerification } : {}),
+    ...(current.metadata?.generatedFactualClaimInventory ? { generatedFactualClaimInventory: current.metadata.generatedFactualClaimInventory } : {}),
     ...(current.metadata?.aiUsage ? { aiUsage: current.metadata.aiUsage } : {}),
     generationDiagnostic: current.metadata?.generationDiagnostic,
   };
   const diagnostic = analyzeLongFormDocument({ ...protectedCandidate, metadata }, metadata.qualityTarget);
   return Object.freeze({ ...protectedCandidate, metadata: Object.freeze({ ...metadata, reviewDiagnostic: diagnostic }) });
+}
+
+function preserveSectionTypeOwnership(
+  current: NonNullable<ContentDocument["metadata"]>["longFormStructure"],
+  candidate: NonNullable<ContentDocument["metadata"]>["longFormStructure"],
+): NonNullable<ContentDocument["metadata"]>["longFormStructure"] {
+  if (!candidate) return current;
+  if (!current) return candidate;
+  return Object.freeze({
+    ...candidate,
+    sections: Object.freeze(candidate.sections.map((section, index) => Object.freeze({
+      ...section,
+      sectionType: current.sections[index]?.sectionType ?? section.sectionType,
+    }))),
+  });
 }
 
 export function detectEditorialReviewRegression(current: ContentDocument, candidate: ContentDocument): string | undefined {

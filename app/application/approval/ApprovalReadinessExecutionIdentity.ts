@@ -1,6 +1,8 @@
 import {
   canonicalizeApprovalEvidenceUrl,
   isApprovalEvidenceSelectedSource,
+  resolveApprovalEvidenceRequirement,
+  resolveApprovalTemporalRequirement,
 } from "../../../core/approval";
 import type { ContentDocument } from "../../../core/content";
 import { editorialRevisionId } from "../../../core/quality";
@@ -27,9 +29,10 @@ export function approvalReadinessExecutionIdentity(
   const policyIdentity = policy
     ? [policy.policyId, policy.policyVersion, policy.profileId, policy.profileVersion].join("@")
     : undefined;
-  const applicabilityIdentity = policy?.sourceRequirements.length
-    ? "profile-source-required"
-    : "profile-source-not-applicable";
+  const applicabilityIdentity = [
+    `evidence-${resolveApprovalEvidenceRequirement(content.opportunity)}`,
+    `temporal-${resolveApprovalTemporalRequirement(content.opportunity)}`,
+  ].join("@");
   return Object.freeze({
     version: approvalReadinessInspectionVersion,
     key: [

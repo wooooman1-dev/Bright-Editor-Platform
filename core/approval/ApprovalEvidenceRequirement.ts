@@ -1,5 +1,8 @@
 import type { ContentOpportunityCandidate } from "../content/ContentOpportunity";
-import { isCriticalVerificationClaim } from "./VerificationClaim";
+import {
+  isCriticalVerificationClaim,
+  isTimeSensitiveCriticalVerificationClaim,
+} from "./VerificationClaim";
 
 export type ApprovalEvidenceRequirement = "required" | "not_required" | "unknown";
 
@@ -33,4 +36,28 @@ export function approvalEvidenceIsApplicable(
   opportunity: Pick<ContentOpportunityCandidate, "verificationPlan" | "requiredEvidenceContract"> | undefined,
 ): boolean {
   return resolveApprovalEvidenceRequirement(opportunity) !== "not_required";
+}
+
+export function resolveApprovalTemporalRequirement(
+  opportunity: Pick<ContentOpportunityCandidate, "verificationPlan" | "requiredEvidenceContract"> | undefined,
+): ApprovalEvidenceRequirement {
+  if (!opportunity) return "unknown";
+
+  const plan = opportunity.verificationPlan;
+  if (plan) {
+    const criticalClaims = plan.claims.filter(isCriticalVerificationClaim);
+    if (!criticalClaims.length) return "not_required";
+    return criticalClaims.some(isTimeSensitiveCriticalVerificationClaim)
+      ? "required"
+      : "not_required";
+  }
+
+  const contract = opportunity.requiredEvidenceContract;
+  if (!contract) return "unknown";
+  if (!contract.requiredClaims.length) {
+    return contract.explicitVerificationRequired ? "unknown" : "not_required";
+  }
+  return contract.requiredClaims.some((claim) => claim.temporalRequirement?.mode !== "notRequired")
+    ? "required"
+    : "not_required";
 }

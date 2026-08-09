@@ -379,14 +379,15 @@ function editorialOutputPolicy(metadata?: Readonly<Record<string, string>>) {
   }
   if (metadata?.task === "content-generation") {
     const target = parseQualityTarget(metadata.qualityTarget);
-    const verificationClaims = metadata.verificationGenerationMode === "structured_claims_v1";
+    const verificationClaims = metadata.verificationGenerationMode === "structured_claims_v1"
+      || metadata.verificationGenerationMode === "structured_claims_v2";
     return {
       maxOutputTokens: outputTokenBudget(target),
       verbosity: "medium" as const,
       format: structuredGenerationFormat(target, { verificationClaims }),
     };
   }
-  if (metadata?.task === "quality-final-edit" || metadata?.task === "quality-auto-improvement") return { maxOutputTokens: 12_000, verbosity: "high" as const, format: editorialDocumentFormat };
+  if (metadata?.task === "quality-final-edit" || metadata?.task === "quality-auto-improvement") return { maxOutputTokens: 12_000, verbosity: "high" as const, format: metadata.factualInventoryMode === "structured_claims_v2" ? editorialDocumentWithFactualInventoryFormat : editorialDocumentFormat };
   if (/tistory|blog|article|long-form|guide|아티클|장문/i.test(`${metadata?.platform ?? ""} ${metadata?.contentType ?? ""}`)) return { maxOutputTokens: 12_000, verbosity: "medium" as const, format: editorialDocumentFormat };
   return undefined;
 }
@@ -467,7 +468,7 @@ export const explicitApprovalSourcePreflightFormat = {
               type: "object", additionalProperties: false, required: ["claimId", "value", "evidenceExcerpt"],
               properties: {
                 claimId: { type: "string", maxLength: 160 },
-                value: { type: "string", maxLength: 400 },
+                value: { type: "string", maxLength: 400, description: "The shortest verbatim factual phrase contained inside this claim evidenceExcerpt. Never paraphrase." },
                 evidenceExcerpt: {
                   type: "string",
                   maxLength: 600,
@@ -506,15 +507,25 @@ const generatedFactualClaimSchema = {
     additionalProperties: false,
     required: [
       "claimId",
+      "planningClaimId",
+      "origin",
+      "risk",
       "surfaceText",
+      "statement",
       "kind",
       "normalizedValueJson",
       "qualifiers",
       "temporalRequirementJson",
+      "evidenceUrl",
+      "evidenceExcerpt",
     ],
     properties: {
       claimId: { type: "string" },
+      planningClaimId: { type: "string" },
+      origin: { type: "string", enum: ["planning", "generation", "quality_review"] },
+      risk: { type: "string", enum: ["verify", "critical"] },
       surfaceText: { type: "string" },
+      statement: { type: "string" },
       kind: {
         type: "string",
         enum: ["money", "ratio", "date", "dateRange", "duration", "location", "eligibility", "legal", "general"],
@@ -532,6 +543,8 @@ const generatedFactualClaimSchema = {
         },
       },
       temporalRequirementJson: { type: "string" },
+      evidenceUrl: { type: "string" },
+      evidenceExcerpt: { type: "string" },
     },
   },
 } as const;
@@ -654,6 +667,19 @@ const editorialDocumentFormat = {
         target: { type: "string", enum: ["_self", "_blank"] },
         sourceExternalPostId: { type: "string" },
       } } },
+    },
+  },
+} as const;
+
+const editorialDocumentWithFactualInventoryFormat = {
+  ...editorialDocumentFormat,
+  name: "canonical_content_document_with_factual_inventory",
+  schema: {
+    ...editorialDocumentFormat.schema,
+    required: [...editorialDocumentFormat.schema.required, "verificationClaimsUsed"],
+    properties: {
+      ...editorialDocumentFormat.schema.properties,
+      verificationClaimsUsed: generatedFactualClaimSchema,
     },
   },
 } as const;

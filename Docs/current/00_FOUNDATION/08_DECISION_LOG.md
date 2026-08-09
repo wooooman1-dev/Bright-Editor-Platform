@@ -647,6 +647,8 @@ AI는 Evidence를 생성·수정하거나 Provider·metric·Evidence ID를 발�
 - `marketOpportunity`: 검증된 외부 Evidence가 있고 내부 성장 근거가 종합 추천에 충분하지 않으며 동일 gate를 통과
 - `blogGrowth`: 외부 시장성이 확인되지 않았지만 content gap, verified public internal-link 또는 cluster Evidence가 있고 동일 gate를 통과
 
+Content Opportunity의 자동 선택 순서는 편집 가치 우선이다. 서버는 기존 Planning 계약의 reader problem, concrete search task, coverage, decision criteria, exceptions, actions, Project alignment/exclusions와 기존 공개 Content 중복을 사용해 `사용자 도움 가치 → 사실적 방어 가능성 → 검색 의도 해결 → 기존 Content 대비 추가 가치`를 먼저 결정론적으로 평가한다. 검증된 시장 Evidence, 경쟁도, 희소성, trend와 recommendation type은 이 편집 가치 gate를 통과한 후보 사이에서만 후순위 정렬 근거가 된다. 검색량 또는 희소성만 있고 구체적인 독자 문제가 없는 후보, Project excluded topic, 근거 없는 보장·확정 표현, 구체적인 search task가 없는 후보는 자동 추천하지 않는다. 이 평가는 새로운 Provider 호출이나 저장 모델 migration을 만들지 않으며 기존 VERIFY/CRITICAL Evidence 정책을 변경하지 않는다.
+
 editorial inference만으로 종합 추천이나 시장 기회 추천을 만들지 않는다. stale 외부 Evidence만으로 강한 종합 추천을 만들지 않는다. Evidence가 부족한 유형과 후보 수를 억지로 채우지 않으며 설명할 수 있는 근거가 없으면 전체 1순위 또는 시장 점수를 표시하지 않는다.
 
 추천 유형, Evidence ID·요약, 시장/내부 상태, freshness, limitation과 classification version은 Opportunity fingerprint에 포함한다. 후보 선택과 확정은 이 필드를 주제·키워드·검색 의도와 함께 원자적으로 교체·저장·복원한다. Quality Review는 동일 canonical Opportunity를 사용해 근거 없는 검색량·CPC·시장 순위, stale 최신성 주장, 광고 경쟁도와 SEO 난이도 혼동, CPC/RPM 수익 예측을 차단한다.
@@ -670,6 +672,8 @@ Status: Accepted
 통합 Sprint 구현의 Gate 0은 실제 Tistory 계정에서 Draft Save를 실행하고 Draft를 다시 열어 제목, 의미 있는 본문 구조, Category와 비공개 상태를 확인하는 전체 End-to-End 검증이다. 저장 버튼 클릭, 부분 검증 또는 자동 테스트만으로 Gate 0을 통과한 것으로 간주하지 않는다. Gate 0 통과 전에는 통합 Sprint의 Presentation Runtime 또는 Scheduling 구현을 시작하지 않는다.
 
 Workstream A는 Canonical `ContentDocument`에서 deterministic Presentation Resolver, allowlisted Bright Components와 theme-independent semantic HTML을 생성한다. 불변 `RenderArtifact`와 checksum을 저장하고 `PreviewApproval`을 해당 Artifact에 결합한다. Preview와 Tistory Draft는 승인된 동일 Artifact를 사용하며, Draft 재진입 후에는 Tistory가 정규화한 결과의 의미 구조가 일치하는지 검증한다. Presentation Contract Foundation은 구현되었지만 Presentation Runtime은 구현되지 않았다.
+
+Canonical Content의 `longFormStructure.sectionType`과 정규화된 paragraph/list/table block binding은 reader-visible section presentation의 공통 semantic source로 사용할 수 있다. 결정론적 Core projection은 checklist, warning, summary처럼 실제 정보 성격이 명확하고 필요한 구조가 존재할 때만 allowlisted Bright card intent를 만들며, explanation·steps·comparison·table은 의미에 맞는 native semantic HTML을 우선한다. 이 projection은 ContentDocument, factual surfaceText, Claim/Evidence binding 또는 persisted schema를 변경하지 않는다. WordPress와 Tistory renderer는 같은 projection을 각 플랫폼 HTML로 매핑하고, 짧은 label column은 최소 폭·단어 단위 줄바꿈·모바일 horizontal overflow 경계를 적용한다. 전체 RenderArtifact/PreviewApproval Runtime의 나머지 범위는 계속 미구현 상태다.
 
 Workstream B는 `ScheduledPublication`과 `ScheduleJob`을 정의하고 Tistory 자체 예약 기능을 우선 사용한다. 시간대는 `Asia/Seoul`로 고정하며 예약 대상 Content Revision, PlatformConnection Account와 Category를 고정한다. 로컬 Scheduler가 공개 시각까지 대기하거나 자체적으로 공개 작업을 실행하지 않는다.
 

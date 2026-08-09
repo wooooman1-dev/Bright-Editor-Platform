@@ -5,6 +5,8 @@ import {
   type GeneratedClaimLocation,
 } from "./GeneratedClaimBinding";
 import { evaluateStoredGeneratedFactualClaims } from "./GeneratedFactualClaim";
+import { generatedFactualInventoryIntegrityReason } from "./GeneratedFactualClaimInventory";
+import { isCriticalVerificationClaim } from "./VerificationClaim";
 import {
   evaluateVerificationGenerationGate,
   type VerificationGenerationPlan,
@@ -31,7 +33,9 @@ export function evaluateGeneratedClaimVerificationIntegrity(input: Readonly<{
   plan?: VerificationGenerationPlan;
   currentRevisionId?: string;
 }>): GeneratedClaimVerificationIntegrityResult {
-  if (!input.plan) return passedResult();
+  const inventoryReason = generatedFactualInventoryIntegrityReason(input.document);
+  if (inventoryReason) return failedResult([inventoryReason]);
+  if (!input.plan?.claims.some(isCriticalVerificationClaim)) return passedResult();
 
   const stored = input.document.metadata?.generatedClaimVerification;
   if (!stored) {

@@ -37,8 +37,13 @@ export function evaluateApprovalPreparationText(
 export function evaluateApprovalDraftIntegrity(
   document: ContentDocument,
   verificationRequired = true,
+  timeSensitiveEvidenceRequired = verificationRequired,
 ): ApprovalDraftIntegrity {
-  const base = baseEvaluateApprovalDraftIntegrity(document, verificationRequired);
+  const base = baseEvaluateApprovalDraftIntegrity(
+    document,
+    verificationRequired,
+    timeSensitiveEvidenceRequired,
+  );
   const snapshot = document.metadata?.approvalPolicy;
   if (!snapshot || !hasConciseApplicabilityQualification(documentText(document), snapshot)) return base;
   const reasons = base.reasons.filter((reason) => reason !== strictDefinitionMessage);

@@ -21,6 +21,12 @@ export function restoreProtectedEditorialMetadata(
       ...(currentMetadata.siteApprovalReadiness
         ? { siteApprovalReadiness: currentMetadata.siteApprovalReadiness }
         : {}),
+      ...(currentMetadata.generatedClaimVerification
+        ? { generatedClaimVerification: currentMetadata.generatedClaimVerification }
+        : {}),
+      ...(currentMetadata.generatedFactualClaimInventory
+        ? { generatedFactualClaimInventory: currentMetadata.generatedFactualClaimInventory }
+        : {}),
     }),
   });
 }

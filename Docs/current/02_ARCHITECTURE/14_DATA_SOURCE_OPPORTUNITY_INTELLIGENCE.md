@@ -208,9 +208,9 @@ Server validation protects meaning:
 
 Planning reads only Evidence from the Connection currently owned and explicitly referenced by the current Project. Connection status, enabled state, same-Workspace scope, resource context, Evidence verification, freshness and Project-topic matching remain required.
 
-The service caps and filters the Evidence bundle to Project context before adding it to the existing single Planning AI request. The AI cannot attach canonical Evidence. After parsing, the server matches stored Evidence to each candidate, checks duplicate/public content, Project alignment, search-intent clarity and deterministic safety restrictions, then classifies and sorts candidates.
+The service caps and filters the Evidence bundle to Project context before adding it to the existing single Planning AI request. The AI cannot attach canonical Evidence. After parsing, the server matches stored Evidence to each candidate, checks duplicate/public content, Project alignment and exclusions, concrete search-intent resolution, factual defensibility and deterministic safety restrictions, then classifies and sorts candidates.
 
-Order is deterministic: comprehensive, market opportunity, blog growth; within a type, verified Evidence, freshness and stable Opportunity identity are used. No unexplained numeric market score or first-place badge is produced.
+Order is deterministic and lexicographic: reader helpfulness, factual defensibility, search-intent resolution and additional value over existing content come first. Only candidates that pass those editorial gates are ordered by comprehensive, market opportunity and blog growth; within a type, verified Evidence, freshness and stable Opportunity identity are used. The assessment is derived from the existing candidate contract and Project strategy, is not persisted as a synthetic SEO score, and adds no Provider call. No unexplained numeric market score or first-place badge is produced.
 
 A healthy Workspace Connection owned by another Project or left unassigned is intentionally excluded. The UI must guide the user to create a separate resource Connection rather than reusing the wrong site's Connection.
 

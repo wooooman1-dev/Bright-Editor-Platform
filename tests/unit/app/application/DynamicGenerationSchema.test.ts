@@ -39,11 +39,17 @@ describe("structured generation schema", () => {
     expect(format.schema.required).toContain("verificationClaimsUsed");
     expect(schema.properties.verificationClaimsUsed.items.required).toEqual([
       "claimId",
+      "planningClaimId",
+      "origin",
+      "risk",
       "surfaceText",
+      "statement",
       "kind",
       "normalizedValueJson",
       "qualifiers",
       "temporalRequirementJson",
+      "evidenceUrl",
+      "evidenceExcerpt",
     ]);
     expect(schema.properties.verificationClaimsUsed.items.properties).toHaveProperty("normalizedValueJson");
     expect(schema.properties.verificationClaimsUsed.items.properties).toHaveProperty("qualifiers");
