@@ -1,3 +1,4 @@
+import { canonicalEvidenceAnchorText, evidenceAnchorContains } from "./ApprovalEvidenceAnchor";
 import type { VerificationClaimSpec } from "./VerificationClaim";
 
 export type VerificationClaimEvidenceMatch = Readonly<{
@@ -20,13 +21,14 @@ export function evaluateVerificationClaimEvidenceMatch(input: Readonly<{
   normalizedValueMatchesPlanned: boolean;
 }>): VerificationClaimEvidenceMatch {
   const excerpt = normalizeWhitespace(input.evidenceExcerpt);
-  const page = normalizeWhitespace(input.pageText);
   const submitted = normalizeWhitespace(input.submittedValue);
-  const excerptFound = Boolean(excerpt) && compact(page).includes(compact(excerpt));
-  const exactValueFound = Boolean(submitted) && compact(page).includes(compact(submitted));
+  // Page containment uses the canonical anchor form shared with the Source
+  // Preflight anchor gate; the two must never disagree about the same excerpt.
+  const excerptFound = evidenceAnchorContains(input.pageText, excerpt);
+  const exactValueFound = evidenceAnchorContains(input.pageText, submitted);
   const scalar = scalarClaim(input.spec);
   const literalMatch = scalar || explicitLiterals(input.spec).every((literal) =>
-    compact(excerpt).includes(compact(literal)));
+    canonicalEvidenceAnchorText(excerpt).includes(canonicalEvidenceAnchorText(literal)));
   const semanticMatch = !scalar
     && propositionConceptMatch(input.spec, excerpt);
   const valueSupported = exactValueFound || semanticMatch;
@@ -59,7 +61,7 @@ function propositionConceptMatch(
   spec: VerificationClaimSpec,
   evidenceExcerpt: string,
 ): boolean {
-  const evidence = compact(evidenceExcerpt);
+  const evidence = canonicalEvidenceAnchorText(evidenceExcerpt);
   const identityConcepts = concepts([
     spec.field,
     spec.qualifiers.subject ?? "",
@@ -117,12 +119,6 @@ function stripKoreanSuffix(value: string): string {
 
 function normalizeWhitespace(value: string): string {
   return value.normalize("NFKC").replace(/\s+/gu, " ").trim();
-}
-
-function compact(value: string): string {
-  return normalizeWhitespace(value)
-    .toLocaleLowerCase("ko-KR")
-    .replace(/[\s\p{P}\p{S}]+/gu, "");
 }
 
 const conceptStopWords = new Set([

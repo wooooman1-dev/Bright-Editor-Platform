@@ -3,6 +3,7 @@ import {
   approvalSourcePreflightClaimMatchesPage,
   canonicalizeApprovalEvidenceUrl,
   evaluateApprovalSourceAuthority,
+  evidenceAnchorContains,
   evaluateApprovalSourcePreflightCoverage,
   evaluateExplicitApprovalSourcePreflightCoverage,
   evaluateApprovalSourceUrlSafety,
@@ -1049,8 +1050,8 @@ Rules:
 - Return a direct detail, guidance, law, notice, application, collection, or institutional record page; never return a search-result page, navigation page, copied article, community post, or secondary blog.
 - Every URL must be HTTPS and must appear in the web-search sources from this same response.
 - Source evidenceExcerpt must be one short contiguous verbatim factual passage from the canonical extracted text of that fetched document body, including visible headings but excluding title, metadata, search snippets, navigation, scripts, and styles. Do not paraphrase, invent, or combine text from another page.
-- For every required Claim ID, attach the same claimId to at least one source in claims.
-- Every Claim must contain the exact required claimId, value, and evidenceExcerpt; never substitute a field name or another Claim ID.
+- For every required Claim, attach its exact required field to at least one source in claims.
+- Every Claim must contain the exact required field, value, and evidenceExcerpt; never substitute a paraphrased field name.
 - Claim value must be a concise exact factual value or sentence proved by that same page.
 - Claim evidenceExcerpt must be a short contiguous verbatim passage from that same canonical extracted document text containing or directly proving the Claim value.
 - Do not attach a Claim field that the page does not support.
@@ -1354,11 +1355,13 @@ function preflightPageRejection(
   return undefined;
 }
 
+/**
+ * Source-level anchor gate. Shares one canonical form with the Claim-level
+ * evidence binding so a page can never pass this gate and then have the same
+ * excerpt rejected downstream as `claim_evidence_excerpt_not_found`.
+ */
 function evidenceExcerptMatches(pageText: string, excerpt: string): boolean {
-  const page = normalizeComparableText(pageText);
-  const candidate = normalizeComparableText(excerpt);
-  return candidate.length >= minimumEvidenceExcerptLength
-    && page.includes(candidate);
+  return evidenceAnchorContains(pageText, excerpt, minimumEvidenceExcerptLength);
 }
 
 function sourceRelevanceScope(
@@ -1543,13 +1546,6 @@ function coverageDiagnosticMetadata(
       });
     })),
   };
-}
-
-function normalizeComparableText(value: string): string {
-  return value.normalize("NFKC")
-    .toLocaleLowerCase("ko-KR")
-    .replace(/[^0-9a-z가-힣]+/gu, "")
-    .trim();
 }
 
 function normalizeExcerpt(value: string): string {

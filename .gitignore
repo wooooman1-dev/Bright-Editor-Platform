@@ -15,9 +15,21 @@ coverage/
 debug.log
 *.tsbuildinfo
 .env
+.env.*
+!.env.example
 .env.local
 .env.*.local
 logs/*
 !logs/.gitkeep
 data/*
 !data/.gitkeep
+
+# tests/manual 진단 테스트가 프로젝트 루트에 남기는 로컬 산출물
+diagnostics/
+*-diagnostic.json
+manuscript-preflight-repro.json
+manuscript-preflight-replay.json
+historical-anchor-production-replay.json
+anchor-failure-diagnostic.json
+diff-stat.txt
+*.zip

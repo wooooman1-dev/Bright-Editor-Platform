@@ -3,6 +3,7 @@ export * from "./ApprovalReadiness";
 export * from "./ApprovalEvidenceRequirement";
 export * from "./ApprovalDuplicatePolicy";
 export * from "./ApprovalSourceDocumentAdapter";
+export * from "./ApprovalEvidenceAnchor";
 export * from "./ApprovalSourceUrlPolicy";
 export type {
   ApprovalEvidenceVerificationResult,

@@ -1,34 +1,57 @@
-# 적용 안내
+# Bright Editor Platform
 
-이 패키지는 기존 문서를 전부 교체하지 않습니다.
+AI 기반 Content Lifecycle Platform. 사용자 화면과 외부 제품명은 **Bright Studio**를 사용하며, 이 저장소(코드/아키텍처/내부 문서)에서는 **Bright Editor Platform**을 사용한다.
 
-## 추가할 파일
+## Mission
 
-- `Docs/current/02_ARCHITECTURE/12_PLATFORM_AUTOMATION_PERMISSIONS.md`
-- `Docs/current/01_PRODUCT/10_PUBLISHING_ACCOUNT_PERMISSIONS.md`
+Empower creators to build, manage and grow professional-quality content across any domain and any platform.
 
-## Decision Log 반영
+```
+Strategy -> Production -> Publishing -> Operation -> Growth
+```
 
-`Docs/current/00_FOUNDATION/DECISION_007_PLATFORM_AUTOMATION_PERMISSIONS.md`의 내용을 확인한 뒤,
-기존 `Docs/current/00_FOUNDATION/06_DECISION_LOG.md`에 Decision #007로 추가하세요.
+Core는 도메인/플랫폼에 종속되지 않도록 설계하고, 플랫폼별 구현은 Platform Adapter(`apps/`)에 분리한다.
 
-기존 Decision Log의 형식이 다르면 제목과 필드 순서는 기존 문서 형식에 맞추되, 의사결정
-내용과 보안 원칙은 변경하지 마세요.
+## Tech Stack
 
-## 현재 승인 범위
+- Next.js (App Router) / React / TypeScript
+- Tailwind CSS
+- Playwright (Tistory 등 브라우저 자동화 어댑터)
+- Vitest (단위/통합 테스트)
 
-- Publishing Account별 권한
-- 다중 계정 연결
-- 서버 측 Permission Gate
-- 등록된 Workflow Allowlist
-- Review First 기본 정책
-- 순차 발행 기본 정책
-- 공개 발행 기본 비활성화
+## Getting Started
 
-## 아직 승인하지 않은 범위
+```bash
+npm install
+npm run dev        # 개발 서버
+npm run build       # 프로덕션 빌드
+npm run typecheck   # tsc --noEmit
+npm run lint        # eslint .
+npm test            # vitest run
+```
 
-- 외부 게시물 삭제
-- 계정 설정 변경
-- AI의 자유형 브라우저 조작
-- 기본 공개 발행
-- 무제한 권한 프리셋
+## Project Structure
+
+```
+app/          Next.js 라우트, API, 화면(user-flow), 애플리케이션 서비스
+apps/         플랫폼별 Adapter (tistory, wordpress)
+core/         플랫폼 독립 도메인 모듈 (ai, approval, content, quality, publishing, media, intelligence 등)
+Docs/         제품/아키텍처/개발 문서 (current = 최신, legacy = 이전 버전)
+scripts/      운영/마이그레이션 스크립트
+tests/        unit / integration / e2e / manual 테스트
+```
+
+## Documentation
+
+프로젝트의 최상위 소스 오브 트루스는 다음 문서다.
+
+- `Docs/current/00_FOUNDATION/04_PROJECT_GUIDE.md` — 개발 기준, 기술 스택, 핵심 원칙
+- `Docs/current/00_FOUNDATION/08_DECISION_LOG.md` — 확정된 아키텍처/정책 결정 (Decision Log)
+- `Docs/current/01_PRODUCT/01_PRD.md` — 제품 요구사항
+- `Docs/current/01_PRODUCT/06_PRODUCT_ARCHITECTURE.md` — 제품 아키텍처(엔진 구조)
+
+새 기능을 설계하거나 아키텍처를 변경하기 전에는 위 문서, 특히 Decision Log를 먼저 확인한다.
+
+## License
+
+ISC

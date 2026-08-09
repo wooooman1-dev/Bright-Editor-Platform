@@ -281,6 +281,28 @@ describe("runApprovalSourcePreflight explicit integration", () => {
     expect(provider.requests[0]?.instruction).toMatch(/shortest verbatim factual phrase/i);
   });
 
+  it("verifies a verbatim quote that skips an inline law.go.kr <개정 ...> revision annotation", async () => {
+    const excerpt = "공식 안내에 따르면 지원 금액은 50만원이며 신청 전에 세부 기준을 확인해야 합니다.";
+    const filler = "이 페이지는 공식 지원 제도의 대상, 신청 절차, 제출 서류, 처리 과정과 주의사항을 안내하는 검증용 본문입니다. ".repeat(8);
+    const pageWithAmendmentAnnotation = new Response(
+      `<html><body>공식 안내에 따르면 지원 금액은 <개정 2019.1.15, 2019.8.27, 2020.5.26> 50만원이며 신청 전에 세부 기준을 확인해야 합니다. ${filler}</body></html>`,
+      { status: 200, headers: { "content-type": "text/html" } },
+    );
+    const provider = new FixtureProvider([source(urls[0], "50만원", excerpt, "claim-amount")], {
+      webSources: [{ url: urls[0], provenance: "search_candidate" }],
+    });
+    const result = await runApprovalSourcePreflight({
+      provider,
+      snapshot,
+      opportunity: ensureApprovalEvidenceContract(opportunity(), snapshot),
+      platform: "wordpress",
+      contentType: "article",
+      fetcher: async () => pageWithAmendmentAnnotation,
+    });
+    expect(result.sources).toHaveLength(1);
+    expect(result.coverage.status).toBe("covered");
+  });
+
   it("rejects synthesized evidence while preserving exact claim evidence", async () => {
     const synthesized = "怨듭떇 ?덈궡??吏????곴낵??50留뚯썝?대ŉ ?좎껌??吏???덈궡??湲곗?濡??④릿?섎뒗 ?곹뭹?낅땲??";
     const provider = new FixtureProvider([{

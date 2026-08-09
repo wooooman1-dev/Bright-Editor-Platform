@@ -130,6 +130,41 @@ describe("ApprovalSourceDocumentAdapter", () => {
     expect(unavailable.extractionStatus).toBe("unavailable");
   });
 
+  it("decodes named character references instead of leaking the entity name as text", () => {
+    const result = normalizeApprovalSourceDocument(input(
+      "<html><body><p>월세액 지급 증빙 서류 &rarr; 연말정산 시 회사에 제출</p>"
+      + "<p>기준&middot;요건 &ndash; &ldquo;대통령령&rdquo; &nbsp;&hellip; 100&deg;</p></body></html>",
+      "text/html",
+    ));
+
+    expect(result.extractionStatus).toBe("extracted");
+    expect(result.text).toContain("증빙 서류 → 연말정산");
+    expect(result.text).toContain("기준·요건 – “대통령령”");
+    // The entity names themselves must never survive into evidence text.
+    expect(result.text).not.toMatch(/\b(?:rarr|middot|ndash|ldquo|rdquo|hellip|deg)\b/u);
+  });
+
+  it("drops an unknown named reference rather than inlining its letters", () => {
+    const result = normalizeApprovalSourceDocument(input(
+      "<html><body><p>공제 대상&notarealentity;여부를 확인</p></body></html>",
+      "text/html",
+    ));
+
+    expect(result.text).not.toContain("notarealentity");
+    expect(result.text).toContain("공제 대상");
+    expect(result.text).toContain("여부를 확인");
+  });
+
+  it("does not re-decode a character reference produced by decoding another", () => {
+    const result = normalizeApprovalSourceDocument(input(
+      "<html><body><p>literal &amp;rarr; stays literal</p></body></html>",
+      "text/html",
+    ));
+
+    expect(result.text).toContain("&rarr;");
+    expect(result.text).not.toContain("→");
+  });
+
   it("assigns every deterministic byte sequence one terminal state and never throws", () => {
     let seed = 0x13579bdf;
     for (let caseIndex = 0; caseIndex < 256; caseIndex += 1) {

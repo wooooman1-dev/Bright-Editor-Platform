@@ -474,17 +474,58 @@ function decodePdfLiteral(value: string): string {
     .replace(/\\\r?\n/gu, ""));
 }
 
+/**
+ * Decodes character references in one pass so an entity produced by decoding
+ * another entity is never decoded again.
+ *
+ * A named reference this table does not know becomes whitespace rather than
+ * being left in place. Leaving it in place leaked the entity's own name into
+ * the extracted text — a page written with "&rarr;" extracted as the letters
+ * "rarr" — which corrupts verbatim evidence anchoring against text that any
+ * reader, or any model reading the rendered page, sees as "→".
+ */
 function decodeEntities(value: string): string {
-  return value
-    .replace(/&nbsp;|&#160;/giu, " ")
-    .replace(/&amp;/giu, "&")
-    .replace(/&lt;/giu, "<")
-    .replace(/&gt;/giu, ">")
-    .replace(/&quot;/giu, '"')
-    .replace(/&#39;|&apos;/giu, "'")
-    .replace(/&#(\d+);/gu, (_match, decimal: string) => safeCodePoint(Number(decimal)))
-    .replace(/&#x([0-9a-f]+);/giu, (_match, hexadecimal: string) => safeCodePoint(Number.parseInt(hexadecimal, 16)));
+  return value.replace(
+    /&(?:#(\d{1,7})|#x([0-9a-f]{1,6})|([a-z][a-z0-9]{1,31}));/giu,
+    (_match, decimal: string | undefined, hexadecimal: string | undefined, name: string | undefined) => {
+      if (decimal !== undefined) return safeCodePoint(Number(decimal));
+      if (hexadecimal !== undefined) return safeCodePoint(Number.parseInt(hexadecimal, 16));
+      return htmlNamedEntities[name!] ?? htmlNamedEntities[name!.toLocaleLowerCase("en-US")] ?? " ";
+    },
+  );
 }
+
+/**
+ * The named references that realistically appear in official source pages:
+ * markup-critical characters, spacing, typographic punctuation, arrows, and the
+ * mathematical and currency symbols used in Korean government notices.
+ */
+const htmlNamedEntities: Readonly<Record<string, string>> = Object.freeze({
+  amp: "&", lt: "<", gt: ">", quot: '"', apos: "'",
+  nbsp: " ", ensp: " ", emsp: " ", thinsp: " ", shy: "", zwj: "", zwnj: "",
+  ndash: "–", mdash: "—", horbar: "―", minus: "−",
+  lsquo: "‘", rsquo: "’", sbquo: "‚",
+  ldquo: "“", rdquo: "”", bdquo: "„",
+  laquo: "«", raquo: "»", lsaquo: "‹", rsaquo: "›",
+  hellip: "…", middot: "·", centerdot: "·", sdot: "⋅",
+  bull: "•", dagger: "†", Dagger: "‡", prime: "′", Prime: "″",
+  larr: "←", uarr: "↑", rarr: "→", darr: "↓", harr: "↔",
+  lArr: "⇐", uArr: "⇑", rArr: "⇒", dArr: "⇓", hArr: "⇔",
+  times: "×", divide: "÷", plusmn: "±", frasl: "⁄",
+  le: "≤", ge: "≥", ne: "≠", asymp: "≈", equals: "=",
+  deg: "°", permil: "‰", percnt: "%", numero: "№",
+  copy: "©", reg: "®", trade: "™", sect: "§", para: "¶",
+  won: "₩", euro: "€", pound: "£", yen: "¥", cent: "¢", curren: "¤", dollar: "$",
+  sup1: "¹", sup2: "²", sup3: "³",
+  frac12: "½", frac14: "¼", frac34: "¾",
+  alpha: "α", beta: "β", gamma: "γ", delta: "δ", Delta: "Δ",
+  micro: "µ", ohm: "Ω", infin: "∞", radic: "√", sum: "∑",
+  lowbar: "_", verbar: "|", sol: "/", bsol: "\\", commat: "@", num: "#", ast: "*",
+  lpar: "(", rpar: ")", lbrack: "[", rbrack: "]", lbrace: "{", rbrace: "}",
+  colon: ":", semi: ";", comma: ",", period: ".", excl: "!", quest: "?",
+  nldr: "‥", tilde: "~", circ: "^", acute: "´", uml: "¨", cedil: "¸",
+  iexcl: "¡", iquest: "¿", brvbar: "¦", macr: "¯", ordf: "ª", ordm: "º", not: "¬",
+});
 
 function safeCodePoint(value: number): string {
   return Number.isSafeInteger(value) && value >= 0 && value <= 0x10ffff
