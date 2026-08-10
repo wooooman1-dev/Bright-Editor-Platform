@@ -4,44 +4,56 @@
 
 ## Purpose
 
-This document transfers the current project state to a new AI coding session.
+This document onboards a new AI coding session. It is deliberately thin: it
+says where the current state is recorded, not what the current state is. Status
+that is copied into two places goes stale in one of them.
 
-Every new development session should begin by reading:
+Read in this order:
 
-1. README.md
-2. AGENTS.md
-3. Docs/current/03_DEVELOPMENT/01_DEVELOPMENT_START.md
-4. This HANDOFF.md
+1. `AGENTS.md`
+2. `Docs/current/00_FOUNDATION/08_DECISION_LOG.md`
+3. `Docs/current/04_DEVELOPMENT/01_DEVELOPMENT_START.md`
+4. `Docs/current/04_DEVELOPMENT/04_CURRENT_DEVELOPMENT_STATUS.md`
+5. This file
 
 ---
 
-# Current Project Status
+# Where The Current State Lives
 
-Project Name:
-Bright Editor Platform
+Do not infer the current state from this file. Determine it from, in order of
+authority:
 
-Current Phase:
-Implementation
+1. **Decision Log** - `Docs/current/00_FOUNDATION/08_DECISION_LOG.md`. The
+   top-level source of truth. If documents conflict, it wins.
+2. **AGENTS.md** - the mandatory operating manual for AI agents.
+3. Approved Product and Architecture documents under `Docs/current`.
+4. **`Docs/current/04_DEVELOPMENT/04_CURRENT_DEVELOPMENT_STATUS.md`** - the
+   living status document.
+5. **The repository itself** - `git log`, open branches, and open pull
+   requests. Work in flight is visible there before it reaches any document.
+6. Automated validation - `npm test`, `npm run typecheck`, `npm run lint`.
+7. Real external verification against the actual platform.
 
-Architecture:
-Completed
+A design approval does not mean the feature is implemented, and an
+implementation does not mean it is externally verified.
 
-Planning:
-Completed
+---
 
-Development Mode:
-Implementation only
+# Baseline
 
-Discussion Phase:
-Closed
+- Internal name: `Bright Editor Platform`
+- Product name: `Bright Studio`
+- Repository: `wooooman1-dev/Bright-Editor-Platform`
+- Default branch: `main`
+- Released tags: `v1.0.0`, `v1.1.0`, `v1.2.0`
+- Phase: Implementation. Architecture and planning are complete and frozen
+  unless a change is explicitly approved through the Decision Log.
 
 ---
 
 # Existing Project
 
-Existing project:
-
-D:\tstory_auto
+`D:\tstory_auto`
 
 Rules:
 
@@ -50,64 +62,49 @@ Rules:
 - DO NOT refactor it.
 - DO NOT use it as the implementation base.
 
-It exists only as historical reference if explicitly requested.
-
-Bright Editor Platform is a clean implementation.
+It exists only as historical reference if explicitly requested. Bright Editor
+Platform is a clean implementation.
 
 ---
 
 # Technology Stack
 
-Framework
-- Next.js (App Router)
+- Framework: Next.js (App Router)
+- Language: TypeScript
+- UI: React, Tailwind CSS, shadcn/ui (only when needed)
+- Automation: Playwright
+- Testing: Vitest, Playwright Test
+- Package manager: npm
 
-Language
-- TypeScript
+Commands:
 
-UI
-- React
-
-Styling
-- Tailwind CSS
-
-Components
-- shadcn/ui (only when needed)
-
-Automation
-- Playwright
-
-Testing
-- Vitest
-- Playwright Test
-
-Package Manager
-- npm
+| Purpose | Command |
+|---|---|
+| Tests | `npm test` |
+| Type check | `npm run typecheck` |
+| Lint | `npm run lint` |
+| Dev server | `npm run dev` |
+| Production build | `npm run build` |
 
 ---
 
 # Project Structure
 
-Core directories
+| Path | Contents |
+|---|---|
+| `core/` | Platform-independent logic only |
+| `apps/` | Platform-specific implementations only |
+| `app/` | Next.js App Router routes, API handlers, application services |
+| `shared/` | Reusable utilities, UI, config, and types |
+| `scripts/` | Maintenance and migration scripts |
+| `tests/` | Automated tests |
+| `Docs/` | Documentation |
 
-- apps
-- core
-- shared
-- assets
-- data
-- logs
-- scripts
-- tests
-- Docs
+Implemented platform apps live under `apps/`. Additional platforms are added
+only when their own Decision Log entry approves them.
 
-Applications
-
-- tistory
-- wordpress
-- youtube
-- naver-cafe
-- instagram
-- blog
-- shopping
+Runtime data, logs, and caches are written under `.bright-studio/` and are not
+tracked by git.
 
 Core must remain platform independent.
 
@@ -115,17 +112,14 @@ Core must remain platform independent.
 
 # Development Principles
 
-- Platform First
+- Platform first
 - Core / Apps separation
-- One feature at a time
-- Implement
-- Test
-- Commit
-- Continue
+- One feature at a time: implement, test, commit, continue
 - Reusable architecture
 - Long-term maintainability
 
-Never redesign the architecture during implementation unless the user explicitly requests it.
+Never redesign the architecture during implementation unless the user
+explicitly requests it.
 
 ---
 
@@ -135,69 +129,28 @@ AI acts as an Editorial Team.
 
 Target pipeline:
 
-Generation (1)
+Generation (1) → Quality Review (1) → Rule Validation
 
-↓
-
-Quality Review (1)
-
-↓
-
-Rule Validation
-
-Minimize AI calls.
-
----
-
-# Current Milestone
-
-Version:
-
-v0.1.0
-
-Goal:
-
-Playwright
-
-↓
-
-Launch Browser
-
-↓
-
-Login / Restore Session
-
-↓
-
-Open Tistory Editor
-
-↓
-
-Input HTML
-
-↓
-
-Save Draft
-
-Publishing will be implemented later.
+Minimize AI calls. A new feature that adds a per-article AI call needs an
+explicit reason.
 
 ---
 
 # How To Work
 
-Always:
+1. Read `AGENTS.md`.
+2. Read the Decision Log and the relevant `Docs/current` documents.
+3. Read this file.
+4. Establish the current state from the sources listed above.
+5. Explain the implementation plan.
+6. Wait for approval if architecture changes are required.
+7. Implement one feature.
+8. Test.
+9. Report changed files.
+10. Commit.
 
-1. Read AGENTS.md
-2. Read Docs/current
-3. Read DEVELOPMENT_START.md
-4. Read this file
-5. Analyze the current project
-6. Explain the implementation plan
-7. Wait for approval if architecture changes are required
-8. Implement only one feature
-9. Test
-10. Report changed files
-11. Commit
+Before committing or pushing, confirm that no `.env` file or generated
+artifact has been staged.
 
 ---
 
@@ -219,10 +172,6 @@ Recommended Next Step
 
 # Important
 
-This chat is dedicated to development only.
-
-Avoid unnecessary discussions.
-
-Focus on implementation.
+This chat is dedicated to development only. Focus on implementation.
 
 If uncertain, ask before changing the architecture.
