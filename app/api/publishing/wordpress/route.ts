@@ -52,6 +52,7 @@ export async function POST(request: Request) {
       connectionId?: string;
       finalConfirmation?: boolean;
       slug?: string;
+      explicitNewAttempt?: boolean;
     }>;
     if (body.action !== "create_draft") {
       throw new Error("The requested WordPress workflow is not registered.");
@@ -70,6 +71,7 @@ export async function POST(request: Request) {
       selectedTarget: context.selectedTarget,
       finalConfirmation: body.finalConfirmation === true,
       ...(typeof body.slug === "string" && body.slug.trim() ? { slug: body.slug.trim() } : {}),
+      ...(body.explicitNewAttempt === true ? { explicitNewAttempt: true } : {}),
     });
     const status = result.status === "verified" ? 200
       : result.status === "in_progress" || result.duplicateBlocked ? 409

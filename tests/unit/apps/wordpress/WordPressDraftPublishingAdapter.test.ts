@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   WordPressDraftCreateUncertainError,
+  WordPressDraftNotFoundError,
   WordPressDraftPublishingAdapter,
   type WordPressExternalDraft,
 } from "../../../../apps/wordpress";
@@ -202,6 +203,25 @@ describe("WordPress draft publishing adapter", () => {
     }).catch((failure: unknown) => failure);
     expect(error).toBeInstanceOf(Error);
     expect(error).not.toBeInstanceOf(WordPressDraftCreateUncertainError);
+  });
+
+  it("classifies a 404 re-read as a distinct not-found error so callers can tell it apart from a transient failure", async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 404 }));
+    const error = await new WordPressDraftPublishingAdapter(request).readDraft({
+      ...credentials,
+      externalId: "501",
+    }).catch((failure: unknown) => failure);
+    expect(error).toBeInstanceOf(WordPressDraftNotFoundError);
+  });
+
+  it.each([401, 403, 500])("keeps re-read HTTP %s as a generic failure, not a not-found result", async (status) => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status }));
+    const error = await new WordPressDraftPublishingAdapter(request).readDraft({
+      ...credentials,
+      externalId: "501",
+    }).catch((failure: unknown) => failure);
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(WordPressDraftNotFoundError);
   });
 });
 

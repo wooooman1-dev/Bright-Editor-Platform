@@ -51,6 +51,15 @@ export class WordPressDraftCreateUncertainError extends Error {
   }
 }
 
+export class WordPressDraftNotFoundError extends Error {
+  readonly code = "WORDPRESS_DRAFT_NOT_FOUND";
+
+  constructor() {
+    super("WordPress reported that the recorded Post ID no longer exists.");
+    this.name = "WordPressDraftNotFoundError";
+  }
+}
+
 export type WordPressExternalDraft = Readonly<{
   externalId: string;
   status: string;
@@ -172,16 +181,25 @@ export class WordPressDraftPublishingAdapter implements PublishingAdapter {
     input: WordPressConnectionInput & Readonly<{ externalId: string }>,
   ): Promise<WordPressExternalDraft> {
     const externalId = postId(input.externalId);
-    const response = await this.safeRequest(
-      `${normalizeSiteUrl(input.siteUrl)}/wp-json/wp/v2/posts/${externalId}?context=edit`,
-      {
-        headers: {
-          Accept: "application/json",
-          Authorization: createWordPressAuthorizationHeader(input.username, input.applicationPassword),
+    let response: Response;
+    try {
+      response = await this.request(
+        `${normalizeSiteUrl(input.siteUrl)}/wp-json/wp/v2/posts/${externalId}?context=edit`,
+        {
+          headers: {
+            Accept: "application/json",
+            Authorization: createWordPressAuthorizationHeader(input.username, input.applicationPassword),
+          },
         },
-      },
-      "WordPress draft could not be re-read for verification.",
-    );
+      );
+    } catch {
+      throw new Error("WordPress draft could not be re-read for verification.");
+    }
+    if (response.status === 404) throw new WordPressDraftNotFoundError();
+    if (response.status === 401 || response.status === 403) {
+      throw new Error("WordPress draft authentication or permission verification failed.");
+    }
+    if (!response.ok) throw new Error("WordPress draft could not be re-read for verification.");
     return externalDraft(await postResponse(response));
   }
 

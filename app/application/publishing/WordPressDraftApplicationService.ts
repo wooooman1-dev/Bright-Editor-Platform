@@ -10,6 +10,7 @@ import {
 import {
   WordPressCategoryAdapter,
   WordPressDraftCreateUncertainError,
+  WordPressDraftNotFoundError,
   WordPressDraftPublishingAdapter,
   WordPressHtmlRenderer,
   WordPressMediaAdapter,
@@ -78,6 +79,12 @@ export type WordPressDraftExecutionInput = Readonly<{
   selectedTarget: boolean;
   finalConfirmation: boolean;
   slug?: string;
+  /**
+   * Explicit user-confirmed retry: only when true will a "verified" record
+   * be re-checked against WordPress before being reused. Kept opt-in so an
+   * ordinary duplicate submit never performs a live WordPress round trip.
+   */
+  explicitNewAttempt?: boolean;
 }>;
 
 type CategoryReader = Pick<WordPressCategoryAdapter, "listAllCategories">;
@@ -154,7 +161,14 @@ export class WordPressDraftApplicationService {
       return failure("readiness", [], false, "WordPress Draft readiness could not be verified.");
     }
     const existing = await this.records.findByIdempotencyKey(identity.idempotencyKey);
-    if (existing) return duplicateResult(existing);
+    let supersede: PublishingExecutionRecord | undefined;
+    if (existing) {
+      if (!input.explicitNewAttempt || existing.status !== "verified") return duplicateResult(existing);
+      const liveness = await this.verifyExternalLiveness(input.connection, existing);
+      if (liveness === "present") return duplicateResult(existing);
+      if (liveness === "unknown") return inconclusiveLivenessResult(existing);
+      supersede = existing;
+    }
     const legacy = await this.records.findByIdempotencyKey(identity.legacyIdempotencyKey);
     if (legacy) return legacyIdentityBlockedResult(identity, legacy);
 
@@ -171,7 +185,9 @@ export class WordPressDraftApplicationService {
     }
 
     let record = this.initialRecord(identity, prepared);
-    const claim = await this.records.claim(record);
+    const claim = supersede
+      ? await this.records.replaceStale(supersede, record)
+      : await this.records.claim(record);
     if (!claim.claimed) return duplicateResult(claim.record, prepared.readiness);
     record = claim.record;
 
@@ -623,6 +639,22 @@ export class WordPressDraftApplicationService {
     }, input.connection);
   }
 
+  private async verifyExternalLiveness(
+    connection: PlatformConnection,
+    record: PublishingExecutionRecord,
+  ): Promise<"present" | "removed" | "unknown"> {
+    if (!record.externalPostId) return "unknown";
+    let credentials: WordPressConnectionInput;
+    try { credentials = await this.credentials(connection); }
+    catch { return "unknown"; }
+    try {
+      await this.drafts.readDraft({ ...credentials, externalId: record.externalPostId });
+      return "present";
+    } catch (error) {
+      return error instanceof WordPressDraftNotFoundError ? "removed" : "unknown";
+    }
+  }
+
   private async credentials(connection: PlatformConnection): Promise<WordPressConnectionInput> {
     const siteUrl = publicString(connection, "siteUrl");
     const username = publicString(connection, "username");
@@ -711,6 +743,15 @@ function duplicateResult(
     error: inProgress
       ? "The same WordPress Draft operation is already in progress."
       : duplicateBlockMessage(record.status),
+  });
+}
+
+function inconclusiveLivenessResult(record: PublishingExecutionRecord): WordPressDraftExecutionResult {
+  return Object.freeze({
+    ...resultFromRecord(record, undefined, verificationFromRecord(record)),
+    reused: false,
+    duplicateBlocked: true,
+    error: "WordPress could not confirm whether the previous Draft still exists. Check WordPress connectivity, then retry.",
   });
 }
 

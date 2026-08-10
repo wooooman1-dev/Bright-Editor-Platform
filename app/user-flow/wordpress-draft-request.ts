@@ -8,6 +8,8 @@ import {
 export type WordPressDraftRequestResult = Readonly<{
   record?: PublishingExecutionRecord;
   readiness?: WordPressDraftReadiness;
+  reused?: boolean;
+  duplicateBlocked?: boolean;
   error?: string;
 }>;
 
@@ -19,8 +21,10 @@ export type WordPressDraftRequest = (
 export async function requestWordPressDraftCreation(
   guard: WordPressDraftSubmissionGuard,
   request: WordPressDraftRequest = fetch,
+  options: Readonly<{ explicitNewAttempt?: boolean }> = {},
 ): Promise<WordPressDraftRequestResult | undefined> {
-  if (!canSubmitWordPressDraft(guard) || !guard.identity) return undefined;
+  if (!guard.identity) return undefined;
+  if (!options.explicitNewAttempt && !canSubmitWordPressDraft(guard)) return undefined;
 
   const response = await request("/api/publishing/wordpress", {
     method: "POST",
@@ -32,6 +36,7 @@ export async function requestWordPressDraftCreation(
       contentId: guard.identity.contentId,
       connectionId: guard.identity.connectionId,
       finalConfirmation: true,
+      ...(options.explicitNewAttempt ? { explicitNewAttempt: true } : {}),
     }),
   });
   const payload = await response.json() as {
