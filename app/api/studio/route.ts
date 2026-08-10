@@ -14,6 +14,7 @@ import { contentDocumentAIContext, EditorialQualityPipeline } from "../../applic
 import { preserveCanonicalSeoMetadata } from "../../application/SeoMetadataPolicy";
 import { attachApprovalEvidenceContracts, ContentPlanningStrategy, createManualPlanningResult, ensureApprovalEvidenceContract, projectStrategyAIContext } from "../../application/ContentPlanningStrategy";
 import { approvalAwareInstruction, contentEditorialContext, preserveContentApprovalPolicy } from "../../application/approval/ApprovalRuntimePolicy";
+import { editorialContextWithoutDiversityPolicy } from "../../application/approval/ApprovalContentPolicy";
 import { TistoryPublishingAdapter } from "../../../apps/tistory/publishing/TistoryPublishingAdapter";
 import { WordPressHtmlRenderer } from "../../../apps/wordpress/WordPressHtmlRenderer";
 import { analyzeLongFormDocument, applyContentDepthPolicy, applyContentOpportunityPolicy, contentOpportunityKeywords, deriveContentTags, detectContentOpportunitySelectionMode, ensureSeoKeywordPlacement, LongFormValidationError, requiresLongFormValidation, restoreProtectedImageAssets, restoreVerifiedEditorialLinks, type ConfirmedContentOpportunity, type ContentDocument, type LongFormDiagnostic } from "../../../core/content";
@@ -648,7 +649,7 @@ async function performPlanning(data: UserData, project: UserData["projects"][num
   const classified = opportunityEvidenceService.classifyCandidates(contractedPlan.opportunityCandidates ?? [], evidenceBundle, data, project)
     .map((candidate) => applyContentDepthPolicy(candidate, {
       domain: rawPlan.domain,
-      projectStrategy: projectContext,
+      projectStrategy: editorialContextWithoutDiversityPolicy(projectContext),
     }));
   const plan = withClassifiedCandidates(contractedPlan, classified);
   const saved = await persistPlanningResult(data, input, plan);

@@ -8,6 +8,10 @@ import {
   type ContentPurpose,
 } from "../../../core/approval";
 import {
+  buildEditorialRepetitionContext,
+  type ContentDocument,
+} from "../../../core/content";
+import {
   resolveProjectStrategy,
   type ProjectContentStrategy,
   type UserContent,
@@ -130,10 +134,30 @@ export function contentApprovalPromptContext(content: UserContent): string | und
   return snapshot ? approvalPolicyPromptContext(snapshot) : undefined;
 }
 
+/**
+ * Depth classification runs keyword regexes over the whole context string, so
+ * the recent-article summary must be removed first. Its titles carry the very
+ * words the classifier keys on, which would pin every new candidate to the
+ * depth the previous articles already used.
+ */
+export function editorialContextWithoutDiversityPolicy(context: string): string {
+  try {
+    const parsed = JSON.parse(context) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== "object" || !("editorialDiversityPolicy" in parsed)) return context;
+    const rest: Record<string, unknown> = { ...parsed };
+    delete rest.editorialDiversityPolicy;
+    return JSON.stringify(rest);
+  } catch {
+    return context;
+  }
+}
+
 export function contentBoundEditorialContext(
   projectContext: Readonly<Record<string, unknown>>,
   content: UserContent,
+  recentDocuments: readonly ContentDocument[] = [],
 ): string {
+  const repetition = buildEditorialRepetitionContext(recentDocuments);
   const stableProjectContext = Object.freeze(Object.fromEntries(
     Object.entries(projectContext).filter(([key]) => key !== "approvalPolicy"),
   ));
@@ -151,6 +175,14 @@ export function contentBoundEditorialContext(
       ...stableProjectContext,
       ...(approvalPolicy ? { approvalPolicy } : {}),
     },
+    ...(repetition
+      ? {
+        editorialDiversityPolicy: {
+          rule: repetition.instruction,
+          recentArticles: repetition.recent,
+        },
+      }
+      : {}),
     ownedIdentityPolicy: {
       sourceRequest,
       selectionMode,
