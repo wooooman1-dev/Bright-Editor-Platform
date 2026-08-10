@@ -65,11 +65,29 @@ describe("content schedule status", () => {
   });
 
   it("renders the scheduled instant in the timezone the schedule was registered with", () => {
-    const view = contentSchedulePresentation(schedule());
+    // Asserted without pinning locale wording: day period and date order depend
+    // on the host ICU data, while the timezone the instant is rendered in does
+    // not.
+    const instant = "2026-09-01T18:00:00+09:00";
+    const seoul = contentSchedulePresentation(schedule({ scheduledAt: instant, timezone: "Asia/Seoul" }));
+    const newYork = contentSchedulePresentation(schedule({ scheduledAt: instant, timezone: "America/New_York" }));
 
-    expect(view.scheduledLabel).toContain("Asia/Seoul");
-    expect(view.scheduledLabel).toMatch(/2026/);
-    expect(view.scheduledLabel).toMatch(/18:00|오후 6:00/);
+    expect(seoul.scheduledLabel).toContain("Asia/Seoul");
+    expect(newYork.scheduledLabel).toContain("America/New_York");
+    expect(seoul.scheduledLabel).toMatch(/2026/);
+    expect(seoul.scheduledLabel).not.toBe(newYork.scheduledLabel);
+  });
+
+  it("falls back to the raw values when the instant cannot be parsed", () => {
+    const view = contentSchedulePresentation(schedule({ scheduledAt: "not-a-datetime" }));
+
+    expect(view.scheduledLabel).toBe("not-a-datetime · Asia/Seoul");
+  });
+
+  it("falls back to the raw values when the timezone is not supported", () => {
+    const view = contentSchedulePresentation(schedule({ timezone: "Mars/Olympus" }));
+
+    expect(view.scheduledLabel).toBe("2026-09-01T18:00:00+09:00 · Mars/Olympus");
   });
 
   it("distinguishes draft scheduling from public scheduling", () => {
