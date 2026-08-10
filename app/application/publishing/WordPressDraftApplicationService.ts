@@ -178,11 +178,18 @@ export class WordPressDraftApplicationService {
     const existing = await this.records.findByIdempotencyKey(identity.idempotencyKey);
     let supersede: PublishingExecutionRecord | undefined;
     if (existing) {
-      if (!input.explicitNewAttempt || existing.status !== "verified") return duplicateResult(existing);
-      const liveness = await this.verifyExternalLiveness(input.connection, existing);
-      if (liveness === "present") return duplicateResult(existing);
-      if (liveness === "unknown") return inconclusiveLivenessResult(existing);
-      supersede = existing;
+      // A failure that never reached WordPress left nothing to duplicate, so an
+      // explicit retry may supersede it instead of being blocked forever.
+      if (input.explicitNewAttempt && isCleanFailedAttempt(existing)) {
+        supersede = existing;
+      } else if (!input.explicitNewAttempt || existing.status !== "verified") {
+        return duplicateResult(existing);
+      } else {
+        const liveness = await this.verifyExternalLiveness(input.connection, existing);
+        if (liveness === "present") return duplicateResult(existing);
+        if (liveness === "unknown") return inconclusiveLivenessResult(existing);
+        supersede = existing;
+      }
     }
     const legacy = await this.records.findByIdempotencyKey(identity.legacyIdempotencyKey);
     if (legacy) return legacyIdentityBlockedResult(identity, legacy);
@@ -371,7 +378,7 @@ export class WordPressDraftApplicationService {
         return resultFromRecord(record, executionReadiness, undefined, uploadedMedia);
       }
       return this.persistedFailure(record, identity, "draft_create", uploadedMedia,
-        "DRAFT_CREATE_FAILED", "WordPress Draft creation failed.", executionReadiness);
+        "DRAFT_CREATE_FAILED", safeExternalMessage(error, "WordPress Draft creation failed."), executionReadiness);
     }
 
     try {
@@ -713,6 +720,24 @@ export class WordPressDraftApplicationService {
     if (!applicationPassword.trim()) throw new Error("WordPress reconnect is required.");
     return Object.freeze({ siteUrl, username, applicationPassword });
   }
+}
+
+function isCleanFailedAttempt(record: PublishingExecutionRecord): boolean {
+  return record.status === "failed"
+    && !record.externalPostId
+    && !record.cleanupRequired
+    && record.uploadedMedia.length === 0;
+}
+
+/**
+ * Keeps the external reason visible while refusing to echo anything that could
+ * carry the application password back to the client.
+ */
+function safeExternalMessage(error: unknown, fallback: string): string {
+  const value = error instanceof Error ? error.message : "";
+  return value && !/authorization|application password|basic\s+[a-z0-9+/=]+/i.test(value)
+    ? value
+    : fallback;
 }
 
 function executionWorkflow(input: WordPressDraftExecutionInput): PublishingExecutionWorkflow {

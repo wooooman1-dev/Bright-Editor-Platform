@@ -63,6 +63,9 @@ export class WordPressScheduleCreateApplicationService {
       connection: input.connection,
       selectedTarget: input.selectedTarget,
       finalConfirmation: input.finalConfirmation,
+      // Every registration carries its own final confirmation, so a previous
+      // attempt that created nothing externally must not block this one.
+      explicitNewAttempt: true,
       schedule: {
         scheduledAt: input.scheduledAt,
         timezone: input.timezone,

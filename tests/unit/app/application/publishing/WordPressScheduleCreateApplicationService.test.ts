@@ -101,6 +101,14 @@ describe("WordPress schedule create application service", () => {
     });
   });
 
+  it("requests an explicit new attempt so a previous failed registration cannot block a retry", async () => {
+    const { service, execute } = drafts(executionResult());
+
+    await new WordPressScheduleCreateApplicationService(service).execute(input());
+
+    expect(execute.mock.calls[0][0]).toMatchObject({ explicitNewAttempt: true });
+  });
+
   it("blocks a public schedule while the Workspace keeps scheduled public publishing disabled", async () => {
     const { service, execute } = drafts(executionResult());
 

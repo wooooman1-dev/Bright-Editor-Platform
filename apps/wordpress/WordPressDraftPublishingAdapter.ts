@@ -179,7 +179,7 @@ export class WordPressDraftPublishingAdapter implements PublishingAdapter {
     if (response.status === 401 || response.status === 403) {
       throw new Error("WordPress draft authentication or permission verification failed.");
     }
-    if (!response.ok) throw new Error("WordPress draft could not be created.");
+    if (!response.ok) throw new Error(await rejectionMessage(response, "WordPress draft could not be created."));
     let raw: WordPressPostResponse;
     try { raw = await postResponse(response); }
     catch { throw new WordPressDraftCreateUncertainError(); }
@@ -298,6 +298,28 @@ function createPayload(payload: WordPressDraftPayload): Readonly<Record<string, 
 async function postResponse(response: Response): Promise<WordPressPostResponse> {
   const value = await objectResponse(response, "WordPress returned an invalid draft response.");
   return value as WordPressPostResponse;
+}
+
+/**
+ * WordPress reports why it refused a write in the response body. Without it a
+ * rejected payload is indistinguishable from any other failure, so surface the
+ * REST error code and status while leaving the body itself out.
+ */
+async function rejectionMessage(response: Response, fallback: string): Promise<string> {
+  let detail = "";
+  try {
+    const value = await response.json() as unknown;
+    if (value && typeof value === "object") {
+      const body = value as Readonly<{ code?: unknown; message?: unknown }>;
+      detail = [body.code, body.message]
+        .filter((item): item is string => typeof item === "string" && Boolean(item.trim()))
+        .join(": ")
+        .slice(0, 200);
+    }
+  } catch {
+    detail = "";
+  }
+  return detail ? `${fallback} (${response.status} ${detail})` : `${fallback} (${response.status})`;
 }
 
 async function objectResponse(response: Response, message: string): Promise<Record<string, unknown>> {

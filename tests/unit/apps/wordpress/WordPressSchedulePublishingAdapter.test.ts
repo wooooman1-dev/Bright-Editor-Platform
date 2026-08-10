@@ -177,3 +177,20 @@ describe("WordPress scheduled publishing adapter", () => {
     expect(verification.checks.some((check) => check.key === "scheduled_time")).toBe(false);
   });
 });
+
+describe("WordPress rejection diagnostics", () => {
+  it("surfaces the WordPress REST error code and status when a write is refused", async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(
+      response({ code: "rest_invalid_param", message: "Invalid parameter(s): date_gmt" }, 400),
+    );
+
+    await expect(create(request, { status: "future", scheduledAt: "2026-09-01T18:00:00+09:00" }))
+      .rejects.toThrow(/400 rest_invalid_param: Invalid parameter\(s\): date_gmt/);
+  });
+
+  it("falls back to the status alone when the body carries no REST error", async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(new Response("<html>gateway</html>", { status: 400 }));
+
+    await expect(create(request, { status: "draft" })).rejects.toThrow(/\(400\)/);
+  });
+});
