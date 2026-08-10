@@ -70,13 +70,13 @@ export function WorkspaceSettings({ initialSection = "overview", workspaceId }: 
 
 export function Overview({ setSection, snapshot }: { setSection: (section: SettingsSection) => void; snapshot: SettingsSnapshot }) {
   const mediaEnabled = snapshot.connections.filter((connection) => connection.platform === "tistory" && connection.permissions.includes("media.upload")).length;
-  const scheduleEnabled = snapshot.connections.filter((connection) => connection.platform === "tistory" && connection.permissions.includes("schedule.create")).length;
+  const scheduleEnabled = snapshot.connections.filter((connection) => (connection.platform === "tistory" || connection.platform === "wordpress") && connection.permissions.includes("schedule.create")).length;
   const cards: readonly { title: string; summary: StatusSummary; detail: string; target: SettingsSection }[] = [
     { title: "AI", summary: snapshot.ai, detail: snapshot.ai.message, target: "ai" },
     ...snapshot.settings.enabledPlatforms.map((platform) => ({ title: platformLabels[platform], summary: snapshot.platforms[platform]!, detail: accountDetail(snapshot.platforms[platform]!), target: "connections" as const })),
     { title: "Publishing", summary: snapshot.publishing, detail: "검토 후 임시저장만 허용합니다.", target: "publishing" },
     { title: "Media Upload", summary: { status: mediaEnabled ? "ready" : "configuration_required" }, detail: mediaEnabled ? `${mediaEnabled}개 Tistory 계정에서 이미지 업로드 허용` : "계정별 이미지 업로드는 기본 차단 상태입니다.", target: "media" },
-    { title: "Scheduled Publishing", summary: { status: scheduleEnabled ? "ready" : "configuration_required" }, detail: scheduleEnabled ? `${scheduleEnabled}개 Tistory 계정에서 예약 등록 허용` : "계정별 예약 등록은 기본 차단 상태입니다.", target: "scheduling" },
+    { title: "Scheduled Publishing", summary: { status: scheduleEnabled ? "ready" : "configuration_required" }, detail: scheduleEnabled ? `${scheduleEnabled}개 계정에서 예약 등록 허용` : "계정별 예약 등록은 기본 차단 상태입니다.", target: "scheduling" },
     { title: "Browser Automation", summary: snapshot.automation, detail: snapshot.automation.message, target: "automation" },
     { title: "Workspace Backup", summary: { status: snapshot.backup.modifiedAt ? "ready" : "configuration_required" }, detail: snapshot.backup.modifiedAt ? `마지막 백업 ${snapshot.backup.modifiedAt}` : (snapshot.backup.message ?? "백업이 없습니다."), target: "workspace" },
     { title: "Workspace", summary: snapshot.persistence, detail: snapshot.persistence.message ?? "로컬 저장소 상태", target: "workspace" },
