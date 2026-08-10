@@ -23,6 +23,12 @@ export type WorkspacePublishingPolicy = Readonly<{
   publicPublish: false;
   sequentialDraftSave: boolean;
   qualityApprovalRequired: true;
+  /**
+   * Enables `future` WordPress scheduling, which releases a post publicly at the
+   * scheduled time. Absent or false means only `draft` scheduling is allowed.
+   * Immediate public publishing stays disabled either way. See D-038.
+   */
+  wordpressSchedulePublicPublish?: boolean;
 }>;
 export type WorkspaceSettings = Readonly<{
   enabledPlatforms: readonly WorkspacePlatform[];

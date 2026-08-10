@@ -26,15 +26,24 @@ export type WordPressDraftCapabilities = Readonly<{
   writableMetaKeys: readonly string[];
 }>;
 
+/**
+ * External post state requested from WordPress. `future` releases the post
+ * publicly at `scheduledAtGmt`; `draft` keeps it unpublished and only records
+ * the intended time. See D-038.
+ */
+export type WordPressPostStatus = "draft" | "future";
+
 export type WordPressDraftPayload = Readonly<{
   title: string;
   content: string;
   excerpt: string;
-  status: "draft";
+  status: WordPressPostStatus;
   categories: readonly string[];
   slug?: string;
   featuredMediaId?: string;
   seoMetadata?: WordPressSeoMetadata;
+  /** Offset-bearing ISO instant. Converted to WordPress `date_gmt` on send. */
+  scheduledAt?: string;
 }>;
 
 export type WordPressDraftCreateResult = Readonly<{
@@ -69,6 +78,8 @@ export type WordPressExternalDraft = Readonly<{
   tagIds: readonly string[];
   featuredMediaId?: string;
   seoMetadata?: WordPressSeoMetadata;
+  /** Raw `date_gmt` as returned by WordPress. Naive datetime already in UTC. */
+  dateGmt?: string;
 }>;
 
 export type WordPressDraftVerification = Readonly<{
@@ -85,6 +96,7 @@ type WordPressPostResponse = Readonly<{
   tags?: readonly (string | number)[];
   featured_media?: string | number;
   meta?: Readonly<Record<string, unknown>>;
+  date_gmt?: string;
 }>;
 
 const yoastSeoMetaKeys = Object.freeze([
@@ -213,11 +225,17 @@ export class WordPressDraftPublishingAdapter implements PublishingAdapter {
       mediaUrls: readonly string[];
       featuredMediaId?: string;
       seoMetadata?: WordPressSeoMetadata;
+      status?: WordPressPostStatus;
+      scheduledAt?: string;
     }>,
   ): WordPressDraftVerification {
+    const expectedStatus = expected.status ?? "draft";
     const checks = Object.freeze([
       check("external_id", draft.externalId === expected.externalId),
-      check("draft_status", draft.status === "draft"),
+      check("draft_status", draft.status === expectedStatus),
+      ...(expected.scheduledAt
+        ? [check("scheduled_time", sameGmtDateTime(draft.dateGmt, expected.scheduledAt))]
+        : []),
       check("title", normalizedText(draft.title) === normalizedText(expected.title)),
       check("meaningful_content", containsExpectedMeaningfulSegments(draft.content, expected.content)),
       check("categories", sameIds(draft.categoryIds, expected.categoryIds)),
@@ -251,13 +269,18 @@ function createPayload(payload: WordPressDraftPayload): Readonly<Record<string, 
   }
   const categories = normalizedNumericIds(payload.categories, "category");
   if (!categories.length) throw new Error("WordPress draft categories are required.");
+  const scheduledAt = payload.scheduledAt?.trim();
+  if (payload.status === "future" && !scheduledAt) {
+    throw new Error("WordPress scheduled publishing requires a scheduled time.");
+  }
   const result: Record<string, unknown> = {
     title: payload.title,
     content: payload.content,
     excerpt: payload.excerpt,
-    status: "draft",
+    status: payload.status,
     categories: categories.map(Number),
   };
+  if (scheduledAt) result.date_gmt = wordpressGmtDateTime(scheduledAt);
   if (payload.slug?.trim()) result.slug = payload.slug.trim();
   if (payload.featuredMediaId !== undefined) {
     result.featured_media = Number(normalizedNumericIds([payload.featuredMediaId], "featured media")[0]);
@@ -293,6 +316,9 @@ function externalDraft(value: WordPressPostResponse): WordPressExternalDraft {
   }
   const featuredMediaId = externalFeaturedMediaId(value.featured_media);
   const seoMetadata = externalSeoMetadata(value.meta);
+  const dateGmt = typeof value.date_gmt === "string" && value.date_gmt.trim()
+    ? value.date_gmt.trim()
+    : undefined;
   return Object.freeze({
     externalId: String(value.id),
     status: typeof value.status === "string" ? value.status : "",
@@ -302,7 +328,36 @@ function externalDraft(value: WordPressPostResponse): WordPressExternalDraft {
     tagIds: Object.freeze((value.tags ?? []).map(String)),
     ...(featuredMediaId ? { featuredMediaId } : {}),
     ...(seoMetadata ? { seoMetadata } : {}),
+    ...(dateGmt ? { dateGmt } : {}),
   });
+}
+
+/**
+ * WordPress stores `date_gmt` as a naive UTC datetime. Convert an offset-bearing
+ * ISO instant into that shape so the request and the later re-read compare
+ * against the same value.
+ */
+export function wordpressGmtDateTime(value: string): string {
+  const normalized = value.trim();
+  if (!/(?:Z|[+-]\d{2}:\d{2})$/i.test(normalized)) {
+    throw new Error("WordPress scheduled time must include a timezone offset.");
+  }
+  const timestamp = Date.parse(normalized);
+  if (!Number.isFinite(timestamp)) throw new Error("WordPress scheduled time is invalid.");
+  return new Date(timestamp).toISOString().replace(/\.\d{3}Z$/, "");
+}
+
+function sameGmtDateTime(actual: string | undefined, expectedScheduledAt: string): boolean {
+  return Boolean(actual && naiveGmtValue(actual) === wordpressGmtDateTime(expectedScheduledAt));
+}
+
+/**
+ * Compares WordPress-returned values without re-parsing them. A naive datetime
+ * would otherwise be read as local time and shift the comparison by the host
+ * offset.
+ */
+function naiveGmtValue(value: string): string {
+  return value.trim().replace(/\.\d+/, "").replace(/z$/i, "");
 }
 
 function postId(value: string): string {

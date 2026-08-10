@@ -6,6 +6,7 @@ import {
   hasActiveScheduledPublication,
   isScheduledPublication,
   ScheduledPublicationError,
+  type ScheduledPostStatus,
   type ScheduledPublication,
   type ScheduledPublicationStatus,
   type ScheduledPublishingRecord,
@@ -32,6 +33,7 @@ export type ScheduleReservationInput = Readonly<{
   categoryId: string | null;
   categoryName: string | null;
   operationId: string;
+  postStatus?: ScheduledPostStatus;
   now?: string;
 }>;
 
@@ -114,6 +116,7 @@ export class ScheduledPublishingApplicationService {
         scheduledAt: identity.scheduledAt,
         timezone: identity.timezone,
         status: "registering",
+        ...(input.postStatus ? { postStatus: input.postStatus } : {}),
         categoryId: input.categoryId,
         categoryName: input.categoryName,
         requestFingerprint,

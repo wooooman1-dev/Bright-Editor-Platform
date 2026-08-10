@@ -11,7 +11,7 @@ import {
 
 export type SettingsStatus = "ready" | "connected" | "verification_required" | "configuration_required" | "unavailable" | "error" | "cleanup_required" | "not_supported";
 
-export const defaultPublishingPolicy: WorkspacePublishingPolicy = Object.freeze({ reviewFirst: true, draftOnly: true, publicPublish: false, sequentialDraftSave: true, qualityApprovalRequired: true });
+export const defaultPublishingPolicy: WorkspacePublishingPolicy = Object.freeze({ reviewFirst: true, draftOnly: true, publicPublish: false, sequentialDraftSave: true, qualityApprovalRequired: true, wordpressSchedulePublicPublish: false });
 export const defaultEnabledPlatforms: readonly WorkspacePlatform[] = Object.freeze([]);
 export const defaultWorkspaceSettings: WorkspaceSettings = Object.freeze({ enabledPlatforms: defaultEnabledPlatforms, publishing: defaultPublishingPolicy, appearance: Object.freeze({ theme: "system" }) });
 
@@ -19,7 +19,11 @@ export function resolveWorkspaceSettings(data: UserData): WorkspaceSettings {
   const stored = data.workspace?.settings;
   return {
     enabledPlatforms: validEnabledPlatforms(stored?.enabledPlatforms),
-    publishing: { ...defaultPublishingPolicy, sequentialDraftSave: stored?.publishing?.sequentialDraftSave !== false },
+    publishing: {
+      ...defaultPublishingPolicy,
+      sequentialDraftSave: stored?.publishing?.sequentialDraftSave !== false,
+      wordpressSchedulePublicPublish: stored?.publishing?.wordpressSchedulePublicPublish === true,
+    },
     appearance: { theme: validTheme(stored?.appearance?.theme) },
   };
 }
@@ -46,7 +50,12 @@ export function updateWorkspaceName(data: UserData, name: string, now = new Date
   return { ...data, workspace: { ...data.workspace, name: normalized, updatedAt: now.toISOString() } };
 }
 
-export function updatePublishingPolicy(data: UserData, sequentialDraftSave: boolean, now = new Date()): UserData {
+export function updatePublishingPolicy(
+  data: UserData,
+  sequentialDraftSave: boolean,
+  now = new Date(),
+  wordpressSchedulePublicPublish?: boolean,
+): UserData {
   if (!data.workspace) throw new Error("워크스페이스를 찾을 수 없습니다.");
   const current = resolveWorkspaceSettings(data);
   return {
@@ -59,6 +68,8 @@ export function updatePublishingPolicy(data: UserData, sequentialDraftSave: bool
         publishing: {
           ...defaultPublishingPolicy,
           sequentialDraftSave,
+          wordpressSchedulePublicPublish: wordpressSchedulePublicPublish
+            ?? current.publishing.wordpressSchedulePublicPublish === true,
         },
       },
     },
