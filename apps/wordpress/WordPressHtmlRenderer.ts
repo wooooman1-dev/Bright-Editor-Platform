@@ -60,6 +60,9 @@ function renderBlock(block: ContentDocument["blocks"][number], document: Content
   }
   if (block.type === "video") return `<p><a href="${attribute(block.source)}">${escapeHtml(block.source)}</a></p>`;
   const target = block.target === "_blank" ? ' target="_blank" rel="noopener noreferrer"' : "";
+  if (block.purpose === "internal_link" && block.targetUrl) {
+    return `<aside class="bright-internal-link" style="box-sizing:border-box;max-width:100%;margin:28px 0;padding:18px 20px;border:1px solid #cfe0ff;border-radius:14px;background:#f3f7ff"><strong style="display:block;margin-bottom:8px;color:#234b8f;font-size:15px">함께 읽으면 좋은 글</strong><a href="${attribute(block.targetUrl)}"${target} style="color:#1456c0;font-weight:700;text-decoration:underline;text-underline-offset:3px;line-height:1.65">${escapeHtml(block.label)} →</a></aside>`;
+  }
   return `<div class="wp-block-button"><a class="wp-block-button__link" href="${attribute(block.targetUrl)}"${target}>${escapeHtml(block.label)}</a></div>`;
 }
 
