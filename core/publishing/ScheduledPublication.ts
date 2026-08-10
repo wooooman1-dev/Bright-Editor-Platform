@@ -26,6 +26,22 @@ export const activeScheduledPublicationStatuses: readonly ScheduledPublicationSt
   "scheduled_unverified",
 ]);
 
+/**
+ * Statuses that can no longer transition. Only these may be removed from the
+ * schedule history: an active record can still be the only pointer to an
+ * external post whose state has not been confirmed.
+ */
+export const terminalScheduledPublicationStatuses: readonly ScheduledPublicationStatus[] = Object.freeze([
+  "failed",
+  "cancelled",
+  "published",
+]);
+
+export function isRemovableScheduledPublication(record: unknown): record is ScheduledPublication {
+  return isScheduledPublication(record)
+    && terminalScheduledPublicationStatuses.includes(record.status);
+}
+
 export type ScheduledPublication = Readonly<{
   id: string;
   workspaceId: string;

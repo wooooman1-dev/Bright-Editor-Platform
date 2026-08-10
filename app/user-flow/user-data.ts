@@ -205,7 +205,12 @@ export type UserData = Readonly<{
   mediaMetadata?: readonly import("../../core/media").MediaAsset[];
   qualityReports?: readonly Readonly<{ contentId: string; report: QualityReport }> [];
   publishingRecords?: readonly UserPublishingRecord[];
-  scheduledPublishing?: readonly Readonly<{ contentId: string; platform: string; scheduledFor: string }> [];
+  /**
+   * Holds both the current ScheduledPublication records and the legacy shape
+   * written before the schedule contract existed. Readers must narrow before
+   * using anything beyond contentId.
+   */
+  scheduledPublishing?: readonly import("../../core/publishing").ScheduledPublishingRecord[];
 }>;
 
 export const userDataStorageKey = "bright-studio-user-data-v1";
