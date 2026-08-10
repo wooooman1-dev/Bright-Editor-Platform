@@ -13,6 +13,8 @@
     "project:apply-default-profiles": "node scripts/apply-project-profile-defaults.mjs",
     "project:merge-duplicate": "node scripts/merge-duplicate-project.mjs",
     "data-sources:repair-project-assignments": "node scripts/repair-project-data-source-assignments.mjs",
+    "workspace:export": "node scripts/workspace-handoff.mjs export",
+    "workspace:import": "node scripts/workspace-handoff.mjs import",
     "dev": "next dev --webpack",
     "build": "next build",
     "start": "next start",
