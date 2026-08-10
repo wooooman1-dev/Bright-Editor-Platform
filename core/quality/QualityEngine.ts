@@ -203,7 +203,7 @@ function measure(document: ContentDocument, context: QualityReviewContext) {
   const duplicateBlockIds = document.blocks.length - new Set(document.blocks.map((block) => block.id)).size;
   const emptyParagraphs = paragraphs.filter((item) => !item.text.trim()).length;
   const invalidButtonUrls = buttons.filter((item) => !isValidButtonUrl(item.targetUrl)).length;
-  const targetPolicyViolations = buttons.filter((item) => violatesLinkTargetPolicy(item.targetUrl, item.target)).length;
+  const targetPolicyViolations = buttons.filter((item) => violatesLinkTargetPolicy(item.targetUrl, item.target, item.purpose)).length;
   const editorialInstructionCount = matches(text, /(?:내부 링크를 연결하기 좋습니다|이 지점에서 .* 연결|편집자용|작성자 메모|초안 지시|여기에 .* 추가)/g);
   const structuralToolSignals = contentDiagnostic.sections.reduce((sum, section) => sum + section.listItemCount + section.tableCount, 0);
   const practicalToolSignals = structuralToolSignals + matches(text, /(?:체크리스트|기록표|예시|순서|단계|먼저|다음으로|마지막으로|한눈에|표로 정리|행동 흐름)/g);
@@ -410,9 +410,24 @@ function isValidButtonUrl(value: string): boolean {
   if (trimmed.startsWith("/")) return true;
   try { const url = new URL(trimmed); return url.protocol === "https:" || url.protocol === "http:"; } catch { return false; }
 }
-function violatesLinkTargetPolicy(value: string, target?: "_self" | "_blank"): boolean {
-  const internal = value.trim().startsWith("/") || /\.tistory\.com\/entry\//i.test(value);
-  return internal ? target === "_blank" : Boolean(value.trim()) && target === "_self";
+/**
+ * `internal_link` and `related_post` blocks are placed by internal navigation and
+ * always point at the publisher's own site, so they are internal whatever shape
+ * their URL takes. Deciding by URL alone only recognised relative paths and
+ * Tistory entries, which wrongly flagged every absolute self-site link on
+ * platforms such as WordPress.
+ */
+function violatesLinkTargetPolicy(
+  value: string,
+  target?: "_self" | "_blank",
+  purpose?: string,
+): boolean {
+  const trimmed = value.trim();
+  const internal = purpose === "internal_link"
+    || purpose === "related_post"
+    || trimmed.startsWith("/")
+    || /\.tistory\.com\/entry\//i.test(trimmed);
+  return internal ? target === "_blank" : Boolean(trimmed) && target === "_self";
 }
 function countSemanticHeadingOverlap(headings: readonly string[]): number {
   const tokens = headings.map((heading) => new Set(heading.split(/[^\p{L}\p{N}]+/u).map((item) => item.trim()).filter((item) => item.length >= 2)));

@@ -6,6 +6,7 @@ import { InMemoryWordPressPublishingRecordRepository } from "../../../../../app/
 import type { UserData } from "../../../../../app/user-flow/user-data";
 import {
   WordPressDraftCreateUncertainError,
+  WordPressDraftNotFoundError,
   WordPressDraftPublishingAdapter,
   WordPressMediaUploadUncertainError,
   type WordPressCategoryListResult,
@@ -278,6 +279,69 @@ describe("WordPress Draft application service", () => {
     expect(second.idempotencyKey).toBe(first.idempotencyKey);
     expect(harness.categories.listAllCategories).not.toHaveBeenCalled();
     expect(harness.secrets.readSecret).not.toHaveBeenCalled();
+    expect(harness.drafts.createDraft).not.toHaveBeenCalled();
+  });
+
+  it("ignores explicitNewAttempt without a live WordPress check when nothing has been verified yet", async () => {
+    const harness = createHarness(textDocument());
+    const result = await harness.service.execute({
+      ...execution(harness.data, harness.connection),
+      explicitNewAttempt: true,
+    });
+    expect(result.status).toBe("verified");
+    expect(harness.drafts.readDraft).toHaveBeenCalledOnce();
+  });
+
+  it("creates a fresh Draft after confirming the previous Post was deleted directly in WordPress", async () => {
+    const harness = createHarness(textDocument());
+    const first = await harness.service.execute(execution(harness.data, harness.connection));
+    expect(first.status).toBe("verified");
+    harness.drafts.readDraft
+      .mockClear()
+      .mockRejectedValueOnce(new WordPressDraftNotFoundError());
+    harness.drafts.createDraft.mockClear();
+
+    const retried = await harness.service.execute({
+      ...execution(harness.data, harness.connection),
+      explicitNewAttempt: true,
+    });
+
+    expect(retried.status).toBe("verified");
+    expect(retried.reused).toBeFalsy();
+    expect(harness.drafts.createDraft).toHaveBeenCalledOnce();
+    expect(retried.idempotencyKey).toBe(first.idempotencyKey);
+  });
+
+  it("keeps reusing the verified result when the explicit liveness check finds the Post still exists", async () => {
+    const harness = createHarness(textDocument());
+    const first = await harness.service.execute(execution(harness.data, harness.connection));
+    harness.drafts.readDraft.mockClear();
+    harness.drafts.createDraft.mockClear();
+
+    const retried = await harness.service.execute({
+      ...execution(harness.data, harness.connection),
+      explicitNewAttempt: true,
+    });
+
+    expect(retried).toMatchObject({ status: "verified", reused: true, duplicateBlocked: false });
+    expect(retried.idempotencyKey).toBe(first.idempotencyKey);
+    expect(harness.drafts.readDraft).toHaveBeenCalledOnce();
+    expect(harness.drafts.createDraft).not.toHaveBeenCalled();
+  });
+
+  it("blocks the explicit retry instead of guessing when the liveness check itself fails", async () => {
+    const harness = createHarness(textDocument());
+    await harness.service.execute(execution(harness.data, harness.connection));
+    harness.drafts.readDraft.mockClear().mockRejectedValueOnce(new Error("WordPress unreachable"));
+    harness.drafts.createDraft.mockClear();
+
+    const retried = await harness.service.execute({
+      ...execution(harness.data, harness.connection),
+      explicitNewAttempt: true,
+    });
+
+    expect(retried).toMatchObject({ status: "verified", reused: false, duplicateBlocked: true });
+    expect(retried.error).toMatch(/could not confirm/i);
     expect(harness.drafts.createDraft).not.toHaveBeenCalled();
   });
 

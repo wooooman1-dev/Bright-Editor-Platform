@@ -5,12 +5,16 @@ import type { UserData } from "../../../../user-flow/user-data";
 import { TistoryPublishingAdapter } from "../../../../../apps/tistory/publishing/TistoryPublishingAdapter";
 import { createTistoryMediaUploadPlan } from "../../../../../apps/tistory/publishing/TistoryMediaUploadPlan";
 import { contentRevisionId } from "../../../../../core/quality";
-import type { ScheduledPublication, ScheduledPublishingRecord } from "../../../../../core/publishing";
-import { connectionRepository, connectionStore, targetRepository } from "../../../../application/connections/connection-runtime";
+import type { PlatformConnection } from "../../../../../core/connections";
+import type { ScheduledPostStatus, ScheduledPublication, ScheduledPublishingRecord } from "../../../../../core/publishing";
+import { connectionRepository, connectionStore, secretStore, targetRepository } from "../../../../application/connections/connection-runtime";
 import { localMediaFilePath } from "../../../../application/media/LocalMediaStorage";
 import { resolveWorkspaceSettings, isPlatformEnabled } from "../../../../application/settings/WorkspaceSettingsService";
 import { ScheduledPublishingApplicationService } from "../../../../application/publishing/ScheduledPublishingApplicationService";
 import { TistoryScheduleCreateApplicationService, type TistoryScheduleCreateAuditRecord } from "../../../../application/publishing/TistoryScheduleCreateApplicationService";
+import { WordPressDraftApplicationService } from "../../../../application/publishing/WordPressDraftApplicationService";
+import { WordPressScheduleCreateApplicationService } from "../../../../application/publishing/WordPressScheduleCreateApplicationService";
+import { PersistentWordPressPublishingRecordRepository } from "../../../../application/publishing/WordPressPublishingRecordRepository";
 import { calculateTistoryScheduleReadiness } from "../../../../application/publishing/TistoryScheduleReadiness";
 import { studioStore } from "../../../../application/studio-store";
 
@@ -26,6 +30,7 @@ export async function POST(request: Request) {
       connectionId?: string;
       scheduledAt?: string;
       timezone?: string;
+      postStatus?: string;
       finalConfirmation?: boolean;
     }>;
     workspaceId = required(body.workspaceId);
@@ -34,25 +39,43 @@ export async function POST(request: Request) {
     const connectionId = required(body.connectionId);
     const scheduledAt = required(body.scheduledAt);
     const timezone = required(body.timezone);
-    if (timezone !== "Asia/Seoul") throw new Error("Tistory 예약 발행은 Asia/Seoul 시간대만 사용할 수 있습니다.");
     if (body.finalConfirmation !== true) throw new Error("예약 등록 전 최종 사용자 확인이 필요합니다.");
 
-    const data = await ownedContext(workspaceId, projectId, contentId);
+    const connection = await connectionRepository.findById(connectionId);
+    if (!connection || connection.workspaceId !== workspaceId
+      || (connection.platform !== "tistory" && connection.platform !== "wordpress")) {
+      throw new Error("현재 Workspace의 발행 계정을 찾을 수 없습니다.");
+    }
+    const platform = connection.platform;
+    const data = await ownedContext(workspaceId, projectId, contentId, platform);
     const policy = resolveWorkspaceSettings(data);
     const rawPublishing = rawStoredPublishingPolicy(data);
     if (!policy.publishing.reviewFirst || !policy.publishing.draftOnly || policy.publishing.publicPublish
       || rawPublishing.draftOnly === false || rawPublishing.publicPublish === true) {
-      throw new Error("현재 Workspace의 Review First · Draft Only 정책에서만 Tistory 예약 등록을 실행할 수 있습니다.");
+      throw new Error("현재 Workspace의 Review First · Draft Only 정책에서만 예약 등록을 실행할 수 있습니다.");
     }
 
     const project = data.projects.find((item) => item.id === projectId)!;
     const content = data.contents.find((item) => item.id === contentId)!;
     if (!content.document) throw new Error("예약 등록할 canonical ContentDocument가 없습니다.");
-    const connection = await connectionRepository.findById(connectionId);
-    if (!connection || connection.workspaceId !== workspaceId || connection.platform !== "tistory") {
-      throw new Error("현재 Workspace의 Tistory 발행 계정을 찾을 수 없습니다.");
-    }
     const selectedTarget = await hasSelectedTarget(projectId, content, project, connectionId);
+
+    if (platform === "wordpress") {
+      return await createWordPressSchedule({
+        data,
+        workspaceId,
+        projectId,
+        contentId,
+        connection,
+        selectedTarget,
+        scheduledAt,
+        timezone,
+        postStatus: scheduledPostStatus(body.postStatus),
+        onReserved: (id) => { scheduleId = id; reserved = true; },
+      });
+    }
+
+    if (timezone !== "Asia/Seoul") throw new Error("Tistory 예약 발행은 Asia/Seoul 시간대만 사용할 수 있습니다.");
     const readiness = await calculateTistoryScheduleReadiness({
       data,
       project,
@@ -162,6 +185,91 @@ export async function POST(request: Request) {
   }
 }
 
+const wordpressRecords = new PersistentWordPressPublishingRecordRepository(studioStore);
+
+/**
+ * WordPress schedules use the official REST API, so no browser worker is
+ * involved. The Draft pipeline performs the external work and this reserves,
+ * tracks and verifies it against the shared ScheduledPublication contract.
+ */
+async function createWordPressSchedule(input: Readonly<{
+  data: UserData;
+  workspaceId: string;
+  projectId: string;
+  contentId: string;
+  connection: PlatformConnection;
+  selectedTarget: boolean;
+  scheduledAt: string;
+  timezone: string;
+  postStatus: ScheduledPostStatus;
+  onReserved: (scheduleId: string) => void;
+}>): Promise<Response> {
+  const content = input.data.contents.find((item) => item.id === input.contentId)!;
+  const preparation = content.publishingPreparation?.wordpress;
+  if (!preparation || preparation.publishingAccountId !== input.connection.id || !preparation.categoryIds.length) {
+    throw new Error("WordPress 카테고리를 먼저 선택해 주세요.");
+  }
+  const revisionId = contentRevisionId(content.document!);
+  const schedules = new ScheduledPublishingApplicationService(studioStore);
+  const reservation = await schedules.reserve({
+    id: `schedule-${randomUUID()}`,
+    workspaceId: input.workspaceId,
+    projectId: input.projectId,
+    contentId: input.contentId,
+    platform: "wordpress",
+    platformConnectionId: input.connection.id,
+    revisionId,
+    scheduledAt: input.scheduledAt,
+    timezone: input.timezone,
+    categoryId: preparation.categoryIds[0] ?? null,
+    categoryName: preparation.categoryNames[0] ?? null,
+    postStatus: input.postStatus,
+    operationId: `schedule-operation-${randomUUID()}`,
+  });
+  const scheduleId = reservation.reservation.id;
+  if (!reservation.created && reservation.reservation.status !== "failed") {
+    return NextResponse.json({ result: { status: "existing", schedule: reservation.reservation } });
+  }
+  input.onReserved(scheduleId);
+  await schedules.beginAttempt({ workspaceId: input.workspaceId, scheduleId });
+
+  const execution = await new WordPressScheduleCreateApplicationService(
+    new WordPressDraftApplicationService({ secrets: secretStore, records: wordpressRecords }),
+  ).execute({
+    data: input.data,
+    projectId: input.projectId,
+    contentId: input.contentId,
+    connection: input.connection,
+    selectedTarget: input.selectedTarget,
+    scheduledAt: input.scheduledAt,
+    timezone: input.timezone,
+    postStatus: input.postStatus,
+    finalConfirmation: true,
+  });
+
+  const schedule = await schedules.transition({
+    workspaceId: input.workspaceId,
+    scheduleId,
+    status: execution.status,
+    ...(execution.registeredAt ? { registeredAt: execution.registeredAt } : {}),
+    ...(execution.verifiedAt ? { verifiedAt: execution.verifiedAt } : {}),
+    ...(execution.externalPostId ? { externalPostId: execution.externalPostId } : {}),
+    ...(execution.externalManagementUrl ? { externalManagementUrl: execution.externalManagementUrl } : {}),
+    ...(execution.diagnosticCode ? { failureCode: execution.diagnosticCode } : {}),
+    ...(execution.error ? { lastError: execution.error } : {}),
+  });
+  return NextResponse.json(
+    { result: execution, schedule },
+    { status: execution.status === "failed" ? 400 : 200 },
+  );
+}
+
+function scheduledPostStatus(value: unknown): ScheduledPostStatus {
+  if (value === undefined || value === "draft") return "draft";
+  if (value === "future") return "future";
+  throw new Error("지원하지 않는 예약 발행 상태입니다.");
+}
+
 async function transitionResult(
   schedules: ScheduledPublishingApplicationService,
   workspaceId: string,
@@ -200,10 +308,15 @@ async function transitionResult(
   });
 }
 
-async function ownedContext(workspaceId: string, projectId: string, contentId: string): Promise<UserData> {
+async function ownedContext(
+  workspaceId: string,
+  projectId: string,
+  contentId: string,
+  platform: "tistory" | "wordpress",
+): Promise<UserData> {
   const data = await studioStore.get<UserData>("application", "user-data");
   if (data?.workspace?.id !== workspaceId) throw new Error("Workspace를 찾을 수 없습니다.");
-  if (!isPlatformEnabled(data, "tistory")) throw new Error("Tistory is disabled in Workspace Settings.");
+  if (!isPlatformEnabled(data, platform)) throw new Error(`${platform === "wordpress" ? "WordPress" : "Tistory"} is disabled in Workspace Settings.`);
   const project = data.projects.find((item) => item.id === projectId && item.workspaceId === workspaceId);
   const content = data.contents.find((item) => item.id === contentId && item.projectId === projectId && (item.workspaceId === undefined || item.workspaceId === workspaceId));
   if (!project || !content) throw new Error("Project 또는 Content를 찾을 수 없습니다.");

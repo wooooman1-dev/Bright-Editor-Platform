@@ -88,11 +88,18 @@ describe("WordPress Draft execution and completion UI", () => {
   });
 
   it("requires final confirmation and readiness before calling create_draft", () => {
-    expect(overlaySource).toContain("if (!executable || !identity) return");
+    expect(overlaySource).toContain("if (!identity) return;");
+    expect(overlaySource).toContain("if (!options.explicitNewAttempt && !executable) return;");
     expect(requestSource).toContain('action: "create_draft"');
     expect(requestSource).toContain("finalConfirmation: true");
     expect(overlaySource).toContain("disabled={!executable}");
     expect(overlaySource.match(/void submit\(\)/g)).toHaveLength(1);
+  });
+
+  it("always offers a retry button next to the return button after a verified completion", () => {
+    expect(overlaySource).toContain("void submit({ explicitNewAttempt: true })");
+    expect(overlaySource).toContain("임시글 다시 저장");
+    expect(overlaySource).toContain('record?.status === "verified" ? <button');
   });
 
   it("opens the preparation screen even when GET restores a verified record", () => {
@@ -123,6 +130,23 @@ describe("WordPress Draft execution and completion UI", () => {
 
     await expect(requestWordPressDraftCreation(submissionGuard(override), request)).resolves.toBeUndefined();
     expect(request).not.toHaveBeenCalled();
+  });
+
+  it("still sends an explicit external-removal retry even though finalConfirmation resets to false after completion", async () => {
+    const request = vi.fn<WordPressDraftRequest>().mockResolvedValue(new Response(JSON.stringify({
+      result: { record: record("verified"), readiness: readiness() },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+
+    const result = await requestWordPressDraftCreation(
+      submissionGuard({ confirmed: false }),
+      request,
+      { explicitNewAttempt: true },
+    );
+
+    expect(result?.record?.status).toBe("verified");
+    expect(request).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(String(request.mock.calls[0][1]?.body)) as Record<string, unknown>;
+    expect(body).toMatchObject({ action: "create_draft", explicitNewAttempt: true });
   });
 
   it("sends zero POST requests while opening preparation and previous-result views", () => {

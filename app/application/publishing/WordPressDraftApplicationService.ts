@@ -6,10 +6,12 @@ import {
   PublishingPermissionGate,
   type PublishingExecutionRecord,
   type PublishingExecutionStatus,
+  type PublishingExecutionWorkflow,
 } from "../../../core/publishing";
 import {
   WordPressCategoryAdapter,
   WordPressDraftCreateUncertainError,
+  WordPressDraftNotFoundError,
   WordPressDraftPublishingAdapter,
   WordPressHtmlRenderer,
   WordPressMediaAdapter,
@@ -17,6 +19,7 @@ import {
   type WordPressCategoryListResult,
   type WordPressConnectionInput,
   type WordPressDraftVerification,
+  type WordPressPostStatus,
   type WordPressSeoMetadata,
 } from "../../../apps/wordpress";
 import type { PlatformConnection } from "../../../core/connections";
@@ -70,6 +73,17 @@ export type WordPressDraftExecutionResult = Readonly<{
   error?: string;
 }>;
 
+/**
+ * Scheduling reuses the entire Draft pipeline. It changes only the requested
+ * external post state, the permission the execution authorizes against, and the
+ * verification expectations. See D-038.
+ */
+export type WordPressScheduleExecutionInput = Readonly<{
+  scheduledAt: string;
+  timezone: string;
+  postStatus: WordPressPostStatus;
+}>;
+
 export type WordPressDraftExecutionInput = Readonly<{
   data: UserData;
   projectId: string;
@@ -78,6 +92,13 @@ export type WordPressDraftExecutionInput = Readonly<{
   selectedTarget: boolean;
   finalConfirmation: boolean;
   slug?: string;
+  schedule?: WordPressScheduleExecutionInput;
+  /**
+   * Explicit user-confirmed retry: only when true will a "verified" record
+   * be re-checked against WordPress before being reused. Kept opt-in so an
+   * ordinary duplicate submit never performs a live WordPress round trip.
+   */
+  explicitNewAttempt?: boolean;
 }>;
 
 type CategoryReader = Pick<WordPressCategoryAdapter, "listAllCategories">;
@@ -116,6 +137,7 @@ type WordPressDraftExecutionIdentity = Readonly<{
   contentRevisionId: string;
   executionRevisionId: string;
   platformConnectionId: string;
+  workflow: PublishingExecutionWorkflow;
   idempotencyKey: string;
   legacyIdempotencyKey: string;
 }>;
@@ -154,7 +176,21 @@ export class WordPressDraftApplicationService {
       return failure("readiness", [], false, "WordPress Draft readiness could not be verified.");
     }
     const existing = await this.records.findByIdempotencyKey(identity.idempotencyKey);
-    if (existing) return duplicateResult(existing);
+    let supersede: PublishingExecutionRecord | undefined;
+    if (existing) {
+      // A failure that never reached WordPress left nothing to duplicate, so an
+      // explicit retry may supersede it instead of being blocked forever.
+      if (input.explicitNewAttempt && isCleanFailedAttempt(existing)) {
+        supersede = existing;
+      } else if (!input.explicitNewAttempt || existing.status !== "verified") {
+        return duplicateResult(existing);
+      } else {
+        const liveness = await this.verifyExternalLiveness(input.connection, existing);
+        if (liveness === "present") return duplicateResult(existing);
+        if (liveness === "unknown") return inconclusiveLivenessResult(existing);
+        supersede = existing;
+      }
+    }
     const legacy = await this.records.findByIdempotencyKey(identity.legacyIdempotencyKey);
     if (legacy) return legacyIdentityBlockedResult(identity, legacy);
 
@@ -170,8 +206,10 @@ export class WordPressDraftApplicationService {
       });
     }
 
-    let record = this.initialRecord(identity, prepared);
-    const claim = await this.records.claim(record);
+    let record = this.initialRecord(identity, prepared, input.schedule);
+    const claim = supersede
+      ? await this.records.replaceStale(supersede, record)
+      : await this.records.claim(record);
     if (!claim.claimed) return duplicateResult(claim.record, prepared.readiness);
     record = claim.record;
 
@@ -311,8 +349,9 @@ export class WordPressDraftApplicationService {
           title: prepared.content.document.title,
           content: html,
           excerpt: excerpt(prepared.content.document),
-          status: "draft",
+          status: input.schedule?.postStatus ?? "draft",
           categories: categorySelection.categoryIds,
+          ...(input.schedule ? { scheduledAt: input.schedule.scheduledAt } : {}),
           ...(input.slug?.trim() ? { slug: input.slug.trim() } : {}),
           ...(featuredMediaId ? { featuredMediaId } : {}),
           ...(prepared.seoMetadata ? { seoMetadata: prepared.seoMetadata } : {}),
@@ -339,7 +378,7 @@ export class WordPressDraftApplicationService {
         return resultFromRecord(record, executionReadiness, undefined, uploadedMedia);
       }
       return this.persistedFailure(record, identity, "draft_create", uploadedMedia,
-        "DRAFT_CREATE_FAILED", "WordPress Draft creation failed.", executionReadiness);
+        "DRAFT_CREATE_FAILED", safeExternalMessage(error, "WordPress Draft creation failed."), executionReadiness);
     }
 
     try {
@@ -353,6 +392,9 @@ export class WordPressDraftApplicationService {
         mediaUrls: bodyMediaUrls,
         ...(featuredMediaId ? { featuredMediaId } : {}),
         ...(prepared.seoMetadata ? { seoMetadata: prepared.seoMetadata } : {}),
+        ...(input.schedule
+          ? { status: input.schedule.postStatus, scheduledAt: input.schedule.scheduledAt }
+          : {}),
       });
       if (!verification.verified) {
         record = await this.persist(record, {
@@ -401,13 +443,18 @@ export class WordPressDraftApplicationService {
       || input.connection.workspaceId !== workspaceId || input.connection.platform !== "wordpress") {
       throw new Error("WordPress publishing identity could not be verified.");
     }
+    if (input.schedule && !/(?:Z|[+-]\d{2}:\d{2})$/i.test(input.schedule.scheduledAt.trim())) {
+      throw new Error("WordPress schedule time must be an ISO datetime with a timezone offset.");
+    }
     const revisionId = contentRevisionId(content.document);
     const legacyRevisionId = legacyWordPressContentRevisionId(content.document);
     const canonicalContent = content as UserContent & Readonly<{ document: ContentDocument }>;
+    const workflow = executionWorkflow(input);
     const executionRevisionId = wordpressDraftExecutionRevisionId(
       canonicalContent,
       input.connection.id,
       input.slug,
+      input.schedule,
     );
     const legacyIdempotencyKey = createDraftCreateIdempotencyKey({
       workspaceId,
@@ -415,6 +462,7 @@ export class WordPressDraftApplicationService {
       contentId: content.id,
       contentRevisionId: legacyRevisionId,
       platformConnectionId: input.connection.id,
+      workflow,
     });
     const idempotencyKey = createDraftCreateIdempotencyKey({
       workspaceId,
@@ -423,6 +471,7 @@ export class WordPressDraftApplicationService {
       contentRevisionId: revisionId,
       executionRevisionId,
       platformConnectionId: input.connection.id,
+      workflow,
     });
     return Object.freeze({
       workspaceId,
@@ -431,12 +480,17 @@ export class WordPressDraftApplicationService {
       contentRevisionId: revisionId,
       executionRevisionId,
       platformConnectionId: input.connection.id,
+      workflow,
       idempotencyKey,
       legacyIdempotencyKey,
     });
   }
 
-  private initialRecord(identity: WordPressDraftExecutionIdentity, prepared: PreparedExecution): PublishingExecutionRecord {
+  private initialRecord(
+    identity: WordPressDraftExecutionIdentity,
+    prepared: PreparedExecution,
+    schedule?: WordPressScheduleExecutionInput,
+  ): PublishingExecutionRecord {
     const now = this.now().toISOString();
     const selection = prepared.readiness.categorySelection;
     return Object.freeze({
@@ -450,7 +504,14 @@ export class WordPressDraftApplicationService {
       executionRevisionId: identity.executionRevisionId,
       platformConnectionId: identity.platformConnectionId,
       platform: "wordpress",
-      workflow: "draft.create",
+      workflow: identity.workflow,
+      ...(schedule
+        ? {
+          scheduledAt: schedule.scheduledAt,
+          scheduledTimezone: schedule.timezone,
+          scheduledPostStatus: schedule.postStatus,
+        }
+        : {}),
       status: "preparing",
       stage: "readiness",
       verified: false,
@@ -609,18 +670,44 @@ export class WordPressDraftApplicationService {
     });
   }
 
+  /**
+   * Scheduling authorizes against the schedule permissions instead of the draft
+   * ones, so an account allowed to save drafts cannot silently register a
+   * scheduled release.
+   */
   private authorize(
     workflow: "media.upload" | "draft.create" | "draft.verify",
     input: WordPressDraftExecutionInput,
   ): void {
+    const scheduled = input.schedule
+      ? workflow === "draft.create" ? "schedule.create"
+        : workflow === "draft.verify" ? "schedule.verify"
+          : workflow
+      : workflow;
     new PublishingPermissionGate().authorize({
       workspaceId: input.data.workspace?.id ?? "",
       projectId: input.projectId,
       contentId: input.contentId,
       platformConnectionId: input.connection.id,
-      workflow,
+      workflow: scheduled,
       finalConfirmation: input.finalConfirmation,
     }, input.connection);
+  }
+
+  private async verifyExternalLiveness(
+    connection: PlatformConnection,
+    record: PublishingExecutionRecord,
+  ): Promise<"present" | "removed" | "unknown"> {
+    if (!record.externalPostId) return "unknown";
+    let credentials: WordPressConnectionInput;
+    try { credentials = await this.credentials(connection); }
+    catch { return "unknown"; }
+    try {
+      await this.drafts.readDraft({ ...credentials, externalId: record.externalPostId });
+      return "present";
+    } catch (error) {
+      return error instanceof WordPressDraftNotFoundError ? "removed" : "unknown";
+    }
   }
 
   private async credentials(connection: PlatformConnection): Promise<WordPressConnectionInput> {
@@ -633,6 +720,28 @@ export class WordPressDraftApplicationService {
     if (!applicationPassword.trim()) throw new Error("WordPress reconnect is required.");
     return Object.freeze({ siteUrl, username, applicationPassword });
   }
+}
+
+function isCleanFailedAttempt(record: PublishingExecutionRecord): boolean {
+  return record.status === "failed"
+    && !record.externalPostId
+    && !record.cleanupRequired
+    && record.uploadedMedia.length === 0;
+}
+
+/**
+ * Keeps the external reason visible while refusing to echo anything that could
+ * carry the application password back to the client.
+ */
+function safeExternalMessage(error: unknown, fallback: string): string {
+  const value = error instanceof Error ? error.message : "";
+  return value && !/authorization|application password|basic\s+[a-z0-9+/=]+/i.test(value)
+    ? value
+    : fallback;
+}
+
+function executionWorkflow(input: WordPressDraftExecutionInput): PublishingExecutionWorkflow {
+  return input.schedule ? "schedule.create" : "draft.create";
 }
 
 function excerpt(document: ContentDocument): string {
@@ -711,6 +820,15 @@ function duplicateResult(
     error: inProgress
       ? "The same WordPress Draft operation is already in progress."
       : duplicateBlockMessage(record.status),
+  });
+}
+
+function inconclusiveLivenessResult(record: PublishingExecutionRecord): WordPressDraftExecutionResult {
+  return Object.freeze({
+    ...resultFromRecord(record, undefined, verificationFromRecord(record)),
+    reused: false,
+    duplicateBlocked: true,
+    error: "WordPress could not confirm whether the previous Draft still exists. Check WordPress connectivity, then retry.",
   });
 }
 

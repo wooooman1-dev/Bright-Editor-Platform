@@ -23,6 +23,12 @@ export type WorkspacePublishingPolicy = Readonly<{
   publicPublish: false;
   sequentialDraftSave: boolean;
   qualityApprovalRequired: true;
+  /**
+   * Enables `future` WordPress scheduling, which releases a post publicly at the
+   * scheduled time. Absent or false means only `draft` scheduling is allowed.
+   * Immediate public publishing stays disabled either way. See D-038.
+   */
+  wordpressSchedulePublicPublish?: boolean;
 }>;
 export type WorkspaceSettings = Readonly<{
   enabledPlatforms: readonly WorkspacePlatform[];
@@ -199,7 +205,12 @@ export type UserData = Readonly<{
   mediaMetadata?: readonly import("../../core/media").MediaAsset[];
   qualityReports?: readonly Readonly<{ contentId: string; report: QualityReport }> [];
   publishingRecords?: readonly UserPublishingRecord[];
-  scheduledPublishing?: readonly Readonly<{ contentId: string; platform: string; scheduledFor: string }> [];
+  /**
+   * Holds both the current ScheduledPublication records and the legacy shape
+   * written before the schedule contract existed. Readers must narrow before
+   * using anything beyond contentId.
+   */
+  scheduledPublishing?: readonly import("../../core/publishing").ScheduledPublishingRecord[];
 }>;
 
 export const userDataStorageKey = "bright-studio-user-data-v1";

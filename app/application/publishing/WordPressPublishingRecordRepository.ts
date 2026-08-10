@@ -17,6 +17,16 @@ export interface WordPressPublishingRecordRepository {
   claim(record: PublishingExecutionRecord): Promise<WordPressPublishingRecordClaim>;
   findByIdempotencyKey(idempotencyKey: string): Promise<PublishingExecutionRecord | undefined>;
   save(record: PublishingExecutionRecord): Promise<PublishingExecutionRecord>;
+  /**
+   * Compare-and-swap replacement of a confirmed-stale terminal record (e.g. a
+   * verified Draft that WordPress no longer has) with a fresh execution record
+   * under the same Idempotency Key. Only succeeds if the stored record still
+   * matches `previous` exactly, so a concurrent execution cannot be clobbered.
+   */
+  replaceStale(
+    previous: PublishingExecutionRecord,
+    next: PublishingExecutionRecord,
+  ): Promise<WordPressPublishingRecordClaim>;
 }
 
 export class InMemoryWordPressPublishingRecordRepository implements WordPressPublishingRecordRepository {
@@ -38,6 +48,18 @@ export class InMemoryWordPressPublishingRecordRepository implements WordPressPub
     const saved = current && shouldPreserveCurrent(current, record) ? current : record;
     this.records.set(record.idempotencyKey, saved);
     return saved;
+  }
+
+  async replaceStale(
+    previous: PublishingExecutionRecord,
+    next: PublishingExecutionRecord,
+  ): Promise<WordPressPublishingRecordClaim> {
+    const current = this.records.get(previous.idempotencyKey);
+    if (!current || current.updatedAt !== previous.updatedAt || current.status !== previous.status) {
+      return Object.freeze({ claimed: false, record: current ?? previous });
+    }
+    this.records.set(next.idempotencyKey, next);
+    return Object.freeze({ claimed: true, record: next });
   }
 }
 
@@ -80,6 +102,27 @@ export class PersistentWordPressPublishingRecordRepository implements WordPressP
     const saved = findRecord(data, record.idempotencyKey);
     if (!saved) throw new Error("WordPress publishing record could not be persisted.");
     return saved;
+  }
+
+  async replaceStale(
+    previous: PublishingExecutionRecord,
+    next: PublishingExecutionRecord,
+  ): Promise<WordPressPublishingRecordClaim> {
+    let claimed = false;
+    const data = await this.store.update<UserData>(USER_DATA_COLLECTION, USER_DATA_ID, (current) => {
+      if (!current) throw new Error("Workspace was not found.");
+      const existing = findRecord(current, previous.idempotencyKey);
+      if (!existing || existing.updatedAt !== previous.updatedAt || existing.status !== previous.status) return current;
+      claimed = true;
+      const others = (current.publishingRecords ?? []).filter((item) => item.id !== previous.id);
+      return Object.freeze({
+        ...current,
+        publishingRecords: Object.freeze([...others, next]),
+      });
+    });
+    const saved = claimed ? findRecord(data, next.idempotencyKey) : findRecord(data, previous.idempotencyKey);
+    if (!saved) throw new Error("WordPress publishing record could not be persisted.");
+    return Object.freeze({ claimed, record: saved }) as WordPressPublishingRecordClaim;
   }
 }
 

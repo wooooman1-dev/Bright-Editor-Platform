@@ -37,7 +37,15 @@ export async function POST(request: Request) {
     }
     if (body.action === "save-publishing") {
       if (typeof body.sequentialDraftSave !== "boolean") throw new Error("임시저장 방식을 확인해 주세요.");
-      const next = updatePublishingPolicy(data, body.sequentialDraftSave);
+      if (body.wordpressSchedulePublicPublish !== undefined && typeof body.wordpressSchedulePublicPublish !== "boolean") {
+        throw new Error("WordPress 예약 공개 발행 설정을 확인해 주세요.");
+      }
+      const next = updatePublishingPolicy(
+        data,
+        body.sequentialDraftSave,
+        new Date(),
+        body.wordpressSchedulePublicPublish,
+      );
       await studioStore.set(collection, stateId, next); return NextResponse.json(await snapshot(next));
     }
     if (body.action === "save-enabled-platforms") {

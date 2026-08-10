@@ -855,6 +855,35 @@ Source Authority와 Claim relevance는 독립 Gate로 유지한다. 다른 사�
 
 ---
 
+# D-038 WordPress Scheduled Publishing
+
+Status: Accepted
+
+이 결정은 `D-036 WordPress Draft Publishing MVP`의 제외 항목 중 `Scheduled Publishing`만 해제한다. `D-036`의 나머지 제외 항목인 Existing Post Update, Existing Post Delete, 자동 Plugin 설치·수정, Theme 수정, 여러 플랫폼 동시 실행, 자동 Retry는 그대로 유지한다. `D-034`가 Tistory 전용으로 승인한 예약 계약을 WordPress로 확장하되 Tistory 구현을 복제하지 않는다.
+
+WordPress는 Tistory와 달리 공식 REST API가 예약을 지원하므로 브라우저 자동화 Worker를 사용하지 않는다. `POST /wp-json/wp/v2/posts`에 `status`와 `date_gmt`를 전달하는 방식만 사용한다.
+
+예약 상태는 두 가지를 지원한다.
+
+- `draft` 예약: 글을 초안으로 유지하고 예약 시각만 플랫폼에 기록한다. 실제 공개는 사용자가 별도로 승인해야 한다. Review First · Draft Only 정책과 충돌하지 않으므로 기본값이다.
+- `future` 예약: `status=future`와 `date_gmt`로 등록하여 지정 시각에 자동 공개된다. 공개 발행에 해당하므로 기본 Disabled이다.
+
+`future` 예약은 Workspace Setting `wordpressSchedulePublicPublish`가 명시적으로 Enabled일 때만 실행할 수 있다. 이 설정의 기본값은 `false`이며, Workspace의 `publicPublish` 불변식은 변경하지 않는다. 즉시 공개 발행은 계속 금지한다.
+
+예약 안전 정책은 `D-034`와 동일하게 적용한다.
+
+- `schedule.create` Permission 필수, 예약마다 사용자 명시 최종 확인 필수
+- 활성 예약의 중복 생성 금지
+- 예약 후 Revision, Account 또는 Category 변경 금지
+- 성공한 예약의 자동 재시도 금지
+- 로컬 Scheduler가 공개 시각까지 대기하거나 자체적으로 공개 작업을 실행하지 않음
+
+`POST /posts` 응답만으로 완료 처리하지 않는다. 생성된 External Post ID를 다시 조회하여 `D-036`의 Draft 검증 항목에 더해 요청한 `status`와 `date_gmt`가 실제로 적용되었는지 검증한다. 검증하지 못한 예약은 `scheduled_unverified`로 보존하고 자동 재시도하지 않는다.
+
+AdSense 승인 준비 단계의 Content에는 `future` 예약을 적용하지 않는다. 승인 준비 Content의 공개 시점 판단은 Site Approval Readiness Gate 통과 이후 사용자 결정으로 남긴다.
+
+---
+
 # 통합 결과
 
 이 완성본은 다음 문제를 해결합니다.
