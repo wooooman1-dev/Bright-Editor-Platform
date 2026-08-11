@@ -11,7 +11,7 @@ describe("EditorialGenerationStrategy information sufficiency target", () => {
     expect(request.instruction).toContain("Decision criteria");
     expect(request.instruction).toContain("Reader problem");
     expect(request.instruction).toContain("same response-writing process");
-    expect(request.instruction).toContain("Never expand content only to make it longer");
+    expect(request.instruction).toContain("never reach it by padding");
     expect(request.instruction).toContain("coverage map");
     expect(request.instruction).toContain("exactly one primary H2");
     expect(request.instruction).toContain("do not repeat the same caution or next action in every H2");
