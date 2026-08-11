@@ -47,10 +47,21 @@ export type ContentPlanQualityTarget = Readonly<{
 }>;
 
 export type ContentDepthPolicyInput = Readonly<{
+  /**
+   * Depth declared by Planning. Honoured when present so that the plan, which
+   * knows what this particular article is for, decides its own shape instead of
+   * having one inferred from keywords. Legacy `quick` is read as `standard`.
+   */
+  contentDepth?: ContentDepth;
   searchIntent?: string;
   contentType?: string;
   topicComplexity?: string;
   readerProblem?: string;
+  /**
+   * Project-wide context. Deliberately excluded from depth classification: these
+   * carry the same text for every candidate of a Project, so classifying on them
+   * pins the whole Project to one depth. See `topicSignals`.
+   */
   projectStrategy?: string;
   domain?: string;
   audience?: string;
@@ -80,9 +91,16 @@ const sectionGuidance: SectionCompletenessGuidance = Object.freeze({
 });
 
 export function determineContentPlanQualityTarget(input: ContentDepthPolicyInput): ContentPlanQualityTarget {
-  const normalized = searchable(input);
-  const contentDepth = classifyDepth(normalized);
-  return buildTarget(contentDepth, input);
+  return buildTarget(declaredDepth(input) ?? classifyDepth(topicSignals(input)), input);
+}
+
+/**
+ * Planning may state the depth directly. Keyword classification is the fallback
+ * for plans that do not, not an override of what the plan already decided.
+ */
+function declaredDepth(input: ContentDepthPolicyInput): PlannedContentDepth | undefined {
+  const value = input.contentDepth;
+  return value && contentDepths.includes(value) ? effectiveContentDepth(value) : undefined;
 }
 
 export function normalizeContentPlanQualityTarget(
@@ -136,7 +154,7 @@ function buildTarget(contentDepth: ContentDepth, input: ContentDepthPolicyInput)
     actionableNextSteps: freezeList(input.actionableNextSteps, ["독자가 콘텐츠를 읽은 뒤 실행할 다음 행동"]),
     comparisonNeeds: comparison ? freezeList(input.comparisonNeeds, ["동일한 기준으로 비교한 차이", "상황별 선택 조건"]) : Object.freeze(cleanList(input.comparisonNeeds)),
     tableNeeds: comparison ? input.tableNeeds !== false : Boolean(input.tableNeeds),
-    checklistNeeds: Boolean(input.checklistNeeds) || /checklist|체크리스트|준비물|점검/i.test(searchable(input)),
+    checklistNeeds: Boolean(input.checklistNeeds) || /checklist|체크리스트|준비물|점검/i.test(topicSignals(input)),
     scopeBoundaries: freezeList(input.scopeBoundaries, ["확인되지 않은 수치·사실·URL을 만들지 않음", "주제 밖의 일반론으로 범위를 확장하지 않음"]),
     sectionGuidance,
     topicComplexity: input.topicComplexity === "low" || input.topicComplexity === "high"
@@ -152,10 +170,18 @@ function classifyDepth(value: string): PlannedContentDepth {
   return "standard";
 }
 
-function searchable(input: ContentDepthPolicyInput): string {
+/**
+ * Only what describes this one article. `projectStrategy` carries the whole
+ * editorial context JSON, including the approval policy text, and that text
+ * contains both `comparison` and `체크리스트`; joining it in made every candidate
+ * of an approval Project classify as `comparison` with a table and a checklist
+ * forced, whatever the topic was. `domain` and `audience` are Project-wide for
+ * the same reason.
+ */
+function topicSignals(input: ContentDepthPolicyInput): string {
   return [
-    input.searchIntent, input.contentType, input.topicComplexity, input.readerProblem, input.projectStrategy,
-    input.domain, input.audience, input.selectedTopic, ...(input.expectedCoverage ?? []),
+    input.searchIntent, input.contentType, input.topicComplexity, input.readerProblem,
+    input.selectedTopic, ...(input.expectedCoverage ?? []),
   ].filter(Boolean).join(" ").normalize("NFKC").toLocaleLowerCase("ko-KR");
 }
 
