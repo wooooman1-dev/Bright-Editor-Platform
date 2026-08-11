@@ -139,3 +139,16 @@ export {
   ContentOptimizer,
   type ContentOptimizerOptions,
 } from "./processors/ContentOptimizer";
+export {
+  buildEditorialRepetitionContext,
+  defaultRecentEditorialPatternCount,
+  recentEditorialPattern,
+  type EditorialRepetitionContext,
+  type RecentEditorialPattern,
+} from "./EditorialRepetitionContext";
+export {
+  editorialFormatOptionsFor,
+  lifeEconomyEditorialFormatOptions,
+  type EditorialFormatOption,
+  type EditorialFormatOptionSet,
+} from "./EditorialFormatOptions";

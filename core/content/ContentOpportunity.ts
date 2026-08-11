@@ -157,6 +157,7 @@ export function applyContentDepthPolicy(
     ...candidate,
     qualityTarget: determineContentPlanQualityTarget({
       ...fallback,
+      contentDepth: planned.contentDepth,
       coreQuestions: planned.coreQuestions,
       requiredContentElements: planned.requiredContentElements,
       decisionCriteria: planned.decisionCriteria,
