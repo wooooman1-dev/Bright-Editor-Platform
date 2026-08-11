@@ -21,6 +21,15 @@ describe("EditorialGenerationStrategy information sufficiency target", () => {
     expect(request.instruction).not.toMatch(/\b(?:2000|3500|5500|5,500)\b/);
   });
 
+  it("states the measured prose floor and the comparison obligation the gates enforce", () => {
+    const request = new EditorialGenerationStrategy().createRequest(input("quick"));
+    expect(request.instruction).toContain("at least 400 characters of running prose excluding whitespace");
+    expect(request.instruction).toContain("at least 250 when its sectionType is checklist, steps, or faq");
+    expect(request.instruction).toContain("adding another bullet never satisfies it");
+    expect(request.instruction).toContain("at least one H2 must carry sectionType=comparison");
+    expect(request.instruction).toContain("a promised comparison that no section performs is rejected");
+  });
+
   it("uses the deep health target and section roles", () => {
     const request = new EditorialGenerationStrategy().createRequest(input("deep"));
     expect(request.instruction).toContain("contentDepth is deep");

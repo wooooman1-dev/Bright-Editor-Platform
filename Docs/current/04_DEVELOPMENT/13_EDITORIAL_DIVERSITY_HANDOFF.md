@@ -307,7 +307,104 @@ gates meaningful. Neither has been confirmed against a live run, because that
 needs a planning run whose preflight reaches these paths. `tsc`, `eslint` and
 `vitest` (1916 passed / 18 skipped / 0 failed) are clean.
 
-## 12. Reference
+## 12. Three Root Causes Behind One Blocked Article
+
+Measured on 청약통장 해지 전 확인 사항을 잔액보다 먼저 따져야 하는 이유, generated
+2026-08-12 on the 밝은재테크 Project. It scored 87 and was blocked. Each fix below
+is in the path every article travels, not in that manuscript.
+
+### 12.1 A reader-facing verb was read as a writing plan
+
+`planningPattern` in `QualityEngine.ts` contained a bare `작성할`. The H2
+`해지 버튼을 누르기 전에 작성할 네 가지 확인 기록` matched it, where the subject of
+the verb is the reader and the heading is doing exactly what the `checklist`
+role asks for. Every other term in that pattern — 기획안, 아웃라인, 목차를 구성,
+다룰 예정 — names the manuscript's own production; `작성할` alone is the ordinary
+Korean verb a life-economy checklist heading uses.
+
+The hit costs 45 points at `QualityEngine.ts` `informationSufficiencyScore`, and
+`usefulness` is derived from that same score, so one word took completeness and
+usefulness from 100 to 55 and the overall score from 100 to 87. The article also
+carried the reason "완성된 글이 아니라 작성 계획이나 지시문이 본문에 포함되어
+있습니다", which was untrue of it. Measured counter-evidence in the same report:
+`requiredElementsMissing` 0, `requiredElementsMentioned` 0,
+`requiredElementsSufficient` 5, `incompleteSections` 0. Nothing was actually
+missing, so the two repair tasks the app printed could not have moved the score.
+
+The pattern now requires the verb to take the manuscript as its object
+(`글|원고|포스팅|본문|초안|콘텐츠` + `작성할`, or `작성할 예정|계획`).
+
+### 12.2 A critical Claim kind could be downgraded by the model
+
+This is why the article had no 출처, and it is systemic rather than particular:
+across the stored workspace, only **1 of 9** opportunities carrying a
+verification plan held a single critical Claim, and nine articles ended at
+`approvalEvidence.status: not_required`.
+
+`parsePlanningClaimRisk` in `ContentPlanningStrategyBase.ts` applied
+`criticalVerificationKinds` only when the model **omitted** `risk`. A model that
+answered `risk: "verify"` on a `kind: "eligibility"` Claim kept it. The 청약통장
+plan did precisely that for four eligibility Claims, so
+`runApprovalSourcePreflight` took its `notRequiredExplicitPreflight` branch at
+`ApprovalSourcePreflight.ts:84`, returned zero sources, and generation wrote
+with nothing to cite. Generation then stated two critical facts anyway; both
+were deleted as `unreported_generated_critical`, taking
+`section-1-paragraph-1` and `section-4-paragraph-3` out of the document.
+
+The planning prompt already names eligibility, legal, money, dates and durations
+as the critical set, so the kind floor is now authoritative and enforces the
+instruction rather than adding a rule. A model may still raise a `general` Claim
+to critical; it may no longer lower a kind that is critical by nature.
+
+Expect this to block generation on topics that state nothing checkable. That is
+the intended reading of section 11 and of the empty-array rule: such a topic is
+the wrong topic, not an easier one.
+
+### 12.3 The gates were never stated to generation
+
+Two of the three blocking errors came from rules generation was never told about.
+
+`CONTENT_SECTION_PROSE_INSUFFICIENT` fired on the checklist section at 193
+characters and the steps section at 218, against a floor of 250. The prompt said
+only that a section carrying a list "must also explain that section in prose",
+with no number, so generation had no way to aim. The prompt now states both
+floors — 400 characters of running prose, 250 for `checklist`, `steps` and
+`faq` — and states that list items are not counted, because the natural repair
+for a thin checklist section is to add another bullet and that moves nothing.
+
+`CONTENT_DECLARED_COMPARISON_MISSING` fired because the plan declared
+`contentDepth: comparison` with three `comparisonNeeds`, and none of the seven
+declared sections was a `comparison`. The strongest section scored one
+comparison signal against a threshold of three; restoring the paragraph deleted
+in 13.2 raises it only to one, so this was a generation failure and not an
+artifact of the deletion. The prompt now requires that supplied comparison needs
+become an H2 with `sectionType=comparison`, carried by a table when the data
+holds at least three comparable rows and by prose when it does not.
+
+### 12.4 Tables and cards were not defects
+
+Both were reported missing and both were checked against the stored workspace
+rather than the code alone.
+
+**Tables render and are used.** 21 of 37 stored documents contain a table block,
+and the Markdown-table path through `ContentNormalizer` — a Markdown table in a
+paragraph string becomes a `table` block, with `remapLongFormStructure`
+expanding the section's block ids — is intact. This article had none because its
+plan set `tableNeeds: false`, which section 10 permits, while also declaring
+comparison depth. 13.3 closes that contradiction.
+
+**Cards render at publish time.** Rendering this document through
+`WordPressHtmlRenderer` produces two `bright-content-card` sections, badged
+체크리스트 and 주의·확인, from the `checklist` and `warning` sections.
+`resolveContentSectionPresentations` is referenced only by the two publish HTML
+renderers, so the manuscript view inside the app shows plain paragraphs and the
+cards appear only in published output. That gap is real but it is a preview
+feature, not a pipeline defect, and nothing here changes it.
+
+Verification: `npx tsc --noEmit` clean, `npx eslint .` clean, `npx vitest run`
+1931 passed / 18 skipped / 0 failed.
+
+## 13. Reference
 
 - `Docs/current/01_PRODUCT/14_ADSENSE_APPROVAL_CONTENT_POLICY.md` — approval content policy, required article information, prohibited practices
 - `origin/docs/content-format-diversity-spec` — the original diversity spec and the `qualityTarget` criteria analysis that argued against a fixed preset enum

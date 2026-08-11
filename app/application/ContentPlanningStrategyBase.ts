@@ -338,15 +338,32 @@ function createPlanningVerificationPlan(raw: unknown) {
   return createContentOpportunityVerificationPlan(claims);
 }
 
+/**
+ * The kind floor is authoritative, not a fallback. It used to apply only when
+ * the model omitted `risk`, so a model that answered `verify` on an
+ * `eligibility` Claim silently opted the whole article out of Evidence: with no
+ * critical Claim, `runApprovalSourcePreflight` returns `not_required` with zero
+ * sources, generation writes with nothing to cite, and the critical statements
+ * it invents anyway are deleted as `unreported_generated_critical`. A 청약통장
+ * article planned four eligibility Claims that way and published with no 출처
+ * section at all.
+ *
+ * The planning prompt already names eligibility, legal, money, dates and
+ * durations as the critical set, so this enforces the instruction rather than
+ * adding a rule. A model may still raise a `general` Claim to critical; it may
+ * no longer lower a kind that is critical by nature.
+ */
 function parsePlanningClaimRisk(
   raw: unknown,
   required: boolean,
   kind: VerificationClaimKind,
   index: number,
 ): VerificationClaimRisk {
-  if (raw === "none" || raw === "verify" || raw === "critical") return raw;
-  if (raw !== undefined) throw new Error(`Invalid verification claim risk at index ${index}.`);
-  return required || criticalVerificationKinds.has(kind) ? "critical" : "verify";
+  if (raw !== undefined && raw !== "none" && raw !== "verify" && raw !== "critical") {
+    throw new Error(`Invalid verification claim risk at index ${index}.`);
+  }
+  if (required || criticalVerificationKinds.has(kind) || raw === "critical") return "critical";
+  return raw === "none" ? "none" : "verify";
 }
 
 function parsePlanningTemporalRequirement(raw: unknown, index: number): VerificationTemporalRequirement {

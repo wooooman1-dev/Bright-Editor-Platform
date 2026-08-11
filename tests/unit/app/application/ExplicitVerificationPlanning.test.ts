@@ -34,6 +34,18 @@ describe("explicit planning contract", () => {
     expect(planningOutputFormat.schema.properties.opportunityCandidates.items.additionalProperties).toBe(false);
   });
 
+  it("keeps a critical claim kind critical even when planning answers verify", () => {
+    const eligibility = { ...candidate.verificationClaims[0], field: "청약통장 가입기간의 청약 적용", kind: "eligibility", statement: "청약통장 가입기간은 일부 주택 청약에서 자격 판단 요소로 활용될 수 있다.", rawValue: "", risk: "verify", required: false };
+    const parsed = parsePlanningResult(JSON.stringify({ ...planning, opportunityCandidates: [{ ...candidate, verificationClaims: [eligibility] }] }), { projectId: "p", selectionMode: "automatic", explicitVerificationPlanningEnabled: true });
+    expect(parsed.opportunityCandidates?.[0].verificationPlan?.claims[0]).toMatchObject({ risk: "critical", required: true });
+  });
+
+  it("leaves a claim kind that is not critical by nature at the risk planning chose", () => {
+    const general = { ...candidate.verificationClaims[0], field: "청약 안내 확인 경로", kind: "general", statement: "청약 관련 조건은 모집공고에서 확인할 수 있다.", rawValue: "", risk: "verify", required: false };
+    const parsed = parsePlanningResult(JSON.stringify({ ...planning, opportunityCandidates: [{ ...candidate, verificationClaims: [general] }] }), { projectId: "p", selectionMode: "automatic", explicitVerificationPlanningEnabled: true });
+    expect(parsed.opportunityCandidates?.[0].verificationPlan?.claims[0]).toMatchObject({ risk: "verify", required: false });
+  });
+
   it("parses explicit claims, temporal requirements, empty plans, and rejects malformed explicit responses", () => {
     const parsed = parsePlanningResult(JSON.stringify(planning), { projectId: "p", selectionMode: "automatic", explicitVerificationPlanningEnabled: true });
     expect(parsed.opportunityCandidates?.[0].verificationPlan?.mode).toBe("explicit");

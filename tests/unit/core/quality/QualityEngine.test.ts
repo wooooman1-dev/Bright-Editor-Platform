@@ -69,6 +69,34 @@ describe("QualityEngine dimension scoring", () => {
     expect(report.tasks.length).toBeGreaterThan(0);
   });
 
+  it("does not read a heading about what the reader writes as a writing plan", () => {
+    const context = { contentType: "long-form blog article", platform: "tistory", primaryKeyword: "건강 관리", searchIntent: "건강 관리 방법", reviewedAt: "2026-01-01T00:00:00.000Z" };
+    const document = structured();
+    const readerFacing: ContentDocument = {
+      ...document,
+      blocks: document.blocks.map((block) => block.id === "h0"
+        ? { ...block, type: "heading" as const, level: 2 as const, text: "상담을 받기 전에 작성할 네 가지 확인 기록" }
+        : block),
+    };
+    const report = new QualityEngine().review(readerFacing, context);
+    expect(report.dimensions.find((item) => item.category === "completeness")?.evidence)
+      .toContainEqual({ signal: "planningLanguageDetected", value: false });
+  });
+
+  it("still reads a phrase about producing the manuscript as a writing plan", () => {
+    const context = { contentType: "long-form blog article", platform: "tistory", primaryKeyword: "건강 관리", searchIntent: "건강 관리 방법", reviewedAt: "2026-01-01T00:00:00.000Z" };
+    const document = structured();
+    const aboutTheManuscript: ContentDocument = {
+      ...document,
+      blocks: document.blocks.map((block) => block.id === "p0"
+        ? { ...block, type: "paragraph" as const, text: "이 본문을 작성할 예정이며 구체적인 판단 기준은 나중에 채웁니다." }
+        : block),
+    };
+    const report = new QualityEngine().review(aboutTheManuscript, context);
+    expect(report.dimensions.find((item) => item.category === "completeness")?.evidence)
+      .toContainEqual({ signal: "planningLanguageDetected", value: true });
+  });
+
   it("blocks an empty document and exposes not_evaluated evidence", () => {
     const report = new QualityEngine().review({ id: "empty", title: "", blocks: [] });
     expect(report.overallScore).toBeLessThan(30);

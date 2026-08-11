@@ -178,7 +178,17 @@ function measure(document: ContentDocument, context: QualityReviewContext) {
   const opportunityAlignment = context.opportunity ? analyzeContentOpportunityAlignment(document, context.opportunity) : undefined;
   const unsupportedEvidenceClaims = context.opportunity ? detectUnsupportedEvidenceClaims(text, context.opportunity) : [];
   const normalized = normalizeSeoKeyword(text).toLocaleLowerCase("ko-KR");
-  const planningPattern = /(?:작성할|다룰 예정|추가 예정|초안 지시|기획안|아웃라인|목차를 구성|will (?:write|cover|discuss)|to be written|placeholder|todo|tbd|insert .+ here)/i;
+  /**
+   * Every term here must name the manuscript's own production. A bare `작성할`
+   * did not: it is the ordinary Korean verb a life-economy checklist heading
+   * uses for what the *reader* writes, and `해지 버튼을 누르기 전에 작성할 네 가지
+   * 확인 기록` — a heading doing exactly what the checklist role asks — matched
+   * it. The hit costs 45 points at `informationSufficiencyScore`, which
+   * usefulness derives from, so one reader-facing verb took completeness and
+   * usefulness from 100 to 55 and the overall score from 100 to 87 while the
+   * article carried the false reason that it contained a writing plan.
+   */
+  const planningPattern = /(?:(?:글|원고|포스팅|본문|초안|콘텐츠)(?:을|를|은|는)?\s*작성할|작성할\s*(?:예정|계획)|다룰 예정|추가 예정|초안 지시|기획안|아웃라인|목차를 구성|will (?:write|cover|discuss)|to be written|placeholder|todo|tbd|insert .+ here)/i;
   const placeholderPattern = /(?:lorem ipsum|내용을 입력|여기에 .+ 입력|예시 문구|placeholder|todo|tbd)/i;
   const headingNames = headings.map((item) => item.text.trim().toLowerCase()).filter(Boolean);
   const duplicateHeadingCount = headingNames.length - new Set(headingNames).size;
