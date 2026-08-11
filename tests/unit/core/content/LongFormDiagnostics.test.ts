@@ -142,6 +142,70 @@ describe("LongFormDiagnostics information sufficiency", () => {
   });
 });
 
+describe("LongFormDiagnostics section role authority", () => {
+  const comparisonProse = [
+    "전세 보증금은 계약 종료 시 돌려받는 금액이고 월세 보증금은 그보다 적게 설정됩니다.",
+    "전세는 목돈이 묶이는 반면 월세는 매달 주거비가 나갑니다.",
+    "본인의 자금 사정과 거주 예정 기간을 확인한 뒤 결정합니다.",
+    "계약 전에 등기부등본으로 권리관계를 확인합니다.",
+  ].join(" ");
+
+  it("does not force a table on a section whose role was only guessed from its heading", () => {
+    const target = targetFor(["판단 기준"]);
+    const diagnostic = analyzeLongFormDocument(
+      documentWithoutStructure(target, [["전세와 월세의 차이", comparisonProse]]),
+      target,
+    );
+
+    expect(diagnostic.sections[0]).toMatchObject({ sectionType: "comparison", completeness: "sufficient" });
+    expect(diagnostic.violations).not.toContainEqual(expect.objectContaining({ code: "CONTENT_INCOMPLETE_SECTION" }));
+  });
+
+  it("still holds a declared comparison to its structural promise", () => {
+    const target = targetFor(["판단 기준"]);
+    const thin = "전세와 월세는 서로 조건이 다릅니다. 계약 전에 확인할 항목을 정리합니다. 자금 사정을 먼저 점검합니다. 거주 기간을 함께 고려합니다.";
+    const diagnostic = analyzeLongFormDocument(
+      document(target, [["comparison", thin, "전세와 월세의 차이"]]),
+      target,
+    );
+
+    expect(diagnostic.sections[0]?.completeness).toBe("mentioned");
+    expect(diagnostic.violations).toContainEqual(expect.objectContaining({ code: "CONTENT_INCOMPLETE_SECTION" }));
+  });
+
+  /**
+   * 기준, 선택 and 적합 appear throughout ordinary life-economy prose, so counting
+   * them let a declared comparison pass while comparing nothing.
+   */
+  it("does not accept a comparison that only names criteria and choices", () => {
+    const target = targetFor(["판단 기준"]);
+    const named = [
+      "판단 기준을 먼저 정리합니다.",
+      "자신의 상황에 적합한 선택을 확인합니다.",
+      "선택 기준은 자금 사정과 거주 기간입니다.",
+      "적합 여부는 계약 조건으로 확인합니다.",
+      "기준에 따라 선택을 정리합니다.",
+    ].join(" ");
+    const diagnostic = analyzeLongFormDocument(
+      document(target, [["comparison", named, "전세와 월세 선택 기준"]]),
+      target,
+    );
+
+    expect(diagnostic.sections[0]?.completeness).toBe("mentioned");
+    expect(diagnostic.violations).toContainEqual(expect.objectContaining({ code: "CONTENT_INCOMPLETE_SECTION" }));
+  });
+});
+
+function documentWithoutStructure(
+  target: ContentPlanQualityTarget,
+  values: readonly (readonly [string, string])[],
+): ContentDocument {
+  const source = document(target, values.map(([heading, text]) => ["explanation", text, heading] as const));
+  const metadata = { ...source.metadata! };
+  Reflect.deleteProperty(metadata as Record<string, unknown>, "longFormStructure");
+  return { ...source, metadata } as ContentDocument;
+}
+
 function targetFor(requiredContentElements: readonly string[]): ContentPlanQualityTarget {
   return determineContentPlanQualityTarget({
     contentType: "article",

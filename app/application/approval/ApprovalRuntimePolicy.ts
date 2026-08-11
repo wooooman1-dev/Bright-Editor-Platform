@@ -10,6 +10,7 @@ import {
 import { withApprovalGenerationTrace } from "./ApprovalGenerationTrace";
 import {
   contentBoundEditorialContext,
+  editorialContextWithoutDiversityPolicy,
   resolveContentApprovalSnapshot,
 } from "./ApprovalContentPolicy";
 
@@ -35,9 +36,34 @@ export function contentEditorialContext(
       }),
     },
     content,
+    recentProjectEditorialDocuments(data, content),
   );
 }
 
+/**
+ * The most recently written articles of the same Project, newest first. Scoped
+ * to the Project because that is the unit that maps to one published site, so
+ * repetition matters within it and not across unrelated sites.
+ */
+function recentProjectEditorialDocuments(
+  data: UserData,
+  content: UserContent,
+): readonly ContentDocument[] {
+  return data.contents
+    .filter((item) => item.projectId === content.projectId
+      && item.id !== content.id
+      && Boolean(item.document?.title.trim()))
+    .slice()
+    .sort((left, right) => (right.updatedAt ?? "").localeCompare(left.updatedAt ?? ""))
+    .map((item) => item.document!);
+}
+
+/**
+ * Repair-time instructions must not carry the diversity policy. Their contract
+ * is to satisfy the approval thresholds for this article, and asking the same
+ * call to also differ from recent articles invites a restructure that loses the
+ * contract. Diversity belongs to planning and generation.
+ */
 export function approvalAwareInstruction(
   instruction: string,
   data: UserData,
@@ -45,7 +71,7 @@ export function approvalAwareInstruction(
 ): string {
   return withCanonicalEditorialContext(
     instruction,
-    contentEditorialContext(data, content),
+    editorialContextWithoutDiversityPolicy(contentEditorialContext(data, content)),
   );
 }
 

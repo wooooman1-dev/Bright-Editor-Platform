@@ -230,18 +230,35 @@ export function formatLongFormDiagnostic(diagnostic: LongFormDiagnostic): string
   return `${item.code}: legacy length diagnostic.`;
 }
 
-function sectionDiagnostic(heading: string, sectionType: ContentSectionType, text: string, target: ContentPlanQualityTarget): LongFormSectionDiagnostic {
+/**
+ * A role the writer declared is a contract the section must honour. A role
+ * guessed from heading vocabulary is not: Korean life-economy headings can
+ * hardly avoid 비교, 차이, 방법 or 기준, so enforcing structure on the guess makes
+ * the heading dictate the body and every article converge on the same shape.
+ * Guessed roles still carry their information-element minimum; only the
+ * structural promise is withheld.
+ */
+type SectionRoleSource = "declared" | "inferred";
+
+function sectionDiagnostic(
+  heading: string,
+  sectionType: ContentSectionType,
+  text: string,
+  target: ContentPlanQualityTarget,
+  roleSource: SectionRoleSource = "declared",
+): LongFormSectionDiagnostic {
   const normalizedText = normalizeStructuredText(text);
   const listItemCount = structuredListItems(normalizedText).length;
   const tableCount = structuredTableCount(text);
   const sentenceElements = informationSentenceCount(structuredProseText(normalizedText));
   const informationElementCount = sentenceElements + listItemCount + tableCount * 3;
   const guidance = target.sectionGuidance[sectionType];
-  const structureSatisfied =
-    (sectionType === "checklist" ? listItemCount >= guidance.minimumListItems || informationElementCount >= guidance.minimumInformationElements + 1 : true)
+  const binding = roleSource === "declared";
+  const structureSatisfied = !binding
+    || ((sectionType === "checklist" ? listItemCount >= guidance.minimumListItems || informationElementCount >= guidance.minimumInformationElements + 1 : true)
     && (sectionType === "steps" ? orderedListItemCount(normalizedText) >= guidance.minimumListItems || orderedActionSignals(normalizedText) >= 3 : true)
     && (sectionType === "comparison" ? tableCount > 0 || comparisonSignals(normalizedText) >= 3 : true)
-    && (sectionType === "faq" ? questionAnswerSignals(normalizedText) >= 2 : true);
+    && (sectionType === "faq" ? questionAnswerSignals(normalizedText) >= 2 : true));
   const completeness: InformationSufficiencyStatus = !normalizedText
     ? "missing"
     : informationElementCount >= guidance.minimumInformationElements && structureSatisfied ? "sufficient" : "mentioned";
@@ -264,7 +281,7 @@ function inferSections(document: ContentDocument, target: ContentPlanQualityTarg
   const flush = () => {
     if (!heading) return;
     const joined = normalizeStructuredText(text.join("\n"));
-    result.push(Object.freeze({ text: joined, diagnostic: sectionDiagnostic(heading, inferSectionType(heading), joined, target) }));
+    result.push(Object.freeze({ text: joined, diagnostic: sectionDiagnostic(heading, inferSectionType(heading), joined, target, "inferred") }));
   };
   for (const block of document.blocks) {
     if (block.type === "heading" && block.level === 2) {
@@ -359,7 +376,13 @@ function orderedActionSignals(text: string): number {
 function orderedListItemCount(text: string): number {
   return [...normalizeStructuredText(text).matchAll(/(?:^|\n)\s*\d+[.)]\s+[^\n]+/gm)].length;
 }
-function comparisonSignals(text: string): number { return count(text, /비교|차이|장점|단점|반면|기준|선택|적합/g); }
+/**
+ * 기준, 선택 and 적합 were counted here but are not evidence of a comparison;
+ * ordinary life-economy prose clears three of them without comparing anything,
+ * which let a section claim the role while only naming it. What remains either
+ * contrasts two things or states a difference.
+ */
+function comparisonSignals(text: string): number { return count(text, /비교|차이|장점|단점|반면/g); }
 function questionAnswerSignals(text: string): number { return count(text, /\?|질문|답변|Q[:.]|A[:.]/gi); }
 
 function repetitionSignals(paragraphs: readonly string[]): string[] {
