@@ -1,4 +1,45 @@
+== 이어받는 명령 ==
 git fetch origin
 git switch feat/scheduled-publishing-and-diversity
 git pull
 npm run dev
+
+npm install 은 이전 브랜치에서 뒤처져 있을 때만. 이번 작업은 package.json 을
+건드리지 않았다.
+
+== 현재 상태 (2026-08-12, e65e57f) ==
+브랜치 feat/scheduled-publishing-and-diversity 와 worktree-root-cause-fixes 가
+같은 커밋. tsc / eslint 클린, vitest 1931 passed / 18 skipped / 0 failed.
+
+b509cff 에서 생성 원고 한 편을 측정해 근본 원인 3건을 고쳤다. 자세한 내용은
+Docs/current/04_DEVELOPMENT/13_EDITORIAL_DIVERSITY_HANDOFF.md 12절.
+
+1. QualityEngine 의 planningPattern 에 있던 맨 `작성할` 이 독자용 체크리스트
+   제목을 오탐해 완결성·유용성에서 45점을 깎고 있었다. 이제 원고를 목적어로
+   잡을 때만 걸린다.
+2. ContentPlanningStrategyBase 의 kind 하한이 모델이 risk 를 생략했을 때만
+   적용돼, eligibility 클레임에 verify 라고 답하면 출처 사전검증 자체를
+   건너뛰었다. 워크스페이스 9건 중 8건이 이 경로로 출처 없이 발행됐다.
+   이제 kind 하한이 우선이다.
+3. 산문 하한(400자, 리스트형 250자)과 비교 이행 의무를 생성 프롬프트에
+   명시했다. 게이트는 있었지만 생성에게 알려주지 않고 있었다.
+
+== 다음 할 일 ==
+원고를 한 편 새로 생성해 아래 셋을 측정한다. 프롬프트 변경과 등급 하한은
+테스트로 확인할 수 없고 실제 생성 1회가 필요하다.
+
+1. 완결성·유용성이 55 가 아니라 95 이상으로 올라오는가
+2. 원고에 출처가 붙는가. 또는 "사용 가능한 공식 출처를 확보하지 못해 원고
+   생성을 시작하지 않았습니다" 로 중단되는가 — 후자도 정상 동작이다.
+   원고가 나왔는데 출처가 여전히 없다면 아직 못 찾은 경로가 하나 더 있다.
+3. 체크리스트·순서 섹션의 산문이 250자를 넘고, 비교를 약속한 계획이라면
+   비교 섹션이 실제로 생기는가
+
+측정은 .bright-studio/studio-data.json 의 data.application.user-data.contents
+에서 가장 최근 항목을 읽어 document.metadata.generationDiagnostic 과
+quality.dimensions 를 보면 된다.
+
+== 따라가지 않는 것 ==
+.bright-studio/ 는 git 대상이 아니다. 이번에 측정한 청약통장 원고와 품질
+리포트는 옮겨지지 않는다. 다음 기계에 밝은재테크 Project 와 기존 발행 글이
+있어야 반복 회피 컨텍스트와 내부 링크 카탈로그가 같은 조건으로 동작한다.
