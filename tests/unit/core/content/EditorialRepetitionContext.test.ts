@@ -131,7 +131,7 @@ describe("editorial repetition context: first heading echo", () => {
       }),
       article({
         title: "청년 월세 지원 신청 방법, 접수 전 확인할 서류",
-        headings: ["청년 월세 지원이란", "서류 준비 순서"],
+        headings: ["청년 월세 지원 신청이란", "서류 준비 순서"],
       }),
     ]);
 
@@ -142,7 +142,7 @@ describe("editorial repetition context: first heading echo", () => {
   it("never asks for headings without the subject, which heading anchoring requires", () => {
     const context = buildEditorialRepetitionContext([
       article({ title: "적금 우대금리 조건 확인 방법: 가입 전 충족 가능성", headings: ["적금 우대금리 조건이란"] }),
-      article({ title: "청년 월세 지원 신청 방법, 접수 전 서류", headings: ["청년 월세 지원이란"] }),
+      article({ title: "청년 월세 지원 신청 방법, 접수 전 서류", headings: ["청년 월세 지원 신청이란"] }),
     ]);
 
     expect(context?.instruction).toContain("주제어 자체를 빼지는 말 것");
@@ -164,6 +164,34 @@ describe("editorial repetition context: first heading echo", () => {
     ]);
 
     expect(context?.instruction).not.toContain("첫 H2가 제목 앞머리");
+  });
+
+  /**
+   * These three are the real 밝은재테크 articles the rule was calibrated against.
+   * Only the first restates its title; the other two carry the subject because
+   * heading anchoring requires it, and the third already opens on the reader's
+   * first decision, which is exactly what the rule asks for.
+   */
+  it("separates a restatement from a heading that merely carries the subject", () => {
+    const restating = article({
+      title: "예금 적금 비교 방법: 돈을 쓸 시점과 저축 방식으로 고르는 기준",
+      headings: ["예금 적금 차이: 금리보다 먼저 볼 비교 기준"],
+    });
+    const advancing = [
+      article({
+        title: "신용카드 결제일 설정 방법: 월급일과 이용기간을 맞춰 카드값 관리하기",
+        headings: ["신용카드 결제일을 정하기 전, 달력에 적을 4가지"],
+      }),
+      article({
+        title: "비상금 규모 설정 방법: 생활비·고정지출로 내 목표액 정하기",
+        headings: ["비상금은 어떤 지출을 대비하는 돈인가"],
+      }),
+    ];
+
+    expect(buildEditorialRepetitionContext([restating, ...advancing])?.instruction)
+      .not.toContain("첫 H2가 제목 앞머리");
+    expect(buildEditorialRepetitionContext(advancing)?.instruction)
+      .not.toContain("첫 H2가 제목 앞머리");
   });
 });
 

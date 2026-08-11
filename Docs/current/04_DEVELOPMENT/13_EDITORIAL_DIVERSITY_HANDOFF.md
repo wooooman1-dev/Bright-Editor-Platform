@@ -157,9 +157,23 @@ symbol is not a different shape.
 
 `headingEchoRule()` fires when at least two recent articles open with an H2 that
 restates the head of their title, and it quotes those headings. A restatement
-is two or more of the head's distinctive terms and at least sixty percent of
-them; task modifiers (방법, 기준, 순서, 확인 …) are excluded because Korean
-life-economy headings carry them regardless of topic.
+is **all** of the head's distinctive terms reappearing in the heading; task
+modifiers (방법, 기준, 순서, 확인 …) are excluded because Korean life-economy
+headings carry them regardless of topic.
+
+The bar started at sixty percent and was tightened against the three real
+밝은재테크 articles. At sixty percent it flagged `신용카드 결제일을 정하기 전, 달력에
+적을 4가지` under the title `신용카드 결제일 설정 방법: …`, which is a heading that
+already opens on the reader's first decision — precisely what the rule asks
+for. Carrying some of the title's terms is the anchoring every heading must
+do; carrying the whole subject phrase is the restatement. The quoted headings
+reach the model as patterns to avoid, so a false positive teaches the wrong
+lesson while a false negative only leaves the rule quiet. Those three articles
+are pinned as a test.
+
+On that project the rule is currently silent: one of the three restates and
+the rule needs two, because one instance is not a pattern. The title shape
+rule still fires there, which is the larger problem in that data.
 
 **The rule asks for a different first section, never for headings without the
 subject.** `ContentOpportunityAlignment.ts:276` passes heading anchoring only
@@ -220,10 +234,20 @@ its data rows, declaring a table the topic cannot fill *lowers* the article's
 information score. The prompt says so, because a model that believes a table
 is free will keep asking for one.
 
-This is a prompt change, so the test suite cannot confirm it. What it can
-confirm is that nothing else moved: `npx tsc --noEmit` clean, `npx eslint .`
-clean, `npx vitest run` 1906 passed / 18 skipped / 0 failed. The behaviour
-needs a live planning run to verify.
+This is a prompt change, so the test suite cannot confirm it. It was confirmed
+against a live planning run on 2026-08-11 instead, on the 밝은재테크 Project:
+
+| | 월세 세액공제 조건 | 실업급여 수급자격 확인 방법 |
+|---|---|---|
+| `contentDepth` | `standard` | `standard` |
+| `tableNeeds` | false | true |
+| `checklistNeeds` | true | false |
+
+The flags now differ between candidates of one run and are grounded in the
+topics: the second candidate's `requiredContentElements` actually names a
+`사전 확인 표`, and the first asks for a recording form and comparison points
+instead. The three articles published before this change all carried
+`comparison` with both flags true.
 
 ## 11. Reference
 

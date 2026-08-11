@@ -180,12 +180,16 @@ function firstHeadingRestatesTitle(pattern: RecentEditorialPattern): boolean {
   const terms = distinctiveHeadTerms(splitTitleClause(pattern.title)?.head ?? pattern.title);
   if (terms.length < 2) return false;
   const normalizedHeading = normalizeForComparison(heading);
-  const matched = terms.filter((term) => normalizedHeading.includes(term));
   /**
-   * Two terms and most of them: one shared term is the anchoring the alignment
-   * gate requires, while most of the head phrase reappearing is a restatement.
+   * The whole head phrase, not most of it. Carrying some of the title's terms
+   * is the anchoring `ContentOpportunityAlignment` requires of every heading,
+   * and a looser bar flagged `신용카드 결제일을 정하기 전, 달력에 적을 4가지` under the
+   * title `신용카드 결제일 설정 방법` — a heading that already does what this rule
+   * asks for. These headings are quoted to the model as patterns to avoid, so a
+   * heading wrongly named as a fault teaches the wrong lesson; missing a
+   * restatement only leaves the rule quiet.
    */
-  return matched.length >= 2 && matched.length / terms.length >= 0.6;
+  return terms.every((term) => normalizedHeading.includes(term));
 }
 
 /**
