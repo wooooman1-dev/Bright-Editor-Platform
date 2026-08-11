@@ -8,11 +8,13 @@ Date: 2026-08-11
 - Working branch: `feat/scheduled-publishing-and-diversity`
 - Base branches merged into it: `feat/wordpress-scheduled-publishing` (PR #44) and `feat/editorial-diversity-context` (PR #46)
 - Merge commit: `ab5c777`, no conflicts, no file touched by both branches
-- Verification on the merged tree: `npx tsc --noEmit` clean, `npx eslint .` clean, `npx vitest run` 1895 passed / 18 skipped / 0 failed
+- Verification on the merged tree: `npx tsc --noEmit` clean, `npx eslint .` clean, `npx vitest run` 1906 passed / 18 skipped / 0 failed
 
 PR #44 and PR #46 keep their original scope and are still open. The working branch exists so both features can be exercised together in the running app; it has no pull request and must not be merged into `main` without explicit approval.
 
-The working branch deliberately has **no upstream tracking configured**. It was created from `origin/feat/wordpress-scheduled-publishing`, so a bare `git push` would have pushed the merge into PR #44. Always push it by name.
+The branch now exists on the remote as `origin/feat/scheduled-publishing-and-diversity`, so a checkout made with `git switch feat/scheduled-publishing-and-diversity` tracks it and a bare `git push` is safe. The earlier warning applied only to the machine that first created the branch from `origin/feat/wordpress-scheduled-publishing` without pushing it: there, an untracked `git push` would have gone into PR #44. On any machine, check `git rev-parse --abbrev-ref '@{u}'` before pushing if you did not create the branch yourself.
+
+`core/content/StructuredText.ts` is stored with LF line endings while its neighbours are not, and this repository has no `.gitattributes` and `core.autocrlf=false`. An editor that rewrites the file wholesale will convert it and bury a small change in a 570-line diff. After editing it, compare `git diff --numstat` with `git diff --numstat -w`; if they disagree, the difference is line endings, not content.
 
 ## 2. What Does Not Travel With The Repository
 
@@ -130,13 +132,74 @@ Title shape is varied when the article is written, not by loosening the topic. T
 
 ## 7. Open Work
 
-1. `titleShape()` in `core/content/EditorialRepetitionContext.ts` detects only a colon, a trailing question mark and a numbered list. The model satisfied the instruction literally and moved to a comma, producing the same `<핵심어> + 구분자 + 설명절` structure. Widen it to the structure rather than the punctuation, and consider detecting a first H2 that restates the title's head term, which all three recent articles still do.
-2. `core/content/RelatedPostRecommendation.ts:32` removes a candidate from `available` with `shift()` when it places the internal link, and the related-post loop then filters by `used` as well. With two published posts the result is one internal link and one related post; the expectation is up to three related posts, so with two published both should appear. The internal link and the related-post list should be allowed to overlap.
+1. ~~`titleShape()` detects only punctuation~~ — **done**, see section 8.
+2. ~~`RelatedPostRecommendation.ts:32` `shift()`~~ — **not a defect**. Checked against the running app on 2026-08-11: placement behaves as intended. Do not re-open this from the code reading alone.
 3. `qualityTarget.tableNeeds` and `checklistNeeds` came back true on every candidate. This is no longer forced by code — for `standard` depth `buildTarget` uses what the plan supplied — so it is now a planning-prompt matter: say that a table and a checklist are used when the topic needs them.
-4. `informationElementCount` scores a table as a flat `tableCount * 3` regardless of row count, and a list item counts the same as a complete sentence. Weight the table by data rows.
+4. ~~`informationElementCount` scores a table as a flat `tableCount * 3`~~ — table weighting **done**, see section 9. The list-item half is still open and is a deliberate decision, not an oversight: `structuredListItems` counts every bullet while `informationSentenceCount` requires twelve characters, so a one-word bullet scores as much as a full sentence. Applying the sentence threshold to bullets would push generation toward padded checklists, since a terse life-economy item such as `가입 기간 6개월` is ten characters and is correct as written. If this is changed, use a low substance floor aimed at `예`/`-`/`1`, not the sentence threshold.
 5. PR #46 is still titled `feat: 기획·생성에 반복 회피 컨텍스트 추가`, which no longer describes a branch that also fixes depth classification, adds format options and changes section-role authority. Retitle before review.
 
-## 8. Reference
+## 8. Title Shape Is Now Structural
+
+`titleShapes()` in `core/content/EditorialRepetitionContext.ts` replaces
+`titleShape()`. The old version named the colon, and generation satisfied that
+literally by moving the separator to a comma while keeping
+`<핵심어> + 구분자 + 설명절` intact, so the instruction had stopped describing what
+was repeating.
+
+`splitTitleClause()` now recognises the split itself — colon, comma, semicolon,
+en and em dash, spaced hyphen, tilde, pipe — and requires the trailing half to
+be at least two words, so a `제목 - 요약` suffix is read as a tag rather than a
+description clause. A title reports every structure it matches instead of only
+the first, and the instruction adds that changing the separator to another
+symbol is not a different shape.
+
+`headingEchoRule()` fires when at least two recent articles open with an H2 that
+restates the head of their title, and it quotes those headings. A restatement
+is two or more of the head's distinctive terms and at least sixty percent of
+them; task modifiers (방법, 기준, 순서, 확인 …) are excluded because Korean
+life-economy headings carry them regardless of topic.
+
+**The rule asks for a different first section, never for headings without the
+subject.** `ContentOpportunityAlignment.ts:276` passes heading anchoring only
+when *every* H2 and H3 carries a core term, so an instruction to drop the topic
+term from headings would trade the repetition for a blocked article. The
+instruction states this limit explicitly and a test asserts it stays there.
+
+Verification: `npx tsc --noEmit` clean, `npx eslint .` clean, `npx vitest run`
+1902 passed / 18 skipped / 0 failed.
+
+## 9. A Table Is Worth Its Data Rows
+
+`structuredTableRowCounts()` in `core/content/StructuredText.ts` reports the
+data rows of each table, excluding the header row because it labels the data
+rather than adding any. `tableInformationElements()` in `LongFormDiagnostics.ts`
+replaces `structuredTableCount(text) * 3` at both places that scored a table —
+`sectionDiagnostic()` for section completeness and `roleStatus()` for required
+elements. They had to move together; scoring a table differently in the two
+would let a section be complete while the element it carries is not.
+
+The weight is the data rows, floored at two and capped at six.
+
+| Data rows | Before | After |
+|---|---|---|
+| 1 | 3 | 2 |
+| 2 | 3 | 2 |
+| 3 | 3 | 3 |
+| 6 | 3 | 6 |
+| 14 | 3 | 6 |
+
+The floor keeps a table from being worth less than the fact it states. The cap
+is six because the section minimums in `sectionGuidance` run from two to four:
+without it, a long reference table alone would complete any section, which is
+the same defect in the other direction. A one-row table no longer completes an
+`explanation` section by itself, and a repair that empties a ten-row table is
+now visible to `detectEditorialReviewRegression`, which compares summed
+information elements and previously saw 3 before and 3 after.
+
+Verification: `npx tsc --noEmit` clean, `npx eslint .` clean, `npx vitest run`
+1906 passed / 18 skipped / 0 failed.
+
+## 10. Reference
 
 - `Docs/current/01_PRODUCT/14_ADSENSE_APPROVAL_CONTENT_POLICY.md` — approval content policy, required article information, prohibited practices
 - `origin/docs/content-format-diversity-spec` — the original diversity spec and the `qualityTarget` criteria analysis that argued against a fixed preset enum
