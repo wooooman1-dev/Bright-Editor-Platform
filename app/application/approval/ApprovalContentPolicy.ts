@@ -9,6 +9,7 @@ import {
 } from "../../../core/approval";
 import {
   buildEditorialRepetitionContext,
+  editorialFormatOptionsFor,
   type ContentDocument,
 } from "../../../core/content";
 import {
@@ -161,7 +162,14 @@ export function contentBoundEditorialContext(
   const stableProjectContext = Object.freeze(Object.fromEntries(
     Object.entries(projectContext).filter(([key]) => key !== "approvalPolicy"),
   ));
-  const approvalPolicy = contentApprovalPromptContext(content);
+  const snapshot = resolveContentApprovalSnapshot(content);
+  const approvalPolicy = snapshot ? approvalPolicyPromptContext(snapshot) : undefined;
+  /**
+   * Offered from the first article, unlike the recent-article summary, because a
+   * Project with nothing published yet still has to choose a shape and that
+   * first choice is what the later ones are compared against.
+   */
+  const formats = editorialFormatOptionsFor(snapshot?.profileId);
   const sourceRequest = content.opportunity?.sourceRequest
     ?? content.planningWorkflow?.request
     ?? content.naturalLanguageRequest
@@ -175,11 +183,22 @@ export function contentBoundEditorialContext(
       ...stableProjectContext,
       ...(approvalPolicy ? { approvalPolicy } : {}),
     },
-    ...(repetition
+    ...(repetition || formats
       ? {
         editorialDiversityPolicy: {
-          rule: repetition.instruction,
-          recentArticles: repetition.recent,
+          ...(formats
+            ? {
+              formatRule: formats.rule,
+              formatOptions: formats.options,
+              introStyles: formats.introStyles,
+            }
+            : {}),
+          ...(repetition
+            ? {
+              rule: repetition.instruction,
+              recentArticles: repetition.recent,
+            }
+            : {}),
         },
       }
       : {}),

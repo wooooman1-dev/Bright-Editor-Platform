@@ -146,3 +146,9 @@ export {
   type EditorialRepetitionContext,
   type RecentEditorialPattern,
 } from "./EditorialRepetitionContext";
+export {
+  editorialFormatOptionsFor,
+  lifeEconomyEditorialFormatOptions,
+  type EditorialFormatOption,
+  type EditorialFormatOptionSet,
+} from "./EditorialFormatOptions";

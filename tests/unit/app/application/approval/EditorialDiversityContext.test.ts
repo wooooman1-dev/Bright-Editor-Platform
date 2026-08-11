@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { contentEditorialContext } from "../../../../../app/application/approval/ApprovalRuntimePolicy";
 import { editorialContextWithoutDiversityPolicy } from "../../../../../app/application/approval/ApprovalContentPolicy";
+import { resolveApprovalPolicySnapshot } from "../../../../../core/approval";
 import {
   createProject,
   createWorkspace,
@@ -194,5 +195,65 @@ describe("depth classification isolation", () => {
     const data = workspaceData([target, content({ id: "previous", title: "이전 글" })]);
 
     expect(contentEditorialContext(data, target)).toContain("editorialDiversityPolicy");
+  });
+});
+
+function approvalContent(overrides: Parameters<typeof content>[0]): UserContent {
+  const snapshot = resolveApprovalPolicySnapshot("adsense_approval", "wordpress_life_economy_v1")!;
+  return {
+    ...content(overrides),
+    contentPurpose: snapshot.contentPurpose,
+    approvalPolicyId: snapshot.policyId,
+    approvalPolicyVersion: snapshot.policyVersion,
+    approvalProfileId: snapshot.profileId,
+    approvalProfileVersion: snapshot.profileVersion,
+  } as unknown as UserContent;
+}
+
+function formatOptionIds(data: UserData, target: UserContent): readonly string[] | undefined {
+  const parsed = JSON.parse(contentEditorialContext(data, target)) as {
+    editorialDiversityPolicy?: { formatOptions?: readonly { id: string }[] };
+  };
+  return parsed.editorialDiversityPolicy?.formatOptions?.map((option) => option.id);
+}
+
+describe("editorial format options in the generation context", () => {
+  it("offers the shapes from the first article, before any recent article exists", () => {
+    const target = approvalContent({ id: "content-1" });
+
+    expect(formatOptionIds(workspaceData([target]), target))
+      .toEqual(["procedure", "eligibility", "criteria", "correction", "calculation"]);
+  });
+
+  it("offers the shapes alongside the recent-article summary once articles exist", () => {
+    const target = approvalContent({ id: "content-new" });
+    const data = workspaceData([target, approvalContent({ id: "previous", title: "이전 글" })]);
+    const policy = diversityPolicy(data, target);
+
+    expect(formatOptionIds(data, target)).toHaveLength(5);
+    expect(policy?.recentArticles.map((item) => item.title)).toEqual(["이전 글"]);
+  });
+
+  it("offers no shapes to a Project that is not preparing for approval", () => {
+    const target = content({ id: "content-1" });
+
+    expect(formatOptionIds(workspaceData([target]), target)).toBeUndefined();
+  });
+
+  /**
+   * The shape descriptions carry 비교 and 차이, the very words the depth
+   * classifier keys on. They travel inside editorialDiversityPolicy so the
+   * existing strip removes them before classification.
+   */
+  it("keeps the shape descriptions out of the depth classification context", () => {
+    const target = approvalContent({ id: "content-1" });
+    const context = contentEditorialContext(workspaceData([target]), target);
+
+    expect(context).toContain("기준 비교형");
+
+    const stripped = editorialContextWithoutDiversityPolicy(context);
+
+    expect(stripped).not.toContain("기준 비교형");
+    expect(stripped).not.toContain("formatOptions");
   });
 });
