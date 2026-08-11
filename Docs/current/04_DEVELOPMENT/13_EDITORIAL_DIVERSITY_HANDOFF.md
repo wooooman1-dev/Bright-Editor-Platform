@@ -136,7 +136,9 @@ Title shape is varied when the article is written, not by loosening the topic. T
 2. ~~`RelatedPostRecommendation.ts:32` `shift()`~~ — **not a defect**. Checked against the running app on 2026-08-11: placement behaves as intended. Do not re-open this from the code reading alone.
 3. ~~`qualityTarget.tableNeeds` and `checklistNeeds` came back true on every candidate~~ — **done**, see section 10. Not yet measured against a live planning run; the next session that plans four candidates should check whether the three flags now differ between them.
 4. ~~`informationElementCount` scores a table as a flat `tableCount * 3`~~ — table weighting **done**, see section 9. The list-item half is still open and is a deliberate decision, not an oversight: `structuredListItems` counts every bullet while `informationSentenceCount` requires twelve characters, so a one-word bullet scores as much as a full sentence. Applying the sentence threshold to bullets would push generation toward padded checklists, since a terse life-economy item such as `가입 기간 6개월` is ten characters and is correct as written. If this is changed, use a low substance floor aimed at `예`/`-`/`1`, not the sentence threshold.
-5. PR #46 is still titled `feat: 기획·생성에 반복 회피 컨텍스트 추가`, which no longer describes a branch that also fixes depth classification, adds format options and changes section-role authority. Retitle before review.
+5. ~~PR #46 is still titled `feat: 기획·생성에 반복 회피 컨텍스트 추가`~~ — **done**. Retitled to `feat: 승인용 글의 편집 다양성 — 반복 회피 컨텍스트, 깊이 분류, 글 형태, 섹션 역할`. The body was also rewritten: it had described only `472530b` and carried that commit's test numbers, leaving four of the five commits unexplained to a reviewer. It now covers all five and reports 1835 passed / 18 skipped measured at the branch tip `a436ded`.
+
+Nothing in section 7 is outstanding except item 4's list-item half. The title shape, table weighting and planning-prompt changes live on this working branch only; PR #46 is unchanged in scope and still holds its original five commits.
 
 ## 8. Title Shape Is Now Structural
 
