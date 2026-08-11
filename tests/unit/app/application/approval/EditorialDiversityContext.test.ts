@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { contentEditorialContext } from "../../../../../app/application/approval/ApprovalRuntimePolicy";
-import { editorialContextWithoutDiversityPolicy } from "../../../../../app/application/approval/ApprovalContentPolicy";
+import {
+  editorialContextWithoutDiversityPolicy,
+  editorialDiversityPolicyFromContext,
+} from "../../../../../app/application/approval/ApprovalContentPolicy";
 import { resolveApprovalPolicySnapshot } from "../../../../../core/approval";
 import {
   createProject,
@@ -195,6 +198,27 @@ describe("depth classification isolation", () => {
     const data = workspaceData([target, content({ id: "previous", title: "이전 글" })]);
 
     expect(contentEditorialContext(data, target)).toContain("editorialDiversityPolicy");
+  });
+});
+
+describe("reading the diversity policy back out of the context", () => {
+  it("returns the policy Planning has to restate at instruction rank", () => {
+    const target = content({ id: "content-new" });
+    const data = workspaceData([target, content({ id: "previous", title: "이전 글" })]);
+
+    const policy = editorialDiversityPolicyFromContext(contentEditorialContext(data, target));
+
+    expect(policy?.recentArticles?.map((item) => item.title)).toEqual(["이전 글"]);
+    expect(policy?.rule).toBeTruthy();
+  });
+
+  it.each([
+    ["a context without the policy", JSON.stringify({ projectStrategy: { domain: "생활경제" } })],
+    ["a value that is not JSON", "plain text"],
+    ["an empty value", ""],
+    ["no value", undefined],
+  ])("returns undefined for %s", (_label, context) => {
+    expect(editorialDiversityPolicyFromContext(context)).toBeUndefined();
   });
 });
 

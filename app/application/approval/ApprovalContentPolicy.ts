@@ -141,6 +141,37 @@ export function contentApprovalPromptContext(content: UserContent): string | und
  * words the classifier keys on, which would pin every new candidate to the
  * depth the previous articles already used.
  */
+export type EditorialDiversityPolicyContext = Readonly<{
+  rule?: string;
+  recentArticles?: readonly Readonly<{
+    title: string;
+    headings?: readonly string[];
+    openingSentence?: string;
+  }>[];
+  formatRule?: string;
+  formatOptions?: readonly Readonly<{ id: string; name: string; skeleton: string; fitsWhen: string }>[];
+  introStyles?: readonly string[];
+}>;
+
+/**
+ * Planning receives the editorial context as one JSON string. Nested inside it,
+ * the diversity policy competes with the prompt's own prose instructions and
+ * loses; reading it back out lets the caller state it as an instruction of the
+ * same rank. Returns undefined when the context carries no policy.
+ */
+export function editorialDiversityPolicyFromContext(
+  context: string | undefined,
+): EditorialDiversityPolicyContext | undefined {
+  if (!context?.trim()) return undefined;
+  try {
+    const parsed = JSON.parse(context) as Record<string, unknown>;
+    const policy = parsed?.editorialDiversityPolicy;
+    return policy && typeof policy === "object" ? policy as EditorialDiversityPolicyContext : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function editorialContextWithoutDiversityPolicy(context: string): string {
   try {
     const parsed = JSON.parse(context) as Record<string, unknown>;
