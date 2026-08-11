@@ -26,6 +26,7 @@ import { PublicPostCatalogApplicationService } from "../../application/publishin
 import {
   applyInternalLinkCatalogResult,
   publishingCategoryIdentities,
+  withProjectDefaultPublishingCategories,
   publishingCategoryNames,
   rankPublishingPostCandidates,
   withInternalLinkCatalogMetadata,
@@ -772,7 +773,11 @@ async function placeAvailablePublishingPosts(
     return document;
   }
 
-  const categories = publishingCategoryIdentities(content);
+  const effectiveContent = withProjectDefaultPublishingCategories(
+    content,
+    data.projects.find((item) => item.id === content.projectId),
+  );
+  const categories = publishingCategoryIdentities(effectiveContent);
   if (!categories.length) {
     console.warn("[internal-link-trace] publishing category is missing", {
       contentId: content.id,
@@ -811,7 +816,7 @@ async function placeAvailablePublishingPosts(
       connection,
       selectedTarget,
     });
-    const ranked = rankPublishingPostCandidates(document, catalog.posts, content);
+    const ranked = rankPublishingPostCandidates(document, catalog.posts, effectiveContent);
     const placed = applyInternalLinkCatalogResult(document, ranked, "evaluated");
     console.info("[internal-link-trace] platform catalog evaluated", {
       cached: catalog.cached,

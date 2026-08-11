@@ -6,7 +6,47 @@ import {
   type ContentDocument,
   type PublicPostCandidate,
 } from "../../../core/content";
-import type { UserContent } from "../../user-flow/user-data";
+import type { UserContent, UserProject } from "../../user-flow/user-data";
+
+/**
+ * The publishing category a freshly generated article should use.
+ *
+ * `publishingCategoryIdentities` reads `content.publishingPreparation`, which is
+ * written by the publishing preparation flow — that is, only once the user has
+ * opened publishing for this article. A newly generated article therefore has
+ * no category, internal link placement is skipped as `category_missing`, and
+ * the links appear only after the candidate list is refreshed later. The
+ * Project already declares the category to use for the account in
+ * `defaultWordPressCategories`; this reads it when the content has none yet.
+ *
+ * The preparation flow still overwrites this with platform-validated
+ * categories, so this never competes with a real selection: it only fills the
+ * window between generating an article and opening its publishing panel.
+ */
+export function withProjectDefaultPublishingCategories(
+  content: UserContent,
+  project: UserProject | undefined,
+): UserContent {
+  if (content.publishingPreparation?.wordpress) return content;
+  const accountId = content.publishingAccountId?.trim()
+    ?? project?.strategy?.defaultPublishingAccountId?.trim();
+  if (!accountId) return content;
+  const categories = (project?.strategy?.defaultWordPressCategories ?? [])
+    .filter((category) => category.publishingAccountId === accountId && category.id);
+  if (!categories.length) return content;
+  return Object.freeze({
+    ...content,
+    publishingPreparation: Object.freeze({
+      ...content.publishingPreparation,
+      wordpress: Object.freeze({
+        publishingAccountId: accountId,
+        categoryIds: Object.freeze(categories.map((category) => String(category.id))),
+        categoryNames: Object.freeze(categories.map((category) => category.name ?? String(category.id))),
+        updatedAt: content.updatedAt,
+      }),
+    }),
+  });
+}
 
 export type PublishingCategoryIdentity = Readonly<{
   id?: string | null;
