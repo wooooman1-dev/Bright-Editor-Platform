@@ -297,6 +297,35 @@ type DetectedScalar = Readonly<{
   end: number;
 }>;
 
+/**
+ * A quoted phrase that the same sentence goes on to reject is an example of
+ * wording the reader should avoid, not a fact the article asserts. An article
+ * was blocked for `'2년 근무'라고 한 줄로 적는 대신 …`, where 2년 is the reader's
+ * hypothetical note rather than any claim about the programme.
+ *
+ * Both signals are required: the quote must be grammatically *mentioned*
+ * (라고·라는·처럼) and the sentence must then reject it (대신·말고·아니라). A figure
+ * the article actually states, including one quoted from a source and asserted,
+ * matches neither and is still detected.
+ */
+const mentionedQuotePattern =
+  /[‘“'"「『]([^’”'"」』]{1,40})[’”'"」』]\s*(?:이?라고|이?라는|처럼|식으로)/gu;
+const rejectedExampleTail = /(?:대신|말고|아니라|보다는)/u;
+const rejectedExampleTailWindow = 60;
+
+function rejectedExampleSpans(
+  value: string,
+): readonly Readonly<{ start: number; end: number }>[] {
+  const spans: Array<Readonly<{ start: number; end: number }>> = [];
+  for (const match of value.matchAll(mentionedQuotePattern)) {
+    if (typeof match.index !== "number") continue;
+    const end = match.index + match[0].length;
+    if (!rejectedExampleTail.test(value.slice(end, end + rejectedExampleTailWindow))) continue;
+    spans.push(Object.freeze({ start: match.index, end }));
+  }
+  return Object.freeze(spans);
+}
+
 function detectHighRiskScalarTokens(value: string): readonly DetectedScalar[] {
   const detected: DetectedScalar[] = [];
   collectMatches(detected, value, /\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*(?:조원|억원|만원|원)/gu, "money");
@@ -308,7 +337,11 @@ function detectHighRiskScalarTokens(value: string): readonly DetectedScalar[] {
     if (occupiedByDate.some((date) => item.start >= date.start && item.end <= date.end)) continue;
     detected.push(Object.freeze({ ...item, kind: "duration" as const }));
   }
-  return Object.freeze(detected.sort((a, b) => a.start - b.start || a.end - b.end));
+  const rejectedExamples = rejectedExampleSpans(value);
+  return Object.freeze(detected
+    .filter((item) => !rejectedExamples.some((span) =>
+      item.start >= span.start && item.end <= span.end))
+    .sort((a, b) => a.start - b.start || a.end - b.end));
 }
 
 function collectMatches(

@@ -22,6 +22,7 @@ export type LongFormViolationCode =
   | "CONTENT_REQUIRED_ELEMENT_MISSING"
   | "CONTENT_REQUIRED_ELEMENT_INSUFFICIENT"
   | "CONTENT_REPETITION_DETECTED"
+  | "CONTENT_SECTION_PROSE_INSUFFICIENT"
   /** Legacy diagnostic codes remain readable but are never newly generated. */
   | "CONTENT_TOTAL_BELOW_SAFETY_FLOOR"
   | "CONTENT_BELOW_PLANNING_TARGET"
@@ -33,6 +34,12 @@ export type LongFormSectionDiagnostic = Readonly<{
   sectionType: ContentSectionType;
   /** Telemetry only. Never used for quality or approval. */
   proseCharacters: number;
+  /**
+   * Characters of running prose only: tables and list items are removed before
+   * counting, so this is what the section actually writes out rather than
+   * tabulates.
+   */
+  narrativeCharacters: number;
   listItemCount: number;
   tableCount: number;
   informationElementCount: number;
@@ -53,6 +60,8 @@ export type LongFormDiagnostic = Readonly<{
   actualTotalProseCharacters: number;
   /** Backward-compatible telemetry alias. */
   totalProseCharacters: number;
+  /** Running prose only, with tables and list items excluded. */
+  narrativeCharacters: number;
   actualSectionCount: number;
   /** Backward-compatible telemetry alias. */
   headingCount: number;
@@ -130,7 +139,18 @@ export function analyzeLongFormDocument(document: ContentDocument, requestedTarg
     if (section.completeness !== "sufficient") {
       violations.push({ code: "CONTENT_INCOMPLETE_SECTION", heading: section.heading, actual: section.informationElementCount });
     }
+    if (!sectionNarrativeSufficient(section)) {
+      violations.push({
+        code: "CONTENT_SECTION_PROSE_INSUFFICIENT",
+        heading: section.heading,
+        minimum: minimumSectionNarrativeCharacters,
+        actual: section.narrativeCharacters,
+      });
+    }
   }
+  const narrativeTotal = sections.reduce((sum, section) => sum + section.narrativeCharacters, 0)
+    + withoutWhitespace(introductionText)
+    + withoutWhitespace(conclusionText);
   for (const item of requiredContentElements) {
     if (item.status === "missing") violations.push({ code: "CONTENT_REQUIRED_ELEMENT_MISSING", requiredElement: item.element, actual: 0 });
     if (item.status === "mentioned") violations.push({ code: "CONTENT_REQUIRED_ELEMENT_INSUFFICIENT", requiredElement: item.element, actual: 1 });
@@ -141,6 +161,7 @@ export function analyzeLongFormDocument(document: ContentDocument, requestedTarg
     ...(violations[0] ? { code: violations[0].code } : {}),
     actualTotalProseCharacters: total,
     totalProseCharacters: total,
+    narrativeCharacters: narrativeTotal,
     actualSectionCount: sections.length,
     headingCount: sections.length,
     introductionCharacters: withoutWhitespace(introductionText),
@@ -228,6 +249,7 @@ export function formatLongFormDiagnostic(diagnostic: LongFormDiagnostic): string
   if (item.code === "CONTENT_REQUIRED_ELEMENT_MISSING") return `CONTENT_REQUIRED_ELEMENT_MISSING: ${item.requiredElement ?? "required element"}.`;
   if (item.code === "CONTENT_REQUIRED_ELEMENT_INSUFFICIENT") return `CONTENT_REQUIRED_ELEMENT_INSUFFICIENT: ${item.requiredElement ?? "required element"} was only mentioned.`;
   if (item.code === "CONTENT_REPETITION_DETECTED") return `CONTENT_REPETITION_DETECTED: ${item.actual} repeated paragraph pattern(s).`;
+  if (item.code === "CONTENT_SECTION_PROSE_INSUFFICIENT") return `CONTENT_SECTION_PROSE_INSUFFICIENT: "${item.heading ?? "제목 없음"}" leans on a table or list with only ${item.actual} characters of prose.`;
   return `${item.code}: legacy length diagnostic.`;
 }
 
@@ -251,7 +273,9 @@ function sectionDiagnostic(
   const normalizedText = normalizeStructuredText(text);
   const listItemCount = structuredListItems(normalizedText).length;
   const tableCount = structuredTableCount(text);
-  const sentenceElements = informationSentenceCount(structuredProseText(normalizedText));
+  const narrative = structuredProseText(normalizedText);
+  const narrativeCharacters = withoutWhitespace(narrative);
+  const sentenceElements = informationSentenceCount(narrative);
   const informationElementCount = sentenceElements + listItemCount + tableInformationElements(text);
   const guidance = target.sectionGuidance[sectionType];
   const binding = roleSource === "declared";
@@ -267,12 +291,29 @@ function sectionDiagnostic(
     heading,
     sectionType,
     proseCharacters: withoutWhitespace(normalizedText),
+    narrativeCharacters,
     listItemCount,
     tableCount,
     informationElementCount,
     completeness,
     expectedGuidance: guidance.expectedRole,
   });
+}
+
+/**
+ * A section carried by a table is not an explained section. A four-row table is
+ * worth four information elements while sections need two to four, so without
+ * this a table and two short sentences cleared the gate and the article had
+ * nothing to read. Sections whose role is inherently structural are exempt: a
+ * checklist is meant to be a list.
+ */
+const minimumSectionNarrativeCharacters = 400;
+const listShapedSectionTypes = new Set<ContentSectionType>(["checklist", "steps", "faq"]);
+
+function sectionNarrativeSufficient(section: LongFormSectionDiagnostic): boolean {
+  if (listShapedSectionTypes.has(section.sectionType)) return true;
+  if (!section.tableCount && !section.listItemCount) return true;
+  return section.narrativeCharacters >= minimumSectionNarrativeCharacters;
 }
 
 function inferSections(document: ContentDocument, target: ContentPlanQualityTarget): SectionWithText[] {

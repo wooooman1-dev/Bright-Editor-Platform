@@ -226,6 +226,60 @@ describe("LongFormDiagnostics table weighting", () => {
     expect(tableSectionDiagnostic(4)?.completeness).toBe("sufficient");
   });
 
+  /**
+   * A four-row table is worth four information elements and a section needs two
+   * to four, so a table plus two sentences cleared the completeness gate and
+   * left nothing to read. Measured on a real article, the two sections carrying
+   * a table had 313 and 208 characters of prose.
+   */
+  const thinProse = "이 표는 확인할 항목을 정리한 것입니다. 각 항목은 따로 기록합니다.";
+  const fullProse = "이 표는 수급자격을 가늠할 때 확인할 항목을 정리한 것입니다. ".repeat(20);
+
+  it("rejects a section that leans on a table with almost no prose", () => {
+    const target = targetFor(["판단 기준"]);
+    const diagnostic = analyzeLongFormDocument(
+      document(target, [["comparison", `${thinProse}\n${markdownTable(4)}`]]),
+      target,
+    );
+
+    expect(diagnostic.violations).toContainEqual(expect.objectContaining({
+      code: "CONTENT_SECTION_PROSE_INSUFFICIENT",
+    }));
+  });
+
+  it("accepts the same table once the section explains it", () => {
+    const target = targetFor(["판단 기준"]);
+    const diagnostic = analyzeLongFormDocument(
+      document(target, [["comparison", `${fullProse}\n${markdownTable(4)}`]]),
+      target,
+    );
+
+    expect(diagnostic.violations.map((item) => item.code))
+      .not.toContain("CONTENT_SECTION_PROSE_INSUFFICIENT");
+  });
+
+  it("leaves a section alone when it carries no table or list", () => {
+    const target = targetFor(["판단 기준"]);
+    const diagnostic = analyzeLongFormDocument(
+      document(target, [["explanation", thinProse]]),
+      target,
+    );
+
+    expect(diagnostic.violations.map((item) => item.code))
+      .not.toContain("CONTENT_SECTION_PROSE_INSUFFICIENT");
+  });
+
+  it("exempts a checklist, whose role is to be a list", () => {
+    const target = targetFor(["판단 기준"]);
+    const diagnostic = analyzeLongFormDocument(
+      document(target, [["checklist", `${thinProse}\n- 첫 번째 점검 항목\n- 두 번째 점검 항목\n- 세 번째 점검 항목`]]),
+      target,
+    );
+
+    expect(diagnostic.violations.map((item) => item.code))
+      .not.toContain("CONTENT_SECTION_PROSE_INSUFFICIENT");
+  });
+
   it("makes a repair that empties a table visible as an information loss", () => {
     const target = targetFor(["판단 기준"]);
     const before = analyzeLongFormDocument(document(target, [["explanation", markdownTable(10)]]), target);

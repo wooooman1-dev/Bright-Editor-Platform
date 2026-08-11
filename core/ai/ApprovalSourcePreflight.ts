@@ -1056,6 +1056,8 @@ Rules:
 - Claim evidenceExcerpt must be a short contiguous verbatim passage from that same canonical extracted document text containing or directly proving the Claim value.
 - Do not attach a Claim field that the page does not support.
 - Several official sources may divide the Claims, but the complete sources array must cover every required Claim.
+- Return every official page you inspected that supports a required Claim, not only the single best one. The server re-fetches and re-validates each page and may reject one for reasons you cannot observe from here, so when you submit a single page one rejection blocks the whole article. Where two or more official pages support the same Claim, submit them all.
+- Prefer the institution that administers the subject on its own site over a portal that only republishes the rule, and when both exist submit both.
 - If a required Claim cannot be verified, return the usable sources and omit the unsupported Claim. The server will block Generation.
 - If no usable official page exists, return {"sources":[]}.
 Return JSON only as {"sources":[{"url":"https://...","title":"...","evidenceExcerpt":"verbatim source passage","claims":[{"field":"required field","value":"exact concise fact","evidenceExcerpt":"verbatim passage from this exact page"}]}]}.`;
