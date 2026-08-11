@@ -12,6 +12,7 @@ import {
   structuredListItems,
   structuredProseText,
   structuredTableCount,
+  structuredTableRowCounts,
 } from "./StructuredText";
 
 export type InformationSufficiencyStatus = "missing" | "mentioned" | "sufficient";
@@ -251,7 +252,7 @@ function sectionDiagnostic(
   const listItemCount = structuredListItems(normalizedText).length;
   const tableCount = structuredTableCount(text);
   const sentenceElements = informationSentenceCount(structuredProseText(normalizedText));
-  const informationElementCount = sentenceElements + listItemCount + tableCount * 3;
+  const informationElementCount = sentenceElements + listItemCount + tableInformationElements(text);
   const guidance = target.sectionGuidance[sectionType];
   const binding = roleSource === "declared";
   const structureSatisfied = !binding
@@ -344,8 +345,29 @@ function roleStatus(text: string, minimumElements: number, signal?: RegExp): Inf
   if (signal && !signal.test(normalizedText)) return "mentioned";
   const elements = informationSentenceCount(structuredProseText(normalizedText))
     + structuredListItems(normalizedText).length
-    + structuredTableCount(text) * 3;
+    + tableInformationElements(text);
   return elements >= minimumElements ? "sufficient" : "mentioned";
+}
+
+/**
+ * A table used to be worth a flat three elements however many rows it held, so
+ * a one-row table and a ten-row rate table counted the same, and a repair that
+ * emptied a table down to a single row left the score untouched and the loss
+ * invisible to `detectEditorialReviewRegression`.
+ *
+ * The weight is now the data rows. It is floored at two so a table is never
+ * worth less than the fact it states, and capped at six so a long reference
+ * table cannot carry a section that says nothing around it — the section
+ * minimums run from two to four, and a table alone is not a section.
+ */
+const minimumTableElements = 2;
+const maximumTableElements = 6;
+
+function tableInformationElements(text: string): number {
+  return structuredTableRowCounts(text).reduce(
+    (sum, dataRows) => sum + Math.min(maximumTableElements, Math.max(minimumTableElements, dataRows)),
+    0,
+  );
 }
 
 function termCoverage(requirement: string, text: string): boolean {

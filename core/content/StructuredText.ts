@@ -113,6 +113,16 @@ export function structuredTableCount(value: string): number {
   return parseStructuredText(value).filter((segment) => segment.type === "table").length;
 }
 
+/**
+ * Data rows of each table, in document order. A caller weighing how much a
+ * table actually carries needs the row counts; the header row is excluded
+ * because it labels the data rather than adding any.
+ */
+export function structuredTableRowCounts(value: string): readonly number[] {
+  return Object.freeze(parseStructuredText(value)
+    .flatMap((segment) => segment.type === "table" ? [segment.table.rows.length] : []));
+}
+
 export function structuredProseText(value: string): string {
   return parseStructuredText(value)
     .flatMap((segment) => segment.type === "text" ? [segment.text] : [])

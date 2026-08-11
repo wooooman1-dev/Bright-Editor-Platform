@@ -196,6 +196,46 @@ describe("LongFormDiagnostics section role authority", () => {
   });
 });
 
+describe("LongFormDiagnostics table weighting", () => {
+  function markdownTable(dataRows: number): string {
+    return [
+      "| 구분 | 조건 |",
+      "| --- | --- |",
+      ...Array.from({ length: dataRows }, (_, index) => `| 항목 ${index + 1} | 조건 ${index + 1} |`),
+    ].join("\n");
+  }
+
+  function tableSectionDiagnostic(dataRows: number) {
+    const target = targetFor(["판단 기준"]);
+    return analyzeLongFormDocument(
+      document(target, [["explanation", markdownTable(dataRows)]]),
+      target,
+    ).sections[0];
+  }
+
+  it("scores a table by its data rows rather than a flat three", () => {
+    expect([1, 2, 3, 5, 6, 14].map((rows) => tableSectionDiagnostic(rows)?.informationElementCount))
+      .toEqual([2, 2, 3, 5, 6, 6]);
+  });
+
+  it("stops a one-row table from completing a section by itself", () => {
+    expect(tableSectionDiagnostic(1)?.completeness).toBe("mentioned");
+  });
+
+  it("keeps a table with enough rows sufficient for its section", () => {
+    expect(tableSectionDiagnostic(4)?.completeness).toBe("sufficient");
+  });
+
+  it("makes a repair that empties a table visible as an information loss", () => {
+    const target = targetFor(["판단 기준"]);
+    const before = analyzeLongFormDocument(document(target, [["explanation", markdownTable(10)]]), target);
+    const after = analyzeLongFormDocument(document(target, [["explanation", markdownTable(1)]]), target);
+
+    expect(before.sections[0]?.informationElementCount)
+      .toBeGreaterThan(after.sections[0]!.informationElementCount);
+  });
+});
+
 function documentWithoutStructure(
   target: ContentPlanQualityTarget,
   values: readonly (readonly [string, string])[],
