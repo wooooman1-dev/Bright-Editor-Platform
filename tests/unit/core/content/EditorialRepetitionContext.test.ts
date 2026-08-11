@@ -64,6 +64,33 @@ describe("editorial repetition context", () => {
     expect(context?.instruction).toContain("제목 문형");
   });
 
+  it("names the same two-part shape when the separator moved off the colon", () => {
+    const context = buildEditorialRepetitionContext([
+      article({ title: "정부지원금 찾는 방법, 대상 후보를 정리하는 순서" }),
+      article({ title: "청년 월세 지원 신청 - 접수 전 확인할 서류" }),
+    ]);
+
+    expect(context?.instruction).toContain("두 도막 제목");
+    expect(context?.instruction).toContain("구분자만 다른 기호로 바꾸는 것은 다른 문형이 아니다");
+  });
+
+  it("reads a one-word trailing fragment as a tag rather than a description clause", () => {
+    const context = buildEditorialRepetitionContext([
+      article({ title: "연말정산 환급 신청 - 요약" }),
+    ]);
+
+    expect(context?.instruction).not.toContain("두 도막 제목");
+  });
+
+  it("reports every structure a title matches, not only the first", () => {
+    const context = buildEditorialRepetitionContext([
+      article({ title: "전세자금대출 갈아타기: 준비해야 할 3가지 서류" }),
+    ]);
+
+    expect(context?.instruction).toContain("두 도막 제목");
+    expect(context?.instruction).toContain("숫자 나열형 제목");
+  });
+
   it("does not invent a shape warning when recent titles share no pattern", () => {
     const context = buildEditorialRepetitionContext([article({ title: "생활비를 줄이는 현실적인 순서" })]);
 
@@ -92,6 +119,51 @@ describe("editorial repetition context", () => {
     } as unknown as ContentDocument;
 
     expect(buildEditorialRepetitionContext([document])?.recent[0].headings).toEqual(["주요 섹션"]);
+  });
+});
+
+describe("editorial repetition context: first heading echo", () => {
+  it("flags a first H2 that restates the head of the title", () => {
+    const context = buildEditorialRepetitionContext([
+      article({
+        title: "적금 우대금리 조건 확인 방법: 가입 전 충족 가능성",
+        headings: ["적금 우대금리 조건이란", "가입 전 확인 순서"],
+      }),
+      article({
+        title: "청년 월세 지원 신청 방법, 접수 전 확인할 서류",
+        headings: ["청년 월세 지원이란", "서류 준비 순서"],
+      }),
+    ]);
+
+    expect(context?.instruction).toContain("첫 H2가 제목 앞머리를 거의 그대로 되풀이했다");
+    expect(context?.instruction).toContain("적금 우대금리 조건이란");
+  });
+
+  it("never asks for headings without the subject, which heading anchoring requires", () => {
+    const context = buildEditorialRepetitionContext([
+      article({ title: "적금 우대금리 조건 확인 방법: 가입 전 충족 가능성", headings: ["적금 우대금리 조건이란"] }),
+      article({ title: "청년 월세 지원 신청 방법, 접수 전 서류", headings: ["청년 월세 지원이란"] }),
+    ]);
+
+    expect(context?.instruction).toContain("주제어 자체를 빼지는 말 것");
+  });
+
+  it("treats a single anchoring term as anchoring rather than restatement", () => {
+    const context = buildEditorialRepetitionContext([
+      article({ title: "적금 우대금리 조건 확인 방법: 가입 전 충족 가능성", headings: ["우대금리가 갈리는 지점"] }),
+      article({ title: "청년 월세 지원 신청 방법, 접수 전 서류", headings: ["월세 부담을 줄이는 순서"] }),
+    ]);
+
+    expect(context?.instruction).not.toContain("첫 H2가 제목 앞머리");
+  });
+
+  it("stays silent when only one recent article echoes its title", () => {
+    const context = buildEditorialRepetitionContext([
+      article({ title: "적금 우대금리 조건 확인 방법: 가입 전 충족 가능성", headings: ["적금 우대금리 조건이란"] }),
+      article({ title: "청년 월세 지원 신청 방법, 접수 전 서류", headings: ["신청 자격이 갈리는 지점"] }),
+    ]);
+
+    expect(context?.instruction).not.toContain("첫 H2가 제목 앞머리");
   });
 });
 

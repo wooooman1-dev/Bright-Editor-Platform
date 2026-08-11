@@ -94,15 +94,14 @@ function openingSentence(document: ContentDocument): string {
  * shape that would become the next repeated pattern.
  */
 function repetitionInstruction(recent: readonly RecentEditorialPattern[]): string {
-  const titleShapes = [...new Set(recent
-    .map((pattern) => titleShape(pattern.title))
-    .filter(Boolean))];
+  const repeatedTitleShapes = [...new Set(recent.flatMap((pattern) => titleShapes(pattern.title)))];
   return [
     "아래는 이 사이트에 최근 발행한 글들의 제목, H2 소제목, 도입부 첫 문장과 기획된 글 형태이다.",
     "새 글은 이들과 제목 문형, 소제목 문형, 도입부 화법이 겹치지 않아야 한다.",
-    titleShapes.length
-      ? `특히 최근 제목이 반복적으로 사용한 형태(${titleShapes.join(", ")})를 그대로 따르지 말 것.`
+    repeatedTitleShapes.length
+      ? `특히 최근 제목이 반복적으로 사용한 형태(${repeatedTitleShapes.join(", ")})를 그대로 따르지 말 것. 구분자만 다른 기호로 바꾸는 것은 다른 문형이 아니다.`
       : "",
+    headingEchoRule(recent),
     repeatedShapeRule(recent),
     "같은 주제를 다루더라도 독자에게 접근하는 각도와 글의 뼈대를 다르게 구성한다.",
     "다양성을 위해 사실을 바꾸거나 근거 없는 내용을 추가하지 않는다.",
@@ -121,9 +120,107 @@ function repeatedShapeRule(recent: readonly RecentEditorialPattern[]): string {
   return `최근 글이 연속으로 같은 기획 형태(contentDepth=${depths[0]})를 사용했다. 주제가 허용한다면 이번에는 다른 접근 각도로 기획해 필수 정보 요소 구성이 달라지게 할 것.`;
 }
 
-function titleShape(title: string): string {
-  if (/:/.test(title)) return "‘핵심어: 부연 설명’ 형태의 콜론 분리 제목";
-  if (/\?$/.test(title)) return "질문형 제목";
-  if (/\d+\s*(?:가지|개|단계)/.test(title)) return "숫자 나열형 제목";
-  return "";
+/**
+ * Names the structure a title uses, not the punctuation it uses to express it.
+ * The first version of this named the colon, and generation satisfied that
+ * literally: it moved the separator to a comma and kept
+ * `<핵심어> + 구분자 + 설명절` intact, so the instruction stopped describing what
+ * was actually repeating. A title can match more than one structure, so all
+ * matches are reported rather than the first.
+ */
+function titleShapes(title: string): readonly string[] {
+  return [
+    splitTitleClause(title) ? "‘핵심어 + 구분자 + 설명절’ 형태의 두 도막 제목(콜론·쉼표·붙임표 등 구분자 종류와 무관)" : "",
+    /\?\s*$/u.test(title) ? "질문형 제목" : "",
+    /\d+\s*(?:가지|개|단계)/u.test(title) ? "숫자 나열형 제목" : "",
+  ].filter(Boolean);
+}
+
+/**
+ * Any separator that can carry a title's head phrase into a trailing
+ * description. A bare hyphen needs surrounding spaces so hyphenated words and
+ * ranges are not read as a split.
+ */
+const titleClauseSeparator = /\s*[:︰]\s*|\s*[,;]\s+|\s+[-–—~|]\s+/u;
+
+function splitTitleClause(title: string): Readonly<{ head: string; tail: string }> | undefined {
+  const match = titleClauseSeparator.exec(title);
+  if (!match || match.index === 0) return undefined;
+  const head = title.slice(0, match.index).trim();
+  const tail = title.slice(match.index + match[0].length).trim();
+  /**
+   * A trailing fragment of one word is a tag, not the 설명절 half of the shape.
+   * Requiring two words keeps `제목 - 요약` style suffixes out of the signal.
+   */
+  if (!head || wordCount(tail) < 2) return undefined;
+  return Object.freeze({ head, tail });
+}
+
+/**
+ * The other half of the same repetition: the title names the subject, then the
+ * first H2 names it again, so the opening section is spent restating rather
+ * than answering.
+ *
+ * This matches the head *phrase* being repeated, not the presence of the
+ * topic's terms. `ContentOpportunityAlignment` passes heading anchoring only
+ * when every H2 and H3 carries a core term, so an instruction to keep the
+ * subject out of the headings would trade a repetition problem for a blocked
+ * article. What is asked for is a different first section, not a heading
+ * stripped of its subject.
+ */
+function headingEchoRule(recent: readonly RecentEditorialPattern[]): string {
+  const echoed = recent.filter(firstHeadingRestatesTitle).map((pattern) => pattern.headings[0]);
+  if (echoed.length < 2) return "";
+  return `최근 글의 첫 H2가 제목 앞머리를 거의 그대로 되풀이했다(${echoed.join(", ")}). 첫 섹션은 제목을 다시 말하는 자리가 아니라 독자가 가장 먼저 판단해야 할 것을 다루는 자리로 잡을 것. 다만 소제목에서 주제어 자체를 빼지는 말 것.`;
+}
+
+function firstHeadingRestatesTitle(pattern: RecentEditorialPattern): boolean {
+  const [heading] = pattern.headings;
+  if (!heading) return false;
+  const terms = distinctiveHeadTerms(splitTitleClause(pattern.title)?.head ?? pattern.title);
+  if (terms.length < 2) return false;
+  const normalizedHeading = normalizeForComparison(heading);
+  const matched = terms.filter((term) => normalizedHeading.includes(term));
+  /**
+   * Two terms and most of them: one shared term is the anchoring the alignment
+   * gate requires, while most of the head phrase reappearing is a restatement.
+   */
+  return matched.length >= 2 && matched.length / terms.length >= 0.6;
+}
+
+/**
+ * Terms that carry the subject of the head phrase. The task modifiers are
+ * dropped because they appear in almost every life-economy heading, so leaving
+ * them in would report a restatement whenever two headings both said 방법.
+ */
+const genericHeadTerms = new Set([
+  "방법", "기준", "순서", "확인", "정리", "총정리", "가이드", "정보", "핵심", "관리", "안내", "이해", "관련", "위한", "대한",
+]);
+
+function distinctiveHeadTerms(head: string): readonly string[] {
+  return [...new Set(normalizeForComparison(head)
+    .split(/\s+/u)
+    .map(stripParticle)
+    .filter((term) => term.length >= 2 && !genericHeadTerms.has(term)))];
+}
+
+function stripParticle(value: string): string {
+  const suffixes = ["으로는", "에서는", "까지는", "부터는", "으로", "에서", "까지", "부터", "이란", "라는", "을", "를", "은", "는", "이", "가", "의"];
+  for (const suffix of suffixes) {
+    if (value.endsWith(suffix) && value.length - suffix.length >= 2) return value.slice(0, -suffix.length);
+  }
+  return value;
+}
+
+function normalizeForComparison(value: string): string {
+  return value
+    .normalize("NFKC")
+    .toLocaleLowerCase("ko-KR")
+    .replace(/[^0-9a-z가-힣\s]/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
+function wordCount(value: string): number {
+  return value.split(/\s+/u).filter(Boolean).length;
 }
