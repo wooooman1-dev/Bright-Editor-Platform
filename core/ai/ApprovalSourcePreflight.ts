@@ -19,6 +19,7 @@ import {
   type ApprovalSourcePreflightDiagnostic,
 } from "../approval";
 import { normalizeApprovalSourceDocumentServer } from "../approval/ApprovalSourceDocumentServerAdapter";
+import { evidenceExcerptAnchored } from "../approval/ApprovalEvidenceAnchor";
 import { scopeApprovalSourcePreflightRequirements } from "../approval/ApprovalSourcePreflightClaimScope";
 import { assessmentsFromExplicitDiscovery, createVerificationSnapshot, type ExplicitDiscoveredSource } from "../approval/ExplicitVerificationPreflight";
 import {
@@ -1354,11 +1355,23 @@ function preflightPageRejection(
   return undefined;
 }
 
+/**
+ * The excerpt is the model's verbatim quote of the page it read. The page text
+ * is this server's own fetch and extraction of the same URL, performed
+ * separately. Requiring the quote to be an exact substring therefore required
+ * two independent extractions of a live page to agree character for character,
+ * and a 국세청 page carrying the required evidence word for word was rejected
+ * because the two renderings differed somewhere inside the quote.
+ *
+ * The anchoring rule itself lives in `evidenceExcerptAnchored` because Coverage
+ * applies the same rule to the same excerpt at `ApprovalSourcePreflightCoverage`.
+ * The two ran their own exact-substring checks, so relaxing one alone left the
+ * other rejecting the source with `coverage_incomplete` instead.
+ */
 function evidenceExcerptMatches(pageText: string, excerpt: string): boolean {
-  const page = normalizeComparableText(pageText);
   const candidate = normalizeComparableText(excerpt);
-  return candidate.length >= minimumEvidenceExcerptLength
-    && page.includes(candidate);
+  if (candidate.length < minimumEvidenceExcerptLength) return false;
+  return evidenceExcerptAnchored(normalizeComparableText(pageText), candidate);
 }
 
 function sourceRelevanceScope(

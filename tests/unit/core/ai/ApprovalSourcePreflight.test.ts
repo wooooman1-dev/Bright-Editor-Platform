@@ -489,6 +489,46 @@ describe("Approval Source Preflight", () => {
     }
   });
 
+  /**
+   * The excerpt is the model's quote of the page it read; the page text is this
+   * server's separate extraction of the same URL. The two can differ inside the
+   * quote without the evidence being any less present, which is how a 국세청 page
+   * carrying the required wording verbatim was rejected.
+   */
+  it("accepts a quote the page carries despite an extraction difference inside it", async () => {
+    const extractedVariant =
+      "공식 안내의 지원 대상과 신청 조건(변경 시 공고)을 신청 전에 확인해야 합니다.";
+    const provider = new QueueProvider([preflightResponse(), generationResponse()]);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      pageHtml({ claimExcerpt: extractedVariant }),
+      { status: 200, headers: { "content-type": "text/html; charset=utf-8" } },
+    )));
+
+    await expect(new AIWorkflow(provider, strategy).generate(generationInput()))
+      .resolves.toBeDefined();
+  });
+
+  it("still blocks a quote the page does not carry, however it is worded", async () => {
+    const unrelated =
+      "공식 안내는 신청자의 거주 기간과 차량 보유 여부를 기준으로 판단한다고 적혀 있습니다.";
+    const provider = new QueueProvider([preflightResponse({
+      sources: [source({
+        claims: [{
+          field: "eligibility",
+          value: eligibilityValue,
+          evidenceExcerpt: unrelated,
+        }],
+      })],
+    })]);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      pageHtml(),
+      { status: 200, headers: { "content-type": "text/html; charset=utf-8" } },
+    )));
+
+    await expect(new AIWorkflow(provider, strategy).generate(generationInput()))
+      .rejects.toThrow("미확보 Claim: eligibility");
+  });
+
   it("uses the redirect final URL after validating the final page", async () => {
     const finalUrl =
       "https://www.gov.kr/portal/service/serviceInfo/test-current";

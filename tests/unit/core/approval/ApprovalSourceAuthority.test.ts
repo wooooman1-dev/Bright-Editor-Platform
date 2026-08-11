@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  approvalClaimAuthorityKind,
   evaluateApprovalSourceAuthority,
   evaluateApprovalSourceRelevance,
   type ApprovalSourcePage,
@@ -155,6 +156,62 @@ describe("Claim-context source authority", () => {
       additionalScope: [claim().statement, claim().qualifiers.scope ?? ""],
       minimumClaimCoverage: 0.5,
     })).toMatchObject({ status: "rejected", diagnosticCode: "source_topic_relevance_unverified" });
+  });
+});
+
+/**
+ * `entityProductPattern` contains `보험사?`, and Korean writes 고용보험 without a
+ * space, so the entity-product test matched the 보험 inside every public social
+ * insurance programme. Such a Claim then demanded a page owned by its subject,
+ * which no public programme has, and every government portal carrying the rule
+ * was rejected as `source_owner_mismatch`.
+ */
+describe("Public programme Claims are not entity products", () => {
+  const publicClaims: readonly [string, string, string][] = [
+    ["실업급여 수급자격은 고용보험 피보험단위기간 180일 이상이어야 한다", "고용노동부", "government_program"],
+    ["구직급여 지급 기간은 고용보험법 시행령에 따른다", "고용노동부", "government_program"],
+    ["국민건강보험 지역가입자 보험료 부과 기준", "국민건강보험공단", "government_program"],
+    ["산재보험 요양급여 신청 절차", "근로복지공단", "government_program"],
+    ["월세 세액공제 대상은 총급여 8천만원 이하 무주택 세대주", "국세청", "tax"],
+  ];
+
+  it.each(publicClaims)("classifies %s as a public authority Claim", (statement, subject, expected) => {
+    expect(approvalClaimAuthorityKind(claim({
+      statement,
+      qualifiers: { subject },
+      kind: "eligibility",
+    }))).toBe(expected);
+  });
+
+  it("accepts the national law portal for an unemployment benefit Claim", () => {
+    expect(evaluateApprovalSourceAuthority({
+      profileId,
+      claims: [claim({
+        claimId: "claim-unemployment-eligibility",
+        statement: "실업급여 수급자격은 고용보험 피보험단위기간 180일 이상이어야 한다",
+        qualifiers: { subject: "고용노동부" },
+        kind: "eligibility",
+      })],
+      page: page({
+        requestedUrl: "https://law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202",
+        finalUrl: "https://law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202",
+        title: "국가법령정보센터 | 조문정보",
+        publisher: "국가법령정보센터",
+        text: "고용보험법에 따른 구직급여 수급요건은 이직일 이전 18개월간 피보험단위기간이 통산하여 180일 이상일 것을 요구한다.",
+      }),
+    })).toMatchObject({ status: "passed", authorityKinds: ["government_program"] });
+  });
+
+  it("still refuses another bank's page for a named bank product Claim", () => {
+    expect(evaluateApprovalSourceAuthority({
+      profileId,
+      claims: [claim()],
+      page: page({
+        requestedUrl: "https://beta-bank.example/products/prime-savings",
+        finalUrl: "https://beta-bank.example/products/prime-savings",
+        publisher: "Beta Bank",
+      }),
+    })).toMatchObject({ status: "rejected", diagnosticCode: "source_owner_mismatch" });
   });
 });
 

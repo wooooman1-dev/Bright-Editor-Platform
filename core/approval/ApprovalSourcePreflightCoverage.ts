@@ -1,4 +1,5 @@
 import type { ContentOpportunityCandidate } from "../content";
+import { evidenceExcerptAnchored } from "./ApprovalEvidenceAnchor";
 import {
   approvalEvidenceClaimFieldsForSourceUrl,
   approvalFactMatchesPage,
@@ -327,7 +328,7 @@ function claimMatchesRequirement(
     page.requestedUrl,
     page.finalUrl,
   ].join("\n");
-  if (!containsNormalized(pageText, claim.evidenceExcerpt)) return false;
+  if (!excerptAnchoredInPage(pageText, claim.evidenceExcerpt)) return false;
   if (!claimValueMatchesText(claim.value, pageText)) return false;
   if (
     requirement.plannedValue
@@ -353,6 +354,17 @@ function normalizeSubmittedClaim(
     value: claim.value.replace(/\s+/gu, " ").trim(),
     evidenceExcerpt: claim.evidenceExcerpt.replace(/\s+/gu, " ").trim(),
   });
+}
+
+/**
+ * The Claim's quoted evidence is held to the same anchoring rule the preflight
+ * applies, so a source is not accepted there and then dropped here — which is
+ * what happened while both sides ran their own exact-substring check.
+ */
+function excerptAnchoredInPage(pageText: string, excerpt: string): boolean {
+  const needle = normalizeComparable(excerpt);
+  return needle.length >= 2
+    && evidenceExcerptAnchored(normalizeComparable(pageText), needle);
 }
 
 function containsNormalized(haystack: string, needle: string): boolean {

@@ -35,6 +35,7 @@ export {
 } from "./ApprovalSourcePreflightDiagnostic";
 export * from "./ApprovalRequiredEvidenceCandidates";
 export * from "./ApprovalOfficialSourcePolicy";
+export * from "./ApprovalEvidenceAnchor";
 export * from "./ApprovalSourceAuthority";
 export * from "./ApprovalDateOwnership";
 export * from "./SiteApprovalReadinessAdapter";
