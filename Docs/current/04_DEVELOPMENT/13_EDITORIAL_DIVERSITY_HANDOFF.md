@@ -28,7 +28,32 @@ Credentials are sealed with Windows DPAPI under `DataProtectionScope::CurrentUse
 
 The export and import scripts live on `feat/workspace-handoff-script` and are not yet merged.
 
-Startup on the destination machine: check out the working branch, `npm install`, run the workspace import, reconnect the accounts named in `RECONNECT.md`, restore `.env.local`, then `npm run dev`.
+### Returning to a machine that already has this repository
+
+Most of the table above does not apply. That machine already holds its own
+`.bright-studio` data, its own `.env.local`, and credentials it sealed itself,
+so nothing has to be copied and nothing has to be reconnected.
+
+```bash
+git fetch origin
+git switch feat/scheduled-publishing-and-diversity
+npm run dev
+```
+
+Dependencies are unchanged on this branch, so `npm install` is only needed if
+that machine is behind on some earlier branch.
+
+What that machine will not have is the runtime data produced while testing
+elsewhere — the articles generated during the session, the planning candidates,
+the quality reports. Only move the workspace if the next task depends on that
+state; the diversity work itself does not, because it reads whatever articles
+the Project already contains.
+
+### Moving to a machine that does not have it
+
+Clone, check out the working branch, `npm install`, run the workspace import,
+reconnect the accounts named in `RECONNECT.md`, restore `.env.local`, then
+`npm run dev`.
 
 ## 3. The Problem This Work Addresses
 
