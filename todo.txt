@@ -1,0 +1,4 @@
+git fetch origin
+git switch feat/scheduled-publishing-and-diversity
+git pull
+npm run dev
