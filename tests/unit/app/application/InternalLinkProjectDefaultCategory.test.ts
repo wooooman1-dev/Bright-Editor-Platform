@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  internalLinkCatalogContextIsCurrent,
+  internalLinkCatalogContextKey,
   publishingCategoryIdentities,
   withProjectDefaultPublishingCategories,
 } from "../../../../app/application/publishing/InternalLinkCatalogPolicy";
@@ -95,6 +97,29 @@ describe("internal link category falls back to the Project default", () => {
 
     expect(publishingCategoryIdentities(withProjectDefaultPublishingCategories(content(), other)))
       .toEqual([]);
+  });
+
+  /**
+   * Six places ask a content which category it publishes to, and two of them
+   * only ever receive a content, never a Project. Resolving the default for
+   * some callers and not others would make the catalog context key disagree
+   * with itself, so the catalog would read as stale on every request and be
+   * re-fetched. The default is therefore filled in once, on load.
+   */
+  it("keeps the catalog context consistent once the default is resolved", () => {
+    const seeded = withProjectDefaultPublishingCategories(content(), project());
+    const document = {
+      id: "doc",
+      title: "글",
+      blocks: [],
+      metadata: {
+        internalLinkCatalogStatus: "evaluated",
+        internalLinkCatalogContextKey: internalLinkCatalogContextKey(seeded),
+      },
+    } as unknown as Parameters<typeof internalLinkCatalogContextIsCurrent>[1];
+
+    expect(internalLinkCatalogContextIsCurrent(seeded, document)).toBe(true);
+    expect(internalLinkCatalogContextIsCurrent(content(), document)).toBe(false);
   });
 
   it("leaves the content alone when the Project declares no default", () => {

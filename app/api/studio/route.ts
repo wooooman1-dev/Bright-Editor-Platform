@@ -716,7 +716,33 @@ function opportunityFailure(quality: ReturnType<QualityEngine["review"]>): strin
 async function ownedWorkspace(workspaceId: string) {
   const data = await studioStore.get<UserData>(collection, stateId);
   if (!data?.workspace || data.workspace.id !== workspaceId) throw new Error("Workspace was not found.");
-  return data;
+  return withProjectDefaultPublishingPreparation(data);
+}
+
+/**
+ * Resolves the Project's declared publishing category onto contents that have
+ * no preparation of their own, once per request and before anything reads it.
+ *
+ * Six places ask a content which category it publishes to, and two of them —
+ * the approval persistence store and the readiness execution identity — only
+ * ever receive a content, never a Project. Passing the Project to some callers
+ * and not others would make `internalLinkCatalogContextKey` disagree with
+ * itself and the catalog would look permanently stale. Filling the content in
+ * one place keeps every reader consistent without changing any signature.
+ *
+ * This is derived on load rather than stored. Contents that already carry a
+ * preparation, or whose account has no declared default, are returned as the
+ * same object, so nothing here registers as a change to persist.
+ */
+function withProjectDefaultPublishingPreparation(data: UserData): UserData {
+  const projects = new Map(data.projects.map((project) => [project.id, project]));
+  let changed = false;
+  const contents = data.contents.map((content) => {
+    const resolved = withProjectDefaultPublishingCategories(content, projects.get(content.projectId));
+    if (resolved !== content) changed = true;
+    return resolved;
+  });
+  return changed ? Object.freeze({ ...data, contents: Object.freeze(contents) }) : data;
 }
 function ownedProject(data: UserData, projectId: string) {
   const project = data.projects.find((item) => item.id === projectId && item.workspaceId === data.workspace!.id);
@@ -773,11 +799,7 @@ async function placeAvailablePublishingPosts(
     return document;
   }
 
-  const effectiveContent = withProjectDefaultPublishingCategories(
-    content,
-    data.projects.find((item) => item.id === content.projectId),
-  );
-  const categories = publishingCategoryIdentities(effectiveContent);
+  const categories = publishingCategoryIdentities(content);
   if (!categories.length) {
     console.warn("[internal-link-trace] publishing category is missing", {
       contentId: content.id,
@@ -816,7 +838,7 @@ async function placeAvailablePublishingPosts(
       connection,
       selectedTarget,
     });
-    const ranked = rankPublishingPostCandidates(document, catalog.posts, effectiveContent);
+    const ranked = rankPublishingPostCandidates(document, catalog.posts, content);
     const placed = applyInternalLinkCatalogResult(document, ranked, "evaluated");
     console.info("[internal-link-trace] platform catalog evaluated", {
       cached: catalog.cached,
