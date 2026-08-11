@@ -249,7 +249,65 @@ topics: the second candidate's `requiredContentElements` actually names a
 instead. The three articles published before this change all carried
 `comparison` with both flags true.
 
-## 11. Reference
+## 11. The Evidence Preflight Rejected Sources That Held The Evidence
+
+Both candidates of the 2026-08-11 planning run failed before generation started,
+for two unrelated reasons. Neither is a content problem and neither involves the
+diversity work; `analyzeLongFormDocument` never ran.
+
+### 11.1 A public programme is not an entity's product
+
+`entityProductPattern` in `ApprovalSourceAuthority.ts` contains `보험사?`. Korean
+writes 고용보험 without a space and the pattern has no word boundary to rely on,
+so it matched the 보험 inside 고용보험, 국민건강보험 and 산재보험. A Claim about
+실업급여 수급자격 was classified `entity_product`, which requires the page to be
+owned by the Claim's subject.
+
+A public programme has no vendor to own its page, so this could never be
+satisfied. 국가법령정보센터 — which carries the statute — was rejected as
+`source_owner_mismatch`, `officialnessPassCount` fell to zero, and coverage
+became impossible. The reachable outcome was always failure.
+
+`publicProgramPattern` now classifies public social insurance and public benefit
+programmes ahead of the entity-product test. `taxClaimPattern` also gained
+세액공제, 소득공제 and 연말정산, which previously fell through to `profile_official`
+rather than reaching the tax authority path.
+
+Genuine commercial product Claims are unchanged, and a test asserts another
+bank's page is still refused for a named bank's product.
+
+### 11.2 A quote split by an extraction difference is still a quote
+
+The excerpt is the model's verbatim quote of the page it read. The page text is
+this server's own fetch and extraction of the same URL, performed separately.
+Requiring the quote to be an exact substring required two independent
+extractions of a live page to agree character for character. A 국세청 page
+carrying the required wording verbatim — `①주민등록표등본, ②임대차계약증서 사본,
+③계좌이체 영수증…` — was rejected as `evidence_anchor_unverified`.
+
+`evidenceExcerptAnchored` in `core/approval/ApprovalEvidenceAnchor.ts` keeps the
+exact match as its fast path. Otherwise **every** character of the quote must
+still appear in the page, in order, as at most three verbatim runs of at least
+ten characters — which is what an inserted clause does to a quotation: it splits
+it without removing any of it. Nothing is forgiven, so a quote containing a word
+the page lacks still fails and invented evidence is no more acceptable than
+before.
+
+**The rule was enforced in two places.** `ApprovalSourcePreflightCoverage.ts:330`
+ran its own exact-substring check on the same excerpt, so relaxing the preflight
+alone only moved the rejection from `evidence_anchor_unverified` to
+`coverage_incomplete` — no source got through. Both now call the one definition.
+This is the second time in this branch that a rule enforced at two call sites
+had to be moved at both; the table weighting in section 9 was the first.
+
+### 11.3 Not verified end to end
+
+Both fixes are covered by tests, including the negative cases that keep the
+gates meaningful. Neither has been confirmed against a live run, because that
+needs a planning run whose preflight reaches these paths. `tsc`, `eslint` and
+`vitest` (1916 passed / 18 skipped / 0 failed) are clean.
+
+## 12. Reference
 
 - `Docs/current/01_PRODUCT/14_ADSENSE_APPROVAL_CONTENT_POLICY.md` — approval content policy, required article information, prohibited practices
 - `origin/docs/content-format-diversity-spec` — the original diversity spec and the `qualityTarget` criteria analysis that argued against a fixed preset enum
