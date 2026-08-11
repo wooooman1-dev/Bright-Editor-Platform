@@ -272,7 +272,9 @@ describe("runApprovalSourcePreflight explicit integration", () => {
         evidenceAnchorPassCount: 0,
       }),
     });
-    expect(provider.calls).toBe(1);
+    // Two calls: a rejected candidate now buys one more discovery attempt, and
+    // this fixture returns the same unusable source both times.
+    expect(provider.calls).toBe(2);
     expect(provider.requests[0]?.instruction).toMatch(/verbatim/i);
     expect(provider.requests[0]?.instruction).toMatch(/paraphrase/i);
     expect(provider.requests[0]?.instruction).toMatch(/synthesi[sz]e/i);
@@ -331,7 +333,8 @@ describe("runApprovalSourcePreflight explicit integration", () => {
         semanticVerificationPassCount: 0,
       }),
     });
-    expect(provider.calls).toBe(1);
+    // The retry attempt runs and returns the same three unusable sources.
+    expect(provider.calls).toBe(2);
   });
 
   it("verifies a current money Claim from three independent institutions when each Claim excerpt owns an active period", async () => {

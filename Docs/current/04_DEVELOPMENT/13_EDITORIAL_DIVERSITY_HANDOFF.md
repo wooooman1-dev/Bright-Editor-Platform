@@ -404,7 +404,86 @@ feature, not a pipeline defect, and nothing here changes it.
 Verification: `npx tsc --noEmit` clean, `npx eslint .` clean, `npx vitest run`
 1931 passed / 18 skipped / 0 failed.
 
-## 13. Reference
+## 13. One Rejected Candidate No Longer Blocks The Article
+
+Section 12.2 sent approval articles into the source preflight that had been
+skipping it. The first article to actually reach it — 휴면예금 조회 방법 — was
+blocked there, twice.
+
+This was not the fix misfiring. The eligibility Claim was correctly raised to
+critical, `runExplicitPreflight` ran as intended, and the block is what a
+missing official source is supposed to produce. What was wrong is that a single
+bad candidate was terminal.
+
+### 13.1 The same page, twice
+
+Both attempts failed identically: `evidence_anchor_unverified` on
+`https://www.fsc.go.kr/no040101?cnId=1133`, titled `카드뉴스 - 홍보자료 - 알림마당 -
+금융위원회`. The pipeline counters name the shape of it exactly.
+
+| Counter | Value |
+|---|---|
+| `webSourceCount` | 17 |
+| `assistantDeclaredSourceCount` | 1 |
+| `officialnessPassCount` | 1 |
+| `relevancePassCount` | 1 |
+| `fetchSucceededCount` | 1 |
+| `extractionSucceededCount` | 1 |
+| `evidenceAnchorPassCount` | **0** |
+
+A 카드뉴스 is a promotional card deck: its body is images. The model reads those
+images and quotes them; the server re-fetches the page and extracts HTML text,
+which does not contain the passage. The anchor could never pass, so the outcome
+was determined before the fetch began. Discovery saw 17 web results and
+submitted one of them, and the excerpt it submitted names the administering
+body's own site — 서민금융진흥원 '휴면예금 찾아줌' — which was never submitted.
+
+A retry was tried first and produced byte-identical output. Source discovery is
+not usefully nondeterministic here, so re-running is not a remedy.
+
+### 13.2 Discovery is told what was rejected
+
+`runExplicitPreflightWithRetry` gives discovery one more attempt when the first
+one ends in a rejection that names a page. The rejected URLs and their rejection
+codes go back into `explicitPreflightInstruction`, along with what
+`evidence_anchor_unverified` actually means — that the passage was not in the
+extracted text, which is what happens when it lives inside images.
+
+Nothing about acceptance is relaxed. The second attempt passes the same
+officialness, relevance, anchor and coverage gates, so this buys a different
+candidate rather than a lower bar. Two attempts is the cap: a model that cannot
+avoid a URL it was just told was rejected will not find a source on a third try.
+
+A rejection carrying no page — `planning_contract_missing`, a parse failure —
+produces no feedback and throws unchanged.
+
+### 13.3 The instruction was also missing rules the other one had
+
+`explicitPreflightInstruction` lacked two rules that
+`approvalSourceDiscoveryInstruction` already carried: return every page you
+inspected rather than the single best one, because the server re-validates each
+and one submitted page means one rejection blocks the article; and prefer the
+institution that administers the subject on its own site over a portal that
+republishes it. Both are now present, together with a new one banning
+promotional pages whose body text lives in images.
+
+These are prompt rules and the retry is the enforcement behind them. The prompt
+is what asks for a better candidate; the retry is what survives the prompt being
+ignored.
+
+### 13.4 Not covered
+
+The non-explicit discovery path in `runApprovalSourcePreflight` has the same
+single-shot structure and did not get the retry. It is reached only when an
+opportunity has no usable verification plan, which 12.2 makes rarer for approval
+content, and no failure has been observed there. If one appears, the same
+treatment applies.
+
+Verification: `npx tsc --noEmit` clean, `npx eslint .` clean, `npx vitest run`
+1934 passed / 18 skipped / 0 failed. Three new tests reproduce the image-page
+rejection and pin the retry, its feedback text, and its two-attempt cap.
+
+## 14. Reference
 
 - `Docs/current/01_PRODUCT/14_ADSENSE_APPROVAL_CONTENT_POLICY.md` — approval content policy, required article information, prohibited practices
 - `origin/docs/content-format-diversity-spec` — the original diversity spec and the `qualityTarget` criteria analysis that argued against a fixed preset enum
