@@ -483,7 +483,77 @@ Verification: `npx tsc --noEmit` clean, `npx eslint .` clean, `npx vitest run`
 1934 passed / 18 skipped / 0 failed. Three new tests reproduce the image-page
 rejection and pin the retry, its feedback text, and its two-attempt cap.
 
-## 14. Reference
+## 14. What The Server Reads Is Not What The Model Saw
+
+The retry from section 13 worked and the article still failed. Discovery avoided
+the rejected 카드뉴스 and came back with
+`https://m.gov.kr/mw/AA210LifeSvcInfo.do` — 정부24's mobile 나의 생활정보 — which
+failed the same anchor gate.
+
+Fetching that page directly settles what happened. It returns 64,770 bytes of
+HTML and 4,054 characters of extractable text, and that text is the navigation
+menu: 정부24 홈, 비회원 MyGOV, 서비스 신청내역, 내 지갑, 민원 찾기, 혜택알리미. It
+contains neither 휴면예금 nor 본인 확인. The page renders its content with
+JavaScript, so the model saw a service view and the server received a shell.
+
+Together with the card news, the failure class is one thing: **the model
+proposes pages whose content a plain fetch cannot obtain**, and it has never
+been told what a plain fetch is.
+
+### 14.1 One shared token was enough to be "relevant"
+
+The portal shell passed relevance. `evaluateApprovalSourceRelevance` accepted a
+page on `topicMatches.length > 0`, and the scope pool it matches against is
+built from `selectedTopic`, `primaryKeyword`, `secondaryKeywords` and
+`expectedCoverage` — so ordinary words sit in it. The menu says 조회 and 신청;
+the plan says 휴면예금 조회 방법 and 신청 조건. One overlap, relevance passed, and
+because discovery submits a single candidate the article died on it.
+
+Relevance now also requires the page to name the **subject**, meaning a
+meaningful token of `primaryKeyword`. Two guards keep this from blocking honest
+sources. It applies only to a page written in the keyword's script, because an
+official source may legitimately be in another language — the art profile
+verifies Korean topics against English museum records — and a keyword that
+reduces to nothing meaningful leaves the test silent. Matching stays
+substring-based over punctuation-stripped text, so 휴면 예금 still matches
+휴면예금.
+
+The stop-word list also absorbed the search task modifiers it was missing —
+조회, 신청, 신고, 발급, 계산, 설정, 비교, 조건, 절차, 서비스, 이용, 추천, 가이드,
+목록 — which is the vocabulary planning already treats as generic. Without that,
+휴면예금 조회 방법 still offered 조회 as a subject token and the menu still matched
+it.
+
+### 14.2 Discovery is told what a plain fetch is, and what it returned
+
+`explicitPreflightInstruction` now states the mechanism rather than a list of
+banned page types: the server issues one plain HTTP GET and reads text from the
+returned HTML, does not run JavaScript, does not wait for a client-rendered
+view, and cannot read words inside images or a PDF without a text layer. Both
+the excerpt and the Claim subject must be present in that raw HTML. Application
+shells, mobile portals, dashboards and personalized "my page" views are named
+alongside 카드뉴스 and 홍보자료 as things that return navigation and nothing else.
+
+On retry the feedback now carries the first 300 characters of the text the
+server actually extracted from each rejected page. A model cannot predict what a
+plain fetch returns, so a rejected excerpt is only actionable next to what was
+really there. `extractedSample` was added to the diagnostic's rejection samples
+to carry it.
+
+### 14.3 Known gap in the diagnostic
+
+Each attempt builds its own pipeline metrics, so the persisted diagnostic shows
+only the final attempt's rejection samples. The feedback chain itself
+accumulates across attempts, but an operator reading
+`approvalSourcePreflightDiagnostic` after a failure sees one URL and cannot tell
+that an earlier attempt tried a different one. The retry is visible only in
+`webSourceCount` rising — 17 on the single-attempt runs, 32 once two attempts
+ran. Worth merging if this needs debugging again.
+
+Verification: `npx tsc --noEmit` clean, `npx eslint .` clean, `npx vitest run`
+1937 passed / 18 skipped / 0 failed.
+
+## 15. Reference
 
 - `Docs/current/01_PRODUCT/14_ADSENSE_APPROVAL_CONTENT_POLICY.md` — approval content policy, required article information, prohibited practices
 - `origin/docs/content-format-diversity-spec` — the original diversity spec and the `qualityTarget` criteria analysis that argued against a fixed preset enum
