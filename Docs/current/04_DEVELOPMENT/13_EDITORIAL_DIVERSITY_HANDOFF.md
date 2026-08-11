@@ -134,7 +134,7 @@ Title shape is varied when the article is written, not by loosening the topic. T
 
 1. ~~`titleShape()` detects only punctuation~~ — **done**, see section 8.
 2. ~~`RelatedPostRecommendation.ts:32` `shift()`~~ — **not a defect**. Checked against the running app on 2026-08-11: placement behaves as intended. Do not re-open this from the code reading alone.
-3. `qualityTarget.tableNeeds` and `checklistNeeds` came back true on every candidate. This is no longer forced by code — for `standard` depth `buildTarget` uses what the plan supplied — so it is now a planning-prompt matter: say that a table and a checklist are used when the topic needs them.
+3. ~~`qualityTarget.tableNeeds` and `checklistNeeds` came back true on every candidate~~ — **done**, see section 10. Not yet measured against a live planning run; the next session that plans four candidates should check whether the three flags now differ between them.
 4. ~~`informationElementCount` scores a table as a flat `tableCount * 3`~~ — table weighting **done**, see section 9. The list-item half is still open and is a deliberate decision, not an oversight: `structuredListItems` counts every bullet while `informationSentenceCount` requires twelve characters, so a one-word bullet scores as much as a full sentence. Applying the sentence threshold to bullets would push generation toward padded checklists, since a terse life-economy item such as `가입 기간 6개월` is ten characters and is correct as written. If this is changed, use a low substance floor aimed at `예`/`-`/`1`, not the sentence threshold.
 5. PR #46 is still titled `feat: 기획·생성에 반복 회피 컨텍스트 추가`, which no longer describes a branch that also fixes depth classification, adds format options and changes section-role authority. Retitle before review.
 
@@ -199,7 +199,31 @@ information elements and previously saw 3 before and 3 after.
 Verification: `npx tsc --noEmit` clean, `npx eslint .` clean, `npx vitest run`
 1906 passed / 18 skipped / 0 failed.
 
-## 10. Reference
+## 10. A Table Is Declared When The Topic Has One
+
+`ContentPlanningStrategyBase.ts` listed `tableNeeds` and `checklistNeeds`
+among the fields a candidate must return but never said what makes either
+true, so every candidate came back with both set. Section 4.2 removed the code
+that forced them; nothing had replaced the instruction.
+
+The information-contract paragraph now states that `comparisonNeeds`,
+`tableNeeds` and `checklistNeeds` are judgments about the one topic rather
+than defaults, that a table needs at least three rows of comparable data
+sharing the same columns, that a checklist needs discrete items
+`actionableNextSteps` does not already carry, and that the same combination on
+every candidate means the flags were copied rather than judged.
+
+The table rule is tied to section 9 deliberately: now that a table is scored by
+its data rows, declaring a table the topic cannot fill *lowers* the article's
+information score. The prompt says so, because a model that believes a table
+is free will keep asking for one.
+
+This is a prompt change, so the test suite cannot confirm it. What it can
+confirm is that nothing else moved: `npx tsc --noEmit` clean, `npx eslint .`
+clean, `npx vitest run` 1906 passed / 18 skipped / 0 failed. The behaviour
+needs a live planning run to verify.
+
+## 11. Reference
 
 - `Docs/current/01_PRODUCT/14_ADSENSE_APPROVAL_CONTENT_POLICY.md` — approval content policy, required article information, prohibited practices
 - `origin/docs/content-format-diversity-spec` — the original diversity spec and the `qualityTarget` criteria analysis that argued against a fixed preset enum
