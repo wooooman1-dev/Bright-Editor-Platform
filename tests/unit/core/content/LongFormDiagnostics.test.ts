@@ -60,7 +60,7 @@ describe("LongFormDiagnostics information sufficiency", () => {
     const target = targetFor(requirements);
     const diagnostic = analyzeLongFormDocument(document(target, [
       ["explanation", "검사 수치는 당시 몸 상태와 검사 조건의 영향을 함께 살펴야 합니다. 한 항목만 떼어 보면 변화의 원인을 구분하기 어렵습니다. 이전 결과와 현재 증상을 함께 비교하면 상담 질문을 구체화할 수 있습니다.", "TSH와 유리 T4는 왜 검사 맥락과 함께 해석해야 할까"],
-      ["checklist", "복용 목록에는 제품명과 성분, 복용 시각을 적습니다.\n- 처방받은 제품\n- 약국에서 산 제품\n- 별도로 먹는 보충 제품\n각 항목을 빠뜨리지 않으면 의료진이 검사 당시 조건을 확인할 수 있습니다.", "건강기능식품 갑상선 검사 전, 성분표와 복용 시간을 확인하는 이유"],
+      ["checklist", "복용 목록에는 제품명과 성분, 복용 시각을 적습니다. 같은 성분이 여러 제품에 나뉘어 들어 있으면 총량이 달라지므로 제품별로 따로 적어야 합니다.\n- 처방받은 제품\n- 약국에서 산 제품\n- 별도로 먹는 보충 제품\n각 항목을 빠뜨리지 않으면 의료진이 검사 당시 조건을 확인할 수 있습니다. 복용 시각까지 적어 두면 검사 시점과의 간격을 함께 볼 수 있어 상담에서 다시 묻는 일이 줄어듭니다. 처방약과 일반의약품, 건강기능식품을 같은 목록에 두되 어디서 받은 것인지 표시해 두면 성분이 겹치는 지점을 찾기 쉽습니다. 중단했던 제품이 있다면 언제까지 먹었는지도 함께 적어, 최근 변화가 결과 해석에 영향을 줄 수 있는지 의료진이 판단할 수 있게 합니다. 목록은 검사 전날이 아니라 평소에 갱신해 두는 편이 정확합니다.", "건강기능식품 갑상선 검사 전, 성분표와 복용 시간을 확인하는 이유"],
       ["warning", "예상과 다른 표시가 있어도 스스로 진단하거나 복용을 바꾸지 않습니다. 최근 몸 상태와 복용 기록을 준비해 상담합니다. 의료진이 추가 평가나 재검 여부를 판단할 수 있도록 이전 결과도 함께 제시합니다.", "결과가 예상과 다를 때: 재검 상담 전에 정리할 정보와 피해야 할 행동"],
     ]), target);
 
@@ -269,14 +269,22 @@ describe("LongFormDiagnostics table weighting", () => {
       .not.toContain("CONTENT_SECTION_PROSE_INSUFFICIENT");
   });
 
-  it("exempts a checklist, whose role is to be a list", () => {
+  /**
+   * A checklist is meant to be a list, so it is held to a lower prose floor
+   * rather than exempted. Exempting it outright left the same hole in another
+   * shape: a list of items with nothing explaining why they matter.
+   */
+  it("holds a checklist to a lower prose floor rather than exempting it", () => {
     const target = targetFor(["판단 기준"]);
-    const diagnostic = analyzeLongFormDocument(
-      document(target, [["checklist", `${thinProse}\n- 첫 번째 점검 항목\n- 두 번째 점검 항목\n- 세 번째 점검 항목`]]),
-      target,
-    );
+    const items = "\n- 첫 번째 점검 항목\n- 두 번째 점검 항목\n- 세 번째 점검 항목";
+    const bare = analyzeLongFormDocument(document(target, [["checklist", `${thinProse}${items}`]]), target);
+    const explained = analyzeLongFormDocument(document(target, [["checklist", `${fullProse}${items}`]]), target);
 
-    expect(diagnostic.violations.map((item) => item.code))
+    expect(bare.violations).toContainEqual(expect.objectContaining({
+      code: "CONTENT_SECTION_PROSE_INSUFFICIENT",
+      minimum: 250,
+    }));
+    expect(explained.violations.map((item) => item.code))
       .not.toContain("CONTENT_SECTION_PROSE_INSUFFICIENT");
   });
 

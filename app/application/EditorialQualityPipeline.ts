@@ -149,11 +149,11 @@ export class EditorialQualityPipeline {
           : { passed: false as const, document: parsed, reason: "quality_factual_inventory_response_missing" }
         : { passed: true as const, document: parsed };
       if (!factualGuard.passed) {
-        const quality = this.qualityEngine.review(parsed, { ...qualityContext, revisionId: editorialRevisionId(parsed) });
+        const quality = this.qualityEngine.review(parsed, contextForDocument(qualityContext, parsed));
         return { document: parsed, quality, rejectionReason: factualGuard.reason };
       }
       const guarded = factualGuard.document;
-      const parsedQuality = this.qualityEngine.review(guarded, { ...qualityContext, revisionId: editorialRevisionId(guarded) });
+      const parsedQuality = this.qualityEngine.review(guarded, contextForDocument(qualityContext, guarded));
       const parsedDiagnostic = analyzeLongFormDocument(guarded, parseInput.contentOpportunity?.qualityTarget ?? guarded.metadata?.qualityTarget);
       const readiness = evaluateQualityReviewReadiness(guarded, parsedQuality, parsedDiagnostic);
       const linkError = verifiedLinkError(current, guarded);
@@ -163,7 +163,7 @@ export class EditorialQualityPipeline {
         return { document: guarded, quality: parsedQuality, rejectionReason: linkError ?? safetyError ?? shapeError };
       }
       const document = await place(guarded);
-      const quality = this.qualityEngine.review(document, { ...qualityContext, revisionId: editorialRevisionId(document) });
+      const quality = this.qualityEngine.review(document, contextForDocument(qualityContext, document));
       const placedDiagnostic = analyzeLongFormDocument(document, parseInput.contentOpportunity?.qualityTarget ?? document.metadata?.qualityTarget);
       const placedReadiness = evaluateQualityReviewReadiness(document, quality, placedDiagnostic);
       return placedReadiness.fatal
@@ -416,6 +416,25 @@ function preserveSectionTypeOwnership(
       sectionType: current.sections[index]?.sectionType ?? section.sectionType,
     }))),
   });
+}
+
+/**
+ * The review context is built once, from the document as generated, but the
+ * pipeline re-places catalog links on the document it goes on to review.
+ * Carrying the original status forward reported a missing publishing category
+ * on an article whose internal link and related posts had already been placed,
+ * so the finding contradicted the manuscript it described.
+ */
+function contextForDocument(
+  context: QualityReviewContext,
+  document: ContentDocument,
+): QualityReviewContext {
+  const status = document.metadata?.internalLinkCatalogStatus;
+  return {
+    ...context,
+    revisionId: editorialRevisionId(document),
+    ...(status ? { internalLinkCatalogStatus: status } : {}),
+  };
 }
 
 export function detectEditorialReviewRegression(current: ContentDocument, candidate: ContentDocument): string | undefined {

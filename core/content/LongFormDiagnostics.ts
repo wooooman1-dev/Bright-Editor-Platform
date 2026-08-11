@@ -1,6 +1,7 @@
 import type { ContentDocument } from "./ContentDocument";
 import {
   determineContentPlanQualityTarget,
+  effectiveContentDepth,
   type ContentPlanQualityTarget,
   type ContentSectionType,
   type ContentTargetRange,
@@ -23,6 +24,7 @@ export type LongFormViolationCode =
   | "CONTENT_REQUIRED_ELEMENT_INSUFFICIENT"
   | "CONTENT_REPETITION_DETECTED"
   | "CONTENT_SECTION_PROSE_INSUFFICIENT"
+  | "CONTENT_DECLARED_COMPARISON_MISSING"
   /** Legacy diagnostic codes remain readable but are never newly generated. */
   | "CONTENT_TOTAL_BELOW_SAFETY_FLOOR"
   | "CONTENT_BELOW_PLANNING_TARGET"
@@ -143,10 +145,13 @@ export function analyzeLongFormDocument(document: ContentDocument, requestedTarg
       violations.push({
         code: "CONTENT_SECTION_PROSE_INSUFFICIENT",
         heading: section.heading,
-        minimum: minimumSectionNarrativeCharacters,
+        minimum: minimumNarrativeFor(section.sectionType),
         actual: section.narrativeCharacters,
       });
     }
+  }
+  if (!declaredComparisonRealized(target, sections, sectionDetails)) {
+    violations.push({ code: "CONTENT_DECLARED_COMPARISON_MISSING", actual: 0 });
   }
   const narrativeTotal = sections.reduce((sum, section) => sum + section.narrativeCharacters, 0)
     + withoutWhitespace(introductionText)
@@ -249,6 +254,7 @@ export function formatLongFormDiagnostic(diagnostic: LongFormDiagnostic): string
   if (item.code === "CONTENT_REQUIRED_ELEMENT_MISSING") return `CONTENT_REQUIRED_ELEMENT_MISSING: ${item.requiredElement ?? "required element"}.`;
   if (item.code === "CONTENT_REQUIRED_ELEMENT_INSUFFICIENT") return `CONTENT_REQUIRED_ELEMENT_INSUFFICIENT: ${item.requiredElement ?? "required element"} was only mentioned.`;
   if (item.code === "CONTENT_REPETITION_DETECTED") return `CONTENT_REPETITION_DETECTED: ${item.actual} repeated paragraph pattern(s).`;
+  if (item.code === "CONTENT_DECLARED_COMPARISON_MISSING") return "CONTENT_DECLARED_COMPARISON_MISSING: the plan asked for a comparison and no section performs one.";
   if (item.code === "CONTENT_SECTION_PROSE_INSUFFICIENT") return `CONTENT_SECTION_PROSE_INSUFFICIENT: "${item.heading ?? "제목 없음"}" leans on a table or list with only ${item.actual} characters of prose.`;
   return `${item.code}: legacy length diagnostic.`;
 }
@@ -308,12 +314,49 @@ function sectionDiagnostic(
  * checklist is meant to be a list.
  */
 const minimumSectionNarrativeCharacters = 400;
+/**
+ * Checklist, steps and FAQ sections are meant to be lists, so they are held to
+ * a lower floor rather than exempted. Exempting them left the same hole in a
+ * different shape: eight checklist items above fifty characters of prose
+ * explains nothing about why those items matter.
+ */
+const minimumListShapedNarrativeCharacters = 250;
 const listShapedSectionTypes = new Set<ContentSectionType>(["checklist", "steps", "faq"]);
 
+function minimumNarrativeFor(sectionType: ContentSectionType): number {
+  return listShapedSectionTypes.has(sectionType)
+    ? minimumListShapedNarrativeCharacters
+    : minimumSectionNarrativeCharacters;
+}
+
 function sectionNarrativeSufficient(section: LongFormSectionDiagnostic): boolean {
-  if (listShapedSectionTypes.has(section.sectionType)) return true;
   if (!section.tableCount && !section.listItemCount) return true;
-  return section.narrativeCharacters >= minimumSectionNarrativeCharacters;
+  return section.narrativeCharacters >= minimumNarrativeFor(section.sectionType);
+}
+
+/**
+ * A plan that declares `comparison` depth, or names comparison needs, is
+ * promising the reader a comparison. An article was accepted with
+ * `contentDepth: comparison` and `comparisonNeeds` of three while containing no
+ * comparison section at all: with `tableNeeds` false there was no table
+ * requirement to fail, and a comparison that is never attempted is never
+ * checked.
+ *
+ * A section satisfies this by declaring the role or by actually contrasting
+ * things in its body, so this asks for the comparison rather than for a
+ * particular structure — the distinction `116a700` drew between a role a writer
+ * declares and one guessed from a heading.
+ */
+function declaredComparisonRealized(
+  target: ContentPlanQualityTarget,
+  sections: readonly LongFormSectionDiagnostic[],
+  sectionDetails: readonly SectionWithText[],
+): boolean {
+  const promised = effectiveContentDepth(target.contentDepth) === "comparison"
+    || target.comparisonNeeds.length > 0;
+  if (!promised || !sections.length) return true;
+  return sections.some((section, index) => section.sectionType === "comparison"
+    || comparisonSignals(normalizeStructuredText(sectionDetails[index]?.text ?? "")) >= 3);
 }
 
 function inferSections(document: ContentDocument, target: ContentPlanQualityTarget): SectionWithText[] {
