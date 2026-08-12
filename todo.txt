@@ -7,11 +7,22 @@ npm run dev
 npm install 은 이전 브랜치에서 뒤처져 있을 때만. 이번 작업은 package.json 을
 건드리지 않았다.
 
-== 현재 상태 (2026-08-12, 1d550bb) ==
-브랜치 feat/scheduled-publishing-and-diversity, origin 과 동기화(push 완료).
-tsc / eslint 클린, vitest 3876 passed / 36 skipped / 0 failed.
+== 현재 상태 (2026-08-13, ec17c6b) ==
+브랜치 feat/scheduled-publishing-and-diversity. push 예정(이 커밋들이 실제
+origin 에 올라갔는지는 git log origin/feat/scheduled-publishing-and-diversity
+로 확인).
+격리 재검증: tsc --noEmit 클린, eslint 클린, vitest 전체 644 files / 3881
+tests passed, 36 skipped, 2 failed — 실패 2건은
+tests/unit/app/application/ConnectionInfrastructure.test.ts (Windows DPAPI
+SecretStore, .claude/worktrees/ 사본까지 중복 실행되는 것 포함) 이고
+approval/Claim 작업과 무관. 단독 실행하면 10/10 통과 — 전체 스위트 동시
+실행 시에만 흔들리는 환경성 실패로 판단.
 
-e65e57f 이후 이번 세션에서 커밋 4개가 더 올라갔다.
+부수 발견: vitest 가 .claude/worktrees/ 안의 코드까지 테스트로 스캔하고
+있다(위 실패가 같은 테스트를 두 경로에서 두 번 돌린 것으로 나타남).
+vitest.config.ts 에 worktrees 제외 설정이 없다 — 다음 세션에서 손볼 것.
+
+e65e57f 이후 이번 세션에서 커밋이 여러 개 더 올라갔다 (git log 로 확인).
 
 b509cff 에서 생성 원고 한 편을 측정해 근본 원인 3건을 고쳤다. 자세한 내용은
 Docs/current/04_DEVELOPMENT/13_EDITORIAL_DIVERSITY_HANDOFF.md 12절.
@@ -52,39 +63,104 @@ Docs/current/04_DEVELOPMENT/13_EDITORIAL_DIVERSITY_HANDOFF.md 12절.
    OpenAIApprovalWebSearch.test.ts (예산 값 갱신), tests/unit/core/ai/
    ApprovalSourcePreflightRetry.test.ts (커버리지 공백 재시도 테스트 2건
    추가). 둘 다 tsc --noEmit 클린, vitest 전체 통과 확인됨.
+7. 세 번째 생성 시도(건강보험 피부양자 원고)가 실제로 끝까지 갔다. 완결성·
+   유용성 100, 출처 2건 critical_verified, 표·리스트 블록으로 비교/체크리스트
+   요구도 충족 — 1·2·3번 측정 통과. 다만 quality.approved 는 false 였다 —
+   점수와 승인 게이트는 별개 상태라는 걸 이번에 직접 확인했다 (AGENTS.md
+   14장). 아래 8·9번이 그 원인.
+8. GeneratedFactualClaim.ts 의 verbatim anchor 불일치(위에서 "관찰 대기"로
+   남겨뒀던 항목) — 원인이 확정돼 커밋 ec17c6b 로 고쳤다. 실제 원인은
+   재작성 단계의 텍스트 손상이 아니라, GeneratedVerifyEvidence.ts 가 Claim의
+   위험도를 저장된 verificationPlan 이 아니라 Generation 자신이 붙인 라벨로
+   판정하던 것 — 서버가 이미 critical 로 사전검증한 Claim이 모델이 스스로
+   "verify" 라고 적으면 best-effort 경로로 떨어져, 그 경로가 요구하는
+   "같은 Generation 호출의 인용"이 없어서 탈락했다. 관련해서
+   generatedFactualClaimInventory 와 generatedClaimVerification 스냅샷이
+   같은 리비전 안에서 서로 다른 답을 갖던 것도 같이 고쳤다. 회귀 테스트
+   tests/unit/core/approval/GeneratedFactualClaim.test.ts,
+   GeneratedClaimVerificationIntegrity.test.ts, tests/unit/core/ai/
+   GeneratedVerifyEvidence.test.ts. 실제로 막혔던 문서를 재생해
+   evaluateGeneratedClaimVerificationIntegrity 가 passed: true 로 바뀌는
+   것까지 확인함.
+9. "1년/2년" 미검증 고위험 수치 오탐(GeneratedClaimBinding.ts) 수정을
+   approval-quality-auditor 가 시도했으나 fix-verifier 독립 검증에서
+   **실패** 판정을 받았다 — 커밋하지 않고 git stash 에 보관 중
+   ("approval-quality-auditor: FAILED per fix-verifier, needs rework").
+   git stash list 로 확인. 완화 폭이 의도보다 넓어서, "최근 6개월 이내에
+   폐업한 사업자만 신청" 같은 진짜 외부 사실 주장까지 조용히 면제된다
+   (독자 기록 지시 문맥 판정이 고정 어휘 사전에만 의존). 또한 본문에 쓰면
+   안 되는 출처확인일/최종검토일 패턴까지 실수로 면제 목록에 넣어 새
+   구멍을 만들었다. 다시 해야 할 일은 fix-verifier 보고 6개 항목 참고
+   (git log 에는 없음 — 이 파일 이전 버전이나 세션 기록 참고, 또는
+   approval-quality-auditor 를 다시 불러 스스로 재현).
 
-== 에이전트 팀 (10명, .claude/agents/) ==
+== 에이전트 팀 (12명, .claude/agents/) ==
 1c188d7 에서 8명, bec1bde 에서 handover-scribe(9번째), 1d550bb 에서
-approval-quality-auditor(10번째)를 추가했다. CLAUDE.md 가 AGENTS.md 를
-@import 하는 구조도 1c188d7 에서 처음 생겼다.
+approval-quality-auditor(10번째), a7fb068 에서 fix-verifier(11번째)와
+approval-readiness-designer(12번째)를 추가했다 — 전부 커밋됨(push 여부는
+이 파일 맨 위 "현재 상태"의 안내대로 origin 로그로 직접 확인).
+CLAUDE.md 가 AGENTS.md 를 @import 하는 구조도 1c188d7 에서 처음 생겼다.
 
 주의: .claude/agents/ 정의는 세션(프로세스) 시작 시에만 로드된다. 세션
 도중에 에이전트를 새로 추가해도 그 세션에서는 "Agent type not found" 로
 호출이 실패한다 — 이번 세션에서 실제로 겪었다. claude -c 로 재시작해야
 새 에이전트가 보인다.
 
-approval-quality-auditor 는 정의만 만들고 커밋했을 뿐 아직 한 번도 실제로
-호출해 감사를 돌려본 적이 없다. 다음 세션에서 승인 파이프라인 전체(품질
-게이트가 과한지/느슨한지 측정으로 판정)를 이 팀원에게 맡겨보는 것을 다음
-할 일 후보로 고려할 것.
+approval-quality-auditor 를 실제로 호출해봤다 — "1년/2년" 미검증 고위험
+수치 오탐 감사(위 9번). 결과는 위에 적힌 대로 fix-verifier 검증에서 실패.
+
+사장님이 "겹치는 팀원이 있으면 안겹치게 역할을 나누던지 삭제해"라고
+지시해서 12명을 전부 다시 대조했다. 실제 겹침 3곳을 찾았다:
+
+1. docs-keeper ↔ handover-scribe — 둘 다 todo.txt 담당으로 적혀 있었다.
+   docs-keeper.md 를 고쳐 todo.txt 를 handover-scribe 전담으로 넘겼다
+   (이번 커밋 ec17c6b 에 포함, 완료).
+2. quality-root-cause ↔ approval-quality-auditor — core/quality/
+   QualityEngine.ts 등 같은 파일을 둘 다 자기 담당이라 적어놨다. 아직
+   안 고침.
+3. quality-root-cause ↔ approval-evidence — quality-root-cause 가
+   "core/ai/*.ts 전부"와 "core/approval/*Policy.ts"를 담당이라 적어놨는데
+   그 파일 대부분이 이미 approval-evidence 소유다. 실제로 이 겹침 때문에
+   quality-root-cause 에게 GeneratedVerifyEvidence.ts 를 고치라고 잘못
+   시켰었다(결과물 자체는 문제없었지만 담당 경계가 흐렸다). 아직 안 고침.
+
+2·3번을 마저 고치는 게 다음 할 일 4번이다. 계획: quality-root-cause 에서
+"core/approval/*Policy.ts"와 "core/ai/*.ts 전부" 클레임을 지우고 생성
+프롬프트/스키마 담당으로 좁히기, approval-quality-auditor 에서 core/quality/
+파일 목록을 지우고(그건 승인용에만 국한되지 않는 범용 엔진이라
+quality-root-cause 소관) core/approval/*Policy.ts 만 남기기.
+platform-adapter-dev 에도 apps/*/approval/ 은 예외라는 문구를 추가할 것
+(approval 3인방 소관).
 
 == 다음 할 일 ==
-원고를 한 편 새로 생성해 아래 셋을 측정한다. 프롬프트 변경과 등급 하한은
-테스트로 확인할 수 없고 실제 생성 1회가 필요하다. 직전 두 번의 시도는 위
-4·5번 문제로 생성 자체가 완료되지 못해 이 측정을 못 했다 — 4·5번을 고쳤으니
-세 번째 시도에서는 끝까지 갈 것으로 기대하지만, 세 번째 시도는 아직 아무도
-실행하지 않았다. 실행 대기 중.
+위 1~3번 측정은 세 번째 시도(위 7번)로 전부 끝났다 — 더 반복할 필요 없다.
+남은 건 승인 게이트 쪽이다.
 
-1. 완결성·유용성이 55 가 아니라 95 이상으로 올라오는가
-2. 원고에 출처가 붙는가. 또는 "사용 가능한 공식 출처를 확보하지 못해 원고
-   생성을 시작하지 않았습니다" 로 중단되는가 — 후자도 정상 동작이다.
-   원고가 나왔는데 출처가 여전히 없다면 아직 못 찾은 경로가 하나 더 있다.
-3. 체크리스트·순서 섹션의 산문이 250자를 넘고, 비교를 약속한 계획이라면
-   비교 섹션이 실제로 생기는가
+1. 스택된 approval-quality-auditor 수정(위 9번)을 다시 손봐야 한다.
+   git stash pop 으로 꺼낸 뒤 fix-verifier 가 지적한 6개를 반영하고,
+   fix-verifier 로 다시 검증받은 뒤에만 커밋한다. 지금 상태로 배포하면
+   실제 외부 사실 주장(신청 자격·급여 기간·제도 개편 주기 같은 것)이
+   조용히 통과되는 구멍이 있다.
+2. 건강보험 피부양자 원고에 다시 "승인 준비 검사 실행"을 돌려본다. 위
+   8번이 고쳐졌으니 Standard Quality 차단이 풀렸을 것이다 — 실제로
+   풀렸는지, 그리고 이미 찾아둔 출처 2건이 "공식 출처와 검토 기준"
+   섹션으로 원고에 실제로 붙는지 확인한다.
+3. vitest 가 .claude/worktrees/ 를 스캔하는 문제(위 현재 상태 절 참고)를
+   vitest.config.ts 에서 제외 설정으로 고친다.
+4. 에이전트 팀 겹침 정리가 절반만 됐다 (아래 에이전트 팀 절 참고). 나머지
+   마저 끝낸다.
 
-측정은 .bright-studio/studio-data.json 의 data.application.user-data.contents
-에서 가장 최근 항목을 읽어 document.metadata.generationDiagnostic 과
-quality.dimensions 를 보면 된다.
+== 보류/관찰 중인 항목 ==
+
+- 줄바꿈(CRLF) 정리: 이번 세션 코드 diff 일부가 파일 전체의 줄바꿈을 LF→CRLF로
+  바꿔 diff를 부풀렸다 (예: app/application/OpenAIProvider.ts). 저장소에
+  .gitattributes 가 없어 파일마다 줄바꿈이 제각각이다. 사장님이 "3번은 병합
+  후로 미뤄"라고 지시했다 — 이 브랜치가 main 에 병합된 뒤 별도
+  `chore: normalize line endings` 커밋으로 처리한다. 지금 하면 진행 중인
+  다른 수정과 diff가 뒤섞인다.
+
+(GeneratedFactualClaim.ts 의 verbatim anchor 불일치 항목은 위 8번에서
+고쳐졌으므로 이 절에서 제거함.)
 
 == 따라가지 않는 것 ==
 .bright-studio/ 는 git 대상이 아니다. 이번에 측정한 청약통장 원고와 품질
