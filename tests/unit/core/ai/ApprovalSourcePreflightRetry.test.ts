@@ -30,7 +30,7 @@ class QueueProvider implements AIProvider {
   }
 }
 
-function opportunity() {
+function opportunity(extraClaims: readonly Parameters<typeof createContentOpportunityVerificationPlan>[0][number][] = []) {
   const candidate = createContentOpportunityCandidate({
     sourceRequest: "휴면예금 조회 방법 글을 작성해줘",
     selectionMode: "userSpecified",
@@ -62,7 +62,7 @@ function opportunity() {
       temporalRequirement: { mode: "current" },
       required: true,
       risk: "critical",
-    }]),
+    }, ...extraClaims]),
   });
   const confirmed = confirmContentOpportunity(candidate, {
     workspaceId: "workspace-1",
@@ -113,6 +113,65 @@ function discoveryResponse(url: string): AIResponse {
       }),
     },
   };
+}
+
+const payoutClaimExcerpt = "조회 결과에 따라 지급 청구 절차가 이어집니다.";
+const payoutClaimValue = "지급 청구 절차가 이어집니다";
+
+/**
+ * Two required Claims, so a discovery response can support one and leave the
+ * other with no source at all — the Coverage gap that names no rejected URL.
+ */
+function twoClaimOpportunity() {
+  return opportunity([{
+    claimId: "dormant-payout-request",
+    atomicity: "single_assertion",
+    field: "휴면예금 지급 청구",
+    kind: "eligibility",
+    statement: "휴면예금 조회 결과가 나오면 지급 청구 절차가 이어진다.",
+    qualifiers: {},
+    temporalRequirement: { mode: "current" },
+    required: true,
+    risk: "critical",
+  }]);
+}
+
+/** Supports only the identity Claim, leaving the payout Claim uncovered. */
+function partialDiscoveryResponse(): AIResponse {
+  return discoveryResponse(textPageUrl);
+}
+
+/** Supports both required Claims from the same readable page. */
+function fullDiscoveryResponse(): AIResponse {
+  const base = discoveryResponse(textPageUrl);
+  return {
+    ...base,
+    content: JSON.stringify({
+      sources: [{
+        url: textPageUrl,
+        title: "휴면예금 조회 공식 안내",
+        evidenceExcerpt: claimExcerpt,
+        claims: [
+          {
+            claimId: "dormant-identity-check",
+            field: "휴면예금 조회의 본인 확인",
+            value: claimValue,
+            evidenceExcerpt: claimExcerpt,
+          },
+          {
+            claimId: "dormant-payout-request",
+            field: "휴면예금 지급 청구",
+            value: payoutClaimValue,
+            evidenceExcerpt: payoutClaimExcerpt,
+          },
+        ],
+      }],
+    }),
+  };
+}
+
+function twoClaimPreflightInput(provider: AIProvider) {
+  return { ...preflightInput(provider), opportunity: twoClaimOpportunity() };
 }
 
 /**
@@ -173,6 +232,32 @@ describe("Approval Source Preflight discovery retry", () => {
 
     await expect(runApprovalSourcePreflight(preflightInput(provider))).rejects.toThrow();
     expect(provider.requests).toHaveLength(2);
+  });
+
+  it("retries a Claim left with no source, which no rejected URL would report", async () => {
+    const provider = new QueueProvider([
+      partialDiscoveryResponse(),
+      fullDiscoveryResponse(),
+    ]);
+
+    const result = await runApprovalSourcePreflight(twoClaimPreflightInput(provider));
+
+    expect(provider.requests).toHaveLength(2);
+    expect(result.sources.length).toBeGreaterThan(0);
+  });
+
+  it("names the uncovered Claim so the retry can search somewhere else", async () => {
+    const provider = new QueueProvider([
+      partialDiscoveryResponse(),
+      fullDiscoveryResponse(),
+    ]);
+
+    await runApprovalSourcePreflight(twoClaimPreflightInput(provider));
+
+    const retryInstruction = provider.requests[1]?.instruction ?? "";
+    expect(retryInstruction).toContain("dormant-payout-request");
+    expect(retryInstruction).toContain("휴면예금 지급 청구");
+    expect(retryInstruction).toContain("administering body's own guidance page");
   });
 
   it("does not mention a rejected URL on the first attempt", async () => {

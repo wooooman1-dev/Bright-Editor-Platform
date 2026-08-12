@@ -371,8 +371,12 @@ export function aiProviderStageForTask(task: string | undefined): AIProviderStag
 function editorialOutputPolicy(metadata?: Readonly<Record<string, string>>) {
   if (metadata?.task === "content-planning" && metadata.explicitVerificationPlanning === "1") return { maxOutputTokens: 12_000, verbosity: "medium" as const, format: explicitPlanningOutputFormat };
   if (metadata?.task === "approval-source-preflight") {
+    // 추론 토큰이 max_output_tokens 안에서 소비된다. 프리플라이트는 웹 검색을 여러 번 돌리고
+    // 거부된 페이지의 추출 텍스트를 재시도 피드백으로 되받으므로 추론량이 다른 단계만큼 크다.
+    // 4,000 에서는 추론이 3,628 을 쓰고 남은 372 로 구조화 출력을 내지 못해 응답이
+    // incomplete: max_output_tokens 로 끊겼다. 다른 추론 단계와 같은 예산을 준다.
     return {
-      maxOutputTokens: 4_000,
+      maxOutputTokens: 12_000,
       verbosity: "low" as const,
       format: metadata.verificationMode === "explicit" ? explicitApprovalSourcePreflightFormat : approvalSourcePreflightFormat,
     };

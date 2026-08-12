@@ -78,6 +78,12 @@ export type ApprovalSourceRejectionNote = Readonly<{
   extractedSample?: string;
 }>;
 
+export type ApprovalSourceClaimGapNote = Readonly<{
+  claimId: string;
+  /** The Claim's own field name, so discovery is told what to look for, not just an opaque ID. */
+  field: string;
+}>;
+
 export async function runApprovalSourcePreflight(input: Readonly<{
   provider: AIProvider;
   snapshot: ApprovalPolicySnapshot;
@@ -87,6 +93,8 @@ export async function runApprovalSourcePreflight(input: Readonly<{
   fetcher?: SiteApprovalReadinessFetch;
   /** Candidates a previous attempt already had rejected, fed back into discovery. */
   rejectedSourceFeedback?: readonly ApprovalSourceRejectionNote[];
+  /** Claims a previous attempt left without any source at all, fed back into discovery. */
+  uncoveredClaimFeedback?: readonly ApprovalSourceClaimGapNote[];
 }>): Promise<ApprovalSourcePreflightResult> {
   if (hasUsableContentOpportunityVerificationPlan(input.opportunity.verificationPlan)) {
     if (input.opportunity.verificationPlan.claims.some(isCriticalVerificationClaim)) return runExplicitPreflightWithRetry(input);
@@ -341,15 +349,19 @@ async function runExplicitPreflightWithRetry(
     try {
       return await runExplicitPreflight(attemptInput);
     } catch (error) {
-      const rejected = attempt < explicitDiscoveryMaximumAttempts
-        ? retryableSourceRejections(error)
-        : [];
-      if (!rejected.length) throw error;
+      const retryable = attempt < explicitDiscoveryMaximumAttempts;
+      const rejected = retryable ? retryableSourceRejections(error) : [];
+      const uncovered = retryable ? uncoveredClaimGaps(error, attemptInput.opportunity) : [];
+      if (!rejected.length && !uncovered.length) throw error;
       attemptInput = Object.freeze({
         ...attemptInput,
         rejectedSourceFeedback: Object.freeze([
           ...(attemptInput.rejectedSourceFeedback ?? []),
           ...rejected,
+        ]),
+        uncoveredClaimFeedback: Object.freeze([
+          ...(attemptInput.uncoveredClaimFeedback ?? []),
+          ...uncovered,
         ]),
       });
     }
@@ -372,6 +384,31 @@ function retryableSourceRejections(error: unknown): readonly ApprovalSourceRejec
       : []));
 }
 
+/**
+ * A Claim that never had a source submitted is invisible to rejection feedback:
+ * there is no URL to name, so the retry hears only "avoid these pages" and repeats
+ * the search that already missed it. 피부양자 자격 요건 was blocked exactly this
+ * way — discovery stayed inside law.go.kr 조문정보 across both attempts while the
+ * administering body's own page carried the requirement in 11,250 characters of
+ * plain HTML that a single GET returns. Naming the uncovered Claim is what lets
+ * the second attempt look somewhere else. Nothing about acceptance is relaxed.
+ */
+function uncoveredClaimGaps(
+  error: unknown,
+  opportunity: ConfirmedContentOpportunity,
+): readonly ApprovalSourceClaimGapNote[] {
+  if (!(error instanceof ApprovalSourcePreflightError)) return [];
+  const missing = error.diagnostic?.missingClaimIds ?? [];
+  if (!missing.length) return [];
+  const fieldByClaimId = new Map(
+    (opportunity.verificationPlan?.claims ?? []).map((claim) => [claim.claimId, claim.field]),
+  );
+  return Object.freeze(missing.map((claimId) => Object.freeze({
+    claimId,
+    field: fieldByClaimId.get(claimId) ?? claimId,
+  })));
+}
+
 async function runExplicitPreflight(input: Readonly<Parameters<typeof runApprovalSourcePreflight>[0]>): Promise<ApprovalSourcePreflightResult> {
   const plan = input.opportunity.verificationPlan!;
   const contract = input.opportunity.requiredEvidenceContract;
@@ -391,7 +428,7 @@ async function runExplicitPreflight(input: Readonly<Parameters<typeof runApprova
     );
   }
   const response = await input.provider.generate({
-    instruction: explicitPreflightInstruction(input.snapshot, input.opportunity, input.rejectedSourceFeedback),
+    instruction: explicitPreflightInstruction(input.snapshot, input.opportunity, input.rejectedSourceFeedback, input.uncoveredClaimFeedback),
     metadata: {
       task: approvalSourcePreflightTask,
       verificationMode: "explicit",
@@ -894,12 +931,16 @@ function explicitPreflightInstruction(
   snapshot: ApprovalPolicySnapshot,
   opportunity: ConfirmedContentOpportunity,
   rejectedSourceFeedback?: readonly ApprovalSourceRejectionNote[],
+  uncoveredClaimFeedback?: readonly ApprovalSourceClaimGapNote[],
 ): string {
   const criticalClaims = opportunity.verificationPlan!.claims.filter(isCriticalVerificationClaim);
   const retryRule = rejectedSourceFeedback?.length
     ? ` A previous discovery attempt on this same topic was rejected by the server. Do not submit these URLs again.${rejectedSourceFeedback.map((item) => ` REJECTED ${item.url} (${item.rejectionCode})${item.extractedSample ? ` — the entire text the server read from that page began: "${item.extractedSample}"` : ""}.`).join("")} evidence_anchor_unverified means your quoted passage was nowhere in that text. source_topic_relevance_unverified means that text never named the subject. Both happen when a page renders its content with JavaScript or holds it inside images, so what you saw is not what the server received. Pick a page whose subject matter is present in the raw HTML.`
     : "";
-  return `Perform explicit source discovery only. Use each claimId exactly as provided. Search within the confirmed topic scope and do not substitute an adjacent topic. Topic: ${opportunity.selectedTopic}. Primary keyword: ${opportunity.primaryKeyword}. Reader problem: ${opportunity.readerProblem}. Search intent: ${opportunity.searchIntent}. Required Claims: ${JSON.stringify(criticalClaims)}. These are CRITICAL Claims only. Profile: ${snapshot.profileDisplayName}. Every required CRITICAL Claim must be deliberately searched and supported by its authoritative primary source. Determine authority from the Claim context: laws from the official law or responsible government authority; taxes from the tax authority, applicable law, or responsible authority; government benefits from the actual administering public body; financial regulation from the responsible regulator; and a named bank, card, insurance, or other entity's product terms from that same entity's official product page, disclosure, description, or terms. A government domain is not automatically authoritative for an entity-owned product Claim, and an official entity page must not be used for another entity's Claim. A single source may support multiple Claims, and multiple sources may divide Claim coverage; do not stop after finding one source. Prefer directly readable HTML pages. Use a PDF only when it has a directly readable text layer and the required passage can be quoted from it. Each returned source must include at least one claims item with an exact canonical required claimId; omit any source that supports no required Claim. For each source, attach only the Claim fields that the exact page supports. Every attached claim must include its exact provided claimId. If a required Claim cannot be supported, omit unsupported evidence; the server will deterministically return its missing Claim ID and block Generation. Each source evidenceExcerpt must be a contiguous verbatim passage from the canonical extracted text of that fetched document body, including visible headings but excluding page title, metadata, search snippets, navigation, scripts, and styles. Do not paraphrase, summarize, or synthesize separate passages into a new sentence. Each claim value should be the shortest verbatim factual phrase contained inside its claim evidenceExcerpt; do not use a paraphrase as value. If the source has no directly quotable supporting passage, omit that source instead of inventing or rewriting evidence. Choose the shortest passage that is sufficient to support the source relevance. Return every official page you inspected that supports a required Claim, not only the single best one: the server re-fetches and re-validates each page and may reject one for reasons you cannot observe from here, so a single submitted page means one rejection blocks the whole article. Prefer the institution that administers the subject on its own site over a portal, newsroom, or promotional page that only republishes the rule, and when both exist submit both. Know what the server does with your URL, because it is not what your browsing tool does: it issues one plain HTTP GET and reads text out of the HTML that comes back. It does not run JavaScript, does not wait for a client-rendered view, and cannot read words inside images or inside a PDF with no text layer. Your excerpt and the Claim subject must both be present in that raw HTML. So never submit a promotional or campaign page such as a 카드뉴스, 홍보자료, infographic, poster, or scanned notice, and never submit an application shell, mobile portal, dashboard, or personalized "my page" view whose content arrives after load — those return navigation menus and nothing else. Submit the static detail, guidance, notice, or statute page that states the fact in its own HTML.${retryRule} Return JSON with sources containing url,title,evidenceExcerpt and claims containing claimId,value,evidenceExcerpt.`;
+  const coverageRule = uncoveredClaimFeedback?.length
+    ? ` A previous attempt submitted no source at all for these required Claims, so they remain uncovered and Generation stays blocked until each one is supported:${uncoveredClaimFeedback.map((item) => ` ${item.claimId} (${item.field})`).join(",")}. Search again for those specific Claims on the site of the institution that administers the subject itself, not only the statute or portal space already searched. The statute article that establishes a scheme is not a substitute for the administering body's own guidance page that states the requirement, and that guidance page is often the only one whose raw HTML contains the numbers.`
+    : "";
+  return `Perform explicit source discovery only. Use each claimId exactly as provided. Search within the confirmed topic scope and do not substitute an adjacent topic. Topic: ${opportunity.selectedTopic}. Primary keyword: ${opportunity.primaryKeyword}. Reader problem: ${opportunity.readerProblem}. Search intent: ${opportunity.searchIntent}. Required Claims: ${JSON.stringify(criticalClaims)}. These are CRITICAL Claims only. Profile: ${snapshot.profileDisplayName}. Every required CRITICAL Claim must be deliberately searched and supported by its authoritative primary source. Determine authority from the Claim context: laws from the official law or responsible government authority; taxes from the tax authority, applicable law, or responsible authority; government benefits from the actual administering public body; financial regulation from the responsible regulator; and a named bank, card, insurance, or other entity's product terms from that same entity's official product page, disclosure, description, or terms. A government domain is not automatically authoritative for an entity-owned product Claim, and an official entity page must not be used for another entity's Claim. A single source may support multiple Claims, and multiple sources may divide Claim coverage; do not stop after finding one source. Prefer directly readable HTML pages. Use a PDF only when it has a directly readable text layer and the required passage can be quoted from it. Each returned source must include at least one claims item with an exact canonical required claimId; omit any source that supports no required Claim. For each source, attach only the Claim fields that the exact page supports. Every attached claim must include its exact provided claimId. If a required Claim cannot be supported, omit unsupported evidence; the server will deterministically return its missing Claim ID and block Generation. Each source evidenceExcerpt must be a contiguous verbatim passage from the canonical extracted text of that fetched document body, including visible headings but excluding page title, metadata, search snippets, navigation, scripts, and styles. Do not paraphrase, summarize, or synthesize separate passages into a new sentence. Each claim value should be the shortest verbatim factual phrase contained inside its claim evidenceExcerpt; do not use a paraphrase as value. If the source has no directly quotable supporting passage, omit that source instead of inventing or rewriting evidence. Choose the shortest passage that is sufficient to support the source relevance. Return every official page you inspected that supports a required Claim, not only the single best one: the server re-fetches and re-validates each page and may reject one for reasons you cannot observe from here, so a single submitted page means one rejection blocks the whole article. Prefer the institution that administers the subject on its own site over a portal, newsroom, or promotional page that only republishes the rule, and when both exist submit both. Know what the server does with your URL, because it is not what your browsing tool does: it issues one plain HTTP GET and reads text out of the HTML that comes back. It does not run JavaScript, does not wait for a client-rendered view, and cannot read words inside images or inside a PDF with no text layer. Your excerpt and the Claim subject must both be present in that raw HTML. So never submit a promotional or campaign page such as a 카드뉴스, 홍보자료, infographic, poster, or scanned notice, and never submit an application shell, mobile portal, dashboard, or personalized "my page" view whose content arrives after load — those return navigation menus and nothing else. Submit the static detail, guidance, notice, or statute page that states the fact in its own HTML.${retryRule}${coverageRule} Return JSON with sources containing url,title,evidenceExcerpt and claims containing claimId,value,evidenceExcerpt.`;
 }
 
 type SourcePipelineMetrics = {
