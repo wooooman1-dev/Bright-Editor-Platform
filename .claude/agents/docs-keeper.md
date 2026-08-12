@@ -1,6 +1,6 @@
 ---
 name: docs-keeper
-description: Docs/current 문서와 Decision Log, todo.txt를 갱신할 때 사용한다. 구조 변경이나 정책 변경 후 문서가 코드와 어긋나는지 점검하거나, 다른 컴퓨터로 넘길 인수인계 메모를 정리할 때 부른다.
+description: Docs/current 문서와 Decision Log를 갱신할 때 사용한다. 구조 변경이나 정책 변경 후 문서가 코드와 어긋나는지 점검할 때 부른다. todo.txt 인수인계 메모는 이 팀원이 아니라 handover-scribe 담당이다.
 tools: Read, Edit, Write, Grep, Glob, Bash
 model: sonnet
 ---

@@ -4,6 +4,7 @@ import {
   bindGeneratedClaims,
   type GeneratedClaimLocation,
 } from "./GeneratedClaimBinding";
+import { deliberatelyRemovedGeneratedFactualClaimIds } from "./GeneratedFactualClaimInventory";
 import { normalizeVerificationValue } from "./VerificationClaimNormalizer";
 import type {
   VerificationClaimKind,
@@ -70,9 +71,19 @@ export function validateGeneratedFactualClaimDrafts(input: Readonly<{
   const results = new Map(input.snapshot.results.map((result) => [result.claimId, result]));
   const verifiedClaimIds = new Set(input.gate.verifiedClaimIds);
   const segments = generatedClaimTextSegments(input.document);
+  /**
+   * A Claim the factual inventory withdrew from the manuscript is not a lost
+   * anchor. The inventory runs after this projection is first computed and is
+   * the last stage that edits the canonical document, so its `removed`
+   * disposition is the final word on whether the sentence is still published.
+   * Requiring a verbatim anchor for a sentence the pipeline itself deleted made
+   * the two Claim structures contradict each other inside one revision.
+   */
+  const withdrawnByInventory = deliberatelyRemovedGeneratedFactualClaimIds(input.document);
   const claims: GeneratedFactualClaim[] = [];
   const reasons: string[] = [];
   const seen = new Set<string>();
+  const withdrawn = new Set<string>();
 
   for (const draft of input.drafts) {
     const claimId = draft.claimId.trim();
@@ -123,6 +134,10 @@ export function validateGeneratedFactualClaimDrafts(input: Readonly<{
       .filter((segment) => normalizeComparableText(segment.text).includes(normalizeComparableText(surfaceText)))
       .map((segment) => segment.location);
     if (!locations.length) {
+      if (withdrawnByInventory.has(claimId)) {
+        withdrawn.add(claimId);
+        continue;
+      }
       reasons.push(`Generation 구조화 Claim의 verbatim anchor를 현재 원고에서 찾지 못했습니다: ${claimId}.`);
       continue;
     }
@@ -142,9 +157,9 @@ export function validateGeneratedFactualClaimDrafts(input: Readonly<{
   }
 
   for (const claimId of verifiedClaimIds) {
-    if (!claims.some((claim) => claim.claimId === claimId)) {
-      reasons.push(`검증된 Claim이 Generation 구조화 사실 목록에 연결되지 않았습니다: ${claimId}.`);
-    }
+    if (claims.some((claim) => claim.claimId === claimId)) continue;
+    if (withdrawn.has(claimId) || withdrawnByInventory.has(claimId)) continue;
+    reasons.push(`검증된 Claim이 Generation 구조화 사실 목록에 연결되지 않았습니다: ${claimId}.`);
   }
 
   const rebound = bindGeneratedClaims({

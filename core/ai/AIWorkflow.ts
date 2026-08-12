@@ -3,6 +3,7 @@ import {
   canonicalizeApprovalEvidenceUrl,
   applyGeneratedFactualClaimInventory,
   createGeneratedClaimVerificationRecord,
+  evaluateStoredGeneratedFactualClaims,
   validateGeneratedFactualClaimDrafts,
   type ApprovalEvidenceFact,
   type ApprovalEvidenceSource,
@@ -10,6 +11,8 @@ import {
   type GeneratedClaimBinding,
   type GeneratedFactualClaim,
   type SiteApprovalReadinessFetch,
+  type VerificationGenerationGateResult,
+  type VerificationGenerationPlan,
   type VerificationSnapshot,
 } from "../approval";
 import type { ApprovalSourcePreflightCoverageResult } from "../approval/ApprovalSourcePreflightCoverage";
@@ -224,12 +227,22 @@ export class AIWorkflow {
       }
 
       let semanticClaims: readonly GeneratedFactualClaim[] | undefined;
+      let semanticContract: Readonly<{
+        plan: VerificationGenerationPlan;
+        snapshot: VerificationSnapshot;
+        gate: VerificationGenerationGateResult;
+      }> | undefined;
       if (
         generationPreflight
         && "gate" in generationPreflight
         && input.contentOpportunity?.verificationPlan?.claims.some(isCriticalVerificationClaim)
         && sourcePreflight?.verificationSnapshot
       ) {
+        semanticContract = Object.freeze({
+          plan: input.contentOpportunity.verificationPlan,
+          snapshot: sourcePreflight.verificationSnapshot,
+          gate: generationPreflight.gate,
+        });
         const semanticValidation = validateGeneratedFactualClaimDrafts({
           document: generatedDocument,
           plan: input.contentOpportunity.verificationPlan,
@@ -263,8 +276,35 @@ export class AIWorkflow {
               ...(this.options.verifyEvidenceFetcher ? { fetcher: this.options.verifyEvidenceFetcher } : {}),
             }),
             fallbackTitle: input.contentOpportunity.selectedTopic,
+            ...(semanticClaims
+              ? { protectedSurfaceTexts: semanticClaims.map((claim) => claim.surfaceText) }
+              : {}),
           }).document
         : generatedDocument;
+
+      /**
+       * The factual inventory is the last stage that edits the canonical
+       * document, so the semantic Claim projection computed above describes the
+       * pre-inventory manuscript. Persisting it unchanged let one revision carry
+       * two Claim structures that disagreed about whether a Claim survived, and
+       * left stale block locations behind when the inventory dropped a block.
+       * Rebinding against the final document is what keeps them one answer.
+       */
+      if (semanticClaims && semanticContract && inventoryApplied !== generatedDocument) {
+        const rebound = evaluateStoredGeneratedFactualClaims({
+          document: inventoryApplied,
+          plan: semanticContract.plan,
+          snapshot: semanticContract.snapshot,
+          gate: semanticContract.gate,
+          claims: semanticClaims,
+        });
+        if (!rebound.passed) {
+          throw new Error(
+            `Generated factual Claim semantic verification failed after the factual inventory was applied. ${rebound.reasons.join(" ")}`,
+          );
+        }
+        semanticClaims = rebound.claims;
+      }
 
       const generatedClaimVerification = generationPreflight
         && "gate" in generationPreflight

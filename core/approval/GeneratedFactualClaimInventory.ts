@@ -66,6 +66,13 @@ export type GeneratedFactualClaimDecision = Readonly<{
   retained: boolean;
   evidenceStatus: GeneratedFactualClaimEvidenceStatus;
   diagnosticCode?: string;
+  /**
+   * Server-owned risk classification. The returned inventory declares a risk,
+   * but only the stored Verification Plan decides whether a Claim is CRITICAL.
+   * When the decision maker resolved the Claim against the Plan it reports the
+   * canonical risk here so the stored item cannot disagree with the Plan.
+   */
+  risk?: Exclude<VerificationClaimRisk, "none">;
 }>;
 
 /**
@@ -78,6 +85,12 @@ export function applyGeneratedFactualClaimInventory(input: Readonly<{
   drafts: readonly GeneratedFactualClaimInventoryDraft[];
   decisions: readonly GeneratedFactualClaimDecision[];
   fallbackTitle: string;
+  /**
+   * Semantic anchors of Claims the server already verified through explicit
+   * Source Preflight. The best-effort inventory sweep may not delete them: they
+   * are the same facts the persisted Claim verification record binds against.
+   */
+  protectedSurfaceTexts?: readonly string[];
 }>): Readonly<{
   document: ContentDocument;
   record: GeneratedFactualClaimInventoryRecord;
@@ -111,7 +124,7 @@ export function applyGeneratedFactualClaimInventory(input: Readonly<{
       claimId,
       ...(planningClaimId ? { planningClaimId } : {}),
       origin: draft.origin,
-      risk: draft.risk,
+      risk: decision.risk ?? draft.risk,
       surfaceText,
       statement,
       kind: draft.kind,
@@ -132,9 +145,12 @@ export function applyGeneratedFactualClaimInventory(input: Readonly<{
     }
   }
 
-  const retainedCriticalSurfaces = items
-    .filter((item) => item.disposition === "retained" && item.risk === "critical")
-    .map((item) => item.surfaceText);
+  const retainedCriticalSurfaces = [
+    ...items
+      .filter((item) => item.disposition === "retained" && item.risk === "critical")
+      .map((item) => item.surfaceText),
+    ...(input.protectedSurfaceTexts ?? []),
+  ];
   for (const surface of findUntrackedCriticalSurfaces(document, retainedCriticalSurfaces)) {
     const locations = locateGeneratedFactualSurface(document, surface);
     const claimId = verificationClaimId({
@@ -258,6 +274,32 @@ export function activeGeneratedFactualClaims(
   record: GeneratedFactualClaimInventoryRecord | undefined,
 ): readonly GeneratedFactualClaimInventoryItem[] {
   return Object.freeze(record?.items.filter((item) => item.disposition === "retained") ?? []);
+}
+
+/**
+ * Claim IDs the factual inventory deliberately withdrew from the manuscript.
+ *
+ * The inventory is the last stage that edits the canonical document, so it owns
+ * the final answer about which Claims the reader actually sees. Other Claim
+ * structures — the persisted VerificationSnapshot above all — are computed
+ * earlier and cannot know about a later withdrawal, so they must read it here
+ * instead of assuming every verified Claim survived into the manuscript.
+ *
+ * A withdrawal only counts when it really happened: the recorded surface must be
+ * absent from the current document. An inventory that claims a Claim was removed
+ * while its text is still published grants no exemption.
+ */
+export function deliberatelyRemovedGeneratedFactualClaimIds(
+  document: ContentDocument,
+): ReadonlySet<string> {
+  const removed = new Set<string>();
+  for (const item of document.metadata?.generatedFactualClaimInventory?.items ?? []) {
+    if (item.disposition !== "removed") continue;
+    if (locateGeneratedFactualSurface(document, item.surfaceText).length) continue;
+    removed.add(item.claimId);
+    if (item.planningClaimId) removed.add(item.planningClaimId);
+  }
+  return removed;
 }
 
 export function generatedFactualInventoryIntegrityReason(
