@@ -7,9 +7,11 @@ npm run dev
 npm install 은 이전 브랜치에서 뒤처져 있을 때만. 이번 작업은 package.json 을
 건드리지 않았다.
 
-== 현재 상태 (2026-08-12, e65e57f) ==
-브랜치 feat/scheduled-publishing-and-diversity 와 worktree-root-cause-fixes 가
-같은 커밋. tsc / eslint 클린, vitest 1931 passed / 18 skipped / 0 failed.
+== 현재 상태 (2026-08-12, 1d550bb) ==
+브랜치 feat/scheduled-publishing-and-diversity, origin 과 동기화(push 완료).
+tsc / eslint 클린, vitest 3876 passed / 36 skipped / 0 failed.
+
+e65e57f 이후 이번 세션에서 커밋 4개가 더 올라갔다.
 
 b509cff 에서 생성 원고 한 편을 측정해 근본 원인 3건을 고쳤다. 자세한 내용은
 Docs/current/04_DEVELOPMENT/13_EDITORIAL_DIVERSITY_HANDOFF.md 12절.
@@ -24,9 +26,54 @@ Docs/current/04_DEVELOPMENT/13_EDITORIAL_DIVERSITY_HANDOFF.md 12절.
 3. 산문 하한(400자, 리스트형 250자)과 비교 이행 의무를 생성 프롬프트에
    명시했다. 게이트는 있었지만 생성에게 알려주지 않고 있었다.
 
+이번 세션에서 위 수정 이후 실제로 원고 생성을 두 번 시도했고 둘 다 다른
+지점에서 막혔다. 둘 다 해당 원고를 손보지 않고 근본 원인을 코드로 고쳤다.
+
+4. 1차 실패: source_preflight 단계가 `OpenAI response was incomplete:
+   max_output_tokens` 로 끊겼다. app/application/OpenAIProvider.ts 의
+   editorialOutputPolicy 에서 approval-source-preflight 태스크만
+   maxOutputTokens: 4_000 이었고, 추론 토큰이 그 예산 안에서 소비돼 추론이
+   3,628 을 쓰고 372 만 남아 구조화 출력을 못 냈다. 다른 추론 단계(기획
+   12,000 / 생성 11,000~14,000 / 품질 12,000)와 같은 12,000 으로 올렸다.
+5. 2차 실패: 예산을 올린 뒤 새로 돌린 생성이 `coverage_incomplete` 로
+   막혔다 — 필수 Claim 2건 중 1건("피부양자 자격 요건")이 끝내 출처를 못
+   찾았다. 실제로는 국민건강보험공단 자기 사이트
+   (nhis.or.kr/nhis/policy/wbhada07400m01.do) 에 그 요건이 평문 11,250자로
+   있는데, 탐색이 두 번의 시도 모두 law.go.kr 조문정보 안에서만 맴돌았다.
+   원인은 core/ai/ApprovalSourcePreflight.ts 의 재시도 피드백이 "거부된
+   URL"만 담고 "출처가 하나도 없는 미확보 Claim"은 담지 않아, 두 번째
+   시도가 같은 실패한 검색을 반복한 것. ApprovalSourceClaimGapNote 를
+   추가해 미확보 Claim을 claimId+field 로 재시도 프롬프트에 실었고, 거부
+   URL이 없어도(순수 커버리지 공백만 있어도) 재시도가 일어나게 했다.
+   판정 기준(공식성/관련성/앵커/의미검증)은 전혀 완화하지 않았다 — 후보를
+   하나 더 얻게 한 것뿐이다.
+6. 4·5번 두 수정은 모두 같은 커밋 0f97d1a 에 들어 있다 (한 회차 재현
+   조사·수정으로 같이 처리됨). 회귀 테스트: tests/unit/app/application/
+   OpenAIApprovalWebSearch.test.ts (예산 값 갱신), tests/unit/core/ai/
+   ApprovalSourcePreflightRetry.test.ts (커버리지 공백 재시도 테스트 2건
+   추가). 둘 다 tsc --noEmit 클린, vitest 전체 통과 확인됨.
+
+== 에이전트 팀 (10명, .claude/agents/) ==
+1c188d7 에서 8명, bec1bde 에서 handover-scribe(9번째), 1d550bb 에서
+approval-quality-auditor(10번째)를 추가했다. CLAUDE.md 가 AGENTS.md 를
+@import 하는 구조도 1c188d7 에서 처음 생겼다.
+
+주의: .claude/agents/ 정의는 세션(프로세스) 시작 시에만 로드된다. 세션
+도중에 에이전트를 새로 추가해도 그 세션에서는 "Agent type not found" 로
+호출이 실패한다 — 이번 세션에서 실제로 겪었다. claude -c 로 재시작해야
+새 에이전트가 보인다.
+
+approval-quality-auditor 는 정의만 만들고 커밋했을 뿐 아직 한 번도 실제로
+호출해 감사를 돌려본 적이 없다. 다음 세션에서 승인 파이프라인 전체(품질
+게이트가 과한지/느슨한지 측정으로 판정)를 이 팀원에게 맡겨보는 것을 다음
+할 일 후보로 고려할 것.
+
 == 다음 할 일 ==
 원고를 한 편 새로 생성해 아래 셋을 측정한다. 프롬프트 변경과 등급 하한은
-테스트로 확인할 수 없고 실제 생성 1회가 필요하다.
+테스트로 확인할 수 없고 실제 생성 1회가 필요하다. 직전 두 번의 시도는 위
+4·5번 문제로 생성 자체가 완료되지 못해 이 측정을 못 했다 — 4·5번을 고쳤으니
+세 번째 시도에서는 끝까지 갈 것으로 기대하지만, 세 번째 시도는 아직 아무도
+실행하지 않았다. 실행 대기 중.
 
 1. 완결성·유용성이 55 가 아니라 95 이상으로 올라오는가
 2. 원고에 출처가 붙는가. 또는 "사용 가능한 공식 출처를 확보하지 못해 원고

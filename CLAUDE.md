@@ -46,7 +46,9 @@ npm run dev             # Next 개발 서버
 | `ui-dev` | `app/` 화면, `core/presentation` |
 | `test-runner` | 테스트·타입체크·린트 실행과 실패 진단 (읽기 전용) |
 | `docs-keeper` | `Docs/current`, Decision Log, `todo.txt` |
-| `approval-quality-auditor` | 승인용 품질·판정 로직 검토, 기준이 과한지 측정으로 판정 |
+| `approval-quality-auditor` | 승인용 품질·판정 로직 검토, 기준이 과한지 측정으로 판정 (규칙 단위) |
+| `approval-readiness-designer` | 승인 준비 게이트 구조·차단 기준 설계 (게이트 전체 단위) |
+| `fix-verifier` | 완료된 수정을 독립 검증 — 근본 원인·회귀 테스트·범위·전체 스위트 (읽기 전용) |
 | `handover-scribe` | 컨텍스트 압축·세션 종료 전 `todo.txt` 인수인계 갱신 |
 
 컨텍스트가 압축되기 직전 `PreCompact` 훅(`.claude/settings.json`)이 브랜치·커밋·
