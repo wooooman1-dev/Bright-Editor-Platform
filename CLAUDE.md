@@ -46,3 +46,8 @@ npm run dev             # Next 개발 서버
 | `ui-dev` | `app/` 화면, `core/presentation` |
 | `test-runner` | 테스트·타입체크·린트 실행과 실패 진단 (읽기 전용) |
 | `docs-keeper` | `Docs/current`, Decision Log, `todo.txt` |
+| `handover-scribe` | 컨텍스트 압축·세션 종료 전 `todo.txt` 인수인계 갱신 |
+
+컨텍스트가 압축되기 직전 `PreCompact` 훅(`.claude/settings.json`)이 브랜치·커밋·
+미커밋 변경을 `.claude/handover-snapshot.md`에 기록하고, `handover-scribe`를 불러
+`todo.txt`를 갱신하라고 알린다.
