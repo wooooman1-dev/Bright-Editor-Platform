@@ -7,10 +7,12 @@ npm run dev
 npm install 은 이전 브랜치에서 뒤처져 있을 때만. 이번 작업은 package.json 을
 건드리지 않았다.
 
-== 현재 상태 (2026-08-13, ec17c6b) ==
-브랜치 feat/scheduled-publishing-and-diversity. push 예정(이 커밋들이 실제
-origin 에 올라갔는지는 git log origin/feat/scheduled-publishing-and-diversity
-로 확인).
+== 현재 상태 (2026-08-13, 288c29d) ==
+브랜치 feat/scheduled-publishing-and-diversity, origin 과 동기화(push 완료).
+중간에 ec17c6b 하나를 커밋 메시지 제목 중복(0f97d1a 와 동일 제목이었음)
+때문에 46dc38e 로 reword 했다 — 그 뒤 커밋 3개가 이 리라이트로 해시가
+바뀌어 force-with-lease 로 다시 push 했다. 내용은 리베이스 전후로 트리
+diff 없음(확인됨), 코드 변경 아님.
 격리 재검증: tsc --noEmit 클린, eslint 클린, vitest 전체 644 files / 3881
 tests passed, 36 skipped, 2 failed — 실패 2건은
 tests/unit/app/application/ConnectionInfrastructure.test.ts (Windows DPAPI
@@ -69,7 +71,7 @@ Docs/current/04_DEVELOPMENT/13_EDITORIAL_DIVERSITY_HANDOFF.md 12절.
    점수와 승인 게이트는 별개 상태라는 걸 이번에 직접 확인했다 (AGENTS.md
    14장). 아래 8·9번이 그 원인.
 8. GeneratedFactualClaim.ts 의 verbatim anchor 불일치(위에서 "관찰 대기"로
-   남겨뒀던 항목) — 원인이 확정돼 커밋 ec17c6b 로 고쳤다. 실제 원인은
+   남겨뒀던 항목) — 원인이 확정돼 커밋 46dc38e 로 고쳤다. 실제 원인은
    재작성 단계의 텍스트 손상이 아니라, GeneratedVerifyEvidence.ts 가 Claim의
    위험도를 저장된 verificationPlan 이 아니라 Generation 자신이 붙인 라벨로
    판정하던 것 — 서버가 이미 critical 로 사전검증한 Claim이 모델이 스스로
@@ -114,7 +116,7 @@ approval-quality-auditor 를 실제로 호출해봤다 — "1년/2년" 미검증
 
 1. docs-keeper ↔ handover-scribe — 둘 다 todo.txt 담당으로 적혀 있었다.
    docs-keeper.md 를 고쳐 todo.txt 를 handover-scribe 전담으로 넘겼다
-   (이번 커밋 ec17c6b 에 포함, 완료).
+   (이번 커밋 46dc38e 에 포함, 완료).
 2. quality-root-cause ↔ approval-quality-auditor — core/quality/
    QualityEngine.ts 등 같은 파일을 둘 다 자기 담당이라 적어놨다. 아직
    안 고침.
