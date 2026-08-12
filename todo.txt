@@ -124,13 +124,13 @@ approval-quality-auditor 를 실제로 호출해봤다 — "1년/2년" 미검증
    quality-root-cause 에게 GeneratedVerifyEvidence.ts 를 고치라고 잘못
    시켰었다(결과물 자체는 문제없었지만 담당 경계가 흐렸다). 아직 안 고침.
 
-2·3번을 마저 고치는 게 다음 할 일 4번이다. 계획: quality-root-cause 에서
-"core/approval/*Policy.ts"와 "core/ai/*.ts 전부" 클레임을 지우고 생성
-프롬프트/스키마 담당으로 좁히기, approval-quality-auditor 에서 core/quality/
-파일 목록을 지우고(그건 승인용에만 국한되지 않는 범용 엔진이라
-quality-root-cause 소관) core/approval/*Policy.ts 만 남기기.
-platform-adapter-dev 에도 apps/*/approval/ 은 예외라는 문구를 추가할 것
-(approval 3인방 소관).
+2·3번도 커밋 70d9d0e 로 마저 고쳤다 — 12명 전부 겹침 정리 완료. 요약:
+quality-root-cause 는 생성 프롬프트/스키마 + 범용 core/quality/ 엔진만,
+core/ai/ApprovalSourcePreflight.ts 계열과 core/approval/*Policy.ts 는 승인
+전문 3인방(approval-evidence/approval-quality-auditor/
+approval-readiness-designer)에게 명시적으로 넘기게 했다.
+approval-quality-auditor 는 core/quality/ 클레임을 버렸다. platform-adapter-dev
+에는 apps/*/approval/ 예외 문구를 추가했다.
 
 == 다음 할 일 ==
 위 1~3번 측정은 세 번째 시도(위 7번)로 전부 끝났다 — 더 반복할 필요 없다.
@@ -147,8 +147,6 @@ platform-adapter-dev 에도 apps/*/approval/ 은 예외라는 문구를 추가�
    섹션으로 원고에 실제로 붙는지 확인한다.
 3. vitest 가 .claude/worktrees/ 를 스캔하는 문제(위 현재 상태 절 참고)를
    vitest.config.ts 에서 제외 설정으로 고친다.
-4. 에이전트 팀 겹침 정리가 절반만 됐다 (아래 에이전트 팀 절 참고). 나머지
-   마저 끝낸다.
 
 == 보류/관찰 중인 항목 ==
 
