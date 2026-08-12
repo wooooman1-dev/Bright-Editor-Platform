@@ -22,6 +22,8 @@ model: sonnet
 
 브라우저 생명주기 로직을 앱마다 복제하지 마라. 셀렉터도 중복 정의하지 마라 — `apps/tistory/selectors`처럼 한곳에 모은다.
 
+**예외: `apps/<platform>/approval/`는 네 담당이 아니다.** `WordPressSiteReadinessAudit.ts` 같은 파일은 어댑터 구현이 아니라 승인 판정 로직이라 `approval-quality-auditor`·`approval-readiness-designer` 담당이다. 어댑터는 판정하지 않고 번역만 한다는 원칙(아래 "어댑터 규칙") 그대로다.
+
 ## 자동화 품질 요구
 
 - 안정적인 로케이터를 쓴다. 순서 의존 인덱스나 깨지기 쉬운 CSS 체인을 피하라.

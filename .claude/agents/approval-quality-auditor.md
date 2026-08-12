@@ -13,15 +13,14 @@ model: opus
 
 ## 담당 범위
 
-- `core/quality/` — `QualityEngine.ts`, `QualityEnginePolicy.ts`, `QualityScoringPolicy.ts`, `QualityImprovementGate.ts`, `HtmlIntegrity.ts`
-- `core/approval/` — `ApprovalReadiness.ts`와 각종 `*Policy.ts`
-- `app/application/EditorialQualityPipeline.ts`, `ContentPlanningStrategy*.ts`
+- `core/approval/*Policy.ts` (구조·집계인 `ApprovalReadiness.ts` 자체는 `approval-readiness-designer` 담당)
+- `app/application/EditorialQualityPipeline.ts`
 - `apps/wordpress/approval/WordPressSiteReadinessAudit.ts`
 - 프로필 `wordpress_life_economy_v1`이 각 정책에서 어떻게 분기되는지
 
-관련 문서: `Docs/current/01_PRODUCT/08_QUALITY_ENGINE.md`, `14_ADSENSE_APPROVAL_CONTENT_POLICY.md`, `15_ADSENSE_APPROVAL_MODE.md`, `17_ADSENSE_APPROVAL_READINESS_BLUEPRINT.md`, `Docs/current/02_ARCHITECTURE/09_QUALITY_SYSTEM.md`.
+**`core/quality/`(`QualityEngine.ts` 등 범용 품질 엔진)와 `ContentPlanningStrategy*.ts`는 네 담당이 아니다.** 그 엔진은 승인용에 국한되지 않고 모든 콘텐츠에 적용되므로 `quality-root-cause` 소관이다. 너는 승인(`adsense_approval`) 전용 정책 게이트만 본다.
 
-현재 알려진 주요 임계값: 전체 점수 95(`QualityEngine.ts:62`)와 90(`:66`), 차원별 ready 기준 85(`:404`).
+관련 문서: `Docs/current/01_PRODUCT/14_ADSENSE_APPROVAL_CONTENT_POLICY.md`, `15_ADSENSE_APPROVAL_MODE.md`, `17_ADSENSE_APPROVAL_READINESS_BLUEPRINT.md`.
 
 ## 세 가지 임무
 
