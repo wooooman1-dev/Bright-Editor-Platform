@@ -7,7 +7,13 @@ import { editorialRevisionId, type QualityCategory, type QualityReport } from ".
 import { PageContainer } from "../shared/ui/PageContainer";
 import { applyCanonicalDocument, type UserContent, type UserData, type UserProject } from "./user-data";
 import { editorPublishingPlatformVisibility } from "./editor-publishing-platform";
-import { normalizeQualityReview, visibleApprovalReadinessChecks, type NormalizedQualityReview } from "./quality-review-ui";
+import {
+  approvalReadinessCheckStatusLabel,
+  approvalReadinessCheckStatusTone,
+  normalizeQualityReview,
+  visibleApprovalReadinessChecks,
+  type NormalizedQualityReview,
+} from "./quality-review-ui";
 import { ContentDocumentEditor } from "./ContentDocumentEditor";
 import { ContentDangerZone } from "./ContentDangerZone";
 import { ContentSeoTitleStatus } from "./ContentSeoTitleStatus";
@@ -555,19 +561,8 @@ function ApprovalReadinessStatus({ review }: { review: NormalizedQualityReview }
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         {visibleApprovalReadinessChecks(readiness).map((check) => {
-          const statusLabel = check.status === "passed"
-            ? "통과"
-            : check.status === "blocked"
-              ? "차단"
-              : check.status === "needs_review"
-                ? "검토 필요"
-                : "미검사";
-
-          const statusTone = check.status === "passed"
-            ? "text-emerald-700"
-            : check.status === "blocked"
-              ? "text-red-700"
-              : "text-amber-800";
+          const statusLabel = approvalReadinessCheckStatusLabel(check);
+          const statusTone = approvalReadinessCheckStatusTone(check);
 
           return (
             <article className="rounded-xl border border-black/6 bg-white p-4" key={check.key}>

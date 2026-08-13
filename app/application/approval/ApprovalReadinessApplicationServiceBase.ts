@@ -14,7 +14,12 @@ import {
   type SiteApprovalReadinessSnapshot,
   SiteApprovalReadinessAdapterRegistry,
 } from "../../../core/approval";
-import { editorialRevisionId, isStandardQualityApproved, type QualityReport } from "../../../core/quality";
+import {
+  editorialRevisionId,
+  isStandardQualityApproved,
+  standardQualityBlockingReasons,
+  type QualityReport,
+} from "../../../core/quality";
 import type { PlatformConnection } from "../../../core/connections";
 import { contentBlockOwnership, type ContentDocument } from "../../../core/content";
 import { tistorySiteReadinessAdapter } from "../../../apps/tistory/approval/TistorySiteReadinessAudit";
@@ -250,6 +255,7 @@ function finalizeApprovalReadinessResult(input: Readonly<{
       && isStandardQualityApproved(input.content.quality),
     supersededQualityReview: input.content.quality?.reviewedRevisionId !== undefined
       && input.content.quality.reviewedRevisionId !== editorialRevisionId(input.document),
+    standardQualityBlockingReasons: standardQualityBlockingReasons(input.content.quality),
   });
   const quality = Object.freeze({
     ...input.content.quality,
@@ -285,6 +291,7 @@ function pendingStandardQualityResult(
     standardQualityApproved: false,
     supersededQualityReview: content.quality?.reviewedRevisionId !== undefined
       && content.quality.reviewedRevisionId !== editorialRevisionId(document),
+    standardQualityBlockingReasons: standardQualityBlockingReasons(content.quality),
   });
   const quality = Object.freeze({
     ...content.quality,

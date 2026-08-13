@@ -18,6 +18,7 @@ export {
   QualityEngine,
   isApprovalApplicationReady,
   isApprovalAwareStandardQualityApproved as isStandardQualityApproved,
+  standardQualityBlockingReasons,
 } from "./QualityEnginePolicy";
 export type { ApprovalAwareQualityReport } from "./QualityEnginePolicy";
 export {

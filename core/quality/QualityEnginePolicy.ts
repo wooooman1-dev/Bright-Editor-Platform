@@ -50,6 +50,7 @@ export class QualityEngine extends BaseQualityEngine {
       document,
       ...(context.opportunity ? { opportunity: context.opportunity } : {}),
       standardQualityApproved: isBaseStandardQualityApproved(report),
+      standardQualityBlockingReasons: standardQualityBlockingReasons(report),
     });
     if (!approvalReadiness) return report;
 
@@ -58,6 +59,25 @@ export class QualityEngine extends BaseQualityEngine {
       approvalReadiness,
     });
   }
+}
+
+/**
+ * The Standard Quality tasks that are currently blocking approval.
+ *
+ * The approval-readiness card owns the "what do I do next?" answer for the
+ * manuscript-quality state, but the reasons live here. Measured on the
+ * 밝은재테크 corpus, 8 of 19 reviewed approval manuscripts were blocked and 5 of
+ * those 8 scored 100 on every scored dimension, so neither the score panel nor
+ * the readiness card named the actual blocker. One function so every caller
+ * derives the same list.
+ */
+export function standardQualityBlockingReasons(
+  report: Pick<QualityReport, "tasks"> | undefined,
+): readonly string[] {
+  return Object.freeze([...new Set((report?.tasks ?? [])
+    .filter((task) => task.status === "blocked")
+    .map((task) => task.message.trim())
+    .filter(Boolean))]);
 }
 
 /**

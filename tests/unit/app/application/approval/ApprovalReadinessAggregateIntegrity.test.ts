@@ -7,6 +7,7 @@ import { ApprovalReadinessApplicationService as BaseApprovalReadinessApplication
 import { approvalReadinessExecutionIdentity } from "../../../../../app/application/approval/ApprovalReadinessExecutionIdentity";
 import type { UserContent, UserData } from "../../../../../app/user-flow/user-data";
 import {
+  approvalReadinessCheckKeys,
   approvalReadinessInspectionVersion,
   deriveApprovalReadinessReport,
   resolveApprovalPolicySnapshot,
@@ -332,13 +333,63 @@ describe("approval readiness aggregate integrity", () => {
       expect((saved.contents[0]?.quality as ApprovalAwareQualityReport).approvalReadiness).toBeDefined();
     });
 
-    it("leaves a deliberately absent aggregate absent instead of inventing one", () => {
+    /**
+     * Measured on the 밝은재테크 corpus: 3 of 19 reviewed approval manuscripts
+     * (`content-mslqob24-3kxlgu`, `content-mslyfk99-3t5xgy`,
+     * `content-msolrz90-1msaka`) stored a policy snapshot and a Quality report
+     * but no aggregate, so the editor rendered no approval-readiness panel at
+     * all and their Evidence, duplicate, internal-link and site states were
+     * invisible. The aggregate is derived state, so it is always written; the
+     * checks that genuinely have no inspection behind them must say so rather
+     * than claim a pass.
+     */
+    it("derives a missing aggregate instead of leaving the panel empty", () => {
       const document = baseDocument();
       const candidate = userData(content({ document, quality: standardQuality(document) }));
 
       const saved = applyApprovalPersistencePolicy(undefined, candidate);
 
-      expect((saved.contents[0]?.quality as ApprovalAwareQualityReport).approvalReadiness).toBeUndefined();
+      const report = (saved.contents[0]?.quality as ApprovalAwareQualityReport).approvalReadiness;
+      expect(report).toBeDefined();
+      expect(report?.checks).toHaveLength(approvalReadinessCheckKeys.length);
+      expect(check(report, "standard_quality").status).toBe("passed");
+    });
+
+    /**
+     * Reproduces `content-msrfq4gt-fc8ub1`: `overallScore` 100, every scored
+     * dimension 100, `approved: false` because of task-level rules. The panel
+     * must carry those task messages, otherwise the user sees "원고 품질: 차단"
+     * beside a 100 with nothing to act on.
+     */
+    it("carries the blocking Quality tasks into the standard_quality card", () => {
+      const document = baseDocument();
+      const blocked: QualityReport = {
+        ...standardQuality(document, false),
+        overallScore: 100,
+        approvalState: "blocked",
+        tasks: [
+          { category: "completeness", message: "CONTENT_SECTION_PROSE_INSUFFICIENT: 국민연금 예상수령액 조회 방법", status: "blocked" },
+          { category: "completeness", message: "표를 설명하는 문장을 덧붙이세요.", status: "action_required" },
+        ],
+      };
+
+      const saved = applyApprovalPersistencePolicy(undefined, userData(content({ document, quality: blocked })));
+
+      const card = check((saved.contents[0]?.quality as ApprovalAwareQualityReport).approvalReadiness, "standard_quality");
+      expect(card.status).toBe("blocked");
+      expect(card.action).toContain("CONTENT_SECTION_PROSE_INSUFFICIENT: 국민연금 예상수령액 조회 방법");
+      // Non-blocking advice stays out of the blocking list.
+      expect(card.action).not.toContain("표를 설명하는 문장을 덧붙이세요.");
+    });
+
+    it("writes the same derived aggregate into the mirrored quality report", () => {
+      const document = baseDocument();
+      const candidate = userData(content({ document, quality: standardQuality(document) }));
+
+      const saved = applyApprovalPersistencePolicy(undefined, candidate);
+
+      expect((saved.qualityReports?.[0]?.report as ApprovalAwareQualityReport).approvalReadiness)
+        .toEqual((saved.contents[0]?.quality as ApprovalAwareQualityReport).approvalReadiness);
     });
   });
 

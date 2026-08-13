@@ -48,6 +48,14 @@ export function deriveApprovalReadinessReport(input: Readonly<{
    * in the Quality module, which already depends on this one.
    */
   supersededQualityReview?: boolean;
+  /**
+   * Verbatim Standard Quality tasks that are blocking approval right now.
+   *
+   * Callers supply them because the task list lives in the Quality module, which
+   * already depends on this one. Passing them keeps the "why is quality
+   * blocked?" answer inside the readiness card the user is actually looking at.
+   */
+  standardQualityBlockingReasons?: readonly string[];
 }>): ApprovalReadinessReport | undefined {
   const policy = input.document.metadata?.approvalPolicy;
   if (!policy) return undefined;
@@ -79,6 +87,7 @@ export function deriveApprovalReadinessReport(input: Readonly<{
       input.standardQualityApproved,
       evidenceRequirement !== "not_required",
       input.supersededQualityReview === true,
+      input.standardQualityBlockingReasons ?? [],
     ),
     input.document,
   );

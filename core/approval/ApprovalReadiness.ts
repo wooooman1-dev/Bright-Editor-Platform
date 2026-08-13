@@ -4,6 +4,10 @@ import {
   evaluateApprovalPreparationText,
   type ApprovalPreparationIssue,
 } from "./ApprovalPolicy";
+import {
+  activeGeneratedFactualClaims,
+  locateGeneratedFactualSurface,
+} from "./GeneratedFactualClaimInventory";
 import type {
   ApprovalSourceDocumentFormat,
   ApprovalSourceExtractionStatus,
@@ -248,9 +252,18 @@ export function evaluateApprovalReadiness(
   standardQualityApproved: boolean,
   verificationRequired = true,
   supersededQualityReview = false,
+  /**
+   * The Standard Quality tasks that are currently blocking approval, verbatim.
+   *
+   * Without them this check could only say "quality was not approved", which is
+   * useless exactly when it matters most: a manuscript can score 100 on every
+   * scored dimension and still be blocked by a task-level rule, so neither the
+   * score nor this card told the user what to fix.
+   */
+  standardQualityBlockingReasons: readonly string[] = [],
 ): ApprovalReadinessReport {
   return aggregateApprovalReadinessChecks([
-    standardQualityCheck(standardQualityApproved, supersededQualityReview),
+    standardQualityCheck(standardQualityApproved, supersededQualityReview, standardQualityBlockingReasons),
     approvalPolicyCheck(policyIssues),
     evidenceCheck(document, verificationRequired),
     duplicateCheck(document),
@@ -329,18 +342,31 @@ export function withPendingStandardQualityGuidance(
   }));
 }
 
-function standardQualityCheck(passed: boolean, supersededReview = false): ApprovalReadinessCheck {
+function standardQualityCheck(
+  passed: boolean,
+  supersededReview = false,
+  blockingReasons: readonly string[] = [],
+): ApprovalReadinessCheck {
   if (passed) {
     return Object.freeze({ key: "standard_quality", status: "passed", message: "현재 문서 버전이 기본 품질 승인을 통과했습니다." });
+  }
+  const reasons = [...new Set(blockingReasons.map((reason) => reason.trim()).filter(Boolean))];
+  if (supersededReview) {
+    return Object.freeze({
+      key: "standard_quality",
+      status: "blocked",
+      message: "마지막 품질 검토 이후 원고가 수정되어 현재 문서 버전의 기본 품질 승인이 없습니다.",
+      action: "현재 문서 버전으로 품질 검토를 다시 실행하세요.",
+    });
   }
   return Object.freeze({
     key: "standard_quality",
     status: "blocked",
-    message: supersededReview
-      ? "마지막 품질 검토 이후 원고가 수정되어 현재 문서 버전의 기본 품질 승인이 없습니다."
+    message: reasons.length
+      ? `점수와 별개로 기본 품질 승인을 막고 있는 차단 항목 ${reasons.length}개가 남아 있습니다.`
       : "현재 문서 버전이 기본 품질 승인을 통과하지 못했습니다.",
-    action: supersededReview
-      ? "현재 문서 버전으로 품질 검토를 다시 실행하세요."
+    action: reasons.length
+      ? `${reasons.join(" / ")} 위 항목을 원고에서 해결한 뒤 품질 검토를 다시 실행하세요.`
       : "원고 품질 진단을 반영한 뒤 다시 검토하세요.",
   });
 }
@@ -364,7 +390,7 @@ function evidenceCheck(
   const pack = document.metadata?.approvalEvidence;
   const verifiedSources = pack?.sources.filter(validVerifiedSource) ?? [];
   if (!verificationRequired) {
-    return Object.freeze({ key: "evidence", status: "passed", applicable: false, message: "현재 원고에는 mandatory Evidence가 적용되지 않습니다." });
+    return optionalEvidenceCheck(document);
   }
   if (pack?.presentationStatus === "conflict") {
     return Object.freeze({
@@ -398,6 +424,59 @@ function evidenceCheck(
       : "공식 출처와 검토일을 확인할 정보가 없습니다.",
     action: "출처 문구만 확인하지 말고 공식 주소와 핵심 사실을 검증 정보로 저장하세요.",
   });
+}
+
+/**
+ * Reports the Evidence state of a manuscript that has no mandatory Claim.
+ *
+ * `applicable: false` means "no mandatory Evidence contract applies", not "no
+ * source work happened". Measured on the 밝은재테크 corpus, 8 of the 16 approval
+ * manuscripts carrying a readiness aggregate land here, and 4 of those 8 store a
+ * factual-Claim inventory in which sentences were withdrawn from the published
+ * article because their source anchor could not be confirmed. The check used to
+ * answer that with one fixed sentence — "mandatory Evidence는 적용되지 않습니다"
+ * — which, combined with the card being hidden, meant every trace of the source
+ * work the system actually performed was invisible. AGENTS.md ch.14 requires
+ * Evidence Verification to be a represented state, so this states what was
+ * checked, what was dropped, and what would make Evidence mandatory.
+ *
+ * It stays `passed`: risk-based applicability is a deliberate decision
+ * (`resolveApprovalEvidenceRequirement`), and turning a correctly evidence-free
+ * manuscript into a blocker would be a threshold change with no measurement
+ * behind it. The unresolved work goes into `action`, the same way the site
+ * readiness check reports recommended-only gaps.
+ */
+function optionalEvidenceCheck(document: ContentDocument): ApprovalReadinessCheck {
+  const record = document.metadata?.generatedFactualClaimInventory;
+  const withdrawn = (record?.items ?? []).filter((item) =>
+    item.disposition === "removed"
+    && locateGeneratedFactualSurface(document, item.surfaceText).length === 0);
+  const confirmed = activeGeneratedFactualClaims(record).filter((item) =>
+    item.evidenceStatus === "critical_verified" || item.evidenceStatus === "verify_verified");
+  const summary = [
+    confirmed.length ? `공식 자료로 확인된 사실 ${confirmed.length}개` : "",
+    withdrawn.length ? `출처를 확인하지 못해 원고에서 제외된 문장 ${withdrawn.length}개` : "",
+  ].filter(Boolean);
+
+  return Object.freeze({
+    key: "evidence",
+    status: "passed",
+    applicable: false,
+    message: summary.length
+      ? `공식 출처가 필수인 Claim이 기획에 없어 필수 출처 검증은 실행하지 않았습니다. ${summary.join(" · ")}가 있습니다.`
+      : "공식 출처가 필수인 Claim이 기획에 없어 필수 출처 검증을 실행하지 않았습니다.",
+    action: [
+      withdrawn.length
+        ? `출처를 확인하지 못해 제외된 문장: ${withdrawn.slice(0, 3).map(withdrawnClaimLabel).join(" / ")}${withdrawn.length > 3 ? ` 외 ${withdrawn.length - 3}개` : ""}.`
+        : "",
+      "금액·비율·기한·법정 요건처럼 공식 출처가 필요한 사실을 다루려면 기획 단계에서 해당 사실을 필수(CRITICAL) Claim으로 등록해야 공식 출처 검증이 실행됩니다.",
+    ].filter(Boolean).join(" "),
+  });
+}
+
+function withdrawnClaimLabel(item: Readonly<{ statement: string; surfaceText: string }>): string {
+  const text = (item.statement || item.surfaceText).replace(/\s+/gu, " ").trim();
+  return text.length > 60 ? `${text.slice(0, 60)}…` : text;
 }
 
 /**

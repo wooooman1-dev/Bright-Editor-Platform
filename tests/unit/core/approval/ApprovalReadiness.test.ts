@@ -287,4 +287,126 @@ describe("ApprovalReadiness", () => {
     expect(report.applicationReady).toBe(true);
     expect(report.checks).toContainEqual(expect.objectContaining({ key: "evidence", status: "passed" }));
   });
+
+  /**
+   * Reproduces `content-msrfq4gt-fc8ub1`: every scored dimension is 100, yet the
+   * manuscript is blocked by task-level rules. The readiness card used to say
+   * only "기본 품질 승인을 통과하지 못했습니다", which named nothing the user
+   * could act on and could not be reconciled with the 100 shown beside it.
+   */
+  describe("standard quality blocking reasons", () => {
+    it("names the blocking tasks instead of only reporting that quality failed", () => {
+      const report = evaluateApprovalReadiness(document(), [], false, true, false, [
+        "CONTENT_SECTION_PROSE_INSUFFICIENT: 국민연금 예상수령액 조회 방법",
+        "CONTENT_SECTION_PROSE_INSUFFICIENT: 국민연금 예상연금액과 실제 지급 판단",
+      ]);
+
+      const check = report.checks.find((item) => item.key === "standard_quality")!;
+      expect(check.status).toBe("blocked");
+      expect(check.message).toContain("차단 항목 2개");
+      expect(check.action).toContain("CONTENT_SECTION_PROSE_INSUFFICIENT: 국민연금 예상수령액 조회 방법");
+      expect(check.action).toContain("CONTENT_SECTION_PROSE_INSUFFICIENT: 국민연금 예상연금액과 실제 지급 판단");
+    });
+
+    it("deduplicates repeated blocking tasks", () => {
+      const report = evaluateApprovalReadiness(document(), [], false, true, false, [
+        "CONTENT_DECLARED_COMPARISON_MISSING",
+        " CONTENT_DECLARED_COMPARISON_MISSING ",
+      ]);
+
+      expect(report.checks.find((item) => item.key === "standard_quality")?.message)
+        .toContain("차단 항목 1개");
+    });
+
+    it("keeps the superseded-review diagnosis when the manuscript changed after review", () => {
+      const report = evaluateApprovalReadiness(document(), [], false, true, true, ["stale reason"]);
+
+      const check = report.checks.find((item) => item.key === "standard_quality")!;
+      expect(check.message).toContain("마지막 품질 검토 이후");
+      expect(check.action).toContain("품질 검토를 다시 실행");
+    });
+
+    it("says nothing extra when no blocking task was supplied", () => {
+      const report = evaluateApprovalReadiness(document(), [], false);
+
+      expect(report.checks.find((item) => item.key === "standard_quality")?.action)
+        .toBe("원고 품질 진단을 반영한 뒤 다시 검토하세요.");
+    });
+  });
+
+  /**
+   * The Evidence card must exist even when no mandatory Claim applies. Measured
+   * on the 밝은재테크 corpus, 8 of 16 approval manuscripts land in this branch,
+   * and several of them had sentences withdrawn from the published article
+   * because their source anchor failed — none of which was reported anywhere.
+   */
+  describe("non-mandatory Evidence reporting", () => {
+    const withdrawnInventory = {
+      schemaVersion: 1 as const,
+      items: [{
+        claimId: "verification-claim-3e32537e",
+        origin: "generation" as const,
+        risk: "verify" as const,
+        surfaceText: "국민연금 예상수령액은 2028년부터 12% 인상됩니다.",
+        statement: "국민연금 예상수령액은 2028년부터 12% 인상된다.",
+        kind: "ratio" as const,
+        normalizedValueJson: "{}",
+        qualifiers: {},
+        locations: [],
+        disposition: "removed" as const,
+        evidenceStatus: "unsupported" as const,
+        diagnosticCode: "verify_evidence_anchor_unverified",
+      }],
+      retainedClaimIds: [],
+      removedClaimCount: 1,
+    };
+
+    it("stays a represented check rather than an absent one", () => {
+      const report = evaluateApprovalReadiness(document(), [], true, false);
+
+      const check = report.checks.find((item) => item.key === "evidence")!;
+      expect(check.applicable).toBe(false);
+      expect(check.status).toBe("passed");
+      expect(check.action).toContain("필수(CRITICAL) Claim");
+    });
+
+    it("reports the sentences that were withdrawn because their source failed", () => {
+      const report = evaluateApprovalReadiness(document({
+        generatedFactualClaimInventory: withdrawnInventory,
+      }), [], true, false);
+
+      const check = report.checks.find((item) => item.key === "evidence")!;
+      expect(check.message).toContain("원고에서 제외된 문장 1개");
+      expect(check.action).toContain("국민연금 예상수령액은 2028년부터 12% 인상된다.");
+    });
+
+    it("does not report a withdrawal whose text is still published", () => {
+      const published = document({
+        generatedFactualClaimInventory: {
+          ...withdrawnInventory,
+          items: [{ ...withdrawnInventory.items[0]!, surfaceText: "작품을 보는 순서" }],
+        },
+      });
+
+      const check = evaluateApprovalReadiness(published, [], true, false)
+        .checks.find((item) => item.key === "evidence")!;
+      expect(check.message).not.toContain("제외된 문장");
+    });
+
+    it("never lets a non-mandatory Evidence check mask a required one", () => {
+      const report = evaluateApprovalReadiness(document({
+        approvalEvidence: { ...evidence, status: "missing", sources: [] },
+        approvalDuplicateCheck: duplicate,
+        siteApprovalReadiness: site,
+        internalLinkCatalogStatus: "evaluated",
+        availableRelatedContentCandidates: 0,
+        generatedFactualClaimInventory: withdrawnInventory,
+      }), [], true, true);
+
+      const check = report.checks.find((item) => item.key === "evidence")!;
+      expect(check.status).toBe("blocked");
+      expect(check.applicable).toBeUndefined();
+      expect(report.applicationReady).toBe(false);
+    });
+  });
 });

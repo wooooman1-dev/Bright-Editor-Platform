@@ -15,7 +15,11 @@ import {
   type ApprovalReadinessReport,
 } from "../../../core/approval";
 import { contentBlockOwnership, serializeStructuredList, type ContentDocument } from "../../../core/content";
-import { editorialRevisionId, isStandardQualityApproved } from "../../../core/quality";
+import {
+  editorialRevisionId,
+  isStandardQualityApproved,
+  standardQualityBlockingReasons,
+} from "../../../core/quality";
 import type { UserContent, UserData } from "../../user-flow/user-data";
 import { internalLinkCatalogContextKey } from "../publishing/InternalLinkCatalogPolicy";
 import {
@@ -138,9 +142,18 @@ function readinessAwareQuality(
  * attached — means the persisted verdict always matches the persisted evidence,
  * and the two copies cannot describe the same article differently.
  *
- * Absence is meaningful and is preserved: a Content that has never been
- * inspected, or whose publishing context was deliberately invalidated, keeps no
- * aggregate rather than gaining a freshly invented one.
+ * Absence is not preserved. The aggregate is a pure function of the manuscript
+ * and the snapshots stored beside it, so an approval Content that has a Quality
+ * report and a policy snapshot always has a well-defined answer — one whose
+ * uninspected checks read `not_evaluated` with the action that would fill them.
+ * Keeping absence meant the editor rendered no readiness panel at all: measured
+ * on the 밝은재테크 corpus, 3 of 19 reviewed approval manuscripts
+ * (`content-mslqob24-3kxlgu`, `content-mslyfk99-3t5xgy`,
+ * `content-msolrz90-1msaka`) stored a policy snapshot and a Quality report but
+ * no aggregate, so their Evidence, duplicate, internal-link and site-readiness
+ * states were invisible — the exact opposite of the AGENTS.md ch.14 requirement
+ * that those states be separately represented. Deriving one is not inventing a
+ * verdict; refusing to derive one was hiding four of them.
  */
 function reconcileApprovalReadinessAggregates(data: UserData): UserData {
   const derivedByContentId = new Map<string, ApprovalReadinessReport>();
@@ -158,11 +171,11 @@ function reconcileApprovalReadinessAggregates(data: UserData): UserData {
       standardQualityApproved: isStandardQualityApproved(quality),
       supersededQualityReview: quality.reviewedRevisionId !== undefined
         && quality.reviewedRevisionId !== editorialRevisionId(content.document),
+      standardQualityBlockingReasons: standardQualityBlockingReasons(quality),
     });
     if (!derived) return content;
     derivedByContentId.set(content.id, derived);
 
-    if (!quality.approvalReadiness) return content;
     if (sameReadinessReport(quality.approvalReadiness, derived)) return content;
     contentsChanged = true;
     return { ...content, quality: { ...quality, approvalReadiness: derived } } as UserContent;
@@ -173,7 +186,7 @@ function reconcileApprovalReadinessAggregates(data: UserData): UserData {
   const qualityReports = reports.map((entry) => {
     const derived = derivedByContentId.get(entry.contentId);
     const report = readinessAwareQuality(entry.report);
-    if (!derived || !report?.approvalReadiness) return entry;
+    if (!derived || !report) return entry;
     if (sameReadinessReport(report.approvalReadiness, derived)) return entry;
     reportsChanged = true;
     return { contentId: entry.contentId, report: { ...report, approvalReadiness: derived } as UserContent["quality"] as NonNullable<UserContent["quality"]> };
