@@ -1090,6 +1090,7 @@ ${JSON.stringify(canonicalClaims)}
 - Use only the trusted source entries attached to that same claimId. Do not transfer evidence between Claims merely because the field names look similar.
 - Do not use web search during Generation and do not add, replace, or invent another source URL.
 - When a canonical Claim does not support a factual assertion, omit it rather than guessing.
+- Write an unverified number — an example, a cadence, an approximation, or an illustrative period — as descriptive prose instead of a compressed numeral-and-unit form, including in a title, heading, list label, or table cell: write "일주일 동안 이어서 점검하는" rather than "1주". This never applies to a Claim-ID-owned normalizedValue, which must stay exactly as the canonical Claim contract represents it.
 - Do not create a reader-visible source section. Bright Studio projects verified sources after deterministic Claim review.`;
   }
 
@@ -1121,6 +1122,7 @@ ${evidence}
 - Write each external factual assertion only from the verified Claim value and Claim evidence attached above.
 - Do not change a verified date, amount, percentage, duration, unit, institution, artwork metadata value, eligibility rule, threshold, quotation, or legal requirement.
 - When the bundle does not support a factual assertion, omit it rather than guessing.
+- Write an unverified number — an example, a cadence, an approximation, or an illustrative period — as descriptive prose instead of a compressed numeral-and-unit form, including in a title, heading, list label, or table cell: write "일주일 동안 이어서 점검하는" rather than "1주". This never applies to a verified Claim value, which must stay exactly as attached above.
 - Do not create a reader-visible source section. Bright Studio projects verified sources after deterministic Claim review.`;
 }
 
