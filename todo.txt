@@ -7,7 +7,30 @@ npm run dev
 npm install 은 이전 브랜치에서 뒤처져 있을 때만. 이번 작업은 package.json 을
 건드리지 않았다.
 
-== 현재 상태 (2026-08-13, 288c29d) ==
+주의: 이 세션에서 커밋한 3개(2d2e38d, 32c2037, ad696d9)가 아직 origin에
+push 안 됐다(origin HEAD 는 f64aa3a 에 머물러 있음, 세션 끝 시점 확인). 다음
+세션 시작 시 `git log origin/feat/scheduled-publishing-and-diversity -3` 로
+push 여부부터 확인할 것 — push 가 안 됐다면 먼저 push 하고 이어받는다.
+
+== 현재 상태 (2026-08-13, ad696d9) ==
+브랜치 feat/scheduled-publishing-and-diversity. 위 주의 사항대로 push 미완료
+상태로 세션이 끝났다.
+
+세션 시작 시 origin 에서 10개 커밋(aa79f8b → f64aa3a)을 pull 했다 —
+`.claude/agents/` 12명 팀원 정의가 이때 처음 이 기계에 생겼다. 로컬에
+untracked 상태였던 `.claude/settings.json`(model: opusplan 설정 포함)이
+pull 과 충돌해 백업 후 제거했고, 원격 버전(PreCompact 훅만 있고 model 설정
+없음)으로 대체됐다 — 로컬 model 설정은 사장님 확인 하에 복원하지 않았다.
+지금 `.claude/settings.json` 에는 PreCompact 훅만 있다.
+
+미커밋 상태로 남아 있는 것(둘 다 이번 세션 작업과 무관, 손대지 않음):
+- `next-env.d.ts` 수정 — Next.js 가 `npm run dev`/`next build` 실행 시
+  자동 재생성하는 파일. 내용 확인 안 함, 다음 세션에서 버려도 무방.
+- `evidence-diagnostic.json`, `project-evidence-verification.json`
+  (저장소 루트, untracked) — 이번 세션 중 워크스페이스/프로젝트 evidence
+  상태를 진단하려고 실행한 스크립트의 출력으로 보인다. git 대상 아님,
+  커밋 계획 없음. 다음 세션에서 필요 없으면 삭제해도 된다.
+
 브랜치 feat/scheduled-publishing-and-diversity, origin 과 동기화(push 완료).
 중간에 ec17c6b 하나를 커밋 메시지 제목 중복(0f97d1a 와 동일 제목이었음)
 때문에 46dc38e 로 reword 했다 — 그 뒤 커밋 3개가 이 리라이트로 해시가
@@ -134,21 +157,110 @@ approval-readiness-designer)에게 명시적으로 넘기게 했다.
 approval-quality-auditor 는 core/quality/ 클레임을 버렸다. platform-adapter-dev
 에는 apps/*/approval/ 예외 문구를 추가했다.
 
-== 다음 할 일 ==
-위 1~3번 측정은 세 번째 시도(위 7번)로 전부 끝났다 — 더 반복할 필요 없다.
-남은 건 승인 게이트 쪽이다.
+(아래 10~14번은 위 팀 겹침 정리 이후, 새 세션에서 재시작해 12명 이름으로
+호출 가능해진 뒤 진행한 작업이다 — 시간순으로는 이 문단 뒤에 있지만
+내용상 위 9번 "다음 할 일"을 이어받아 처리한 결과다.)
 
-1. 스택된 approval-quality-auditor 수정(위 9번)을 다시 손봐야 한다.
-   git stash pop 으로 꺼낸 뒤 fix-verifier 가 지적한 6개를 반영하고,
-   fix-verifier 로 다시 검증받은 뒤에만 커밋한다. 지금 상태로 배포하면
-   실제 외부 사실 주장(신청 자격·급여 기간·제도 개편 주기 같은 것)이
-   조용히 통과되는 구멍이 있다.
-2. 건강보험 피부양자 원고에 다시 "승인 준비 검사 실행"을 돌려본다. 위
-   8번이 고쳐졌으니 Standard Quality 차단이 풀렸을 것이다 — 실제로
-   풀렸는지, 그리고 이미 찾아둔 출처 2건이 "공식 출처와 검토 기준"
-   섹션으로 원고에 실제로 붙는지 확인한다.
-3. vitest 가 .claude/worktrees/ 를 스캔하는 문제(위 현재 상태 절 참고)를
-   vitest.config.ts 에서 제외 설정으로 고친다.
+10. **중요한 발견**: `.bright-studio/studio-data.json`(워크스페이스
+    "제발 오류좀 나지마라", git 비대상)을 전체 검색해도 "피부양자"가 0회
+    나온다 — 지난 세션이 언급한 건강보험 피부양자 원고가 이 워크스페이스에
+    없다(사장님이 먼저 "워크스페이스가 다르다"고 지적, 실제로 확인됨). 위
+    "다음 할 일" 2번은 그래서 대체 실제 콘텐츠로 검증하도록 재조정했다.
+11. vitest worktrees 스캔 제외를 커밋 `2d2e38d fix: exclude .claude/worktrees
+    from vitest scan` 로 마쳤다(core-domain-dev). **중요한 정정**: 지난
+    세션이 남긴 "644 files / 3881 tests" 기준선 자체가 `.claude/worktrees/`
+    사본이 존재해 전체 트리가 이중 스캔된 부풀려진 숫자였다. 지금은 그
+    사본이 없어 진짜 유일 테스트 개수(332 files / 1965 tests, 이후 커밋들로
+    더 늘어남)가 나온다 — 지난 세션이 관찰한 "동시 실행 시에만 실패하는
+    2건"의 원인이 이걸로 설명된다. 앞으로 vitest 결과를 지난 세션 숫자와
+    비교하지 말 것.
+12. "1년/2년" 오탐 완화(위 9번 스택)를 커밋
+    `32c2037 fix: close fail-open leak in quoted-example numeric exemption`
+    로 마무리했다(approval-quality-auditor → fix-verifier 통과). 원래
+    목표는 **철회됨** — 실측 결과 코퍼스에 "1년/2년" 오탐 자체가 없었고,
+    두 완화안(문장 전체 면제·가정절만 면제) 모두 법정기한(전입신고 14일,
+    청약철회 7일, 경정청구 5년 등)이 새는 fail-open이라 전부 철회. 대신
+    **이미 커밋된(11d3567) 인용-부정 면제(`rejectedExampleSpans`,
+    `'2년 근무'라고 적는 대신…`)가 금액·비율·날짜·법조문 전 kind 에서
+    fail-open이었던 걸 발견**해서 duration 에만 한정하고
+    `periodRuleQuantifier` veto 를 추가하는 순수 강화로 마무리했다.
+    - 미해결: 애초 문제였던 "15일" 토큰 원고 차단은 이 커밋으로 안
+      풀렸다(측정 확인됨). 원고를 재생성하거나 다른 접근이 필요하면
+      후속 세션 과제.
+    - "1주 수면 습관 점검표" 제목의 "1주"는 진짜 오탐이지만 문법 신호가
+      전혀 없는 명사구라 게이트로 못 고친다(approval-quality-auditor +
+      fix-verifier 합의) — 아래 "다음 할 일" 2번 참고.
+    - 부수 발견(미조치): `core/approval/VerificationClaimPolicy.ts:4` 의
+      `configurableHighRiskVerificationKinds = ["duration"]` 가 어디서도
+      참조 안 되는 죽은 코드. `6월 15일` 처럼 연도 없는 날짜가 `duration`
+      으로 분류되는 진단 코드 부정확도 있음(검출 자체는 안 바뀜).
+13. 건강보험 피부양자 재검사(위 10번으로 대상이 바뀜) 임무 중
+    approval-readiness-designer 가 실측으로 승인 준비 게이트 버그 6건
+    (P1~P6)을 찾아 전부 고쳤고, fix-verifier 3회 왕복(재작업 2회) 끝에
+    커밋 `ad696d9 fix: repair approval readiness gate cache, persistence
+    split, and version staleness` 로 통과했다.
+    - P1 캐시가 순수 aggregate 재계산까지 건너뜀 → 항상 재도출하도록 수정.
+    - P2 `content.quality` 와 `qualityReports[]` 두 사본이 서로 다른 값을
+      가짐 → `reconcileApprovalReadinessAggregates` 로 통일해서 저장.
+    - P3 옛 버전(approvalReadinessExecution.version) 판정이 자동
+      무효화 안 됨 → 버전 불일치 시 스냅샷 기반 passed 만 needs_review 로
+      강등.
+    - P4 evidence 안내 문구가 실제 미확보 Claim 을 안 알려줌 →
+      unverifiedFactFields/failureReason 반영.
+    - P5 Standard Quality 미승인이면 나머지 5개 상태를 throw 로 은폐 →
+      이제 각자 상태 유지하며 안내문만 추가(AGENTS.md 14장 상태분리
+      원칙 때문에 "5개 전부 not_evaluated 로 덮으라"는 원 지시에서 의도적
+      으로 벗어남 — fix-verifier 가 이 이탈이 오히려 옳다고 확인).
+    - P6 `normalizeApprovalEvidenceCandidates` 가 매 버튼 클릭마다 검증
+      상태를 초기화한 뒤 그걸 검증된 상태와 비교해 항상 "변경됨"으로
+      오판 → 출처확인일이 매번 오늘 날짜로 재도장되고 출처 섹션이 벗겨짐.
+      3차 재작업 끝에 `cited`/`selected`(provenance 파생값)까지 비교
+      제외해서 citation/user_selected/document_link/system_verified
+      4개 provenance 유형 전부에서 해결 확인.
+    - **마이그레이션 영향(사용자에게 보일 수 있음)**:
+      `approvalReadinessExecution.version !== "4.0"` 인 기존 콘텐츠는
+      다음 저장 시 스냅샷 기반 passed 체크가 needs_review 로 강등되고,
+      다음 실행 시 캐시 미스로 전체 재검사가 한 번 일어난다.
+      `approval-live-msczog4z`, `content-mscjq0sq-xd8kp5` 가 정확히
+      이 케이스 — 사용자 눈엔 "멀쩡하던 판정이 갑자기 여러 개
+      needs_review 로 바뀜"으로 보일 수 있다. 한 번 재검사되면 이후
+      캐시가 정상 히트한다.
+    - 후속 과제(fix-verifier 지적, 커밋 차단 아님): identity 비교의 제외
+      목록(`canonicalizerOwnedFields`) 상한을 고정하는 테스트가 없다 —
+      URL 재정규화나 provenance 변경처럼 "여전히 재검증돼야 하는" 케이스를
+      다음에 제외 목록을 넓힐 때 아무 테스트도 안 울린다. 다음 승인 관련
+      작업 때 `tests/unit/app/application/approval/
+      ApprovalReadinessAggregateIntegrity.test.ts` 에 그런 케이스를 1개씩
+      추가할 것.
+14. **진짜 미해결 제품 문제(게이트 버그 아님)**: `content-mscjq0sq-xd8kp5`
+    (정기결제 해지 방법, WordPress 승인 대상 원고)가 `genericClaim:cdusyk`
+    라는 Claim 에 대한 출처를 못 찾아서 `evidence: needs_review` 상태로
+    멈춰 있다. 위 P6 수정으로 이게 잘못 통과되게 바뀌지 않았음을
+    fix-verifier 가 확인했다 — 게이트가 잘못 막는 게 아니라 진짜 출처가
+    없어서 막힌 것. "3일째 발행 못하고 있다"는 맥락에서 다음 세션 최우선
+    후보 — 아래 "다음 할 일" 1번 참고.
+
+== 다음 할 일 ==
+지난 세션의 3개 항목(vitest worktrees 제외 / 건강보험 피부양자 재검사 /
+"1년/2년" 오탐 재작업)은 이번 세션에 전부 처리됐다(위 10~13번). 그 처리
+과정에서 새 우선순위(위 14번)가 나왔다. 아래는 이번 세션이 새로 남긴
+우선순위다.
+
+0. (선행) 이 세션이 커밋한 3개(2d2e38d, 32c2037, ad696d9)가 push 됐는지
+   `git log origin/feat/scheduled-publishing-and-diversity` 로 먼저 확인.
+   안 됐으면 push 부터 한다.
+1. `content-mscjq0sq-xd8kp5`(정기결제 해지 방법 원고)의
+   `genericClaim:cdusyk` 에 실제 공식 출처를 찾아 붙이거나, 원고에서
+   해당 주장을 뺀다 — approval-evidence 담당. 지금 발행 가능한 원고를
+   만드는 데 가장 직접적인 작업(위 14번 참고).
+2. 생성 프롬프트(`core/ai/ApprovalSourcePreflight.ts:1117-1124` 근처)에
+   "검증된 Claim 값이 아닌 숫자는 예시·주기·근사치라도 서술로 풀어써라"
+   같은 지시를 추가해 "1주 점검표"류 문법 신호 없는 숫자 오탐 재발을
+   막는다 — approval-evidence 또는 quality-root-cause 담당(위 12번 참고).
+3. identity 제외 목록(`canonicalizerOwnedFields`) 상한을 고정하는 테스트를
+   `tests/unit/app/application/approval/
+   ApprovalReadinessAggregateIntegrity.test.ts` 에 추가한다(위 13번 후속
+   과제 참고) — 다음에 승인 관련 작업을 할 때 같이 처리해도 된다.
 
 == 보류/관찰 중인 항목 ==
 
