@@ -307,11 +307,28 @@ type DetectedScalar = Readonly<{
  * (라고·라는·처럼) and the sentence must then reject it (대신·말고·아니라). A figure
  * the article actually states, including one quoted from a source and asserted,
  * matches neither and is still detected.
+ *
+ * Two further limits were added after measuring what this exemption actually
+ * let through. It is the only exemption in this detector, and every attempt to
+ * widen it to unquoted illustrations leaked statutory periods, so it is held as
+ * narrow as the one case it was written for:
+ *
+ * 1. Only `duration` is exempt. `‘50만원 지급’이라고 적는 대신 …`,
+ *    `‘연 3.5%’라고 … 대신 …` and a quoted 제N조 or review date were all being
+ *    exempted, which is precisely the unsupported-figure class the approval
+ *    policy never relaxes. Amounts, ratios, dates and statute articles are now
+ *    detected inside a rejected quote too.
+ * 2. A period carrying a threshold or span quantifier is a rule, not a note.
+ *    `‘14일 이내 신고’라고만 적는 대신 …` was exempted even though 14일 이내 is the
+ *    주민등록법 deadline. The quantifier check only ever cancels an exemption, so
+ *    a missing token leaves the strict result rather than opening a hole.
  */
 const mentionedQuotePattern =
   /[‘“'"「『]([^’”'"」』]{1,40})[’”'"」』]\s*(?:이?라고|이?라는|처럼|식으로)/gu;
 const rejectedExampleTail = /(?:대신|말고|아니라|보다는)/u;
 const rejectedExampleTailWindow = 60;
+const periodRuleQuantifier =
+  /\d+(?:\.\d+)?\s*(?:개월|일|주|년)\s*(?:이내|이상|이하|미만|초과|안에|내에|까지|동안|만에|마다|주기|이후|이전|간)|(?:최대|최소|최장|최단|최고|최저|평균|매월|매년|매주|매일)\s*\d+(?:\.\d+)?\s*(?:개월|일|주|년)/u;
 
 function rejectedExampleSpans(
   value: string,
@@ -321,6 +338,7 @@ function rejectedExampleSpans(
     if (typeof match.index !== "number") continue;
     const end = match.index + match[0].length;
     if (!rejectedExampleTail.test(value.slice(end, end + rejectedExampleTailWindow))) continue;
+    if (periodRuleQuantifier.test(match[1] ?? "")) continue;
     spans.push(Object.freeze({ start: match.index, end }));
   }
   return Object.freeze(spans);
@@ -339,8 +357,9 @@ function detectHighRiskScalarTokens(value: string): readonly DetectedScalar[] {
   }
   const rejectedExamples = rejectedExampleSpans(value);
   return Object.freeze(detected
-    .filter((item) => !rejectedExamples.some((span) =>
-      item.start >= span.start && item.end <= span.end))
+    .filter((item) => item.kind !== "duration"
+      || !rejectedExamples.some((span) =>
+        item.start >= span.start && item.end <= span.end))
     .sort((a, b) => a.start - b.start || a.end - b.end));
 }
 

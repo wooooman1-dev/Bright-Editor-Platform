@@ -182,3 +182,142 @@ describe("Generated Claim binding", () => {
       && binding.reference.referenceType === "verified")).toBe(true);
   });
 });
+
+/**
+ * The mentioned-and-rejected quote is the only exemption the detector has.
+ * These tests hold both of its required signals and both of its limits, so a
+ * later change cannot silently widen it back into an unsupported-figure hole.
+ */
+describe("Generated Claim binding - rejected example quote exemption", () => {
+  function detectedTexts(text: string): string[] {
+    const { snapshot, gate } = verificationContext();
+    return bindGeneratedClaims({ document: documentWith(text), plan, snapshot, gate })
+      .bindings
+      .filter((binding) => binding.reference.referenceType === "unverifiedDetected")
+      .map((binding) => binding.matchedText);
+  }
+
+  it("skips a quoted period the same sentence rejects as wording to avoid", () => {
+    expect(detectedTexts("‘2년 근무’라고 한 줄로 적는 대신 근무 기간과 확인 방법을 함께 적으세요."))
+      .toEqual([]);
+  });
+
+  it("requires the rejection signal, not the quotation alone", () => {
+    expect(detectedTexts("공고문은 ‘2년 근무’라고 적고 있습니다.")).toContain("2년");
+  });
+
+  it("requires the quotation signal, not the rejection alone", () => {
+    expect(detectedTexts("2년 근무라고 한 줄로 적는 대신 근무 기간을 함께 적으세요."))
+      .toContain("2년");
+  });
+
+  it("never exempts a quoted amount, because an unsupported 금액 is never a note", () => {
+    expect(detectedTexts("‘70만원 지급’이라고 적는 대신 지급 요건을 함께 적으세요."))
+      .toContain("70만원");
+  });
+
+  it("never exempts a quoted ratio", () => {
+    expect(detectedTexts("‘3.5퍼센트 적용’이라고 적는 대신 산정 기준을 함께 적으세요."))
+      .toContain("3.5퍼센트");
+  });
+
+  it("never exempts a quoted date, so a review date cannot hide in a quote", () => {
+    expect(detectedTexts("‘2026년 7월 30일 검토’라고 적는 대신 확인 경로를 함께 적으세요."))
+      .toContain("2026년 7월 30일");
+  });
+
+  it("never exempts a quoted statute article", () => {
+    expect(detectedTexts("‘제37조 참고’라고 적는 대신 조문 확인 방법을 함께 적으세요."))
+      .toContain("제37조");
+  });
+
+  it("never exempts a quoted statutory deadline, because a quantified period is a rule", () => {
+    for (const text of [
+      "‘14일 이내 신고’라고만 적는 대신 근거 규정과 확인 방법을 함께 적으세요.",
+      "‘7일 안에 철회’라고 적는 대신 기준 시점을 함께 적으세요.",
+      "‘24개월 동안 지원’이라는 식으로 적지 말고 대상 조건을 함께 적으세요.",
+      "‘매월 25일 지급’이라고 적는 대신 확인 경로를 함께 적으세요.",
+    ]) {
+      expect(detectedTexts(text).length, text).toBeGreaterThan(0);
+    }
+  });
+});
+
+/**
+ * Regression wall for the unverified high-risk period rule.
+ *
+ * Two attempts were made to exempt periods written inside an explicit
+ * illustration (`예를 들어 …다면`). Both were measured against real statutory
+ * wording and both leaked: whether the exempt span was the whole sentence or
+ * only the supposition clause, a 주민등록법·전자상거래법·국세기본법 period or a
+ * 주거지원 급여 기간 stated in that shape stopped being reported. The exemption
+ * was withdrawn. These sentences must stay detected; a future change that makes
+ * any of them pass is reopening the same hole.
+ */
+describe("Generated Claim binding - periods stated inside an illustration", () => {
+  function detectedTexts(text: string): string[] {
+    const { snapshot, gate } = verificationContext();
+    return bindGeneratedClaims({ document: documentWith(text), plan, snapshot, gate })
+      .bindings
+      .filter((binding) => binding.reference.referenceType === "unverifiedDetected")
+      .map((binding) => binding.matchedText);
+  }
+
+  it("detects a statutory period stated in the consequence of an illustration", () => {
+    const cases: readonly (readonly [string, string])[] = [
+      ["예를 들어 이사를 마쳤다면 전입신고는 14일 안에 하는 편이 좋습니다.", "14일"],
+      ["예를 들어 물건을 받았다면 청약철회는 7일 까지 가능합니다.", "7일"],
+      ["예컨대 세금을 더 냈다면 경정청구는 5년 동안 할 수 있습니다.", "5년"],
+      ["예를 들어 이사를 했다면 주거 지원은 24개월 동안 나옵니다.", "24개월"],
+      ["가령 소득이 줄었다면 반기 정산은 6개월 주기로 이뤄집니다.", "6개월"],
+      ["예를 들어 전세 계약을 했다면 확정일자 효력은 2년 유지됩니다.", "2년"],
+    ];
+    for (const [text, expected] of cases) {
+      expect(detectedTexts(text), text).toContain(expected);
+    }
+  });
+
+  it("detects a period stated after a comma inside the same illustration sentence", () => {
+    expect(detectedTexts(
+      "예를 들어 8월에 해지했다면 위약금이 붙는데, 계약 기간은 24개월로 정해져 있습니다.",
+    )).toContain("24개월");
+  });
+
+  it("detects a statutory period stated inside the supposition itself", () => {
+    const cases: readonly (readonly [string, string])[] = [
+      ["예를 들어 14일 안에 전입신고를 마쳤다면 별도 절차는 없습니다.", "14일"],
+      ["예를 들어 7일 이내에 청약철회를 요청했다면 대금을 돌려받습니다.", "7일"],
+      ["예컨대 5년 안에 경정청구를 했다면 환급이 가능합니다.", "5년"],
+      ["예를 들어 매월 25일 연금을 받았다면 통장을 확인합니다.", "25일"],
+    ];
+    for (const [text, expected] of cases) {
+      expect(detectedTexts(text), text).toContain(expected);
+    }
+  });
+
+  it("detects a period asserted outright after an illustration marker with no supposition", () => {
+    expect(detectedTexts("예를 들어 주거 지원 기간은 24개월입니다.")).toContain("24개월");
+  });
+
+  it("detects an eligibility period however the sentence is framed", () => {
+    expect(detectedTexts("예를 들어 최근 6개월 이내에 폐업한 사업자라면 신청할 수 있습니다."))
+      .toContain("6개월");
+    expect(detectedTexts("최근 6개월 이내에 폐업한 사업자만 신청할 수 있습니다."))
+      .toContain("6개월");
+    expect(detectedTexts("가입 후 2년이 지나면 우대금리 적용이 종료됩니다.")).toContain("2년");
+  });
+
+  it("detects an approximated period, which no source can support", () => {
+    expect(detectedTexts("최근 3개월 정도의 카드·계좌 내역에서 반복 청구 후보를 모읍니다."))
+      .toContain("3개월");
+  });
+
+  it("detects the amounts, ratios, dates and statute articles inside an illustration", () => {
+    const detected = detectedTexts(
+      "예를 들어 2026년 8월 3일에 70만원을 이체하고 3%를 돌려받았다면 화면을 저장합니다.",
+    );
+    expect(detected).toContain("2026년 8월 3일");
+    expect(detected).toContain("70만원");
+    expect(detected).toContain("3%");
+  });
+});
