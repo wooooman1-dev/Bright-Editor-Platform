@@ -1,15 +1,11 @@
 import {
-  evaluateApprovalPreparationText,
-  evaluateApprovalReadiness,
+  deriveApprovalReadinessReport,
   evaluateGeneratedClaimVerificationIntegrity,
   isCriticalVerificationClaim,
-  resolveApprovalEvidenceRequirement,
-  resolveApprovalTemporalRequirement,
   type ApprovalReadinessReport,
 } from "../approval";
 import {
   analyzeEditorialMarkupIntegrity,
-  canonicalDocumentText,
   type ContentDocument,
 } from "../content";
 import {
@@ -42,37 +38,20 @@ export class QualityEngine extends BaseQualityEngine {
   review(document: ContentDocument, context: QualityReviewContext = {}): ApprovalAwareQualityReport {
     const integrityReport = applyEditorialMarkupIntegrity(super.review(document, context), document);
     const report = applyGeneratedClaimVerificationIntegrity(integrityReport, document, context);
-    const snapshot = document.metadata?.approvalPolicy;
-    if (!snapshot) return report;
 
-    const evidence = document.metadata?.approvalEvidence;
-    const evidenceRequirement = resolveApprovalEvidenceRequirement(context.opportunity);
-    const temporalRequirement = resolveApprovalTemporalRequirement(context.opportunity);
-    const evidenceApplicable = evidenceRequirement !== "not_required";
-    const evidenceRequired = evidenceRequirement === "required";
-    const issues = evaluateApprovalPreparationText(
-      canonicalDocumentText(document),
-      snapshot,
-      {
-        sourceUrls: evidence?.sources
-          .filter((source) => source.provenance !== "search_candidate")
-          .map((source) => source.canonicalUrl ?? source.url),
-        reviewedAt: evidence?.reviewedAt,
-        coverageStatus: evidence?.coverageStatus ?? evidence?.status,
-        requiredFactFields: evidence?.requiredFactFields,
-        verifiedFactFields: evidence?.verifiedFactFields,
-        unverifiedFactFields: evidence?.unverifiedFactFields,
-        evidenceRequired,
-        timeSensitiveEvidenceRequired: temporalRequirement === "required",
-      },
-    );
-    const standardQualityApproved = isBaseStandardQualityApproved(report);
-    const approvalReadiness = evaluateApprovalReadiness(
+    /**
+     * The readiness aggregate is derived, not authored here. Quality Review has
+     * no site audit, no source fetch and no public-post catalog, so computing
+     * the five non-quality checks with its own copy of the rules could only
+     * re-report the stored snapshots — and, when it disagreed with the
+     * readiness service, silently overwrite that service's verdict.
+     */
+    const approvalReadiness = deriveApprovalReadinessReport({
       document,
-      issues,
-      standardQualityApproved,
-      evidenceApplicable,
-    );
+      ...(context.opportunity ? { opportunity: context.opportunity } : {}),
+      standardQualityApproved: isBaseStandardQualityApproved(report),
+    });
+    if (!approvalReadiness) return report;
 
     return Object.freeze({
       ...report,

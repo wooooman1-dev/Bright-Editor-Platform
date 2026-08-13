@@ -2,6 +2,7 @@ import type { PersistenceMutation, PersistenceStore } from "../../../core/data";
 import {
   canonicalizeApprovalEvidenceUrl,
   createNotRequiredApprovalEvidencePack,
+  deriveApprovalReadinessReport,
   evaluateApprovalDuplicateRisk,
   extractProfileApprovalFactsFromText,
   normalizeContentPurpose,
@@ -11,9 +12,10 @@ import {
   type ApprovalEvidenceProvenance,
   type ApprovalEvidenceSource,
   type ApprovalEvidenceSourceType,
+  type ApprovalReadinessReport,
 } from "../../../core/approval";
 import { contentBlockOwnership, serializeStructuredList, type ContentDocument } from "../../../core/content";
-import { editorialRevisionId } from "../../../core/quality";
+import { editorialRevisionId, isStandardQualityApproved } from "../../../core/quality";
 import type { UserContent, UserData } from "../../user-flow/user-data";
 import { internalLinkCatalogContextKey } from "../publishing/InternalLinkCatalogPolicy";
 import {
@@ -111,7 +113,85 @@ export function applyApprovalPersistencePolicy(
   }
 
   next = attachApprovalEvidenceCandidatePacks(next);
-  return attachApprovalDuplicateSnapshots(next);
+  next = attachApprovalDuplicateSnapshots(next);
+  return reconcileApprovalReadinessAggregates(next);
+}
+
+type ReadinessAwareQuality = NonNullable<UserContent["quality"]>
+  & Readonly<{ approvalReadiness?: ApprovalReadinessReport }>;
+
+function readinessAwareQuality(
+  quality: UserContent["quality"],
+): ReadinessAwareQuality | undefined {
+  return quality as ReadinessAwareQuality | undefined;
+}
+
+/**
+ * Recomputes the approval-readiness aggregate from the snapshots that are
+ * actually being stored, and writes the same answer into both persisted copies.
+ *
+ * The aggregate is derived state with two historical writers (Quality Review
+ * and the readiness service) and two storage locations
+ * (`contents[].quality.approvalReadiness` and
+ * `qualityReports[].report.approvalReadiness`). Reconciling here — after the
+ * Evidence candidate packs and the duplicate snapshot for this save have been
+ * attached — means the persisted verdict always matches the persisted evidence,
+ * and the two copies cannot describe the same article differently.
+ *
+ * Absence is meaningful and is preserved: a Content that has never been
+ * inspected, or whose publishing context was deliberately invalidated, keeps no
+ * aggregate rather than gaining a freshly invented one.
+ */
+function reconcileApprovalReadinessAggregates(data: UserData): UserData {
+  const derivedByContentId = new Map<string, ApprovalReadinessReport>();
+  let contentsChanged = false;
+
+  const contents = data.contents.map((content) => {
+    const aware = content as ApprovalAwareContent;
+    if (normalizeContentPurpose(aware.contentPurpose) !== "adsense_approval") return content;
+    const quality = readinessAwareQuality(content.quality);
+    if (!quality || !content.document?.metadata?.approvalPolicy) return content;
+
+    const derived = deriveApprovalReadinessReport({
+      document: content.document,
+      ...(content.opportunity ? { opportunity: content.opportunity } : {}),
+      standardQualityApproved: isStandardQualityApproved(quality),
+      supersededQualityReview: quality.reviewedRevisionId !== undefined
+        && quality.reviewedRevisionId !== editorialRevisionId(content.document),
+    });
+    if (!derived) return content;
+    derivedByContentId.set(content.id, derived);
+
+    if (!quality.approvalReadiness) return content;
+    if (sameReadinessReport(quality.approvalReadiness, derived)) return content;
+    contentsChanged = true;
+    return { ...content, quality: { ...quality, approvalReadiness: derived } } as UserContent;
+  });
+
+  const reports = data.qualityReports ?? [];
+  let reportsChanged = false;
+  const qualityReports = reports.map((entry) => {
+    const derived = derivedByContentId.get(entry.contentId);
+    const report = readinessAwareQuality(entry.report);
+    if (!derived || !report?.approvalReadiness) return entry;
+    if (sameReadinessReport(report.approvalReadiness, derived)) return entry;
+    reportsChanged = true;
+    return { contentId: entry.contentId, report: { ...report, approvalReadiness: derived } as UserContent["quality"] as NonNullable<UserContent["quality"]> };
+  });
+
+  if (!contentsChanged && !reportsChanged) return data;
+  return {
+    ...data,
+    ...(contentsChanged ? { contents } : {}),
+    ...(reportsChanged ? { qualityReports } : {}),
+  };
+}
+
+function sameReadinessReport(
+  left: ApprovalReadinessReport | undefined,
+  right: ApprovalReadinessReport,
+): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function preserveExistingSnapshot(
@@ -180,8 +260,8 @@ function preserveCurrentApprovalCheckSnapshots(
     || approvalEvidenceFingerprint(previous.document) === approvalEvidenceFingerprint(candidate.document);
   const approvalReadinessExecution = candidate.document.metadata.approvalReadinessExecution
     ?? (evidenceIdentityIsCurrent ? previous.document.metadata.approvalReadinessExecution : undefined);
-  const previousQuality = previous.quality as (NonNullable<UserContent["quality"]> & Readonly<{ approvalReadiness?: unknown }>) | undefined;
-  const candidateQuality = candidate.quality;
+  const previousQuality = readinessAwareQuality(previous.quality);
+  const candidateQuality = readinessAwareQuality(candidate.quality);
 
   return {
     ...candidate,
@@ -194,7 +274,17 @@ function preserveCurrentApprovalCheckSnapshots(
         ...(approvalReadinessExecution ? { approvalReadinessExecution } : {}),
       },
     },
-    ...(candidateQuality && previousQuality?.approvalReadiness && evidenceIdentityIsCurrent
+    /**
+     * A stale UI write may omit the readiness aggregate; that must not erase it.
+     * It may never *replace* it, though: this used to restore the previously
+     * stored aggregate unconditionally, so the readiness service's own write
+     * was reverted in `contents[].quality` while the fresher answer survived in
+     * `qualityReports[]`. That is how the two copies came to disagree.
+     */
+    ...(candidateQuality
+      && !candidateQuality.approvalReadiness
+      && previousQuality?.approvalReadiness
+      && evidenceIdentityIsCurrent
       ? { quality: { ...candidateQuality, approvalReadiness: previousQuality.approvalReadiness } as UserContent["quality"] }
       : {}),
   };

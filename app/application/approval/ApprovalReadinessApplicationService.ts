@@ -33,6 +33,12 @@ export class ApprovalReadinessApplicationService extends BaseApprovalReadinessAp
       if (document !== source) effectiveInput = { ...input, data: withNormalizedDocument(input.data, content, document) };
     }
     const result = await super.execute(effectiveInput);
+    /**
+     * A run that inspected nothing must not leave a "completed" inspection
+     * identity behind; that record is what later tells the service and the UI
+     * that the stored artefacts are current.
+     */
+    if (!result.inspectionPerformed) return result;
     return withCurrentInspectionIdentity(result, input.connection?.id);
   }
 }

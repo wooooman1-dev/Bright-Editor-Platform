@@ -1,13 +1,13 @@
 import {
+  approvalReadinessInspectionVersion,
   approvalSourceReviewPresentationText,
   canonicalizeApprovalEvidenceUrl,
   createNotRequiredApprovalEvidencePack,
-  evaluateApprovalPreparationText,
-  evaluateApprovalReadiness,
+  deriveApprovalReadinessReport,
   normalizeContentPurpose,
   resolveApprovalEvidenceRequirement,
-  resolveApprovalTemporalRequirement,
   verifyApprovalEvidence,
+  type ApprovalEvidencePack,
   type ApprovalEvidenceVerificationResult,
   type ApprovalPolicyProfileId,
   type SiteApprovalReadinessFetch,
@@ -16,7 +16,7 @@ import {
 } from "../../../core/approval";
 import { editorialRevisionId, isStandardQualityApproved, type QualityReport } from "../../../core/quality";
 import type { PlatformConnection } from "../../../core/connections";
-import { canonicalDocumentText, contentBlockOwnership, type ContentDocument } from "../../../core/content";
+import { contentBlockOwnership, type ContentDocument } from "../../../core/content";
 import { tistorySiteReadinessAdapter } from "../../../apps/tistory/approval/TistorySiteReadinessAudit";
 import { wordpressSiteReadinessAdapter } from "../../../apps/wordpress/approval/WordPressSiteReadinessAudit";
 import type { UserContent, UserData } from "../../user-flow/user-data";
@@ -34,6 +34,12 @@ export type ApprovalReadinessExecutionResult = Readonly<{
   quality: QualityReport;
   evidence: ApprovalEvidenceVerificationResult;
   siteReadiness: SiteApprovalReadinessSnapshot;
+  /**
+   * False when the run deliberately performed no inspection — currently only
+   * the "Standard Quality has not been approved yet" path. Callers must not
+   * record a completed inspection identity for such a result.
+   */
+  inspectionPerformed: boolean;
 }>;
 
 export type ApprovalReadinessFetch = SiteApprovalReadinessFetch;
@@ -96,20 +102,45 @@ export class ApprovalReadinessApplicationService {
       );
     }
     const editorialRevision = editorialRevisionId(content.document);
-    if (!content.quality
-      || !isStandardQualityApproved(content.quality)
+    if (!content.quality) {
+      throw new Error("승인 준비 검사를 실행하려면 먼저 원고 품질 검토를 실행해야 합니다.");
+    }
+    /**
+     * Standard Quality gates the expensive stages, not the user's view of the
+     * other five states. Source fetches, a public site audit and a catalog
+     * refresh would be wasted on a manuscript that is about to be rewritten, so
+     * they are skipped — but the five checks are reported as `not_evaluated`
+     * with that reason instead of throwing, which used to leave the previous
+     * run's stale verdict on screen with no way to clear it.
+     */
+    if (!isStandardQualityApproved(content.quality)
       || content.quality.reviewedRevisionId !== editorialRevision) {
-      throw new Error("현재 편집 원고의 Standard Quality가 유효할 때만 승인 준비 검사를 실행할 수 있습니다.");
+      return pendingStandardQualityResult(input.data, content, content.document);
     }
     const executionIdentity = approvalReadinessExecutionIdentity(content, input.connection?.id);
-    const storedResult = storedApprovalReadinessResult(input.data, content, executionIdentity.key);
-    if (storedResult) return storedResult;
+    const evidenceRequirement = resolveApprovalEvidenceRequirement(content.opportunity);
+    const evidenceApplicable = evidenceRequirement !== "not_required";
+
+    /**
+     * A matching execution identity means the expensive stages would produce
+     * the same artefacts, so they are reused. The aggregate itself is never
+     * reused: it is a pure function of those artefacts and costs nothing to
+     * recompute, and returning the stored copy meant every rule fix silently
+     * failed to reach articles that had already been inspected.
+     */
+    const cached = storedApprovalReadinessSnapshots(content, executionIdentity.key);
+    if (cached) {
+      return finalizeApprovalReadinessResult({
+        data: input.data,
+        content,
+        document: cached.document,
+        evidence: cached.evidence,
+        siteReadiness: cached.siteReadiness,
+        updatedAt: content.updatedAt,
+      });
+    }
 
     const checkedAt = this.now();
-    const evidenceRequirement = resolveApprovalEvidenceRequirement(content.opportunity);
-    const temporalRequirement = resolveApprovalTemporalRequirement(content.opportunity);
-    const evidenceApplicable = evidenceRequirement !== "not_required";
-    const evidenceRequired = evidenceRequirement === "required";
     const documentWithInternalLinks = await this.internalLinks.evaluate({
       workspaceId: input.data.workspace.id,
       projectId: project.id,
@@ -175,7 +206,7 @@ export class ApprovalReadinessApplicationService {
         ...projection.document.metadata!,
         approvalEvidence: stableEvidence,
         approvalReadinessExecution: Object.freeze({
-          version: "1.0",
+          version: approvalReadinessInspectionVersion,
           key: executionIdentity.key,
           editorialRevisionId: executionIdentity.editorialRevisionId,
           publishingContextKey: executionIdentity.publishingContextKey,
@@ -186,75 +217,152 @@ export class ApprovalReadinessApplicationService {
       },
     };
 
-    const policyIssues = nextDocument.metadata?.approvalPolicy
-      ? evaluateApprovalPreparationText(
-          canonicalDocumentText(nextDocument),
-          nextDocument.metadata.approvalPolicy,
-          {
-            sourceUrls: stableEvidence.sources
-              .filter((source) => source.provenance !== "search_candidate")
-              .map((source) => source.canonicalUrl ?? source.url),
-            reviewedAt: stableEvidence.reviewedAt,
-            coverageStatus: stableEvidence.coverageStatus ?? stableEvidence.status,
-            requiredFactFields: stableEvidence.requiredFactFields,
-            verifiedFactFields: stableEvidence.verifiedFactFields,
-            unverifiedFactFields: stableEvidence.unverifiedFactFields,
-            evidenceRequired,
-            timeSensitiveEvidenceRequired: temporalRequirement === "required",
-          },
-        )
-      : Object.freeze([]);
-    const approvalReadiness = evaluateApprovalReadiness(
-      nextDocument,
-      policyIssues,
-      true,
-      evidenceApplicable,
-    );
-    const quality = Object.freeze({
-      ...content.quality,
-      approvalReadiness,
-    }) as QualityReport;
-
-    const nextContent: UserContent = {
-      ...content,
+    return finalizeApprovalReadinessResult({
+      data: input.data,
+      content,
       document: nextDocument,
-      quality,
-      updatedAt: checkedAt,
-    };
-    const nextData: UserData = {
-      ...input.data,
-      contents: input.data.contents.map((item) => item.id === content.id ? nextContent : item),
-      qualityReports: [
-        ...(input.data.qualityReports ?? []).filter((item) => item.contentId !== content.id),
-        { contentId: content.id, report: quality },
-      ],
-    };
-
-    return Object.freeze({
-      data: nextData,
-      document: nextDocument,
-      quality,
       evidence: Object.freeze({ ...evidence, pack: stableEvidence }),
       siteReadiness,
+      updatedAt: checkedAt,
     });
   }
 }
 
-function storedApprovalReadinessResult(
+/**
+ * Builds the returned result from the inspection artefacts.
+ *
+ * Both the freshly inspected path and the cached path end here, so the stored
+ * aggregate is always the aggregate today's rules produce for those artefacts,
+ * and both persisted copies of it are written from the same object.
+ */
+function finalizeApprovalReadinessResult(input: Readonly<{
+  data: UserData;
+  content: UserContent;
+  document: ContentDocument;
+  evidence: ApprovalEvidenceVerificationResult;
+  siteReadiness: SiteApprovalReadinessSnapshot;
+  updatedAt: string;
+}>): ApprovalReadinessExecutionResult {
+  const approvalReadiness = deriveApprovalReadinessReport({
+    document: input.document,
+    ...(input.content.opportunity ? { opportunity: input.content.opportunity } : {}),
+    standardQualityApproved: input.content.quality !== undefined
+      && isStandardQualityApproved(input.content.quality),
+    supersededQualityReview: input.content.quality?.reviewedRevisionId !== undefined
+      && input.content.quality.reviewedRevisionId !== editorialRevisionId(input.document),
+  });
+  const quality = Object.freeze({
+    ...input.content.quality,
+    ...(approvalReadiness ? { approvalReadiness } : {}),
+  }) as QualityReport;
+
+  return Object.freeze({
+    data: withApprovalReadinessQuality(input.data, input.content, input.document, quality, input.updatedAt),
+    document: input.document,
+    quality,
+    evidence: input.evidence,
+    siteReadiness: input.siteReadiness,
+    inspectionPerformed: true,
+  });
+}
+
+/**
+ * Result for a manuscript whose Standard Quality is not currently approved.
+ *
+ * Nothing is inspected and nothing is written to the document, so no inspection
+ * identity is recorded. The aggregate is derived from the stored snapshots by
+ * the same Core function the persistence boundary uses, so the answer the API
+ * returns is the answer that gets saved.
+ */
+function pendingStandardQualityResult(
   data: UserData,
   content: UserContent,
+  document: ContentDocument,
+): ApprovalReadinessExecutionResult {
+  const approvalReadiness = deriveApprovalReadinessReport({
+    document,
+    ...(content.opportunity ? { opportunity: content.opportunity } : {}),
+    standardQualityApproved: false,
+    supersededQualityReview: content.quality?.reviewedRevisionId !== undefined
+      && content.quality.reviewedRevisionId !== editorialRevisionId(document),
+  });
+  const quality = Object.freeze({
+    ...content.quality,
+    ...(approvalReadiness ? { approvalReadiness } : {}),
+  }) as QualityReport;
+  const pack: ApprovalEvidencePack = document.metadata?.approvalEvidence
+    ?? createNotRequiredApprovalEvidencePack();
+
+  return Object.freeze({
+    data: withApprovalReadinessQuality(data, content, document, quality, content.updatedAt),
+    document,
+    quality,
+    evidence: Object.freeze({
+      pack,
+      verifiedSourceCount: 0,
+      rejectedSourceCount: 0,
+      reasons: Object.freeze(["기본 품질 승인 전이라 공식 출처를 다시 검사하지 않았습니다."]),
+    }),
+    siteReadiness: document.metadata?.siteApprovalReadiness
+      ?? unavailableSiteSnapshot(content.updatedAt, "기본 품질 승인 전이라 공개 사이트를 검사하지 않았습니다."),
+    inspectionPerformed: false,
+  });
+}
+
+/**
+ * Writes the quality report into both persisted locations from one object.
+ *
+ * `contents[].quality` is canonical and `qualityReports[]` mirrors it. Updating
+ * only one of them is how the two copies previously came to disagree about the
+ * same article.
+ */
+function withApprovalReadinessQuality(
+  data: UserData,
+  content: UserContent,
+  document: ContentDocument,
+  quality: QualityReport,
+  updatedAt: string,
+): UserData {
+  const nextContent: UserContent = { ...content, document, quality, updatedAt };
+  return {
+    ...data,
+    contents: data.contents.map((item) => item.id === content.id ? nextContent : item),
+    qualityReports: [
+      ...(data.qualityReports ?? []).filter((item) => item.contentId !== content.id),
+      { contentId: content.id, report: quality },
+    ],
+  };
+}
+
+/**
+ * Reusable inspection artefacts for a matching execution identity.
+ *
+ * Deliberately does not return the stored aggregate. The stored inspection
+ * contract version must also match: artefacts gathered under an older contract
+ * are not evidence that today's checks would pass.
+ */
+function storedApprovalReadinessSnapshots(
+  content: UserContent,
   executionKey: string,
-): ApprovalReadinessExecutionResult | undefined {
+): Readonly<{
+  document: ContentDocument;
+  evidence: ApprovalEvidenceVerificationResult;
+  siteReadiness: SiteApprovalReadinessSnapshot;
+  checkedAt: string;
+}> | undefined {
   const document = content.document;
-  const quality = content.quality;
   const execution = document?.metadata?.approvalReadinessExecution;
   const pack = document?.metadata?.approvalEvidence;
   const siteReadiness = document?.metadata?.siteApprovalReadiness;
-  if (!document || !quality || !execution || execution.key !== executionKey || !pack || !siteReadiness) return undefined;
+  if (!document
+    || !content.quality
+    || !execution
+    || execution.version !== approvalReadinessInspectionVersion
+    || execution.key !== executionKey
+    || !pack
+    || !siteReadiness) return undefined;
   return Object.freeze({
-    data,
     document,
-    quality,
     evidence: Object.freeze({
       pack,
       verifiedSourceCount: pack.sources.filter((source) => source.claimVerificationStatus === "verified" || source.verified).length,
@@ -262,6 +370,7 @@ function storedApprovalReadinessResult(
       reasons: Object.freeze([]),
     }),
     siteReadiness,
+    checkedAt: execution.checkedAt,
   });
 }
 

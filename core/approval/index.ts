@@ -1,5 +1,6 @@
 export * from "./ApprovalPolicy";
 export * from "./ApprovalReadiness";
+export * from "./ApprovalReadinessDerivation";
 export * from "./ApprovalEvidenceRequirement";
 export * from "./ApprovalDuplicatePolicy";
 export * from "./ApprovalSourceDocumentAdapter";

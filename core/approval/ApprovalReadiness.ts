@@ -18,6 +18,35 @@ export const approvalReadinessCheckKeys = [
   "site_readiness",
 ] as const;
 
+/**
+ * Version of the approval-readiness inspection contract.
+ *
+ * A stored inspection result is only comparable with today's rules when it was
+ * produced under the same contract version. Bumping this constant invalidates
+ * every persisted inspection: the identity key embeds it, so the service
+ * re-runs, and `withCurrentApprovalInspectionContract` refuses to keep showing
+ * an outdated `passed` verdict in the meantime.
+ *
+ * This lives in Core because both the Quality engine and the readiness
+ * application service must agree on it; neither platform App owns it.
+ */
+export const approvalReadinessInspectionVersion = "4.0" as const;
+
+/**
+ * Checks whose verdict is only as trustworthy as the stored inspection
+ * artefact behind it (Evidence pack, duplicate snapshot, public-post catalog,
+ * site audit). `standard_quality` and `approval_policy` are recomputed from the
+ * manuscript text on every read, so they are never degraded by contract age.
+ */
+const snapshotBackedCheckKeys: ReadonlySet<string> = new Set([
+  "evidence",
+  "duplicate",
+  "internal_links",
+  "site_readiness",
+]);
+
+const outdatedInspectionAction = "승인 준비 판정 기준이 갱신되었습니다. 승인 준비 검사를 다시 실행해 현재 기준으로 확인하세요.";
+
 export type ApprovalReadinessCheckKey = (typeof approvalReadinessCheckKeys)[number];
 export type ApprovalReadinessCheckStatus = "passed" | "needs_review" | "blocked" | "not_evaluated";
 
@@ -218,15 +247,21 @@ export function evaluateApprovalReadiness(
   policyIssues: readonly ApprovalPreparationIssue[],
   standardQualityApproved: boolean,
   verificationRequired = true,
+  supersededQualityReview = false,
 ): ApprovalReadinessReport {
-  const checks: ApprovalReadinessCheck[] = [
-    standardQualityCheck(standardQualityApproved),
+  return aggregateApprovalReadinessChecks([
+    standardQualityCheck(standardQualityApproved, supersededQualityReview),
     approvalPolicyCheck(policyIssues),
     evidenceCheck(document, verificationRequired),
     duplicateCheck(document),
     internalLinkCheck(document),
     siteReadinessCheck(document),
-  ];
+  ]);
+}
+
+function aggregateApprovalReadinessChecks(
+  checks: readonly ApprovalReadinessCheck[],
+): ApprovalReadinessReport {
   const applicationReady = checks.every((check) => check.status === "passed");
   const status = applicationReady
     ? "ready"
@@ -236,14 +271,78 @@ export function evaluateApprovalReadiness(
   return Object.freeze({
     status,
     applicationReady,
-    checks: Object.freeze(checks),
+    checks: Object.freeze([...checks]),
   });
 }
 
-function standardQualityCheck(passed: boolean): ApprovalReadinessCheck {
-  return passed
-    ? Object.freeze({ key: "standard_quality", status: "passed", message: "현재 문서 버전이 기본 품질 승인을 통과했습니다." })
-    : Object.freeze({ key: "standard_quality", status: "blocked", message: "현재 문서 버전이 기본 품질 승인을 통과하지 못했습니다.", action: "원고 품질 진단을 반영한 뒤 다시 검토하세요." });
+/**
+ * Refuses to keep presenting a `passed` snapshot verdict that was produced by
+ * an outdated inspection contract.
+ *
+ * Before this, a stored aggregate survived a contract bump untouched, so an
+ * article inspected under an older version kept showing that version's answer
+ * until somebody happened to press the button again. The stored artefacts are
+ * still real evidence, so this never invents a failure: it downgrades only the
+ * snapshot-backed `passed` checks to `needs_review` and says what to do. A
+ * check that already reports `blocked`, `needs_review`, or `not_evaluated`
+ * keeps its own, more specific diagnosis.
+ */
+export function withCurrentApprovalInspectionContract(
+  report: ApprovalReadinessReport,
+  document: ContentDocument,
+): ApprovalReadinessReport {
+  const execution = document.metadata?.approvalReadinessExecution;
+  if (!execution || execution.version === approvalReadinessInspectionVersion) return report;
+  return aggregateApprovalReadinessChecks(report.checks.map((check) => {
+    if (check.applicable === false) return check;
+    if (!snapshotBackedCheckKeys.has(check.key) || check.status !== "passed") return check;
+    return Object.freeze({
+      ...check,
+      status: "needs_review" as const,
+      action: [check.action, outdatedInspectionAction].filter(Boolean).join(" "),
+    });
+  }));
+}
+
+/**
+ * Explains the checks that are empty because the readiness inspection has not
+ * run for this manuscript yet.
+ *
+ * The readiness service deliberately spends no source fetch, public site audit
+ * or catalog refresh on a manuscript that has not passed Standard Quality and
+ * is about to be rewritten. That is a cost decision, and it used to be
+ * expressed by throwing, which showed the user nothing at all. The five other
+ * checks keep whatever their own stored snapshots say — Standard Quality must
+ * never decide whether Evidence or site readiness "passed" — and only the
+ * genuinely unevaluated ones gain the reason they are still empty.
+ */
+export function withPendingStandardQualityGuidance(
+  report: ApprovalReadinessReport,
+): ApprovalReadinessReport {
+  const pending = "기본 품질 승인을 통과해야 승인 준비 검사가 실행됩니다. 원고 품질 진단을 반영하고 품질 검토를 다시 실행한 뒤 승인 준비 검사를 실행하세요.";
+  return aggregateApprovalReadinessChecks(report.checks.map((check) => {
+    if (check.key === "standard_quality" || check.status !== "not_evaluated") return check;
+    return Object.freeze({
+      ...check,
+      action: [check.action, pending].filter(Boolean).join(" "),
+    });
+  }));
+}
+
+function standardQualityCheck(passed: boolean, supersededReview = false): ApprovalReadinessCheck {
+  if (passed) {
+    return Object.freeze({ key: "standard_quality", status: "passed", message: "현재 문서 버전이 기본 품질 승인을 통과했습니다." });
+  }
+  return Object.freeze({
+    key: "standard_quality",
+    status: "blocked",
+    message: supersededReview
+      ? "마지막 품질 검토 이후 원고가 수정되어 현재 문서 버전의 기본 품질 승인이 없습니다."
+      : "현재 문서 버전이 기본 품질 승인을 통과하지 못했습니다.",
+    action: supersededReview
+      ? "현재 문서 버전으로 품질 검토를 다시 실행하세요."
+      : "원고 품질 진단을 반영한 뒤 다시 검토하세요.",
+  });
 }
 
 function approvalPolicyCheck(issues: readonly ApprovalPreparationIssue[]): ApprovalReadinessCheck {
@@ -286,7 +385,7 @@ function evidenceCheck(
     return Object.freeze({ key: "evidence", status: "blocked", message: "승인 준비 원고에 공식 출처 검증 정보가 없습니다.", action: "공식 기관 자료를 수집하고 원고의 사실과 대조하세요." });
   }
   if (pack) {
-    return Object.freeze({ key: "evidence", status: "needs_review", message: "공식 출처 후보가 있지만 출처 검증 또는 최종 검토가 완료되지 않았습니다.", action: "출처 주소, 발행 기관, 확인 사실과 최종 검토일을 검증하세요." });
+    return unresolvedEvidenceCheck(pack, verifiedSources.length);
   }
   const text = documentText(document);
   const hasUrl = /https:\/\/[^\s<>)"']+/i.test(text);
@@ -299,6 +398,46 @@ function evidenceCheck(
       : "공식 출처와 검토일을 확인할 정보가 없습니다.",
     action: "출처 문구만 확인하지 말고 공식 주소와 핵심 사실을 검증 정보로 저장하세요.",
   });
+}
+
+/**
+ * Names the Claim that is actually missing evidence.
+ *
+ * A fixed "verify the addresses, publishers, facts and review date" sentence
+ * sent the user back over sources that are already verified while saying
+ * nothing about the one uncovered Claim recorded in `unverifiedFactFields`.
+ * The failing Claim fields and the individually rejected sources are the only
+ * work items, so they belong in the action.
+ */
+function unresolvedEvidenceCheck(
+  pack: ApprovalEvidencePack,
+  verifiedSourceCount: number,
+): ApprovalReadinessCheck {
+  const unverifiedFields = pack.unverifiedFactFields ?? [];
+  const rejected = pack.sources.filter((source) =>
+    source.provenance !== "search_candidate"
+    && !source.verified
+    && source.verificationStatus !== "excluded");
+  const actions = [
+    unverifiedFields.length
+      ? `공식 출처로 뒷받침되지 않은 핵심 Claim ${unverifiedFields.length}개를 해결하세요: ${unverifiedFields.join(", ")}. 해당 Claim을 확인해 주는 공식 자료를 추가하거나, 뒷받침할 수 없는 문장을 원고에서 제거하세요.`
+      : "",
+    rejected.length
+      ? `검증에 실패한 출처 ${rejected.length}개를 확인하세요: ${rejected.map(rejectedSourceLabel).join(" / ")}.`
+      : "",
+    !pack.reviewedAt ? "출처 최종 검토일이 기록되지 않았습니다. 승인 준비 검사를 실행해 현재 문서 버전으로 검토일을 확정하세요." : "",
+  ].filter(Boolean);
+  return Object.freeze({
+    key: "evidence",
+    status: "needs_review",
+    message: `공식 출처 ${verifiedSourceCount}개를 확인했지만 필수 Claim 검증 또는 최종 검토가 완료되지 않았습니다.`,
+    action: actions.join(" ") || "출처 주소, 발행 기관, 확인 사실과 최종 검토일을 검증하세요.",
+  });
+}
+
+function rejectedSourceLabel(source: ApprovalEvidenceSource): string {
+  const reason = source.failureReason?.trim() || source.verificationStatus || "검증 미완료";
+  return `${source.publisher?.trim() || source.title?.trim() || source.url} (${reason})`;
 }
 
 function duplicateCheck(document: ContentDocument): ApprovalReadinessCheck {
