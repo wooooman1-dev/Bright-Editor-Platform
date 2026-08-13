@@ -245,6 +245,72 @@ describe("EditorialQualityPipeline", () => {
     expect(instruction).toContain("do not add decorative card-like sections");
   });
 
+  /**
+   * content-msrfq4gt-fc8ub1 was blocked on two CONTENT_SECTION_PROSE_INSUFFICIENT
+   * sections after the factual inventory deleted the paragraphs that explained
+   * them. The final call is the pipeline's only repair opportunity, and the
+   * diagnostics it received forwarded CONTENT_INCOMPLETE_SECTION only, so the
+   * one thing blocking the article never reached the editor.
+   */
+  it("tells the final call which sections fall below the prose floor and by how much", async () => {
+    const target = determineContentPlanQualityTarget({
+      contentType: "article",
+      readerProblem: "조회 금액이 확정인지 판단하기 어렵다",
+      requiredContentElements: ["판단 기준"],
+    });
+    const heading = "국민연금 예상연금액과 실제 지급 판단은 같은 질문이 아닙니다";
+    const initial: ContentDocument = {
+      id: "content-prose-shortfall",
+      title: "국민연금 예상수령액 조회 방법",
+      blocks: [
+        { id: "intro", type: "paragraph", text: "조회 화면의 금액과 실제 지급 판단은 서로 다른 질문에 답합니다. 두 질문을 나누어 확인해야 합니다." },
+        { id: "h-1", type: "heading", level: 2, text: heading },
+        { id: "p-1", type: "paragraph", text: "예상연금액은 조회 시점의 기록과 산정 전제를 바탕으로 계획을 가늠하게 하는 값입니다. 아래 표는 그 차이를 정리한 것입니다." },
+        {
+          id: "p-2",
+          type: "table",
+          headers: ["구분", "조회 화면", "지급 판단"],
+          rows: [
+            ["주된 목적", "노후 계획 점검", "개별 수급 확인"],
+            ["기준 자료", "조회 시점 기록", "수급 시점 기록"],
+            ["독자가 할 일", "금액과 가정을 기록", "공식 상담으로 확인"],
+            ["해석 원칙", "변화 가능성 전제", "현행 기준과 함께 판단"],
+          ],
+        },
+        { id: "conclusion", type: "paragraph", text: "조회 결과는 계획을 점검하는 기준으로 쓰고 최종 판단은 공식 기록으로 확인합니다." },
+      ],
+      metadata: {
+        buttonCount: 0, createdAt: "2026-08-13T00:00:00.000Z", generator: "test", imageCount: 0, language: "ko",
+        readingTime: 1, source: "test", updatedAt: "2026-08-13T00:00:00.000Z", version: 1, videoCount: 0, wordCount: 20,
+        metaDescription: "국민연금 예상수령액 조회 결과를 해석하는 기준을 안내합니다.",
+        qualityTarget: target,
+        longFormStructure: {
+          introductionBlockIds: ["intro"],
+          sections: [{ headingBlockId: "h-1", paragraphBlockIds: ["p-1", "p-2"], sectionType: "comparison" }],
+          conclusionBlockIds: ["conclusion"],
+        },
+      },
+    };
+    let instruction = "";
+    const generate = vi.fn(async (request: AIRequest) => { instruction = request.instruction; return { content: JSON.stringify(rawDocument("검토 원고")), model: "review" }; });
+    const qualityEngine = { review: vi.fn(() => report(96, true)) };
+
+    await new EditorialQualityPipeline({ generate } as AIProvider, undefined, qualityEngine as never).run({
+      document: initial,
+      finalReviewInstruction: () => "final",
+      parseInput: parseInput(),
+      qualityContext: {},
+    });
+
+    expect(instruction).toContain("sectionProseShortfalls");
+    expect(instruction).toContain(`"heading":"${heading}"`);
+    expect(instruction).toContain('"minimumNarrativeCharacters":400');
+    expect(instruction).toContain("Structural repair is a mandatory final-edit contract");
+    expect(instruction).toContain("CONTENT_SECTION_PROSE_INSUFFICIENT");
+    expect(instruction).toContain("Do not close the gap with a new number, date, amount, rate, statute, eligibility rule");
+    expect(instruction).toContain("do not add list items or table rows, which are not counted");
+  });
+
   it("preserves current sectionType ownership while using candidate block bindings", async () => {
     const parsed = new EditorialGenerationStrategy().parse(JSON.stringify(rawDocument()), parseInput());
     const currentStructure = parsed.metadata!.longFormStructure!;

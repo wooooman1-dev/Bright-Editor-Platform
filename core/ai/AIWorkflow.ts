@@ -19,6 +19,7 @@ import type { ApprovalSourcePreflightCoverageResult } from "../approval/Approval
 import {
   findUnrequestedOwnedIdentityOccurrences,
   findUnrequestedOwnedIdentityPrefixes,
+  longFormNarrativeFloors,
   serializeStructuredList,
   type ConfirmedContentOpportunity,
   type ContentDocument,
@@ -152,7 +153,9 @@ export class AIWorkflow {
             approvalSnapshot,
           );
       const instruction = withVerificationClaimRiskInstruction(factualInventoryGeneration
-        ? withGeneratedFactualClaimResponseInstruction(preflightInstruction)
+        ? withWithdrawableFactIsolationInstruction(
+            withGeneratedFactualClaimResponseInstruction(preflightInstruction),
+          )
         : preflightInstruction, input.contentOpportunity);
       const response = await this.provider.generate({
         ...request,
@@ -353,6 +356,28 @@ export class AIWorkflow {
       throw error;
     }
   }
+}
+
+/**
+ * The factual inventory is the last stage that edits the canonical manuscript,
+ * and it withdraws an unverified factual surface by deleting the whole
+ * paragraph that carries it. Measured on content-msrfq4gt-fc8ub1: the writer
+ * cleared every prose floor as generated (411, 497, 499, 414, 416 and 498
+ * characters), the sweep then deleted four paragraphs whose only fault was a
+ * 정보 기준일 date or a 법령 reference the inventory had not reported, and two
+ * sections dropped to 221 and 345 against floors of 250 and 400. One of the
+ * deleted paragraphs was the prose that explained the comparison table.
+ *
+ * The writer cannot make the server verify a fact, but it decides which
+ * sentence sits in which paragraph. Keeping a withdrawable fact out of the
+ * paragraph that explains a section is what makes a withdrawal cost the article
+ * the fact instead of the explanation.
+ *
+ * This applies only where the factual inventory runs — approval preparation —
+ * so revenue content keeps writing facts wherever they read best.
+ */
+function withWithdrawableFactIsolationInstruction(instruction: string): string {
+  return `${instruction}\n\nWithdrawal-resilient paragraph contract (mandatory): the server checks every factual surface and deletes the entire paragraph carrying a factual surface it cannot verify, so write so that a deletion costs the article the fact and never the explanation. Keep each externally verifiable fact — an amount, a rate or percentage, a date such as 정보 기준일 or 최종 검토일, a statute or article reference, an eligibility, application, or contract condition — in its own short paragraph that states that fact with its source context and nothing else. Never place such a sentence in the same paragraph as the prose that explains a section's table or list, its reasoning, or the reader's next action. Every H2 must still fulfil its role and reach its running-prose minimum — ${longFormNarrativeFloors.standard} characters excluding whitespace, or ${longFormNarrativeFloors.listShaped} when its sectionType is ${longFormNarrativeFloors.listShapedSectionTypes.join(", ")} — counting only the paragraphs that carry no verifiable fact, because a section whose explanation is welded to a withdrawable fact loses both at once. Report every factual surface you write in the factual Claim inventory: an unreported factual sentence is deleted from the manuscript without replacement.`;
 }
 
 function withVerificationClaimRiskInstruction(

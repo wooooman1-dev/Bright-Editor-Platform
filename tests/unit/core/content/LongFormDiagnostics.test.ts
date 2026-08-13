@@ -4,6 +4,7 @@ import {
   analyzeLongFormDocument,
   assertLongFormDocument,
   determineContentPlanQualityTarget,
+  longFormNarrativeFloors,
   LongFormValidationError,
   type ContentDocument,
   type ContentPlanQualityTarget,
@@ -286,6 +287,58 @@ describe("LongFormDiagnostics table weighting", () => {
     }));
     expect(explained.violations.map((item) => item.code))
       .not.toContain("CONTENT_SECTION_PROSE_INSUFFICIENT");
+  });
+
+  /**
+   * Measured on content-msrfq4gt-fc8ub1. As generated, every section cleared its
+   * floor (411, 497, 499, 414, 416, 498 characters of running prose). The
+   * factual inventory then deleted four whole paragraphs carrying an unreported
+   * 정보 기준일 date or 법령 reference, and the two sections that carried a list
+   * and a table fell to 221 and 345 against floors of 250 and 400 — one of the
+   * deleted paragraphs was the prose explaining the comparison table.
+   *
+   * The floor is not the defect and must not be relaxed to hide the deletion:
+   * the section really is a table with too little prose after the withdrawal.
+   * What decides whether a withdrawal costs the reader the explanation is
+   * whether the explanation shared a paragraph with the withdrawn fact.
+   */
+  describe("a withdrawn factual paragraph", () => {
+    const explanation = "표의 각 행은 조회 화면이 답하는 질문과 실제 지급 판단이 답하는 질문을 나누어 보여 줍니다. 두 열을 함께 읽으면 어떤 자료를 언제 확인해야 하는지 구분할 수 있습니다. ".repeat(6);
+    const opening = "조회 화면의 금액과 실제 지급 판단은 서로 다른 질문에 답합니다. 아래 표는 그 차이를 정리한 것입니다.";
+    const fact = "기준소득월액은 연금보험료와 급여를 산정하기 위한 금액이며 이 글의 정보 기준일은 2026년 8월 13일입니다.";
+
+    function comparisonSection(paragraphs: readonly string[]) {
+      const target = targetFor(["판단 기준"]);
+      return analyzeLongFormDocument(
+        document(target, [["comparison", [...paragraphs, markdownTable(4)].join("\n")]]),
+        target,
+      );
+    }
+
+    it("passes the floor before the withdrawal in either paragraph shape", () => {
+      expect(comparisonSection([opening, `${explanation} ${fact}`]).violations.map((item) => item.code))
+        .not.toContain("CONTENT_SECTION_PROSE_INSUFFICIENT");
+      expect(comparisonSection([opening, explanation, fact]).violations.map((item) => item.code))
+        .not.toContain("CONTENT_SECTION_PROSE_INSUFFICIENT");
+    });
+
+    it("sinks the section when the explanation shared the withdrawn paragraph", () => {
+      expect(comparisonSection([opening]).violations).toContainEqual(expect.objectContaining({
+        code: "CONTENT_SECTION_PROSE_INSUFFICIENT",
+        minimum: 400,
+      }));
+    });
+
+    it("leaves the section standing when the fact had its own paragraph", () => {
+      expect(comparisonSection([opening, explanation]).violations.map((item) => item.code))
+        .not.toContain("CONTENT_SECTION_PROSE_INSUFFICIENT");
+    });
+
+    it("publishes the floors the generation and review prompts quote", () => {
+      expect(longFormNarrativeFloors.standard).toBe(400);
+      expect(longFormNarrativeFloors.listShaped).toBe(250);
+      expect(longFormNarrativeFloors.listShapedSectionTypes).toEqual(["checklist", "steps", "faq"]);
+    });
   });
 
   it("makes a repair that empties a table visible as an information loss", () => {

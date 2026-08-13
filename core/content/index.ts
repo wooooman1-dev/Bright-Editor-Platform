@@ -78,6 +78,7 @@ export {
   assertLongFormDocument,
   assertLongFormSafetyTarget,
   formatLongFormDiagnostic,
+  longFormNarrativeFloors,
   LongFormValidationError,
   normalizeGeneratedSectionSemantics,
   requiresLongFormValidation,

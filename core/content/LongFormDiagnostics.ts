@@ -323,6 +323,18 @@ const minimumSectionNarrativeCharacters = 400;
 const minimumListShapedNarrativeCharacters = 250;
 const listShapedSectionTypes = new Set<ContentSectionType>(["checklist", "steps", "faq"]);
 
+/**
+ * The floors the generation and review prompts must quote. They were written
+ * into three prompt strings as literals, and a manuscript is rejected against
+ * this module rather than against those strings, so the numbers are published
+ * here instead of being retyped where they can silently drift apart.
+ */
+export const longFormNarrativeFloors = Object.freeze({
+  standard: minimumSectionNarrativeCharacters,
+  listShaped: minimumListShapedNarrativeCharacters,
+  listShapedSectionTypes: Object.freeze([...listShapedSectionTypes]),
+});
+
 function minimumNarrativeFor(sectionType: ContentSectionType): number {
   return listShapedSectionTypes.has(sectionType)
     ? minimumListShapedNarrativeCharacters
