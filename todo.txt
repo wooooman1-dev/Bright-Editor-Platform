@@ -7,274 +7,155 @@ npm run dev
 npm install 은 이전 브랜치에서 뒤처져 있을 때만. 이번 작업은 package.json 을
 건드리지 않았다.
 
-주의: 이 세션에서 커밋한 3개(2d2e38d, 32c2037, ad696d9)가 아직 origin에
-push 안 됐다(origin HEAD 는 f64aa3a 에 머물러 있음, 세션 끝 시점 확인). 다음
-세션 시작 시 `git log origin/feat/scheduled-publishing-and-diversity -3` 로
-push 여부부터 확인할 것 — push 가 안 됐다면 먼저 push 하고 이어받는다.
+주의: 이 세션에서 커밋한 3개(22f7329, 2c67dd1, d972cc3)가 세션 종료 시점에
+origin 에 아직 push 안 됐다(`git status -sb` 로 확인: "ahead 3", origin HEAD 는
+fe07307 에 머물러 있음). 다음 세션 시작 시 반드시
+`git log origin/feat/scheduled-publishing-and-diversity -3` 로 push 여부부터
+확인할 것 — push 가 안 됐다면 사장님 지시 없이 임의로 push 하지 말고(위
+CLAUDE.md/AGENTS.md 원칙상 커밋·푸시는 사용자가 지시할 때만) 먼저 확인부터
+받는다.
 
-== 현재 상태 (2026-08-13, ad696d9) ==
-브랜치 feat/scheduled-publishing-and-diversity. 위 주의 사항대로 push 미완료
-상태로 세션이 끝났다.
+== 현재 상태 (2026-08-14, d972cc3) ==
+브랜치 feat/scheduled-publishing-and-diversity, HEAD = d972cc3, origin 보다
+3커밋 앞섬(push 안 됨). `git status --short` 클린 — 미커밋 변경 없음.
 
-세션 시작 시 origin 에서 10개 커밋(aa79f8b → f64aa3a)을 pull 했다 —
-`.claude/agents/` 12명 팀원 정의가 이때 처음 이 기계에 생겼다. 로컬에
-untracked 상태였던 `.claude/settings.json`(model: opusplan 설정 포함)이
-pull 과 충돌해 백업 후 제거했고, 원격 버전(PreCompact 훅만 있고 model 설정
-없음)으로 대체됐다 — 로컬 model 설정은 사장님 확인 하에 복원하지 않았다.
-지금 `.claude/settings.json` 에는 PreCompact 훅만 있다.
+이번 세션은 fe07307(지난 세션 handover) 이후 순수 버그 수정 3개 커밋을
+추가했다. "feat/scheduled-publishing-and-diversity" 브랜치 이름이 가리키는
+원래 기능(예약 발행, 다양성) 자체의 진행 상황은 이번 세션에서 손대지 않았다
+— 그 부분은 이 파일의 과거 기록(아래 남겨둔 절 밖의 것은 이미 지워졌으니
+git log 로 확인)을 참고할 것.
 
-미커밋 상태로 남아 있는 것(둘 다 이번 세션 작업과 무관, 손대지 않음):
-- `next-env.d.ts` 수정 — Next.js 가 `npm run dev`/`next build` 실행 시
-  자동 재생성하는 파일. 내용 확인 안 함, 다음 세션에서 버려도 무방.
-- `evidence-diagnostic.json`, `project-evidence-verification.json`
-  (저장소 루트, untracked) — 이번 세션 중 워크스페이스/프로젝트 evidence
-  상태를 진단하려고 실행한 스크립트의 출력으로 보인다. git 대상 아님,
-  커밋 계획 없음. 다음 세션에서 필요 없으면 삭제해도 된다.
+각 커밋 전 `npx tsc --noEmit` 클린 확인. 최종적으로
+`npx vitest run tests/unit` → 323 files / 1991 tests 전부 통과(3개 커밋
+합산 최종 실행), `npx eslint .` 클린 확인 — 전부 이번 세션에 실제로 실행한
+결과다.
 
-브랜치 feat/scheduled-publishing-and-diversity, origin 과 동기화(push 완료).
-중간에 ec17c6b 하나를 커밋 메시지 제목 중복(0f97d1a 와 동일 제목이었음)
-때문에 46dc38e 로 reword 했다 — 그 뒤 커밋 3개가 이 리라이트로 해시가
-바뀌어 force-with-lease 로 다시 push 했다. 내용은 리베이스 전후로 트리
-diff 없음(확인됨), 코드 변경 아님.
-격리 재검증: tsc --noEmit 클린, eslint 클린, vitest 전체 644 files / 3881
-tests passed, 36 skipped, 2 failed — 실패 2건은
-tests/unit/app/application/ConnectionInfrastructure.test.ts (Windows DPAPI
-SecretStore, .claude/worktrees/ 사본까지 중복 실행되는 것 포함) 이고
-approval/Claim 작업과 무관. 단독 실행하면 10/10 통과 — 전체 스위트 동시
-실행 시에만 흔들리는 환경성 실패로 판단.
+1. `22f7329 fix: write unverified example numbers as prose, not compressed
+   numerals` — approval-evidence 담당. `core/ai/ApprovalSourcePreflight.ts`의
+   `withApprovalSourcePreflightInstruction` 두 갈래(canonical Claim-ID 번들 /
+   ad-hoc 출처 번들) 모두에 "검증된 Claim이 아닌 예시·주기·근사 숫자는
+   압축형(1주) 대신 서술형으로 써라" 지시를 추가했다 — 제목·헤딩·리스트
+   라벨·표 셀 포함. 순수 프롬프트 예방책, 게이트(`GeneratedClaimBinding.ts`)
+   는 무변경. 신규 테스트
+   `tests/unit/core/ai/ApprovalSourcePreflightInstruction.test.ts`.
+   지난 세션이 "1주 수면 습관 점검표" 오탐을 "문법 신호가 전혀 없어 게이트로
+   못 고친다"고 남긴 항목(다음 할 일 2번)을 이 프롬프트 수정으로 처리한
+   것 — 재발 여부는 실제 생성으로만 확인 가능(아래 "다음 할 일" 참고).
 
-부수 발견: vitest 가 .claude/worktrees/ 안의 코드까지 테스트로 스캔하고
-있다(위 실패가 같은 테스트를 두 경로에서 두 번 돌린 것으로 나타남).
-vitest.config.ts 에 worktrees 제외 설정이 없다 — 다음 세션에서 손볼 것.
+2. `2c67dd1 fix: keep withdrawn-Claim removal from gutting section prose`
+   — quality-root-cause 담당. **이번 세션 핵심 발견**: 사장님이 "차단이
+   며칠째 안 풀린다"고 지적한 `CONTENT_SECTION_PROSE_INSUFFICIENT`의 진짜
+   원인을 실측(`content-msrfq4gt-fc8ub1` 재현)으로 확정했다. 게이트도
+   400/250자 하한도 문제가 아니었다 — 생성 직후엔 원고가 하한을 여유 있게
+   통과한다(실측: 411/497자 vs 250/400 하한). 문제는 생성 *이후*
+   `core/approval/GeneratedFactualClaimInventory.ts`의
+   `findUntrackedCriticalSurfaces` → `removeGeneratedFactualSurface`가
+   "인벤토리에 미보고된 critical 패턴 문장"을 발견하면 그 문장이 든
+   **문단 전체**를 삭제하는 것이었다 — 삭제된 문단 중엔 표를 설명하던
+   문단, 정보 기준일 날짜(정책상 오히려 필수)가 섞여 있었다. 화면의
+   "산문 부족" 진단 문구가 실제 원인(문단 삭제)을 전혀 가리키지 않고
+   있었다.
+   - `core/ai/AIWorkflow.ts`: `factualInventoryGeneration`(승인 모드) 전용
+     "Withdrawal-resilient paragraph contract" 추가 — 검증 대상 사실은
+     독립 문단에, 표/리스트 설명 산문과 섞지 말고, 하한은 비-사실 문단만
+     으로 채우라고 지시. 수익형 콘텐츠 경로는 안 건드림(위 pinned memory
+     "adsense-approval-vs-revenue-content-scope" 준수).
+   - `app/application/EditorialQualityPipeline.ts`: `manuscriptDiagnostics`
+     가 `CONTENT_INCOMPLETE_SECTION`만 2차(복구) 호출에 전달하고 정작
+     차단 사유인 `CONTENT_SECTION_PROSE_INSUFFICIENT`는 전달 안 하던
+     버그 수정. 이제 `blockingViolations`/`sectionProseShortfalls`
+     (heading·minimum·actual)를 전달하고 "새 사실 없이 설명 산문만으로
+     채워라" 지시 추가.
+   - `core/content/LongFormDiagnostics.ts`: 판정 로직 **무변경**.
+     `core/content/index.ts`가 400/250 상수를 `longFormNarrativeFloors`로
+     export해서 프롬프트 3곳 하드코딩 숫자가 게이트와 어긋나지 않게 함.
+   - 신규 테스트: `tests/unit/core/ai/
+     AIWorkflowWithdrawableFactIsolation.test.ts`.
+   - **미해결(삭제 로직 자체는 이번에 손 안 댐, 아래 "다음 할 일" 1번
+     참고)**: (1) 삭제 단위가 문장이 아니라 문단 전체, (2)
+     `criticalSurfacePattern`이 정책상 필수인 정보 기준일 날짜까지
+     critical로 오분류, (3) 생성이 Claim 인벤토리 보고를 누락하는 계약
+     위반 자체가 방치됨(한 원고에서 `unreported_generated_critical` 4건
+     발생), (4) 삭제 후 `longFormStructure`가 삭제된 블록 ID를 그대로
+     참조(desync). 이 4가지가 해결돼야 "차단 완전 해제"와 (아래 3번의)
+     "출처 소실"이 근본적으로 풀린다.
 
-e65e57f 이후 이번 세션에서 커밋이 여러 개 더 올라갔다 (git log 로 확인).
+3. `d972cc3 fix: stop hiding the Evidence card and unreachable readiness
+   aggregates` — approval-readiness-designer 담당. 사장님이 "출처가
+   표시되지도 않고 출처 검토도 안 된다"고 지적한 원인 3가지를 밝은재테크
+   실 원고 19편 실측으로 확정:
+   - `app/user-flow/quality-review-ui.ts`의
+     `visibleApprovalReadinessChecks`가 `applicable !== false`만 통과시켜서,
+     mandatory Claim이 없어 `applicable: false`로 판정되는 Evidence 체크가
+     **패널에서 통째로 사라지고** 있었다(19편 중 8편이 이 경로, 그중 4편은
+     실제로 출처를 못 찾아 문장이 빠진 인벤토리 보유 — 시스템이 한 일이
+     화면에서 안 보였다). 이제 "필수 검증 대상 아님" 라벨로 표시.
+   - `core/quality/QualityEnginePolicy.ts`의 `standardQualityCheck`가
+     "품질 미승인"이라고만 말하고 이유를 안 줌 — 차단된 8편 중 5편이
+     점수는 전부 100점이라 점수판도 카드도 진짜 차단 사유를 안 알려주고
+     있었다. `standardQualityBlockingReasons` 신설, 차단된 task 메시지를
+     모아 카드에 표시.
+   - `app/application/approval/ApprovalAwarePersistenceStore.ts`의
+     `reconcileApprovalReadinessAggregates`가 기존 aggregate가 없으면 새로
+     derive 자체를 안 했음 — Quality report와 정책 스냅샷은 있는데
+     aggregate가 한 번도 없었던 원고 3편(19편 중)은 승인 준비 패널이
+     통째로 안 떴다. 이제 최초 1회도 derive·저장하도록 수정.
+   - 관련 파일: `core/approval/ApprovalReadiness.ts`,
+     `core/approval/ApprovalReadinessDerivation.ts`,
+     `app/application/approval/ApprovalReadinessApplicationServiceBase.ts`,
+     `app/user-flow/EditorWorkspaceImplementation.tsx`.
+   - 이 커밋을 만들던 에이전트가 세션 API 사용량 한도로 중간에 죽었지만
+     (재개 불필요, 실측·수정·테스트 모두 이미 완료된 상태였음) 커밋 직전
+     검증 중 스크래치 파일
+     `tests/unit/core/approval/ZzLiveReadinessProbe.test.ts`(세션 임시
+     디렉터리의 `live.json`을 절대경로로 읽는 디버깅용 코드, 실제
+     assertion 없음)를 발견해서 커밋에서 제외하고 삭제했다 — 다음 세션은
+     이 파일이 없다는 걸 이상하게 여기지 않아도 된다.
 
-b509cff 에서 생성 원고 한 편을 측정해 근본 원인 3건을 고쳤다. 자세한 내용은
-Docs/current/04_DEVELOPMENT/13_EDITORIAL_DIVERSITY_HANDOFF.md 12절.
-
-1. QualityEngine 의 planningPattern 에 있던 맨 `작성할` 이 독자용 체크리스트
-   제목을 오탐해 완결성·유용성에서 45점을 깎고 있었다. 이제 원고를 목적어로
-   잡을 때만 걸린다.
-2. ContentPlanningStrategyBase 의 kind 하한이 모델이 risk 를 생략했을 때만
-   적용돼, eligibility 클레임에 verify 라고 답하면 출처 사전검증 자체를
-   건너뛰었다. 워크스페이스 9건 중 8건이 이 경로로 출처 없이 발행됐다.
-   이제 kind 하한이 우선이다.
-3. 산문 하한(400자, 리스트형 250자)과 비교 이행 의무를 생성 프롬프트에
-   명시했다. 게이트는 있었지만 생성에게 알려주지 않고 있었다.
-
-이번 세션에서 위 수정 이후 실제로 원고 생성을 두 번 시도했고 둘 다 다른
-지점에서 막혔다. 둘 다 해당 원고를 손보지 않고 근본 원인을 코드로 고쳤다.
-
-4. 1차 실패: source_preflight 단계가 `OpenAI response was incomplete:
-   max_output_tokens` 로 끊겼다. app/application/OpenAIProvider.ts 의
-   editorialOutputPolicy 에서 approval-source-preflight 태스크만
-   maxOutputTokens: 4_000 이었고, 추론 토큰이 그 예산 안에서 소비돼 추론이
-   3,628 을 쓰고 372 만 남아 구조화 출력을 못 냈다. 다른 추론 단계(기획
-   12,000 / 생성 11,000~14,000 / 품질 12,000)와 같은 12,000 으로 올렸다.
-5. 2차 실패: 예산을 올린 뒤 새로 돌린 생성이 `coverage_incomplete` 로
-   막혔다 — 필수 Claim 2건 중 1건("피부양자 자격 요건")이 끝내 출처를 못
-   찾았다. 실제로는 국민건강보험공단 자기 사이트
-   (nhis.or.kr/nhis/policy/wbhada07400m01.do) 에 그 요건이 평문 11,250자로
-   있는데, 탐색이 두 번의 시도 모두 law.go.kr 조문정보 안에서만 맴돌았다.
-   원인은 core/ai/ApprovalSourcePreflight.ts 의 재시도 피드백이 "거부된
-   URL"만 담고 "출처가 하나도 없는 미확보 Claim"은 담지 않아, 두 번째
-   시도가 같은 실패한 검색을 반복한 것. ApprovalSourceClaimGapNote 를
-   추가해 미확보 Claim을 claimId+field 로 재시도 프롬프트에 실었고, 거부
-   URL이 없어도(순수 커버리지 공백만 있어도) 재시도가 일어나게 했다.
-   판정 기준(공식성/관련성/앵커/의미검증)은 전혀 완화하지 않았다 — 후보를
-   하나 더 얻게 한 것뿐이다.
-6. 4·5번 두 수정은 모두 같은 커밋 0f97d1a 에 들어 있다 (한 회차 재현
-   조사·수정으로 같이 처리됨). 회귀 테스트: tests/unit/app/application/
-   OpenAIApprovalWebSearch.test.ts (예산 값 갱신), tests/unit/core/ai/
-   ApprovalSourcePreflightRetry.test.ts (커버리지 공백 재시도 테스트 2건
-   추가). 둘 다 tsc --noEmit 클린, vitest 전체 통과 확인됨.
-7. 세 번째 생성 시도(건강보험 피부양자 원고)가 실제로 끝까지 갔다. 완결성·
-   유용성 100, 출처 2건 critical_verified, 표·리스트 블록으로 비교/체크리스트
-   요구도 충족 — 1·2·3번 측정 통과. 다만 quality.approved 는 false 였다 —
-   점수와 승인 게이트는 별개 상태라는 걸 이번에 직접 확인했다 (AGENTS.md
-   14장). 아래 8·9번이 그 원인.
-8. GeneratedFactualClaim.ts 의 verbatim anchor 불일치(위에서 "관찰 대기"로
-   남겨뒀던 항목) — 원인이 확정돼 커밋 46dc38e 로 고쳤다. 실제 원인은
-   재작성 단계의 텍스트 손상이 아니라, GeneratedVerifyEvidence.ts 가 Claim의
-   위험도를 저장된 verificationPlan 이 아니라 Generation 자신이 붙인 라벨로
-   판정하던 것 — 서버가 이미 critical 로 사전검증한 Claim이 모델이 스스로
-   "verify" 라고 적으면 best-effort 경로로 떨어져, 그 경로가 요구하는
-   "같은 Generation 호출의 인용"이 없어서 탈락했다. 관련해서
-   generatedFactualClaimInventory 와 generatedClaimVerification 스냅샷이
-   같은 리비전 안에서 서로 다른 답을 갖던 것도 같이 고쳤다. 회귀 테스트
-   tests/unit/core/approval/GeneratedFactualClaim.test.ts,
-   GeneratedClaimVerificationIntegrity.test.ts, tests/unit/core/ai/
-   GeneratedVerifyEvidence.test.ts. 실제로 막혔던 문서를 재생해
-   evaluateGeneratedClaimVerificationIntegrity 가 passed: true 로 바뀌는
-   것까지 확인함.
-9. "1년/2년" 미검증 고위험 수치 오탐(GeneratedClaimBinding.ts) 수정을
-   approval-quality-auditor 가 시도했으나 fix-verifier 독립 검증에서
-   **실패** 판정을 받았다 — 커밋하지 않고 git stash 에 보관 중
-   ("approval-quality-auditor: FAILED per fix-verifier, needs rework").
-   git stash list 로 확인. 완화 폭이 의도보다 넓어서, "최근 6개월 이내에
-   폐업한 사업자만 신청" 같은 진짜 외부 사실 주장까지 조용히 면제된다
-   (독자 기록 지시 문맥 판정이 고정 어휘 사전에만 의존). 또한 본문에 쓰면
-   안 되는 출처확인일/최종검토일 패턴까지 실수로 면제 목록에 넣어 새
-   구멍을 만들었다. 다시 해야 할 일은 fix-verifier 보고 6개 항목 참고
-   (git log 에는 없음 — 이 파일 이전 버전이나 세션 기록 참고, 또는
-   approval-quality-auditor 를 다시 불러 스스로 재현).
-
-== 에이전트 팀 (12명, .claude/agents/) ==
-1c188d7 에서 8명, bec1bde 에서 handover-scribe(9번째), 1d550bb 에서
-approval-quality-auditor(10번째), a7fb068 에서 fix-verifier(11번째)와
-approval-readiness-designer(12번째)를 추가했다 — 전부 커밋됨(push 여부는
-이 파일 맨 위 "현재 상태"의 안내대로 origin 로그로 직접 확인).
-CLAUDE.md 가 AGENTS.md 를 @import 하는 구조도 1c188d7 에서 처음 생겼다.
-
-주의: .claude/agents/ 정의는 세션(프로세스) 시작 시에만 로드된다. 세션
-도중에 에이전트를 새로 추가해도 그 세션에서는 "Agent type not found" 로
-호출이 실패한다 — 이번 세션에서 실제로 겪었다. claude -c 로 재시작해야
-새 에이전트가 보인다.
-
-approval-quality-auditor 를 실제로 호출해봤다 — "1년/2년" 미검증 고위험
-수치 오탐 감사(위 9번). 결과는 위에 적힌 대로 fix-verifier 검증에서 실패.
-
-사장님이 "겹치는 팀원이 있으면 안겹치게 역할을 나누던지 삭제해"라고
-지시해서 12명을 전부 다시 대조했다. 실제 겹침 3곳을 찾았다:
-
-1. docs-keeper ↔ handover-scribe — 둘 다 todo.txt 담당으로 적혀 있었다.
-   docs-keeper.md 를 고쳐 todo.txt 를 handover-scribe 전담으로 넘겼다
-   (이번 커밋 46dc38e 에 포함, 완료).
-2. quality-root-cause ↔ approval-quality-auditor — core/quality/
-   QualityEngine.ts 등 같은 파일을 둘 다 자기 담당이라 적어놨다. 아직
-   안 고침.
-3. quality-root-cause ↔ approval-evidence — quality-root-cause 가
-   "core/ai/*.ts 전부"와 "core/approval/*Policy.ts"를 담당이라 적어놨는데
-   그 파일 대부분이 이미 approval-evidence 소유다. 실제로 이 겹침 때문에
-   quality-root-cause 에게 GeneratedVerifyEvidence.ts 를 고치라고 잘못
-   시켰었다(결과물 자체는 문제없었지만 담당 경계가 흐렸다). 아직 안 고침.
-
-2·3번도 커밋 70d9d0e 로 마저 고쳤다 — 12명 전부 겹침 정리 완료. 요약:
-quality-root-cause 는 생성 프롬프트/스키마 + 범용 core/quality/ 엔진만,
-core/ai/ApprovalSourcePreflight.ts 계열과 core/approval/*Policy.ts 는 승인
-전문 3인방(approval-evidence/approval-quality-auditor/
-approval-readiness-designer)에게 명시적으로 넘기게 했다.
-approval-quality-auditor 는 core/quality/ 클레임을 버렸다. platform-adapter-dev
-에는 apps/*/approval/ 예외 문구를 추가했다.
-
-(아래 10~14번은 위 팀 겹침 정리 이후, 새 세션에서 재시작해 12명 이름으로
-호출 가능해진 뒤 진행한 작업이다 — 시간순으로는 이 문단 뒤에 있지만
-내용상 위 9번 "다음 할 일"을 이어받아 처리한 결과다.)
-
-10. **중요한 발견**: `.bright-studio/studio-data.json`(워크스페이스
-    "제발 오류좀 나지마라", git 비대상)을 전체 검색해도 "피부양자"가 0회
-    나온다 — 지난 세션이 언급한 건강보험 피부양자 원고가 이 워크스페이스에
-    없다(사장님이 먼저 "워크스페이스가 다르다"고 지적, 실제로 확인됨). 위
-    "다음 할 일" 2번은 그래서 대체 실제 콘텐츠로 검증하도록 재조정했다.
-11. vitest worktrees 스캔 제외를 커밋 `2d2e38d fix: exclude .claude/worktrees
-    from vitest scan` 로 마쳤다(core-domain-dev). **중요한 정정**: 지난
-    세션이 남긴 "644 files / 3881 tests" 기준선 자체가 `.claude/worktrees/`
-    사본이 존재해 전체 트리가 이중 스캔된 부풀려진 숫자였다. 지금은 그
-    사본이 없어 진짜 유일 테스트 개수(332 files / 1965 tests, 이후 커밋들로
-    더 늘어남)가 나온다 — 지난 세션이 관찰한 "동시 실행 시에만 실패하는
-    2건"의 원인이 이걸로 설명된다. 앞으로 vitest 결과를 지난 세션 숫자와
-    비교하지 말 것.
-12. "1년/2년" 오탐 완화(위 9번 스택)를 커밋
-    `32c2037 fix: close fail-open leak in quoted-example numeric exemption`
-    로 마무리했다(approval-quality-auditor → fix-verifier 통과). 원래
-    목표는 **철회됨** — 실측 결과 코퍼스에 "1년/2년" 오탐 자체가 없었고,
-    두 완화안(문장 전체 면제·가정절만 면제) 모두 법정기한(전입신고 14일,
-    청약철회 7일, 경정청구 5년 등)이 새는 fail-open이라 전부 철회. 대신
-    **이미 커밋된(11d3567) 인용-부정 면제(`rejectedExampleSpans`,
-    `'2년 근무'라고 적는 대신…`)가 금액·비율·날짜·법조문 전 kind 에서
-    fail-open이었던 걸 발견**해서 duration 에만 한정하고
-    `periodRuleQuantifier` veto 를 추가하는 순수 강화로 마무리했다.
-    - 미해결: 애초 문제였던 "15일" 토큰 원고 차단은 이 커밋으로 안
-      풀렸다(측정 확인됨). 원고를 재생성하거나 다른 접근이 필요하면
-      후속 세션 과제.
-    - "1주 수면 습관 점검표" 제목의 "1주"는 진짜 오탐이지만 문법 신호가
-      전혀 없는 명사구라 게이트로 못 고친다(approval-quality-auditor +
-      fix-verifier 합의) — 아래 "다음 할 일" 2번 참고.
-    - 부수 발견(미조치): `core/approval/VerificationClaimPolicy.ts:4` 의
-      `configurableHighRiskVerificationKinds = ["duration"]` 가 어디서도
-      참조 안 되는 죽은 코드. `6월 15일` 처럼 연도 없는 날짜가 `duration`
-      으로 분류되는 진단 코드 부정확도 있음(검출 자체는 안 바뀜).
-13. 건강보험 피부양자 재검사(위 10번으로 대상이 바뀜) 임무 중
-    approval-readiness-designer 가 실측으로 승인 준비 게이트 버그 6건
-    (P1~P6)을 찾아 전부 고쳤고, fix-verifier 3회 왕복(재작업 2회) 끝에
-    커밋 `ad696d9 fix: repair approval readiness gate cache, persistence
-    split, and version staleness` 로 통과했다.
-    - P1 캐시가 순수 aggregate 재계산까지 건너뜀 → 항상 재도출하도록 수정.
-    - P2 `content.quality` 와 `qualityReports[]` 두 사본이 서로 다른 값을
-      가짐 → `reconcileApprovalReadinessAggregates` 로 통일해서 저장.
-    - P3 옛 버전(approvalReadinessExecution.version) 판정이 자동
-      무효화 안 됨 → 버전 불일치 시 스냅샷 기반 passed 만 needs_review 로
-      강등.
-    - P4 evidence 안내 문구가 실제 미확보 Claim 을 안 알려줌 →
-      unverifiedFactFields/failureReason 반영.
-    - P5 Standard Quality 미승인이면 나머지 5개 상태를 throw 로 은폐 →
-      이제 각자 상태 유지하며 안내문만 추가(AGENTS.md 14장 상태분리
-      원칙 때문에 "5개 전부 not_evaluated 로 덮으라"는 원 지시에서 의도적
-      으로 벗어남 — fix-verifier 가 이 이탈이 오히려 옳다고 확인).
-    - P6 `normalizeApprovalEvidenceCandidates` 가 매 버튼 클릭마다 검증
-      상태를 초기화한 뒤 그걸 검증된 상태와 비교해 항상 "변경됨"으로
-      오판 → 출처확인일이 매번 오늘 날짜로 재도장되고 출처 섹션이 벗겨짐.
-      3차 재작업 끝에 `cited`/`selected`(provenance 파생값)까지 비교
-      제외해서 citation/user_selected/document_link/system_verified
-      4개 provenance 유형 전부에서 해결 확인.
-    - **마이그레이션 영향(사용자에게 보일 수 있음)**:
-      `approvalReadinessExecution.version !== "4.0"` 인 기존 콘텐츠는
-      다음 저장 시 스냅샷 기반 passed 체크가 needs_review 로 강등되고,
-      다음 실행 시 캐시 미스로 전체 재검사가 한 번 일어난다.
-      `approval-live-msczog4z`, `content-mscjq0sq-xd8kp5` 가 정확히
-      이 케이스 — 사용자 눈엔 "멀쩡하던 판정이 갑자기 여러 개
-      needs_review 로 바뀜"으로 보일 수 있다. 한 번 재검사되면 이후
-      캐시가 정상 히트한다.
-    - 후속 과제(fix-verifier 지적, 커밋 차단 아님): identity 비교의 제외
-      목록(`canonicalizerOwnedFields`) 상한을 고정하는 테스트가 없다 —
-      URL 재정규화나 provenance 변경처럼 "여전히 재검증돼야 하는" 케이스를
-      다음에 제외 목록을 넓힐 때 아무 테스트도 안 울린다. 다음 승인 관련
-      작업 때 `tests/unit/app/application/approval/
-      ApprovalReadinessAggregateIntegrity.test.ts` 에 그런 케이스를 1개씩
-      추가할 것.
-14. **진짜 미해결 제품 문제(게이트 버그 아님)**: `content-mscjq0sq-xd8kp5`
-    (정기결제 해지 방법, WordPress 승인 대상 원고)가 `genericClaim:cdusyk`
-    라는 Claim 에 대한 출처를 못 찾아서 `evidence: needs_review` 상태로
-    멈춰 있다. 위 P6 수정으로 이게 잘못 통과되게 바뀌지 않았음을
-    fix-verifier 가 확인했다 — 게이트가 잘못 막는 게 아니라 진짜 출처가
-    없어서 막힌 것. "3일째 발행 못하고 있다"는 맥락에서 다음 세션 최우선
-    후보 — 아래 "다음 할 일" 1번 참고.
+세션 중 확인한 사실(오해 정정용): "3단계 AI 호출(출처 프리플라이트+생성+
+품질검토)"은 `contentPurpose: adsense_approval`일 때만 적용되는 의도된
+예외라는 걸 `core/approval/ApprovalPolicy.ts:255-272`,
+`core/ai/AIWorkflow.ts:105-116` 코드로 확인했다 — 수익형 콘텐츠는 여전히
+Decision Log 원칙대로 2콜이다.
 
 == 다음 할 일 ==
-지난 세션의 3개 항목(vitest worktrees 제외 / 건강보험 피부양자 재검사 /
-"1년/2년" 오탐 재작업)은 이번 세션에 전부 처리됐다(위 10~13번). 그 처리
-과정에서 새 우선순위(위 14번)가 나왔다. 아래는 이번 세션이 새로 남긴
-우선순위다.
-
-0. (선행) 이 세션이 커밋한 3개(2d2e38d, 32c2037, ad696d9)가 push 됐는지
-   `git log origin/feat/scheduled-publishing-and-diversity` 로 먼저 확인.
-   안 됐으면 push 부터 한다.
-1. `content-mscjq0sq-xd8kp5`(정기결제 해지 방법 원고)의
-   `genericClaim:cdusyk` 에 실제 공식 출처를 찾아 붙이거나, 원고에서
-   해당 주장을 뺀다 — approval-evidence 담당. 지금 발행 가능한 원고를
-   만드는 데 가장 직접적인 작업(위 14번 참고).
-2. 생성 프롬프트(`core/ai/ApprovalSourcePreflight.ts:1117-1124` 근처)에
-   "검증된 Claim 값이 아닌 숫자는 예시·주기·근사치라도 서술로 풀어써라"
-   같은 지시를 추가해 "1주 점검표"류 문법 신호 없는 숫자 오탐 재발을
-   막는다 — approval-evidence 또는 quality-root-cause 담당(위 12번 참고).
-3. identity 제외 목록(`canonicalizerOwnedFields`) 상한을 고정하는 테스트를
+0. (선행) `git log origin/feat/scheduled-publishing-and-diversity -3` 로
+   이번 세션 3개 커밋(22f7329, 2c67dd1, d972cc3)이 push 됐는지 확인한다.
+   이 handover 작성 시점엔 미확정(ahead 3) — 직접 확인하고 push 여부가
+   불확실하면 사장님께 먼저 확인받는다.
+1. `core/approval/GeneratedFactualClaimInventory.ts`의 문단 단위 삭제를
+   approval-evidence에게 맡겨 고친다 — 위 2번 커밋의 "미해결" 4항목
+   (문장 단위 삭제, 정보 기준일 오분류, 인벤토리 미보고 계약, structure
+   desync). 이게 풀려야 "차단"과 "출처 소실" 둘 다 근본적으로 해소된다.
+2. 실제 원고 생성으로 재검증한다 — 이번 세션은 단위 테스트로만
+   재현·검증했고(OpenAI 호출 비용 절약), 사장님이 직접 브라우저에서
+   생성해보겠다고 했다. 그 결과를 다음 세션이 확인해야 한다 — 특히 위
+   1번 커밋(예시 숫자 서술형) 재발 여부와 위 2번 커밋(문단 삭제) 이후
+   실제 차단 해제 여부.
+3. `content-mscjq0sq-xd8kp5`(정기결제 해지 방법, `genericClaim:cdusyk`
+   출처 미확보) 문제는 지난 세션이 "다음 할 일 1번"으로 남겼던 항목인데,
+   이번 세션에 확인해보니 이 기계의 `.bright-studio/studio-data.json`에는
+   애초에 이 콘텐츠가 없다(사장님이 "워크스페이스가 다르다"고 확인). 이
+   콘텐츠가 있는 다른 기계에서 재확인할 것.
+4. identity 제외 목록(`canonicalizerOwnedFields`) 상한을 고정하는 테스트를
    `tests/unit/app/application/approval/
-   ApprovalReadinessAggregateIntegrity.test.ts` 에 추가한다(위 13번 후속
-   과제 참고) — 다음에 승인 관련 작업을 할 때 같이 처리해도 된다.
+   ApprovalReadinessAggregateIntegrity.test.ts` 에 추가한다(지난 세션
+   13번 후속 과제, 이번 세션엔 손 안 댐) — URL 재정규화나 provenance
+   변경처럼 "여전히 재검증돼야 하는" 케이스를 다음에 제외 목록을 넓힐 때
+   아무 테스트도 안 울리는 문제. 다음에 승인 관련 작업을 할 때 같이
+   처리해도 된다.
 
 == 보류/관찰 중인 항목 ==
 
-- 줄바꿈(CRLF) 정리: 이번 세션 코드 diff 일부가 파일 전체의 줄바꿈을 LF→CRLF로
-  바꿔 diff를 부풀렸다 (예: app/application/OpenAIProvider.ts). 저장소에
-  .gitattributes 가 없어 파일마다 줄바꿈이 제각각이다. 사장님이 "3번은 병합
-  후로 미뤄"라고 지시했다 — 이 브랜치가 main 에 병합된 뒤 별도
+- 줄바꿈(CRLF) 정리: 이전 세션 코드 diff 일부가 파일 전체의 줄바꿈을
+  LF→CRLF로 바꿔 diff를 부풀렸다 (예: app/application/OpenAIProvider.ts).
+  저장소에 .gitattributes 가 없어 파일마다 줄바꿈이 제각각이다. 사장님이
+  "병합 후로 미뤄"라고 지시했다 — 이 브랜치가 main 에 병합된 뒤 별도
   `chore: normalize line endings` 커밋으로 처리한다. 지금 하면 진행 중인
   다른 수정과 diff가 뒤섞인다.
 
-(GeneratedFactualClaim.ts 의 verbatim anchor 불일치 항목은 위 8번에서
-고쳐졌으므로 이 절에서 제거함.)
-
 == 따라가지 않는 것 ==
-.bright-studio/ 는 git 대상이 아니다. 이번에 측정한 청약통장 원고와 품질
-리포트는 옮겨지지 않는다. 다음 기계에 밝은재테크 Project 와 기존 발행 글이
-있어야 반복 회피 컨텍스트와 내부 링크 카탈로그가 같은 조건으로 동작한다.
+.bright-studio/ 는 git 대상이 아니다. 이번 세션이 실측한 밝은재테크 원고
+19편, 진단 스크립트 산출물은 이 기계에만 남고 옮겨지지 않는다. 다음
+기계에 밝은재테크 Project 와 기존 발행 글이 있어야 반복 회피 컨텍스트와
+내부 링크 카탈로그, 승인 준비 게이트 검증이 같은 조건으로 동작한다.
