@@ -61,7 +61,9 @@ function document(metadata: Partial<ContentMetadata> = {}): ContentDocument {
     },
     blocks: [
       { id: "h1", type: "heading", level: 2, text: "작품을 보는 순서" },
-      { id: "p1", type: "paragraph", text: "공식 자료에 따라 화면의 소용돌이와 시선 이동을 차례로 관찰합니다." },
+      // Carries a confirmation path, the ordinary state for an approval article:
+      // the policy asks every manuscript to tell the reader where to check.
+      { id: "p1", type: "paragraph", text: "소장처 공식 페이지 https://www.moma.org/collection/works/79802 에 따라 화면의 소용돌이와 시선 이동을 차례로 관찰합니다." },
     ],
   };
 }
@@ -378,6 +380,44 @@ describe("ApprovalReadiness", () => {
       const check = report.checks.find((item) => item.key === "evidence")!;
       expect(check.message).toContain("원고에서 제외된 문장 1개");
       expect(check.action).toContain("국민연금 예상수령액은 2028년부터 12% 인상된다.");
+    });
+
+    it("refuses to call an article application-ready after sentences were withdrawn from it", () => {
+      const report = evaluateApprovalReadiness(document({
+        generatedFactualClaimInventory: withdrawnInventory,
+      }), [], true, false);
+
+      // Reporting "sentences were dropped" and "ready to apply" in the same
+      // snapshot is the aggregate contradicting itself. It is not `blocked`:
+      // no policy rule was broken, but a person has to confirm the manuscript
+      // still says what it promises without the withdrawn sentences.
+      const check = report.checks.find((item) => item.key === "evidence")!;
+      expect(check.status).toBe("needs_review");
+      expect(report.applicationReady).toBe(false);
+      expect(report.status).toBe("needs_review");
+    });
+
+    function withBody(text: string): ContentDocument {
+      const base = document();
+      return { ...base, blocks: [base.blocks[0]!, { id: "p1", type: "paragraph", text }] };
+    }
+
+    it("reports an article that gives the reader no way to check anything", () => {
+      // The policy asks the body to carry a route back to the source material,
+      // and that duty does not disappear because no Claim was mandatory.
+      const check = evaluateApprovalReadiness(withBody("화면의 소용돌이와 시선 이동을 차례로 관찰합니다."), [], true, false)
+        .checks.find((item) => item.key === "evidence")!;
+      expect(check.status).toBe("needs_review");
+      expect(check.message).toContain("확인할 경로 표시 없음");
+      expect(check.action).toContain("상품설명서");
+    });
+
+    it("accepts a named official document when no institutional page exists to link", () => {
+      const check = evaluateApprovalReadiness(
+        withBody("계약의 상품설명서와 대출거래약정서에 적힌 조건으로 확인하세요."), [], true, false,
+      ).checks.find((item) => item.key === "evidence")!;
+      expect(check.status).toBe("passed");
+      expect(check.message).not.toContain("확인할 경로 표시 없음");
     });
 
     it("does not report a withdrawal whose text is still published", () => {

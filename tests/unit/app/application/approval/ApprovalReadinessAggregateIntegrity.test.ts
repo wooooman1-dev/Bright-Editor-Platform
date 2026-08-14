@@ -70,6 +70,9 @@ function baseDocument(metadata: Partial<NonNullable<ContentDocument["metadata"]>
       { id: "intro", type: "paragraph", text: "별이 빛나는 밤은 화면의 소용돌이와 마을의 정적인 형태를 순서대로 비교하면 구도가 선명해집니다." },
       { id: "h2", type: "heading", level: 2, text: "작품을 보는 순서" },
       { id: "p2", type: "paragraph", text: "먼저 하늘의 소용돌이를 보고, 다음으로 사이프러스와 마을의 수직·수평 대비를 확인합니다. 마지막으로 밝은 별과 어두운 전경이 만드는 리듬을 비교합니다." },
+      // Approval articles are expected to tell the reader where to check, so the
+      // baseline fixture carries a confirmation path like a real manuscript.
+      { id: "p3", type: "paragraph", text: "소장처 공식 페이지 https://www.moma.org/collection/works/79802 에서 작품 정보를 직접 확인할 수 있습니다." },
     ],
   };
 }

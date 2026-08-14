@@ -440,11 +440,21 @@ function evidenceCheck(
  * Evidence Verification to be a represented state, so this states what was
  * checked, what was dropped, and what would make Evidence mandatory.
  *
- * It stays `passed`: risk-based applicability is a deliberate decision
- * (`resolveApprovalEvidenceRequirement`), and turning a correctly evidence-free
- * manuscript into a blocker would be a threshold change with no measurement
- * behind it. The unresolved work goes into `action`, the same way the site
- * readiness check reports recommended-only gaps.
+ * A manuscript where nothing was withdrawn stays `passed`: risk-based
+ * applicability is a deliberate decision (`resolveApprovalEvidenceRequirement`),
+ * and turning a correctly evidence-free manuscript into a blocker would be a
+ * threshold change with no measurement behind it.
+ *
+ * A manuscript where sentences *were* withdrawn does not stay `passed`. The
+ * measurement that was missing arrived with the 대출 상환방식 비교 article: 14
+ * critical surfaces were withdrawn, every value of its comparison table went
+ * with them, and the aggregate still reported `applicationReady: true` on an
+ * article whose remaining prose explains figures the reader can no longer see.
+ * Reporting "14 sentences were dropped" and "ready to apply" in the same
+ * snapshot is the aggregate contradicting itself. It becomes `needs_review`
+ * rather than `blocked` because the manuscript violates no policy rule — a
+ * person has to decide whether what survived still says what the article
+ * promises.
  */
 function optionalEvidenceCheck(document: ContentDocument): ApprovalReadinessCheck {
   const record = document.metadata?.generatedFactualClaimInventory;
@@ -453,14 +463,16 @@ function optionalEvidenceCheck(document: ContentDocument): ApprovalReadinessChec
     && locateGeneratedFactualSurface(document, item.surfaceText).length === 0);
   const confirmed = activeGeneratedFactualClaims(record).filter((item) =>
     item.evidenceStatus === "critical_verified" || item.evidenceStatus === "verify_verified");
+  const hasConfirmationPath = bodyOffersConfirmationPath(documentText(document));
   const summary = [
     confirmed.length ? `공식 자료로 확인된 사실 ${confirmed.length}개` : "",
     withdrawn.length ? `출처를 확인하지 못해 원고에서 제외된 문장 ${withdrawn.length}개` : "",
+    hasConfirmationPath ? "" : "본문에 독자가 원문을 확인할 경로 표시 없음",
   ].filter(Boolean);
 
   return Object.freeze({
     key: "evidence",
-    status: "passed",
+    status: withdrawn.length || !hasConfirmationPath ? "needs_review" : "passed",
     applicable: false,
     message: summary.length
       ? `공식 출처가 필수인 Claim이 기획에 없어 필수 출처 검증은 실행하지 않았습니다. ${summary.join(" · ")}가 있습니다.`
@@ -469,9 +481,36 @@ function optionalEvidenceCheck(document: ContentDocument): ApprovalReadinessChec
       withdrawn.length
         ? `출처를 확인하지 못해 제외된 문장: ${withdrawn.slice(0, 3).map(withdrawnClaimLabel).join(" / ")}${withdrawn.length > 3 ? ` 외 ${withdrawn.length - 3}개` : ""}.`
         : "",
+      hasConfirmationPath
+        ? ""
+        : "원고 본문에 독자가 원문을 확인할 경로를 표시하세요. 발표 기관과 공식 주소가 가장 좋지만, 공식 기관 자료가 없는 주제라면 계약서·상품설명서·약관·공고문처럼 독자가 직접 열어 볼 수 있는 문서를 지목해도 됩니다.",
       "금액·비율·기한·법정 요건처럼 공식 출처가 필요한 사실을 다루려면 기획 단계에서 해당 사실을 필수(CRITICAL) Claim으로 등록해야 공식 출처 검증이 실행됩니다.",
     ].filter(Boolean).join(" "),
   });
+}
+
+/**
+ * Whether the article tells the reader where to go and check for themselves.
+ *
+ * The approval content policy requires the body to carry a route back to the
+ * original material, and that requirement is not conditional on the article
+ * having mandatory Claims — an article can be entirely free of verifiable
+ * external facts and still owe the reader a way to confirm what it describes.
+ * Nothing measured this before, so the 대출 상환방식 비교 article passed
+ * `approval_policy` with no publisher, no address and no named document.
+ *
+ * This deliberately accepts a named official document — a contract, a product
+ * disclosure sheet, a public notice — and not only a URL, because whole topics
+ * have no institutional page to link while still having a document the reader
+ * can open. It is reported, never counted as verification: AGENTS.md ch.14
+ * forbids treating the presence of a source label as Evidence verification, so
+ * this only ever lowers the check to `needs_review` and never raises it to
+ * `passed`.
+ */
+function bodyOffersConfirmationPath(text: string): boolean {
+  if (/https?:\/\/[^\s<>)"']+/i.test(text)) return true;
+  if (/(?:정부24|국세청|금융위원회|금융감독원|보건복지부|고용노동부|국민연금공단|건강보험공단|예금보험공사|한국주택금융공사|주택도시보증공사|은행연합회|여신금융협회|법제처|국가법령정보센터)/u.test(text)) return true;
+  return /(?:상품설명서|약관|대출거래약정서|공고문|공식\s*공고|사업\s*공고|신청\s*페이지|상환예정표|계약서)/u.test(text);
 }
 
 function withdrawnClaimLabel(item: Readonly<{ statement: string; surfaceText: string }>): string {
