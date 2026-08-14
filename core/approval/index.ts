@@ -58,6 +58,7 @@ export * from "./VerificationGenerationEvidence";
 export * from "./ExplicitVerificationPreflight";
 export * from "./GeneratedClaimBinding";
 export * from "./GeneratedFactualClaim";
+export * from "./FactualSurfaceTaxonomy";
 export * from "./GeneratedFactualClaimInventory";
 export * from "./QualityReviewFactualGuard";
 export * from "./GeneratedClaimVerificationIntegrity";

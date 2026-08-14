@@ -1,5 +1,11 @@
 import { pruneLongFormStructure } from "../content";
 import type { ContentBlock, ContentDocument } from "../content";
+import {
+  factualSurfaceCandidates,
+  requiresExternalEvidence,
+  statesAValue,
+  type FactualSurfaceCandidate,
+} from "./FactualSurfaceTaxonomy";
 import type { GeneratedClaimLocation } from "./GeneratedClaimBinding";
 import { verificationClaimId } from "./VerificationClaimFingerprint";
 import type {
@@ -198,7 +204,8 @@ export function applyGeneratedFactualClaimInventory(input: Readonly<{
    * (`deliberatelyRemovedGeneratedFactualClaimIds`, `optionalEvidenceCheck`), so
    * recording these no longer claims a withdrawal that did not happen.
    */
-  for (const surface of findUntrackedCriticalSurfaces(document, reportedSurfaces)) {
+  for (const candidate of findUntrackedCriticalSurfaces(document, reportedSurfaces)) {
+    const surface = candidate.surface;
     const locations = locateGeneratedFactualSurface(document, surface);
     const claimId = verificationClaimId({
       field: "generated:untracked-critical",
@@ -220,7 +227,13 @@ export function applyGeneratedFactualClaimInventory(input: Readonly<{
       locations,
       disposition: "removed" as const,
       evidenceStatus: "unsupported" as const,
-      diagnosticCode: "unreported_generated_critical",
+      // An attributed value can be checked against a document, so it keeps the
+      // code the approval readiness aggregate already understands. A value with
+      // no identifiable owner cannot be checked and must never block: it is
+      // reported under its own code so the verdict can raise it as advisory.
+      diagnosticCode: requiresExternalEvidence(candidate.classification)
+        ? "unreported_generated_critical"
+        : "unattributed_generated_value",
     }));
   }
 
@@ -369,77 +382,36 @@ export function generatedFactualInventoryIntegrityReason(
   return undefined;
 }
 
+/**
+ * Reader-visible surfaces that state a value generation never reported.
+ *
+ * D-039 Phase 1: the decision of what counts as a fact now lives in
+ * `FactualSurfaceTaxonomy` and nowhere else. What this function used to ask —
+ * "does the sentence match `criticalSurfacePattern`" — matched value-free
+ * wording such as `우대 조건` and `자격 요건`, which is this site's subject
+ * matter. Of the 48 surfaces it recorded, 39 carried no value at all.
+ *
+ * Both attributed and unattributed values are returned. Recording is not
+ * blocking, and the caller distinguishes them by diagnostic code so the
+ * readiness verdict can demand a source for one and merely raise the other.
+ */
 export function findUntrackedCriticalSurfaces(
   document: ContentDocument,
   allowedSurfaceTexts: readonly string[],
-): readonly string[] {
+): readonly FactualSurfaceCandidate[] {
   const allowed = allowedSurfaceTexts.map(cleanText).filter(Boolean);
-  const disclosed = disclosedSurfaces(document);
-  const candidates = readerVisibleSurfaces(document)
-    .map(cleanText)
-    .filter((surface) => surface && criticalSurfacePattern.test(surface))
-    .filter((surface) => !allowed.some((known) => surface.includes(known) || known.includes(surface)))
-    .filter((surface) => !disclosed.has(surface));
-  return Object.freeze([...new Set(candidates)]);
-}
-
-/**
- * Surfaces the sweep must leave alone because the manuscript already states
- * where they come from.
- *
- * This sweep exists to catch facts about the world that generation asserted
- * without reporting them for verification. Two kinds of number are not that:
- *
- * The `정보 기준일` line is publication metadata, not a claim — and the approval
- * content policy positively requires it in the body. Deleting it meant the
- * system removed what the policy demands, then reported the article as ready
- * without it.
- *
- * Figures inside a disclosed calculation example are derived from assumptions
- * the article prints next to them, so their source is that disclosure and the
- * arithmetic, not an external document no institution publishes. The 대출
- * 상환방식 비교 article showed what happens otherwise: the disclosure paragraph
- * was swept first, then every value of the comparison table was swept for
- * lacking a source — the source having just been deleted. The exemption is
- * scoped to the section holding the disclosure so a disclosure in one section
- * cannot shelter unrelated claims elsewhere.
- */
-function disclosedSurfaces(document: ContentDocument): ReadonlySet<string> {
-  const exempt = new Set<string>();
-  let sectionStart = 0;
-  const sections: ContentBlock[][] = [];
-  document.blocks.forEach((block, index) => {
-    if (block.type === "heading" && index > sectionStart) {
-      sections.push(document.blocks.slice(sectionStart, index));
-      sectionStart = index;
-    }
-  });
-  sections.push(document.blocks.slice(sectionStart));
-
-  for (const section of sections) {
-    const hasCalculationDisclosure = section.some((block) =>
-      blockTextSurfaces(block).some((value) => calculationDisclosurePattern.test(cleanText(value))));
-    for (const block of section) {
-      for (const value of blockTextSurfaces(block)) {
-        for (const surface of sentenceSurfaces(value)) {
-          if (hasCalculationDisclosure || informationDatePattern.test(surface)) exempt.add(surface);
-        }
-      }
-    }
+  const seen = new Set<string>();
+  const candidates: FactualSurfaceCandidate[] = [];
+  for (const candidate of factualSurfaceCandidates(document)) {
+    if (!statesAValue(candidate.classification)) continue;
+    const surface = cleanText(candidate.surface);
+    if (!surface || seen.has(surface)) continue;
+    if (allowed.some((known) => surface.includes(known) || known.includes(surface))) continue;
+    seen.add(surface);
+    candidates.push(candidate);
   }
-  return exempt;
+  return Object.freeze(candidates);
 }
-
-/**
- * Matches a paragraph that both names its assumptions and disclaims that the
- * figures stand for real amounts. Both halves are required: a sentence that
- * merely contains the word `예시` states nothing about where its numbers came
- * from and must still face the sweep.
- */
-const calculationDisclosurePattern =
-  /(?=.*(?:계산\s*예시|예시\s*계산|가정))(?=.*(?:산출|계산))(?=.*(?:대신하지\s*않|반영하지\s*않|다를\s*수\s*있))/u;
-
-const informationDatePattern = /(?:정보\s*기준일|최종\s*검토일)\s*[:：]/u;
 
 function blockTextSurfaces(block: ContentBlock): readonly string[] {
   if (block.type === "heading" || block.type === "paragraph") return [block.text];
@@ -449,47 +421,6 @@ function blockTextSurfaces(block: ContentBlock): readonly string[] {
   if (block.type === "button") return [block.label, block.description ?? ""];
   return [];
 }
-
-function readerVisibleSurfaces(document: ContentDocument): readonly string[] {
-  return [
-    document.title,
-    document.metadata?.seoTitle ?? "",
-    document.metadata?.metaDescription ?? "",
-    ...document.blocks.flatMap(blockTextSurfaces),
-  ].flatMap(sentenceSurfaces);
-}
-
-/**
- * Splits a reader-visible value into the units the sweep may withdraw.
- *
- * The sweep deletes whatever it flags, so the size of a flagged surface is the
- * size of the damage. Handing it whole paragraphs meant one unsourced figure
- * took its entire paragraph with it — in the 정부지원금 article that cost eight
- * blocks, including prose that only explained how to read a public notice and
- * carried no facts at all. Flagging sentences keeps the withdrawal the size of
- * the claim.
- *
- * A terminator only ends a sentence when whitespace or the end of the value
- * follows it, so decimal figures such as `12.5%` are never split in half.
- */
-function sentenceSurfaces(value: string): readonly string[] {
-  const text = cleanText(value);
-  if (!text) return [];
-  const sentences: string[] = [];
-  let start = 0;
-  for (let index = 0; index < text.length; index += 1) {
-    if (!".!?。".includes(text[index]!)) continue;
-    const next = text[index + 1];
-    if (next !== undefined && next !== " ") continue;
-    sentences.push(text.slice(start, index + 1));
-    start = index + 1;
-  }
-  if (start < text.length) sentences.push(text.slice(start));
-  const cleaned = sentences.map(cleanText).filter(Boolean);
-  return cleaned.length > 1 ? cleaned : [text];
-}
-
-const criticalSurfacePattern = /(?:[$€£¥₩]\s*\d|\d[\d,.]*\s*(?:원|달러|유로)|\d+(?:\.\d+)?\s*(?:%|퍼센트)|\d{4}\s*[년.-]\s*\d{1,2}(?:\s*[월.-]\s*\d{1,2})?|(?:법률|법령|세법|법적 의무|법적 금지|[가-힣]+법(?:상|에 따라|\s*제\d+조)|자격\s*요건|(?:신청|지원)\s*(?:자격|조건|대상)|공식 조건|상품 조건|가입 조건|해지 조건|연회비|우대 조건)|(?:금리|세율)\s*(?:은|는|이|가|:)?\s*\d)/u;
 
 function inferCriticalKind(surface: string): VerificationClaimKind {
   if (/(?:[$€£¥₩]\s*\d|\d[\d,.]*\s*(?:원|달러|유로))/u.test(surface)) return "money";
