@@ -26,3 +26,6 @@ data/*
 .claude/worktrees/
 .claude/settings.local.json
 .claude/handover-snapshot.md
+
+_to_delete/
+_check/
