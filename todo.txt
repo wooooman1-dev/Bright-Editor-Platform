@@ -257,7 +257,57 @@ tsc·eslint·vitest 는 전부 통과한 상태였다. 번들러 경계는 앱�
    → 사이트맵에 오르는 페이지의 meta robots 와 X-Robots-Tag 를 개별로 확인해야 한다.
 4. PublishReadinessVerdict 신설 — resolution 필수 타입. 위 셋이 첫 대상.
 
+== Phase 3 착수분 완료 (2026-08-14 밤) ==
+
+커밋 1fe6408 + 2fbe2cd + c2b4e46. 검증: tsc·eslint 클린 / 326파일 2,039테스트 통과.
+
+1. **신뢰 페이지를 열어서 확인한다** (1fe6408)
+   core/approval/PublicPageIndexability.ts 신설 — meta robots 와 X-Robots-Tag 를
+   둘 다 읽는다. Core 에 둔 이유는 티스토리 감사도 같은 답이 필요해서다
+   (지금 티스토리엔 noindex 검사가 아예 없다. AGENTS.md 14장 위반이므로 다음 차례).
+   WordPress 감사에 trust_page_indexable 추가. 링크만 확인하던 privacy/about/
+   contact 와 달리 실제로 페이지를 연다. 안 열리면(404) 그것도 실패.
+   SiteApprovalReadiness 검사에 action 필드 추가 — D-039 "차단에는 해결 경로".
+
+2. **감사 수정이 기존 원고에 닿게 한다** (2fbe2cd)
+   approvalReadinessInspectionVersion 4.0 → 4.1.
+   실측: 15:16 에 검사된 원고가 21:57 에도 그 스냅샷을 그대로 반환했다
+   (검사 15개, trust_page_indexable 없음). 실행 신원 키가 일치하면 사이트
+   스냅샷을 "비싼 산출물"로 재사용하기 때문이다. 버전을 올린 뒤 같은 호출이
+   검사 16개와 새 checkedAt 을 반환했다.
+   코드 주석이 이미 이 실패 모드를 알고 있었다 — 지난 세션이 집계에 대해서만
+   고치고 사이트 스냅샷은 재사용 목록에 남겨 뒀다.
+   ContentMetadata 의 version union 에 "4.1" 추가 (과거 버전은 남긴다).
+
+3. **표가 본문 칸을 뚫고 나가던 문제** (c2b4e46)
+   발행본 실측: 렌더러가 figure 에 overflow-x:auto, table 에 min-width:960px 를
+   함께 보내는데 워드프레스가 inline style 을 허용 목록으로 걸러 overflow-x 를
+   지우고 min-width 만 남긴다. 960px 표가 720px 칸을 넘었다.
+   → 워드프레스 표에서 min-width 제거. figure 의 overflow-x 는 유지(무해).
+   품질 검사 mobile_table_wrapper_missing 은 내내 통과였다 — 우리가 보낸 HTML 을
+   보고, 사고는 도착한 HTML 에서 났다. 이번 사이클 내내 반복된 모양이다.
+
 == 다음 할 일 ==
+
+0. **비교표 열 선별 (표 폭 문제의 근본).** 8열은 블로그 글에 너무 많다.
+   실측 예: 구분/고정지출/소득대비비중/비정기적립/배분가능/변동지출한도/저축액/
+   남는금액 — "비정기 적립"은 세 행 모두 20만 원(가정값, 표 위 문장에 이미 있음),
+   "남는 금액"은 세 행 모두 0원, "소득 대비 비중"은 고정지출에서 바로 계산된다.
+   모든 행이 같은 값인 열과 다른 열에서 계산되는 열은 표에 있을 이유가 없다.
+   생성 프롬프트와 검증기 양쪽에 규칙을 건다. 데스크톱 폭을 넓히는 것은 해법이
+   아니다 — 본문 800px 는 한글 40~45자로 적절하고, 모바일(390px)은 어차피 안 든다.
+   테마가 GeneratePress(클래식)라 alignwide 도 지원하지 않는다.
+1. **티스토리 감사에 trust_page_indexable 배선.** Core 헬퍼는 이미 있다.
+   AGENTS.md 14장 "약한 티스토리 승인 경로 금지".
+2. **Source Preflight 실패에 진단이 안 남는다.** content-mst2r5wl-eadjnz
+   (전월세 전환율)이 preflight 에서 막혔는데 approvalSourcePreflightDiagnostic 이
+   {} 다. 어느 Claim 이 왜 막혔는지 알 수 없다.
+3. **10자 부족 차단.** content-mst1wpt0-w4xtjm 이 CONTENT_SECTION_PROSE_
+   INSUFFICIENT(minimum 250 / actual 240) 하나로 in_review 다.
+4. PublishReadinessVerdict 신설 — resolution 필수 타입. 위 2·3 이 첫 대상.
+5. **글 편수.** 애드센스 최대 리스크. 색인된 글이 2편뿐이다(site: 실측).
+   예금 적금 비교는 훼손된 1,157자 상태로 발행돼 있으니 복구본으로 재발행할 것.
+
 
 1. **위 3개 명령 실행 및 실패 정리.** 가장 먼저.
 2. **실제 원고 1편 생성.** Phase 0 의 진짜 완료 기준이다. 명령어 통과는
