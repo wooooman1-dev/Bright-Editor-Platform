@@ -23,6 +23,7 @@ export type {
   AIUsageRecord,
   AIUsageStage,
 } from "./AIUsageCost";
+export { withCalculationExampleDisclosureContract } from "./AIWorkflow";
 export type {
   ContentGenerationStrategy,
   ContentTypeId,

@@ -219,11 +219,38 @@ const publicationMetaPattern = /(?:정보\s*기준일|최종\s*검토일)\s*[:�
 
 /**
  * A paragraph that both names its assumptions and disclaims that the figures
- * stand for real amounts. Both halves are required: a sentence that merely
+ * stand for real amounts. All three parts are required: a sentence that merely
  * contains `예시` states nothing about where its numbers came from.
  */
 const calculationDisclosurePattern =
   /(?=.*(?:계산\s*예시|예시\s*계산|가정))(?=.*(?:산출|계산))(?=.*(?:대신하지\s*않|반영하지\s*않|다를\s*수\s*있))/u;
+
+/** Whether a section's text states where its calculated figures came from. */
+export function satisfiesCalculationDisclosure(text: string): boolean {
+  return calculationDisclosurePattern.test(normalize(text));
+}
+
+/**
+ * What a calculation disclosure has to say, in the words generation must use.
+ *
+ * The exemption and the instruction that asks for it have to describe the same
+ * sentence or the article loses the exemption it was written to earn. A live
+ * generation stopped after the second clause — `대출원금 1억원, 연 4.8%, 3년,
+ * 매월 납부라는 동일한 가정을 둔 계산 예시입니다` — and every amount in its
+ * comparison table was then read as an unsourced external claim, because
+ * nothing said the figures do not stand for a real charge.
+ *
+ * Exported so the generation instruction is built from the same contract the
+ * classifier enforces, instead of a paraphrase that can drift away from it.
+ */
+export const calculationDisclosureContract = Object.freeze({
+  clauses: Object.freeze([
+    "the assumptions the figures rest on, named explicitly (가정 / 계산 예시)",
+    "that the figures were derived from those assumptions (산출 / 계산)",
+    "that they do not stand for an actual charged or paid amount and can differ (대신하지 않습니다 / 반영하지 않았습니다 / 다를 수 있습니다)",
+  ]),
+  example: "아래 계산 예시는 대출원금 1억원, 연 4.8%, 3년, 매월 납부라는 가정만 놓고 산출했습니다. 수수료와 금리 변동은 반영하지 않았으므로 실제 계약상 청구액을 대신하지 않습니다.",
+});
 
 type SurfaceEntry = Readonly<{ text: string; attribution: readonly string[] }>;
 

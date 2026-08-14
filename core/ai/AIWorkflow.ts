@@ -1,5 +1,6 @@
 import {
   approvalPolicySnapshotFromEditorialContext,
+  calculationDisclosureContract,
   canonicalizeApprovalEvidenceUrl,
   applyGeneratedFactualClaimInventory,
   createGeneratedClaimVerificationRecord,
@@ -152,11 +153,16 @@ export class AIWorkflow {
             canonicalInstruction,
             approvalSnapshot,
           );
-      const instruction = withVerificationClaimRiskInstruction(factualInventoryGeneration
+      const riskInstruction = withVerificationClaimRiskInstruction(factualInventoryGeneration
         ? withWithdrawableFactIsolationInstruction(
             withGeneratedFactualClaimResponseInstruction(preflightInstruction),
           )
         : preflightInstruction, input.contentOpportunity);
+      const instruction = approvalSnapshot
+        ? withCalculationExampleDisclosureContract(
+            `${riskInstruction}\n\n${approvalInformationDateContract(currentInformationDate())}`,
+          )
+        : riskInstruction;
       const response = await this.provider.generate({
         ...request,
         instruction,
@@ -378,6 +384,53 @@ export class AIWorkflow {
  */
 function withWithdrawableFactIsolationInstruction(instruction: string): string {
   return `${instruction}\n\nWithdrawal-resilient paragraph contract (mandatory): the server checks every factual surface and deletes the entire paragraph carrying a factual surface it cannot verify, so write so that a deletion costs the article the fact and never the explanation. Keep each externally verifiable fact — an amount, a rate or percentage, a date such as 정보 기준일 or 최종 검토일, a statute or article reference, an eligibility, application, or contract condition — in its own short paragraph that states that fact with its source context and nothing else. Never place such a sentence in the same paragraph as the prose that explains a section's table or list, its reasoning, or the reader's next action. Every H2 must still fulfil its role and reach its running-prose minimum — ${longFormNarrativeFloors.standard} characters excluding whitespace, or ${longFormNarrativeFloors.listShaped} when its sectionType is ${longFormNarrativeFloors.listShapedSectionTypes.join(", ")} — counting only the paragraphs that carry no verifiable fact, because a section whose explanation is welded to a withdrawable fact loses both at once. Report every factual surface you write in the factual Claim inventory: an unreported factual sentence is deleted from the manuscript without replacement.`;
+}
+
+/**
+ * The approval content policy requires the manuscript body to state its own
+ * information date and an official re-check path
+ * (`14_ADSENSE_APPROVAL_CONTENT_POLICY.md` §5), and the server reads that line
+ * back: Evidence selection harvests `정보 기준일` into the Evidence pack, and the
+ * approval policy gate blocks a manuscript that has neither the line nor a
+ * recorded Evidence review date.
+ *
+ * content-mssph0q6-ftn4h7 was blocked on PROFILE_REVIEW_DATE_MISSING with no
+ * such line anywhere in its 38 blocks, because nothing in the generation prompt
+ * asked for one — the only mention of the date was a restriction on how to
+ * write it if it happened to appear.
+ *
+ * The date comes from the server rather than from the model, so this asks for
+ * publication metadata and never for an invented fact. The colon form is the
+ * one the undisclosed-fact sweep recognises as publication metadata, so writing
+ * it cannot cost the paragraph that carries it.
+ *
+ * Approval preparation only: revenue content has no information-date contract.
+ */
+export function approvalInformationDateContract(informationDate: string): string {
+  return `Information-date contract (mandatory for approval preparation): state this article's own information date exactly once, as its own short paragraph, in the exact form "정보 기준일: ${informationDate}". The server supplies this date, so do not guess another one, do not drop the colon, and do not put any other fact in that paragraph. Next to it, name in plain prose the official service or page a reader uses to re-check the changeable information, using only a service or page present in the supplied Evidence, without writing a URL and without building a source list or a reader-visible source section. Never write 출처 확인일 or 최종 검토일 and never combine either role with 정보 기준일: Bright Studio records those system-owned dates itself after Evidence verification. Do not report the 정보 기준일 line as a factual Claim; it is publication metadata about this article, not an external fact.`;
+}
+
+/**
+ * Ask for the whole disclosure, because half of one earns nothing.
+ *
+ * An article that computes an example carries figures no institution
+ * publishes, so its source is the assumptions printed beside it. The
+ * classifier grants that exemption only when the section says all three
+ * things, and a live generation stopped after the second: `대출원금 1억원, 연
+ * 4.8%, 3년, 매월 납부라는 동일한 가정을 둔 계산 예시입니다`. Every amount in
+ * its comparison table was then recorded as an unsourced external claim —
+ * eleven of them — for want of a clause saying the figures do not stand for a
+ * real charge.
+ *
+ * The clauses come from `calculationDisclosureContract`, which the classifier
+ * enforces, so the instruction cannot drift away from what actually exempts.
+ */
+export function withCalculationExampleDisclosureContract(instruction: string): string {
+  return `${instruction}\n\nCalculation-example contract (mandatory for approval preparation): when a section presents figures you computed from assumptions rather than figures an institution publishes — a comparison table of payment amounts, a worked total, an illustrative balance — that same section must carry one prose sentence stating all three of: ${calculationDisclosureContract.clauses.join("; ")}. Naming the assumptions alone is not enough and neither is the word 예시. Write it as prose in the section that holds the figures, not as a footnote elsewhere, because the exemption is scoped to the section. Model sentence: "${calculationDisclosureContract.example}" Do not attach this disclosure to figures that came from a verified Claim value; those are published facts and this contract does not apply to them.`;
+}
+
+function currentInformationDate(): string {
+  return new Date().toISOString().slice(0, 10);
 }
 
 function withVerificationClaimRiskInstruction(
