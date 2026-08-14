@@ -131,6 +131,7 @@ describe("ContentNormalizer", () => {
     expect(result.blocks[1]).toEqual({
       id: "comparison-table-2",
       type: "table",
+      caption: "근력운동·유산소운동 비교",
       headers: ["비교 기준", "근력운동", "유산소운동", ""],
       rows: [
         ["주된 자극", "근육", "심폐", ""],

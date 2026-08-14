@@ -109,6 +109,7 @@ describe("ContentPipeline", () => {
     expect(result.document.blocks).toEqual([{
       id: "table",
       type: "table",
+      caption: "Value 비교",
       headers: ["Criterion", "Value"],
       rows: [["Platform", "Independent"]],
     }]);
