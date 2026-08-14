@@ -197,7 +197,7 @@ describe("Generated Claim verification publishing integrity", () => {
       });
     }
 
-    it("does not block a verified Claim the inventory deliberately withdrew", () => {
+    it("does not block a verified Claim the inventory reported as unsupported", () => {
       const generated = baseDocument(surface);
       const claims = semanticClaims(generated);
       const withdrawn = applyGeneratedFactualClaimInventory({
@@ -223,7 +223,10 @@ describe("Generated Claim verification publishing integrity", () => {
         }],
         fallbackTitle: generated.title,
       }).document;
-      expect(withdrawn.blocks).toHaveLength(0);
+      // D-039: the inventory records the decision; the manuscript is untouched,
+      // so the Claim anchor it binds against is still where it was.
+      expect(withdrawn.blocks).toHaveLength(1);
+      expect(JSON.stringify(withdrawn.blocks)).toContain(surface);
 
       const document = recorded(withdrawn, claims);
       const result = evaluateGeneratedClaimVerificationIntegrity({

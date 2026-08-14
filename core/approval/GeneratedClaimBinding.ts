@@ -344,6 +344,44 @@ function rejectedExampleSpans(
   return Object.freeze(spans);
 }
 
+/**
+ * A recency window the article asks the reader to look back over.
+ *
+ * `최근 1년 동안 발생한 소득을 유형별로 적습니다` is an instruction about the
+ * reader's own records. No institution publishes "최근 1년", so no source can
+ * ever satisfy it, and demanding one produced a block with no way out: the
+ * withdrawal sweep does not match a bare period, so nothing in the pipeline
+ * could remove what this gate required, and regenerating reproduced the same
+ * block in the same place. Two finished articles scoring 100 sat blocked on
+ * `1년` and `2년` for that reason.
+ *
+ * The exemption is deliberately narrow. It needs the explicit `최근`/`지난`
+ * lead-in, so a period predicated of something — `계약 기간은 24개월`,
+ * `주거 지원 기간은 24개월` — is untouched. And a threshold cancels it, because
+ * `최근 6개월 이내에 폐업한 사업자` is an eligibility rule that an institution
+ * does publish, not a window the reader chooses.
+ *
+ * D-039 Phase 1 replaces this with the shared `FactualSurfaceTaxonomy`, which
+ * decides the same question by asking whether the period has an attributed
+ * subject instead of matching a lead-in word.
+ */
+const recencyWindowPattern = /(?:최근|지난)\s*\d+(?:\.\d+)?\s*(?:개월|일|주|년)/gu;
+const thresholdQuantifier = /^\s*(?:이내|이상|이하|미만|초과|안에|내에|까지)/u;
+const thresholdLookaheadWindow = 8;
+
+function recencyWindowSpans(
+  value: string,
+): readonly Readonly<{ start: number; end: number }>[] {
+  const spans: Array<Readonly<{ start: number; end: number }>> = [];
+  for (const match of value.matchAll(recencyWindowPattern)) {
+    if (typeof match.index !== "number") continue;
+    const end = match.index + match[0].length;
+    if (thresholdQuantifier.test(value.slice(end, end + thresholdLookaheadWindow))) continue;
+    spans.push(Object.freeze({ start: match.index, end }));
+  }
+  return Object.freeze(spans);
+}
+
 function detectHighRiskScalarTokens(value: string): readonly DetectedScalar[] {
   const detected: DetectedScalar[] = [];
   collectMatches(detected, value, /\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*(?:조원|억원|만원|원)/gu, "money");
@@ -355,10 +393,10 @@ function detectHighRiskScalarTokens(value: string): readonly DetectedScalar[] {
     if (occupiedByDate.some((date) => item.start >= date.start && item.end <= date.end)) continue;
     detected.push(Object.freeze({ ...item, kind: "duration" as const }));
   }
-  const rejectedExamples = rejectedExampleSpans(value);
+  const exemptSpans = [...rejectedExampleSpans(value), ...recencyWindowSpans(value)];
   return Object.freeze(detected
     .filter((item) => item.kind !== "duration"
-      || !rejectedExamples.some((span) =>
+      || !exemptSpans.some((span) =>
         item.start >= span.start && item.end <= span.end))
     .sort((a, b) => a.start - b.start || a.end - b.end));
 }

@@ -96,16 +96,18 @@ describe("AIWorkflow VERIFY lifecycle", () => {
     expect(JSON.stringify(result.document.blocks)).toContain(verifySurface);
   });
 
-  it("removes unsupported VERIFY without blocking Generation or adding a provider call", async () => {
+  // D-039: an unsupported VERIFY is reported, not cut out of the manuscript.
+  it("reports unsupported VERIFY without editing the manuscript or adding a provider call", async () => {
     const provider = new OneCallProvider(response([inventory()]));
     const result = await new AIWorkflow(provider, strategy(verifySurface), { verifyEvidenceFetcher: vi.fn() }).generate(input());
     expect(provider.requests).toHaveLength(1);
     expect(result.document.metadata?.generatedFactualClaimInventory?.removedClaimCount).toBe(1);
-    expect(JSON.stringify(result.document.blocks)).not.toContain(verifySurface);
+    expect(result.document.metadata?.generatedFactualClaimInventory?.retainedClaimIds).toEqual([]);
+    expect(JSON.stringify(result.document.blocks)).toContain(verifySurface);
     expect(JSON.stringify(result.document.blocks)).toContain("영수증과 비교하세요");
   });
 
-  it("keeps NONE-only content at zero web/fetch cost and removes a new unplanned CRITICAL", async () => {
+  it("keeps NONE-only content at zero web/fetch cost and reports a new unplanned CRITICAL", async () => {
     const noneProvider = new OneCallProvider(response([]));
     const fetcher = vi.fn();
     const none = await new AIWorkflow(noneProvider, strategy(), { verifyEvidenceFetcher: fetcher }).generate(input());
@@ -116,6 +118,9 @@ describe("AIWorkflow VERIFY lifecycle", () => {
     const criticalProvider = new OneCallProvider(response([inventory("critical")]));
     const critical = await new AIWorkflow(criticalProvider, strategy("이 상품의 실제 금리는 7%입니다."), { verifyEvidenceFetcher: fetcher }).generate(input());
     expect(criticalProvider.requests).toHaveLength(1);
-    expect(JSON.stringify(critical.document.blocks)).not.toContain("7%");
+    const criticalItems = critical.document.metadata?.generatedFactualClaimInventory?.items ?? [];
+    expect(criticalItems.filter((item) => item.risk === "critical" && item.disposition === "removed"))
+      .not.toHaveLength(0);
+    expect(JSON.stringify(critical.document.blocks)).toContain("7%");
   });
 });

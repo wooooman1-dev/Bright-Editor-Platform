@@ -4,6 +4,7 @@ import {
   applyGeneratedFactualClaimInventory,
   generatedFactualInventoryIntegrityReason,
   guardQualityReviewFactualClaims,
+  removeGeneratedFactualSurface,
   type GeneratedFactualClaimInventoryDraft,
 } from "../../../../core/approval";
 import type { ContentDocument } from "../../../../core/content";
@@ -39,6 +40,10 @@ function draft(input: Partial<GeneratedFactualClaimInventoryDraft> = {}): Genera
   };
 }
 
+function paragraphText(value: ContentDocument): string {
+  return value.blocks.map((block) => block.type === "paragraph" ? block.text : "").join(" ");
+}
+
 describe("Generated factual Claim inventory", () => {
   it("keeps NONE-only advice at zero cost with an explicit empty inventory", () => {
     const original = document(["큰 금액부터 확인하세요.", "영수증과 비교하세요."]);
@@ -61,7 +66,16 @@ describe("Generated factual Claim inventory", () => {
     expect(generatedFactualInventoryIntegrityReason({ ...result.document, blocks: [] })).toContain("generated_factual_surface_missing");
   });
 
-  it("removes unsupported VERIFY while preserving the rest of the manuscript", () => {
+  /**
+   * D-039 Write-time Fact Constraint. The inventory reports; it does not edit.
+   *
+   * This test asserted the opposite until 2026-08-14, and that expectation was
+   * the defect: withdrawing sentences from a finished manuscript emptied
+   * comparison tables and cut prose apart, and measured over the stored
+   * workspace it withdrew 43 of 48 reported Claims. An unsupported Claim is
+   * recorded so the readiness verdict can report it and a person can decide.
+   */
+  it("reports unsupported VERIFY without editing the manuscript", () => {
     const original = document(["취소 처리와 청구 반영은 서로 다른 단계일 수 있다.", "영수증과 비교하세요."]);
     const result = applyGeneratedFactualClaimInventory({
       document: original,
@@ -70,10 +84,22 @@ describe("Generated factual Claim inventory", () => {
       fallbackTitle: original.title,
     });
     expect(result.record.removedClaimCount).toBe(1);
-    expect(result.document.blocks.map((block) => block.type === "paragraph" ? block.text : "")).toEqual(["영수증과 비교하세요."]);
+    expect(result.record.items[0]!.diagnosticCode).toBe("verify_source_not_cited_by_generation");
+    expect(result.document.blocks.map((block) => block.type === "paragraph" ? block.text : ""))
+      .toEqual(["취소 처리와 청구 반영은 서로 다른 단계일 수 있다.", "영수증과 비교하세요."]);
   });
 
-  it("removes reported and unreported new CRITICAL surfaces", () => {
+  /**
+   * A surface generation reported is tracked whatever the decision was.
+   *
+   * The sweep's allow-list used to hold only *retained* CRITICAL surfaces,
+   * which was safe only while an unsupported surface was deleted immediately
+   * afterwards. With nothing deleted, a reported-but-unsupported surface is
+   * still present when the sweep runs, and filing it again as
+   * `unreported_generated_critical` would put two Claims — one real, one with a
+   * synthesized id — on the same sentence.
+   */
+  it("reports a reported and an unreported CRITICAL surface exactly once each", () => {
     const original = document(["이 상품의 금리는 7%다.", "신청 조건은 만 19세 이상이다.", "정기결제를 따로 확인하세요."]);
     const result = applyGeneratedFactualClaimInventory({
       document: original,
@@ -81,11 +107,14 @@ describe("Generated factual Claim inventory", () => {
       decisions: [{ retained: false, evidenceStatus: "unsupported", diagnosticCode: "unplanned_generated_critical" }],
       fallbackTitle: original.title,
     });
-    expect(result.record.items.filter((item) => item.risk === "critical" && item.disposition === "removed")).toHaveLength(2);
-    const readerText = result.document.blocks.map((block) => block.type === "paragraph" ? block.text : "").join(" ");
-    expect(readerText).not.toContain("7%");
-    expect(readerText).not.toContain("만 19세");
-    expect(readerText).toContain("정기결제");
+    const critical = result.record.items.filter((item) => item.risk === "critical" && item.disposition === "removed");
+    expect(critical).toHaveLength(2);
+    expect(critical.filter((item) => item.surfaceText.includes("7%"))).toHaveLength(1);
+    expect(critical.map((item) => item.diagnosticCode))
+      .toEqual(["unplanned_generated_critical", "unreported_generated_critical"]);
+    expect(paragraphText(result.document)).toContain("7%");
+    expect(paragraphText(result.document)).toContain("만 19세");
+    expect(paragraphText(result.document)).toContain("정기결제");
   });
 
   it("allows Quality Review only to return the complete unchanged verified inventory", () => {
@@ -104,7 +133,13 @@ describe("Generated factual Claim inventory", () => {
   });
 });
 
-describe("Generated factual Claim withdrawal does not corrupt neighbouring values", () => {
+/**
+ * `removeGeneratedFactualSurface` is no longer part of the generation pipeline.
+ * It survives as an editing helper for the D-039 Phase 4 restore tooling, so
+ * these tests now exercise it directly instead of through the inventory. The
+ * behaviours they lock down are the ones that were expensive to learn.
+ */
+describe("removeGeneratedFactualSurface does not corrupt neighbouring values", () => {
   function tableDocument(headers: readonly string[], rows: readonly (readonly string[])[]): ContentDocument {
     const base = document(["표는 같은 가정에서 세 방식을 비교합니다."]);
     return {
@@ -116,41 +151,31 @@ describe("Generated factual Claim withdrawal does not corrupt neighbouring value
     };
   }
 
-  it("does not cut a longer amount in half when a shorter amount is withdrawn", () => {
+  function tableCells(value: ContentDocument): readonly string[] {
+    const table = value.blocks.find((block) => block.type === "table");
+    return table && table.type === "table" ? table.rows.flat() : [];
+  }
+
+  it("does not cut a longer amount in half when a shorter amount is removed", () => {
     const original = tableDocument(
       ["방식", "12회차 납입액", "예시 대출 총이자"],
       [["만기일시상환", "12,060,000원", "720,000원"]],
     );
-    const result = applyGeneratedFactualClaimInventory({
-      document: original,
-      drafts: [draft({ claimId: "critical-amount", risk: "critical", surfaceText: "60,000원", statement: "60,000원", evidenceUrl: "", evidenceExcerpt: "" })],
-      decisions: [{ retained: false, evidenceStatus: "unsupported", diagnosticCode: "unreported_generated_critical" }],
-      fallbackTitle: original.title,
-      protectedSurfaceTexts: ["12,060,000원", "720,000원"],
-    });
-    const table = result.document.blocks.find((block) => block.type === "table");
-    expect(table).toBeDefined();
-    // The withdrawn amount is a digit-aligned suffix of the printed value, so it
+    const result = removeGeneratedFactualSurface(original, "60,000원", original.title);
+    // The removed amount is a digit-aligned suffix of the printed value, so it
     // may not be shortened into a fragment such as "12,0".
-    expect(table && table.type === "table" ? table.rows.flat() : []).not.toContain("12,0");
-    expect(table && table.type === "table" ? table.rows.flat() : []).toContain("12,060,000원");
+    expect(tableCells(result)).not.toContain("12,0");
+    expect(tableCells(result)).toContain("12,060,000원");
   });
 
-  it("withdraws an amount that stands alone in its own cell", () => {
+  it("removes an amount that stands alone in its own cell", () => {
     const original = tableDocument(
       ["방식", "월 이자", "예시 대출 총이자"],
       [["만기일시상환", "60,000원", "720,000원"]],
     );
-    const result = applyGeneratedFactualClaimInventory({
-      document: original,
-      drafts: [draft({ claimId: "critical-amount", risk: "critical", surfaceText: "60,000원", statement: "60,000원", evidenceUrl: "", evidenceExcerpt: "" })],
-      decisions: [{ retained: false, evidenceStatus: "unsupported", diagnosticCode: "unreported_generated_critical" }],
-      fallbackTitle: original.title,
-      protectedSurfaceTexts: ["720,000원"],
-    });
-    const table = result.document.blocks.find((block) => block.type === "table");
-    expect(table && table.type === "table" ? table.rows.flat().join("") : "").not.toContain("60,000원");
-    expect(table && table.type === "table" ? table.rows.flat() : []).toContain("720,000원");
+    const result = removeGeneratedFactualSurface(original, "60,000원", original.title);
+    expect(tableCells(result).join("")).not.toContain("60,000원");
+    expect(tableCells(result)).toContain("720,000원");
   });
 
   it("drops a comparison table instead of publishing rows that kept only their label", () => {
@@ -158,19 +183,11 @@ describe("Generated factual Claim withdrawal does not corrupt neighbouring value
       ["방식", "1회차 납입액", "예시 대출 총이자"],
       [["원리금균등상환", "1,032,797원", "393,566원"]],
     );
-    const result = applyGeneratedFactualClaimInventory({
-      document: original,
-      drafts: [
-        draft({ claimId: "amount-1", risk: "critical", surfaceText: "1,032,797원", statement: "1,032,797원", evidenceUrl: "", evidenceExcerpt: "" }),
-        draft({ claimId: "amount-2", risk: "critical", surfaceText: "393,566원", statement: "393,566원", evidenceUrl: "", evidenceExcerpt: "" }),
-      ],
-      decisions: [
-        { retained: false, evidenceStatus: "unsupported", diagnosticCode: "unreported_generated_critical" },
-        { retained: false, evidenceStatus: "unsupported", diagnosticCode: "unreported_generated_critical" },
-      ],
-      fallbackTitle: original.title,
-    });
-    expect(result.document.blocks.some((block) => block.type === "table")).toBe(false);
+    const stripped = ["1,032,797원", "393,566원"].reduce(
+      (value, surface) => removeGeneratedFactualSurface(value, surface, original.title),
+      original,
+    );
+    expect(stripped.blocks.some((block) => block.type === "table")).toBe(false);
   });
 });
 
@@ -190,8 +207,7 @@ describe("Generated factual Claim sweep keeps surfaces the manuscript already so
       document: original, drafts: [], decisions: [], fallbackTitle: original.title,
     });
     expect(result.record.items).toHaveLength(0);
-    expect(result.document.blocks.map((block) => block.type === "paragraph" ? block.text : "").join(" "))
-      .toContain("정보 기준일: 2026년 8월 14일");
+    expect(paragraphText(result.document)).toContain("정보 기준일: 2026년 8월 14일");
   });
 
   it("keeps example figures whose assumptions the same section discloses", () => {
@@ -237,7 +253,16 @@ describe("Generated factual Claim sweep keeps surfaces the manuscript already so
       item.disposition === "removed" && item.surfaceText.includes("350,000원"))).toBe(true);
   });
 
-  it("withdraws only the sentence that carries the figure, not its whole paragraph", () => {
+  /**
+   * The recorded unit is the sentence, not the paragraph.
+   *
+   * When this stage still edited the manuscript, handing it a whole block meant
+   * one figure took its paragraph with it — eight blocks in the 정부지원금
+   * article, including prose that only explained how to read a public notice.
+   * Nothing is deleted now, but the recorded unit still decides what a reviewer
+   * is asked to look at, so it stays sentence-sized.
+   */
+  it("records only the sentence that carries the figure, and leaves the paragraph whole", () => {
     const explanation = "공고를 읽을 때는 문서의 구조를 먼저 파악해 두면 이해가 빠릅니다. 이 지원금은 매월 350,000원이 지급됩니다. 표시된 문구를 그대로 옮겨 적어 두면 나중에 비교하기 쉽습니다.";
     const original = sectionDocument([
       { id: "section-2-heading", type: "heading" as const, level: 2, text: "지원금 안내" },
@@ -246,16 +271,16 @@ describe("Generated factual Claim sweep keeps surfaces the manuscript already so
     const result = applyGeneratedFactualClaimInventory({
       document: original, drafts: [], decisions: [], fallbackTitle: original.title,
     });
-    const paragraph = result.document.blocks.find((block) => block.id === "section-2-p1");
-    const text = paragraph && paragraph.type === "paragraph" ? paragraph.text : "";
-    expect(text).not.toContain("350,000원");
+    const recorded = result.record.items.filter((item) => item.disposition === "removed");
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]!.surfaceText).toBe("이 지원금은 매월 350,000원이 지급됩니다.");
     // The two sentences that carry no figure explain how to read a public
-    // notice; withdrawing them with the amount is what gutted earlier articles.
-    expect(text).toContain("공고를 읽을 때는 문서의 구조를 먼저 파악해 두면 이해가 빠릅니다.");
-    expect(text).toContain("표시된 문구를 그대로 옮겨 적어 두면 나중에 비교하기 쉽습니다.");
+    // notice; flagging them with the amount is what gutted earlier articles.
+    const paragraph = result.document.blocks.find((block) => block.id === "section-2-p1");
+    expect(paragraph && paragraph.type === "paragraph" ? paragraph.text : "").toBe(explanation);
   });
 
-  it("removes withdrawn blocks from longFormStructure instead of leaving dangling ids", () => {
+  it("leaves longFormStructure intact because no block is withdrawn", () => {
     const base = document(["도입 문단입니다."]);
     const original: ContentDocument = {
       ...base,
@@ -284,7 +309,10 @@ describe("Generated factual Claim sweep keeps surfaces the manuscript already so
       ...structure.sections.flatMap((section) => [section.headingBlockId, ...section.paragraphBlockIds]),
       ...structure.conclusionBlockIds,
     ];
-    expect(present.has("section-2-p1")).toBe(false);
+    // The block carrying the unsourced amount is reported, not deleted, so the
+    // structure that addresses it by id can no longer be left dangling.
+    expect(result.record.items.some((item) => item.surfaceText.includes("350,000원"))).toBe(true);
+    expect(present.has("section-2-p1")).toBe(true);
     expect(referenced.filter((id) => !present.has(id))).toEqual([]);
     expect(referenced).toContain("section-2-p2");
   });

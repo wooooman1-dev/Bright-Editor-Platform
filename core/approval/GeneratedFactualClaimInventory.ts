@@ -80,6 +80,24 @@ export type GeneratedFactualClaimDecision = Readonly<{
  * Applies server-owned decisions to the factual inventory returned inside the
  * existing Generation call. Advice and checklists are deliberately absent from
  * this contract; only VERIFY/CRITICAL factual surfaces are represented.
+ *
+ * D-039 Write-time Fact Constraint: this stage **records** what could and could
+ * not be verified. It does not edit the manuscript.
+ *
+ * The removed post-hoc withdrawal was never an approved design. D-037 decided
+ * that a failed VERIFY Claim is handled "같은 Generation Prompt에서 해당 구체
+ * Claim을 제거하거나 일반화" — inside generation, before the manuscript exists.
+ * Cutting sentences out of a finished document instead produced every defect
+ * this pipeline has been chasing: emptied comparison tables, numbers truncated
+ * to `12,0`, whole paragraphs lost to one figure, the disclosure paragraph
+ * deleted before the figures it disclosed, and `longFormStructure` left
+ * pointing at blocks that no longer existed. Measured over the stored
+ * workspace, 43 of 48 inventory items were withdrawn and only 6 of 1,499
+ * sentences kept an amount, a rate, a date or an eligibility condition.
+ *
+ * An unverified surface therefore stays in the manuscript and is reported.
+ * Deciding what to do about it belongs to the readiness verdict and to the
+ * person reviewing the Draft — Review First and Draft Only remain enabled.
  */
 export function applyGeneratedFactualClaimInventory(input: Readonly<{
   document: ContentDocument;
@@ -100,7 +118,7 @@ export function applyGeneratedFactualClaimInventory(input: Readonly<{
     throw new Error("Generated factual Claim decisions do not match the returned inventory.");
   }
 
-  let document = input.document;
+  const document = input.document;
   const items: GeneratedFactualClaimInventoryItem[] = [];
   for (const [index, draft] of input.drafts.entries()) {
     const surfaceText = cleanText(draft.surfaceText);
@@ -141,18 +159,46 @@ export function applyGeneratedFactualClaimInventory(input: Readonly<{
         ? { diagnosticCode: decision.diagnosticCode ?? "generated_claim_surface_missing" }
         : {}),
     }));
-    if (!retained && locations.length) {
-      document = removeGeneratedFactualSurface(document, surfaceText, input.fallbackTitle);
-    }
   }
 
-  const retainedCriticalSurfaces = [
-    ...items
-      .filter((item) => item.disposition === "retained" && item.risk === "critical")
-      .map((item) => item.surfaceText),
+  /**
+   * Every surface generation already reported, whatever the server decided
+   * about it.
+   *
+   * The allow-list used to hold only *retained* CRITICAL surfaces, which was
+   * safe only because an unsupported surface was deleted a moment later and so
+   * could not be seen again. Now that nothing is deleted, a reported surface
+   * that failed verification is still in the document when the sweep runs, and
+   * the sweep would file it a second time as `unreported_generated_critical` —
+   * an entry saying generation never declared the exact sentence it did
+   * declare, with a synthesized claimId beside the real one.
+   *
+   * "Untracked" has to keep meaning "generation never reported it", so the
+   * allow-list is every reported surface.
+   */
+  const reportedSurfaces = [
+    ...items.map((item) => item.surfaceText),
     ...(input.protectedSurfaceTexts ?? []),
   ];
-  for (const surface of findUntrackedCriticalSurfaces(document, retainedCriticalSurfaces)) {
+  /**
+   * Surfaces generation asserted without reporting them for verification.
+   *
+   * Under D-039 this sweep is a *report*, not an editor. It used to delete what
+   * it matched, and measurement showed why that could never work: 38 of the 43
+   * withdrawn items came from here, every one of them carrying a synthesized
+   * claimId that `verifiedCriticalClaimIds` can never contain, so `removed` was
+   * effectively a constant. What it actually deleted was the article's own
+   * framing — its lead sentence, its checklist rows, its caution notes — because
+   * `criticalSurfacePattern` matches value-free wording such as `우대 조건` and
+   * `자격 요건`, which is exactly the vocabulary of this site's subject matter.
+   *
+   * `disposition: "removed"` is kept only because the field still has two
+   * values; D-039 Phase 1 renames it to `unsupported`. Consumers already treat a
+   * surface that is still present in the document as not withdrawn
+   * (`deliberatelyRemovedGeneratedFactualClaimIds`, `optionalEvidenceCheck`), so
+   * recording these no longer claims a withdrawal that did not happen.
+   */
+  for (const surface of findUntrackedCriticalSurfaces(document, reportedSurfaces)) {
     const locations = locateGeneratedFactualSurface(document, surface);
     const claimId = verificationClaimId({
       field: "generated:untracked-critical",
@@ -176,7 +222,6 @@ export function applyGeneratedFactualClaimInventory(input: Readonly<{
       evidenceStatus: "unsupported" as const,
       diagnosticCode: "unreported_generated_critical",
     }));
-    document = removeGeneratedFactualSurface(document, surface, input.fallbackTitle);
   }
 
   const retainedClaimIds = items
@@ -188,8 +233,10 @@ export function applyGeneratedFactualClaimInventory(input: Readonly<{
     retainedClaimIds: Object.freeze([...new Set(retainedClaimIds)]),
     removedClaimCount: items.filter((item) => item.disposition === "removed").length,
   });
-  // Withdrawals remove blocks, and `longFormStructure` addresses blocks by id,
-  // so the structure has to be repaired before anything downstream reads it.
+  // Nothing here edits blocks any more, so `longFormStructure` cannot be left
+  // pointing at a block this stage deleted. The prune is kept as a no-op guard
+  // against a malformed structure arriving from generation; it is removed with
+  // the rest of the withdrawal machinery in D-039 Phase 5.
   const pruned = pruneLongFormStructure(document);
   return Object.freeze({
     document: Object.freeze({

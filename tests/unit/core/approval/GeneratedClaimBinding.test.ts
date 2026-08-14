@@ -307,9 +307,28 @@ describe("Generated Claim binding - periods stated inside an illustration", () =
     expect(detectedTexts("가입 후 2년이 지나면 우대금리 적용이 종료됩니다.")).toContain("2년");
   });
 
-  it("detects an approximated period, which no source can support", () => {
+  /**
+   * A recency window the article asks the reader to look back over is exempt.
+   *
+   * This test required the opposite until 2026-08-14. Its premise — an
+   * approximated period cannot be sourced, so demand a source — produced a
+   * block with no way out: no stage of the pipeline can remove a bare period,
+   * so regeneration reproduced it, and two finished articles scoring 100 sat
+   * blocked on "1년" and "2년". "최근 3개월" is an instruction about the reader's
+   * own card statements, not a figure any institution publishes.
+   *
+   * The exemption stays narrow: it needs the explicit 최근/지난 lead-in, and a
+   * threshold cancels it, because an eligibility period is a published rule.
+   */
+  it("exempts a recency window the reader is asked to look back over", () => {
     expect(detectedTexts("최근 3개월 정도의 카드·계좌 내역에서 반복 청구 후보를 모읍니다."))
-      .toContain("3개월");
+      .not.toContain("3개월");
+    expect(detectedTexts("최근 1년 동안 발생한 소득을 유형별로 적습니다.")).not.toContain("1년");
+    expect(detectedTexts("지난 6개월 사용 내역을 기록하세요.")).not.toContain("6개월");
+    // A period predicated of a programme or a contract is untouched by it.
+    expect(detectedTexts("주거 지원 기간은 24개월입니다.")).toContain("24개월");
+    // So is one carrying a threshold, even behind the same lead-in.
+    expect(detectedTexts("최근 6개월 이내에 폐업한 사업자만 신청할 수 있습니다.")).toContain("6개월");
   });
 
   it("detects the amounts, ratios, dates and statute articles inside an illustration", () => {
