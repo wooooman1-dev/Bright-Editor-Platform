@@ -16,6 +16,20 @@ import {
 import { analyzeImagePrompts, isBrightComponentPurpose, type ImagePromptIssue } from "../media";
 import { qualityDimensionWeights } from "./QualityScoringPolicy";
 
+/**
+ * 어절 20개는 한국어 한 문장이 한 호흡에 읽히는 경계이고, 그런 문장이 넷 중 하나를
+ * 넘으면 글 전체가 무겁게 읽힌다.
+ *
+ * 값은 Yoast에서 따왔지만 측정은 우리가 해야 한다. 2026-08-14 확인: Yoast의 문장
+ * 분리기는 마침표 뒤에 대문자가 와야 문장을 끊는다. 한국어에는 대문자가 없어 한 번도
+ * 끊기지 않고, 문단 하나가 통째로 "문장 하나"로 계산된다 — 43어절 4문장 문단이 그대로
+ * 한 문장이었다. 그래서 Yoast의 문장 길이 지적은 한국어에서 문장이 아니라 문단 길이를
+ * 가리키며, 문장을 아무리 나눠도 숫자가 움직이지 않는다. 여기서 재는 것이 실제 문장
+ * 길이다.
+ */
+const longSentenceWordLimit = 20;
+const longSentenceRatioLimit = 0.25;
+
 export type QualityCategory = "searchIntent" | "seo" | "readability" | "structure" | "completeness" | "usefulness" | "htmlQuality" | "imageStrategy" | "internalLinks" | "cta";
 export type QualityDimensionStatus = "ready" | "needs_improvement" | "blocked";
 export type QualityEvidence = Readonly<{ signal: string; value: string | number | boolean }>;
@@ -199,6 +213,19 @@ function measure(document: ContentDocument, context: QualityReviewContext) {
   const contentDiagnostic = analyzeLongFormDocument(document, qualityTarget);
   const paragraphSentenceCounts = paragraphs.map((item) => sentenceCount(item.text));
   const singleSentenceParagraphs = paragraphs.filter((_, index) => paragraphSentenceCounts[index] < 2).length;
+  /**
+   * 한 문장이 한 번에 읽히는 길이인지.
+   *
+   * 지금까지 가독성은 "문단에 문장이 몇 개인가"만 셌다. 그래서 한 문장이 세 절을
+   * 이어 붙여 29어절이 되어도 이 엔진은 100점을 줬고, 발행한 뒤 워드프레스
+   * 가독성 분석이 그제야 빨간 표시를 냈다. 2026-08-14 brightjaetech.kr 게시물
+   * 98번에서 20어절 이상 문장이 33.8%로 측정됐고, 우리 점수는 감점이 없었다.
+   * 검사가 우리가 보낸 것만 보고 도착한 글은 보지 않는, 이 프로젝트가 되풀이해 온
+   * 모양이다.
+   */
+  const readerSentences = paragraphs.flatMap((item) => splitReaderSentences(item.text));
+  const longSentenceCount = readerSentences.filter((item) => wordCount(item) >= longSentenceWordLimit).length;
+  const longSentenceRatio = readerSentences.length ? longSentenceCount / readerSentences.length : 0;
   const openings = paragraphs.map((item) => item.text.trim().slice(0, 18)).filter((value) => value.length >= 8);
   const repeatedOpenings = openings.length - new Set(openings).size;
   const clicheCount = matches(text, /(?:알아보겠습니다|살펴보겠습니다|중요합니다|도움이 됩니다|필수적입니다)/g);
@@ -221,7 +248,7 @@ function measure(document: ContentDocument, context: QualityReviewContext) {
   const concreteCriteriaCount = matches(text, /(?:\d+\s*(?:분|초|시간|일|회|번)|첫째|둘째|셋째|1단계|2단계|3단계|먼저|다음(?:으로)?|마지막(?:으로)?|통증|증상|조건|상태|불편|중단|확인)/g);
   const semanticHeadingOverlapCount = countSemanticHeadingOverlap(headingNames);
   const repeatedCoreAdviceCount = contentDiagnostic.repetitionWarnings.length;
-  return { document, context, text, metrics, paragraphs, headings, buttons, images, imagePromptAnalysis, promptScoredImageIds, opportunityAlignment, unsupportedEvidenceClaims, contentDiagnostic, hasExplicitQualityTarget, planning: planningPattern.test(text), placeholders: placeholderPattern.test(text), duplicateHeadingCount, emptyHeadings: headings.filter((item) => !item.text.trim()).length, keyword, keywordOccurrences, singleSentenceParagraphs, repeatedOpenings, clicheCount, experienceClaim, sections, shallowSections, metaDescription, titleLength, titleColonCount, titleListSeparatorCount, tistoryTags, duplicateBlockIds, emptyParagraphs, invalidButtonUrls, targetPolicyViolations, editorialInstructionCount, structuralToolSignals, practicalToolSignals, vagueInstructionCount, concreteCriteriaCount, semanticHeadingOverlapCount, repeatedCoreAdviceCount };
+  return { document, context, text, metrics, paragraphs, headings, buttons, images, imagePromptAnalysis, promptScoredImageIds, opportunityAlignment, unsupportedEvidenceClaims, contentDiagnostic, hasExplicitQualityTarget, planning: planningPattern.test(text), placeholders: placeholderPattern.test(text), duplicateHeadingCount, emptyHeadings: headings.filter((item) => !item.text.trim()).length, keyword, keywordOccurrences, singleSentenceParagraphs, longSentenceCount, longSentenceRatio, readerSentenceCount: readerSentences.length, repeatedOpenings, clicheCount, experienceClaim, sections, shallowSections, metaDescription, titleLength, titleColonCount, titleListSeparatorCount, tistoryTags, duplicateBlockIds, emptyParagraphs, invalidButtonUrls, targetPolicyViolations, editorialInstructionCount, structuralToolSignals, practicalToolSignals, vagueInstructionCount, concreteCriteriaCount, semanticHeadingOverlapCount, repeatedCoreAdviceCount };
 }
 
 function detectUnsupportedEvidenceClaims(text: string, opportunity: ConfirmedContentOpportunity): readonly string[] {
@@ -268,6 +295,7 @@ function evaluate(s: Signals): QualityDimensionResult[] {
   const searchIntentScore = measuredSearchIntentScore;
   const singleSentenceThreshold = Math.max(2, Math.floor(s.paragraphs.length * 0.4));
   const singleSentenceExcess = Math.max(0, s.singleSentenceParagraphs - singleSentenceThreshold);
+  const longSentencePenalty = Math.min(20, Math.round(Math.max(0, s.longSentenceRatio - longSentenceRatioLimit) * 200));
   const placedImages = s.images.filter((item) =>
     Boolean(item.source.trim()) || isBrightComponentPurpose(item.purpose));
   const imageStrategyComplete = placedImages.length > 0
@@ -330,8 +358,8 @@ function evaluate(s: Signals): QualityDimensionResult[] {
       ],
       ["제목을 68자 이내, 콜론 1개 이하의 자연스러운 문장으로 줄이고 제목·메타디스크립션·본문에 핵심 키워드를 자연스럽게 배치하세요."],
       [{ signal: "keywordOccurrences", value: s.keywordOccurrences }, { signal: "keywordDensity", value: Number(keywordDensity.toFixed(3)) }, { signal: "metaDescriptionLength", value: s.metaDescription.length }, { signal: "titleLength", value: s.titleLength }, { signal: "titleColonCount", value: s.titleColonCount }, { signal: "titleListSeparatorCount", value: s.titleListSeparatorCount }, { signal: "tistoryTagCount", value: s.tistoryTags.length }, { signal: "tistoryTags", value: s.tistoryTags.join(", ") || false }]),
-    dimension("readability", clamp(100 - Math.min(18, singleSentenceExcess * 3) - Math.min(15, s.repeatedOpenings * 5) - Math.min(20, s.clicheCount * 4)),
-      [...(singleSentenceExcess ? ["한 문장 문단이 반복되어 흐름이 끊깁니다."] : []), ...(s.clicheCount ? ["상투적인 AI 표현이 반복됩니다."] : [])], ["문단마다 하나의 논점을 명확히 설명하고 반복되는 도입 표현을 제거하세요."], [{ signal: "paragraphCount", value: s.metrics.paragraphCount }, { signal: "singleSentenceParagraphs", value: s.singleSentenceParagraphs }, { signal: "singleSentenceThreshold", value: singleSentenceThreshold }, { signal: "singleSentenceExcess", value: singleSentenceExcess }, { signal: "repeatedOpenings", value: s.repeatedOpenings }, { signal: "clicheCount", value: s.clicheCount }]),
+    dimension("readability", clamp(100 - Math.min(18, singleSentenceExcess * 3) - Math.min(15, s.repeatedOpenings * 5) - Math.min(20, s.clicheCount * 4) - longSentencePenalty),
+      [...(singleSentenceExcess ? ["한 문장 문단이 반복되어 흐름이 끊깁니다."] : []), ...(longSentencePenalty ? [`${longSentenceWordLimit}어절 이상 긴 문장이 전체의 ${Math.round(longSentenceRatioLimit * 100)}%를 넘어 한 번에 읽히지 않습니다.`] : []), ...(s.clicheCount ? ["상투적인 AI 표현이 반복됩니다."] : [])], ["문단마다 하나의 논점을 명확히 설명하고, 절을 이어 붙인 긴 문장은 두 문장으로 나누세요."], [{ signal: "paragraphCount", value: s.metrics.paragraphCount }, { signal: "singleSentenceParagraphs", value: s.singleSentenceParagraphs }, { signal: "singleSentenceThreshold", value: singleSentenceThreshold }, { signal: "singleSentenceExcess", value: singleSentenceExcess }, { signal: "repeatedOpenings", value: s.repeatedOpenings }, { signal: "clicheCount", value: s.clicheCount }, { signal: "readerSentenceCount", value: s.readerSentenceCount }, { signal: "longSentenceCount", value: s.longSentenceCount }, { signal: "longSentenceRatio", value: Number(s.longSentenceRatio.toFixed(3)) }]),
     dimension("structure", clamp(100 - (!intro ? 25 : 0) - (!conclusion ? 20 : 0) - (!s.headings.length ? 25 : 0) - s.duplicateHeadingCount * 15 - s.emptyHeadings * 20 - (invalidHeadingOrder ? 20 : 0) - Math.min(30, s.shallowSections * 10) - Math.min(20, s.semanticHeadingOverlapCount * 8) - Math.min(12, s.repeatedCoreAdviceCount * 3) - Math.min(20, s.editorialInstructionCount * 20)),
       [...(!intro ? ["게시글 도입부가 없습니다."] : []), ...(!conclusion ? ["핵심을 정리하고 다음 행동을 안내하는 결론이 없습니다."] : []), ...(!s.headings.length ? ["독자의 질문을 구분하는 구조화된 섹션이 없습니다."] : []), ...(s.duplicateHeadingCount || s.emptyHeadings ? ["비어 있거나 중복된 제목이 있습니다."] : []), ...(s.shallowSections ? ["역할을 완결하지 못한 주요 섹션이 있습니다."] : []), ...(s.semanticHeadingOverlapCount ? ["역할과 의미가 겹치는 소제목이 있어 구조가 반복됩니다."] : []), ...(s.repeatedCoreAdviceCount ? ["같은 핵심 조언이 여러 섹션에서 반복됩니다."] : []), ...(s.editorialInstructionCount ? ["독자용 본문에 편집자용 내부 링크·작성 지시 문장이 남아 있습니다."] : [])], ["각 H2가 서로 다른 독자 질문과 행동 목표를 담당하도록 구성하고, 빈 섹션과 중복 섹션을 정리하세요."], [{ signal: "headingCount", value: s.metrics.headingCount }, { signal: "sufficientSections", value: s.contentDiagnostic.sections.filter((item) => item.completeness === "sufficient").length }, { signal: "incompleteSections", value: incompleteSections }, { signal: "semanticHeadingOverlapCount", value: s.semanticHeadingOverlapCount }, { signal: "repeatedCoreAdviceCount", value: s.repeatedCoreAdviceCount }, { signal: "editorialInstructionCount", value: s.editorialInstructionCount }]),
     dimension("completeness", informationSufficiencyScore,
@@ -464,4 +492,8 @@ function sentenceCount(value: string) {
     .map((item) => item.trim())
     .filter(Boolean).length;
 }
+function splitReaderSentences(value: string): string[] {
+  return value.split(/(?<=[.!?。！？])\s+/u).map((item) => item.trim()).filter(Boolean);
+}
+function wordCount(value: string) { return value.split(/\s+/u).filter(Boolean).length; }
 function matches(value: string, pattern: RegExp) { return [...value.matchAll(pattern)].length; }
