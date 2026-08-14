@@ -136,6 +136,37 @@ D-039 Write-time Fact Constraint 요지:
 맞다. 측정 근거 없이 정합성 검사를 약화하는 것은 AGENTS.md 14장이 금지한다.
 → 0-4 는 Phase 4 로 옮겼다.
 
+== Phase 1 완료 (2026-08-14) ==
+
+커밋 18e4581 + cd6ebd1. 검증 통과: tsc 클린 / eslint 클린 /
+324파일 2,024테스트 전부 통과.
+
+core/approval/FactualSurfaceTaxonomy.ts 신설 — "출처가 필요한 사실"의 정의가
+저장소에 하나만 존재한다. 인벤토리 스윕이 criticalSurfacePattern 대신 이걸
+호출한다.
+
+판정 규칙: 값(단위 포함) + 귀속 주체가 값 바로 옆(전후 22자)에 있을 때만
+external_fact. 값이 없으면 editorial_frame. 값은 있는데 주체 불명이면
+unattributed_value — 사장님 판정에 따라 권고이지 차단이 아니다.
+정보 기준일/최종 검토일은 publication_meta 로 분류 제외.
+최근/지난 + 기간은 억제하되 임계 수식어가 붙으면 억제 취소.
+
+48건 재분류: editorial_frame 38 / unattributed_value 5 / external_fact 3 /
+publication_meta 2.
+
+진행하며 배운 것:
+- 표 셀은 자기 주체를 못 담는다. 캡션·열 헤더·행 라벨을 함께 봐야 한다.
+- 귀속 주체는 값 앞뿐 아니라 뒤도 봐야 한다. 한국어는 구문에 따라 주체 위치가
+  바뀐다 (주거 지원 기간은 24개월 / 6개월 이내에 폐업한 사업자만 신청).
+- 기간·기준·조건은 lookbehind 필수. 장기간·판단기준 안의 부분일치가 문장을
+  통째로 사실 주장으로 만든다.
+- 계획서의 3-3(가정 예시 면제)은 하지 않았다. 기존 게이트가 "가정 안의 법정
+  기간도 검출한다"를 테스트로 고정해 뒀고 뒤집을 근거가 없다. 해당 사례는
+  unattributed_value 로 떨어져 권고 처리된다.
+
+**detectHighRiskScalarTokens 는 아직 taxonomy 로 배선하지 않았다.** 그쪽의
+차단/권고 분리는 Phase 3 의 PublishReadinessVerdict 가 생겨야 성립한다.
+
 == 다음 할 일 ==
 
 1. **위 3개 명령 실행 및 실패 정리.** 가장 먼저.
@@ -146,13 +177,8 @@ D-039 Write-time Fact Constraint 요지:
    - 표 빈칸 0개인가
    - `status` 가 `ready` 에 도달하는가
    - 차단이 남았다면 사유가 무엇이고 해결 경로가 있는가
-3. **Phase 1 — 사실 정의 단일화.** `core/approval/FactualSurfaceTaxonomy.ts`
-   신설. external_fact / editorial_frame / illustrative 3분류. 수치값 + 단위
-   + 귀속 주체 3요소가 모두 있을 때만 external_fact.
-   착수 전에 **재분류 표를 먼저 사장님께 제출**한다 — 저장된 15편 1,499문장을
-   새 기준으로 분류해서, 기존 패턴이 잡았지만 제외되는 문장과 그 반대를
-   샘플로 보여드리고 기준이 과한지 판정받는다.
-4. Phase 2 — 생성 시점 제약. Preflight 결과를 `VerifiedValuePack` 으로 만들어
+3. ~~Phase 1 — 사실 정의 단일화~~ **완료** (위 참조).
+4. **Phase 2 — 생성 시점 제약. 이제 이것이 최우선이다.** — 생성 시점 제약. Preflight 결과를 `VerifiedValuePack` 으로 만들어
    생성 프롬프트에 주입하고, 본문에 출처명과 정보 기준일을 쓰게 한다.
    사장님 방침 "본문에 출처를 최대한 표시한다"의 실제 구현이다. 현재는 게이트
    쪽(`bodyOffersConfirmationPath`)에만 구현돼 있고 프롬프트는 손대지 않았다.
