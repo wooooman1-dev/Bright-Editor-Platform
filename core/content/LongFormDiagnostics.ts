@@ -231,6 +231,53 @@ export function normalizeGeneratedSectionSemantics(
   });
 }
 
+/**
+ * Drops long-form structure entries that point at blocks the document no longer
+ * has.
+ *
+ * `longFormStructure` addresses content by block ID, so any stage that removes a
+ * block leaves the structure describing an article that no longer exists. The
+ * factual-Claim inventory is such a stage, and the desync is not theoretical:
+ * the 대출 상환방식 비교 article shipped with one dangling ID and the 정부지원금
+ * article with five. Everything that reads the structure — section diagnostics,
+ * the deterministic renderer, section-type ownership — then works from a map of
+ * blocks that are not there, so section prose measures short and the renderer
+ * silently skips content.
+ *
+ * A section whose heading is gone is dropped whole: a section entry without its
+ * heading cannot be rendered or measured as a section.
+ */
+export function pruneLongFormStructure(document: ContentDocument): ContentDocument {
+  const structure = document.metadata?.longFormStructure;
+  if (!structure || !document.metadata) return document;
+  const present = new Set(document.blocks.map((block) => block.id));
+  const introductionBlockIds = structure.introductionBlockIds.filter((id) => present.has(id));
+  const conclusionBlockIds = structure.conclusionBlockIds.filter((id) => present.has(id));
+  const sections = structure.sections
+    .filter((section) => present.has(section.headingBlockId))
+    .map((section) => Object.freeze({
+      ...section,
+      paragraphBlockIds: Object.freeze(section.paragraphBlockIds.filter((id) => present.has(id))),
+    }));
+  const unchanged = introductionBlockIds.length === structure.introductionBlockIds.length
+    && conclusionBlockIds.length === structure.conclusionBlockIds.length
+    && sections.length === structure.sections.length
+    && sections.every((section, index) =>
+      section.paragraphBlockIds.length === structure.sections[index]!.paragraphBlockIds.length);
+  if (unchanged) return document;
+  return Object.freeze({
+    ...document,
+    metadata: Object.freeze({
+      ...document.metadata,
+      longFormStructure: Object.freeze({
+        introductionBlockIds: Object.freeze(introductionBlockIds),
+        sections: Object.freeze(sections),
+        conclusionBlockIds: Object.freeze(conclusionBlockIds),
+      }),
+    }),
+  });
+}
+
 export function requiresLongFormValidation(document: ContentDocument): boolean {
   return Boolean(document.metadata?.qualityTarget || document.metadata?.longFormStructure)
     || document.blocks.some((block) => block.type === "heading" && block.level === 2);

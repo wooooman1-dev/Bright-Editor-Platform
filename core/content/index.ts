@@ -81,6 +81,7 @@ export {
   longFormNarrativeFloors,
   LongFormValidationError,
   normalizeGeneratedSectionSemantics,
+  pruneLongFormStructure,
   requiresLongFormValidation,
   type LongFormDiagnostic,
   type LongFormSectionDiagnostic,

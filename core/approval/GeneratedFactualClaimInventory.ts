@@ -1,3 +1,4 @@
+import { pruneLongFormStructure } from "../content";
 import type { ContentBlock, ContentDocument } from "../content";
 import type { GeneratedClaimLocation } from "./GeneratedClaimBinding";
 import { verificationClaimId } from "./VerificationClaimFingerprint";
@@ -187,11 +188,14 @@ export function applyGeneratedFactualClaimInventory(input: Readonly<{
     retainedClaimIds: Object.freeze([...new Set(retainedClaimIds)]),
     removedClaimCount: items.filter((item) => item.disposition === "removed").length,
   });
+  // Withdrawals remove blocks, and `longFormStructure` addresses blocks by id,
+  // so the structure has to be repaired before anything downstream reads it.
+  const pruned = pruneLongFormStructure(document);
   return Object.freeze({
     document: Object.freeze({
-      ...document,
+      ...pruned,
       metadata: Object.freeze({
-        ...document.metadata!,
+        ...pruned.metadata!,
         generatedFactualClaimInventory: record,
       }),
     }),
@@ -243,7 +247,7 @@ export function removeGeneratedFactualSurface(
       const headers = block.headers.map((item) => removeExactSurface(item, needle));
       const rows = block.rows
         .map((row) => Object.freeze(row.map((item) => removeExactSurface(item, needle))))
-        .filter((row) => row.some(Boolean));
+        .filter((row) => rowStillCarriesData(row, block.headers.length));
       return rows.length ? [Object.freeze({ ...block, headers: Object.freeze(headers), rows: Object.freeze(rows) })] : [];
     }
     if (block.type === "image") {
@@ -323,12 +327,72 @@ export function findUntrackedCriticalSurfaces(
   allowedSurfaceTexts: readonly string[],
 ): readonly string[] {
   const allowed = allowedSurfaceTexts.map(cleanText).filter(Boolean);
+  const disclosed = disclosedSurfaces(document);
   const candidates = readerVisibleSurfaces(document)
     .map(cleanText)
     .filter((surface) => surface && criticalSurfacePattern.test(surface))
-    .filter((surface) => !allowed.some((known) => surface.includes(known) || known.includes(surface)));
+    .filter((surface) => !allowed.some((known) => surface.includes(known) || known.includes(surface)))
+    .filter((surface) => !disclosed.has(surface));
   return Object.freeze([...new Set(candidates)]);
 }
+
+/**
+ * Surfaces the sweep must leave alone because the manuscript already states
+ * where they come from.
+ *
+ * This sweep exists to catch facts about the world that generation asserted
+ * without reporting them for verification. Two kinds of number are not that:
+ *
+ * The `정보 기준일` line is publication metadata, not a claim — and the approval
+ * content policy positively requires it in the body. Deleting it meant the
+ * system removed what the policy demands, then reported the article as ready
+ * without it.
+ *
+ * Figures inside a disclosed calculation example are derived from assumptions
+ * the article prints next to them, so their source is that disclosure and the
+ * arithmetic, not an external document no institution publishes. The 대출
+ * 상환방식 비교 article showed what happens otherwise: the disclosure paragraph
+ * was swept first, then every value of the comparison table was swept for
+ * lacking a source — the source having just been deleted. The exemption is
+ * scoped to the section holding the disclosure so a disclosure in one section
+ * cannot shelter unrelated claims elsewhere.
+ */
+function disclosedSurfaces(document: ContentDocument): ReadonlySet<string> {
+  const exempt = new Set<string>();
+  let sectionStart = 0;
+  const sections: ContentBlock[][] = [];
+  document.blocks.forEach((block, index) => {
+    if (block.type === "heading" && index > sectionStart) {
+      sections.push(document.blocks.slice(sectionStart, index));
+      sectionStart = index;
+    }
+  });
+  sections.push(document.blocks.slice(sectionStart));
+
+  for (const section of sections) {
+    const hasCalculationDisclosure = section.some((block) =>
+      blockTextSurfaces(block).some((value) => calculationDisclosurePattern.test(cleanText(value))));
+    for (const block of section) {
+      for (const value of blockTextSurfaces(block)) {
+        for (const surface of sentenceSurfaces(value)) {
+          if (hasCalculationDisclosure || informationDatePattern.test(surface)) exempt.add(surface);
+        }
+      }
+    }
+  }
+  return exempt;
+}
+
+/**
+ * Matches a paragraph that both names its assumptions and disclaims that the
+ * figures stand for real amounts. Both halves are required: a sentence that
+ * merely contains the word `예시` states nothing about where its numbers came
+ * from and must still face the sweep.
+ */
+const calculationDisclosurePattern =
+  /(?=.*(?:계산\s*예시|예시\s*계산|가정))(?=.*(?:산출|계산))(?=.*(?:대신하지\s*않|반영하지\s*않|다를\s*수\s*있))/u;
+
+const informationDatePattern = /(?:정보\s*기준일|최종\s*검토일)\s*[:：]/u;
 
 function blockTextSurfaces(block: ContentBlock): readonly string[] {
   if (block.type === "heading" || block.type === "paragraph") return [block.text];
@@ -345,7 +409,37 @@ function readerVisibleSurfaces(document: ContentDocument): readonly string[] {
     document.metadata?.seoTitle ?? "",
     document.metadata?.metaDescription ?? "",
     ...document.blocks.flatMap(blockTextSurfaces),
-  ];
+  ].flatMap(sentenceSurfaces);
+}
+
+/**
+ * Splits a reader-visible value into the units the sweep may withdraw.
+ *
+ * The sweep deletes whatever it flags, so the size of a flagged surface is the
+ * size of the damage. Handing it whole paragraphs meant one unsourced figure
+ * took its entire paragraph with it — in the 정부지원금 article that cost eight
+ * blocks, including prose that only explained how to read a public notice and
+ * carried no facts at all. Flagging sentences keeps the withdrawal the size of
+ * the claim.
+ *
+ * A terminator only ends a sentence when whitespace or the end of the value
+ * follows it, so decimal figures such as `12.5%` are never split in half.
+ */
+function sentenceSurfaces(value: string): readonly string[] {
+  const text = cleanText(value);
+  if (!text) return [];
+  const sentences: string[] = [];
+  let start = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    if (!".!?。".includes(text[index]!)) continue;
+    const next = text[index + 1];
+    if (next !== undefined && next !== " ") continue;
+    sentences.push(text.slice(start, index + 1));
+    start = index + 1;
+  }
+  if (start < text.length) sentences.push(text.slice(start));
+  const cleaned = sentences.map(cleanText).filter(Boolean);
+  return cleaned.length > 1 ? cleaned : [text];
 }
 
 const criticalSurfacePattern = /(?:[$€£¥₩]\s*\d|\d[\d,.]*\s*(?:원|달러|유로)|\d+(?:\.\d+)?\s*(?:%|퍼센트)|\d{4}\s*[년.-]\s*\d{1,2}(?:\s*[월.-]\s*\d{1,2})?|(?:법률|법령|세법|법적 의무|법적 금지|[가-힣]+법(?:상|에 따라|\s*제\d+조)|자격\s*요건|(?:신청|지원)\s*(?:자격|조건|대상)|공식 조건|상품 조건|가입 조건|해지 조건|연회비|우대 조건)|(?:금리|세율)\s*(?:은|는|이|가|:)?\s*\d)/u;
@@ -359,11 +453,63 @@ function inferCriticalKind(surface: string): VerificationClaimKind {
   return "general";
 }
 
+/**
+ * True when a table row still says something after a withdrawal.
+ *
+ * Withdrawing every measured value from a comparison table leaves rows that hold
+ * only their leading label — `원리금균등상환 | | | |` — and an empty table shell
+ * is not a weaker version of the table, it is a broken one: the surrounding
+ * prose keeps explaining figures the reader can no longer see. A multi-column
+ * row therefore has to keep at least one value next to its label, and a table
+ * whose rows all fail that test is dropped by the caller.
+ */
+function rowStillCarriesData(row: readonly string[], columnCount: number): boolean {
+  const filled = row.filter(Boolean).length;
+  return columnCount >= 2 ? filled >= 2 : filled >= 1;
+}
+
+/**
+ * Removes a factual surface without corrupting the values around it.
+ *
+ * A withdrawn surface is often a bare amount such as `60,000원`, and the same
+ * digits appear inside larger amounts such as `12,060,000원`. A plain substring
+ * replace turns that neighbour into the fragment `12,0`, which is worse than
+ * either keeping or dropping it: the manuscript then publishes a number nobody
+ * generated. Only occurrences that are not part of a longer number are removed.
+ */
 function removeExactSurface(value: string, surfaceText: string): string {
-  return value.replace(surfaceText, " ")
+  if (!surfaceText) return value.trim();
+  let kept = "";
+  let rest = value;
+  for (;;) {
+    const index = rest.indexOf(surfaceText);
+    if (index < 0) {
+      kept += rest;
+      break;
+    }
+    const end = index + surfaceText.length;
+    if (splitsAdjacentNumber(surfaceText, rest[index - 1] ?? "", rest[end] ?? "")) {
+      kept += rest.slice(0, end);
+    } else {
+      kept += `${rest.slice(0, index)} `;
+    }
+    rest = rest.slice(end);
+  }
+  return kept
     .replace(/\s+([,.!?。，！？])/gu, "$1")
     .replace(/\s{2,}/gu, " ")
     .trim();
+}
+
+/**
+ * True when removing this occurrence would cut a longer number in half, which
+ * happens whenever a shorter amount is a digit-aligned suffix or prefix of the
+ * value actually printed at this position.
+ */
+function splitsAdjacentNumber(surfaceText: string, before: string, after: string): boolean {
+  if (/^\d/u.test(surfaceText) && /[\d.,]/u.test(before)) return true;
+  if (/\d$/u.test(surfaceText) && /\d/u.test(after)) return true;
+  return false;
 }
 
 function compactQualifiers(value: GeneratedFactualClaimInventoryDraft["qualifiers"]): VerificationClaimQualifiers {
