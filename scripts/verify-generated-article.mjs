@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dataPath = path.join(root, ".bright-studio", "studio-data.json");
-const { classifyFactualSurface, factualSurfaceCandidates, statesAValue } =
+const { factualSurfaceCandidates, statesAValue } =
   await import(path.join(root, "core", "approval", "FactualSurfaceTaxonomy.ts"));
 
 if (!fs.existsSync(dataPath)) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { withCalculationExampleDisclosureContract } from "../../../../core/ai";
+import { withCalculationExampleDisclosureContract } from "../../../../core/ai/AIWorkflow";
 import {
   calculationDisclosureContract,
   classifyFactualSurface,
