@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  approvalReadinessInspectionVersion,
   resolveApprovalPolicySnapshot,
 } from "../../../../../core/approval";
 import type { ContentDocument } from "../../../../../core/content";
@@ -57,7 +58,9 @@ describe("ApprovalReadinessExecutionIdentity", () => {
     } as unknown as UserContent;
     const identity = approvalReadinessExecutionIdentity(value);
 
-    expect(identity.version).toBe("4.0");
+    // 계약 버전은 감사 규칙이 바뀔 때마다 올라간다. 값을 박아 두면 올릴 때마다
+    // 이 테스트가 깨지므로, 신원이 현재 계약 버전을 싣고 있다는 사실만 고정한다.
+    expect(identity.version).toBe(approvalReadinessInspectionVersion);
     expect(identity.key).toContain("evidence-not_required@temporal-not_required");
     expect(identity.key).not.toContain("profile-source-required");
   });

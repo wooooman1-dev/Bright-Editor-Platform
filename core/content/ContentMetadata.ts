@@ -40,7 +40,9 @@ export type ContentMetadata = Readonly<{
   generatedClaimVerification?: GeneratedClaimVerificationRecord;
   generatedFactualClaimInventory?: GeneratedFactualClaimInventoryRecord;
   approvalReadinessExecution?: Readonly<{
-    version: "1.0" | "2.0" | "3.0" | "4.0";
+    // 과거 버전은 남겨 둔다 — 저장된 스냅샷이 그 값을 그대로 들고 있고,
+    // 현재 계약과 다르다는 사실 자체가 재검사 신호이기 때문이다.
+    version: "1.0" | "2.0" | "3.0" | "4.0" | "4.1";
     key: string;
     editorialRevisionId: string;
     publishingContextKey: string;

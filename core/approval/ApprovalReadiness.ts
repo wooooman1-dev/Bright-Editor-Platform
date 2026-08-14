@@ -33,8 +33,15 @@ export const approvalReadinessCheckKeys = [
  *
  * This lives in Core because both the Quality engine and the readiness
  * application service must agree on it; neither platform App owns it.
+ *
+ * 4.1 — the site audit began opening the trust pages it had only been checking
+ * for links to. Measured before the bump: an article inspected at 15:16 kept
+ * answering with that snapshot at 21:57, fifteen checks and no
+ * `trust_page_indexable`, because the site snapshot is one of the artefacts a
+ * matching identity key reuses. A gate fix that never reaches an already
+ * inspected article is not a fix.
  */
-export const approvalReadinessInspectionVersion = "4.0" as const;
+export const approvalReadinessInspectionVersion = "4.1" as const;
 
 /**
  * Checks whose verdict is only as trustworthy as the stored inspection
