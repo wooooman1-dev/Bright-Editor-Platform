@@ -182,3 +182,37 @@ approvalSourcePreflightDiagnostic: {} ← 비어 있음
 
 D-039 의 "모든 차단에는 실행 가능한 해결 경로가 있어야 한다" 위반이다.
 **Phase 3 의 첫 대상 목록에 추가한다.**
+
+---
+
+## 7. 발행 완료 — 루프가 닫혔다 (2026-08-14 15:16)
+
+사장님이 `content-mst2yzkz-77mroq` 를 WordPress 임시글로 발행했다.
+
+```
+2026-08-14T15:16 | wordpress | wf=draft.create
+status=verified | stage=complete | verified=true | externalPostId=92
+검증 9건 / 실패 0건
+카테고리: 생활재테크 | 업로드 미디어 1 | 대표이미지 assigned
+cleanupRequired=false | revisionId=rev-c7e6e614
+```
+
+검증 항목 전부 통과: external_id, draft_status, title, meaningful_content,
+categories, tags_unused, media_urls, featured_media, seo_metadata.
+
+**직전 발행은 2026-08-10 (externalPostId=89) 이었다. 나흘 만이다.**
+그 사이 8편을 생성해 63만 토큰을 쓰고 한 편도 내보내지 못했다.
+
+이전 발행분과 달라진 점 하나: `featured_media` 가 실제로 assigned 다.
+8/10 이전 기록들은 `featuredImageAssigned=false` 였다.
+
+### 이 세션이 실제로 해결한 것
+
+| | 8/14 오전 | 8/14 저녁 |
+| --- | --- | --- |
+| 인벤토리 보존율 | 10% (48건 중 43건 철회) | 철회 0건 |
+| 값이 남은 문장 | 1,499문장 중 6개 | 표 24칸 전부 |
+| 게이트 | 품질 100점인데 blocked | 100점 approved |
+| 발행 | 8/10 이후 0편 | **1편, 검증 9/9** |
+
+D-039 Phase 0·1·2(착수분)가 생성부터 발행까지 실제 경로에서 검증됐다.
