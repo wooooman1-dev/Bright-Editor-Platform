@@ -249,6 +249,9 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
 
   const confirm = async (generate: boolean, confirmedPlan = plan, confirmedRequest = request, selectedOpportunity = confirmedOpportunity) => {
     if (!confirmedPlan || !selectedOpportunity || dirtyRequest) return;
+    // Reaching this screen from the editor is now possible, so the Content may
+    // already hold a manuscript that confirming would replace.
+    if (content?.document && !window.confirm("이미 만들어진 원고가 있습니다. 이 기획으로 다시 만들면 기존 원고를 대체합니다. 계속할까요?")) return;
     const readyAccountIds = selected.filter((id) => connected.some((connection) => connection.id === id));
     const generationOperationId = createId("generation-operation");
     let generationStarted = false;

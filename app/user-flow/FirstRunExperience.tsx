@@ -136,6 +136,7 @@ export function FirstRunExperience() {
           content={activeContent}
           data={data}
           onBack={() => setScreen({ name: "project", projectId: activeProject.id })}
+          onOpenPlanning={() => setScreen({ name: "create", projectId: activeProject.id, contentId: activeContent.id })}
           onPersist={persist}
           project={activeProject}
         />

@@ -9,6 +9,7 @@ export function EditorWorkspace(props: Readonly<{
   data: UserData;
   project: UserProject;
   onBack: () => void;
+  onOpenPlanning?: () => void;
   onPersist: (data: UserData) => Promise<void>;
 }>) {
   return <>

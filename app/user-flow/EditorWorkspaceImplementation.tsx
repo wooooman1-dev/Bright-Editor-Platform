@@ -6,6 +6,7 @@ import { analyzeContentOpportunityAlignment, calculateContentMetrics, deriveCont
 import { editorialRevisionId, type QualityCategory, type QualityReport } from "../../core/quality";
 import { PageContainer } from "../shared/ui/PageContainer";
 import { applyCanonicalDocument, type UserContent, type UserData, type UserProject } from "./user-data";
+import { canReopenPlanningCandidates } from "./content-navigation";
 import { editorPublishingPlatformVisibility } from "./editor-publishing-platform";
 import {
   approvalReadinessCheckStatusLabel,
@@ -51,7 +52,7 @@ type Operation = "idle" | "quality" | "improving" | "applying" | "preview" | "ca
 type PostCatalogState = "idle" | "loading" | "success" | "empty" | "partial" | "session_expired" | "selector_error" | "permission_denied" | "connection_error";
 type TistoryReadiness = Readonly<{ ready: boolean; checks: readonly Readonly<{ key: string; passed: boolean; message: string }>[] }>;
 
-export function EditorWorkspace({ content, data, project, onBack, onPersist }: { content: UserContent; data: UserData; project: UserProject; onBack: () => void; onPersist: (data: UserData) => Promise<void> }) {
+export function EditorWorkspace({ content, data, project, onBack, onOpenPlanning, onPersist }: { content: UserContent; data: UserData; project: UserProject; onBack: () => void; onOpenPlanning?: () => void; onPersist: (data: UserData) => Promise<void> }) {
   const [title, setTitle] = useState(content.title);
   const [notice, setNotice] = useState(content.generationError ? `Generation unavailable: ${content.generationError}. Manual drafting is available.` : "Draft is stored locally.");
   const [saveState, setSaveState] = useState<"saved" | "saving" | "error">("saved");
@@ -453,7 +454,15 @@ export function EditorWorkspace({ content, data, project, onBack, onPersist }: {
   }
 
   return <PageContainer className="py-8 sm:py-10 lg:py-12">
-    <button className="text-sm font-semibold text-[#77777f]" onClick={onBack} type="button">← Project Dashboard</button>
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <button className="text-sm font-semibold text-[#77777f]" onClick={onBack} type="button">← Project Dashboard</button>
+      {/* The stored Planning candidates survive generation, but until this the
+          editor had no route back to them, so choosing a different candidate
+          meant paying for a second Planning call and starting a new Content. */}
+      {onOpenPlanning && canReopenPlanningCandidates(content)
+        ? <button className="text-sm font-semibold text-[#77777f]" onClick={onOpenPlanning} type="button">추천 주제 후보 다시 보기 →</button>
+        : null}
+    </div>
     <header className="mt-6 flex flex-wrap items-end justify-between gap-4 border-b border-black/6 pb-7"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#ff6b6b]">{project.name}</p><h1 className="mt-2 text-3xl font-semibold">편집기</h1></div><p className={`text-sm ${saveState === "error" ? "text-red-700" : "text-[#77777f]"}`}>{saveState === "saving" ? "저장 중…" : saveState === "saved" ? `저장됨 · Revision ${historyCount}개` : "저장 실패"}</p></header>
     <OperationNotice operation={operation} />
     {liveDocument ? <StrategySummary content={content} document={liveDocument} quality={normalizedQuality} showTistoryDetails={tistoryEnabled} /> : null}
