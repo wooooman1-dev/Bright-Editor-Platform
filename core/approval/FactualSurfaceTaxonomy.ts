@@ -70,7 +70,7 @@ export function classifyFactualSurface(
 
   const attribution = (context.attribution ?? []).map(normalize).filter(Boolean);
   const attributed = values.some((value) =>
-    subjectPrecedes(text, value.start) || attribution.some((item) => subjectPattern.test(item)));
+    subjectAdjoins(text, value) || attribution.some((item) => subjectPattern.test(item)));
   return attributed ? "external_fact" : "unattributed_value";
 }
 
@@ -185,26 +185,35 @@ function valueOccurrences(text: string): readonly ValueOccurrence[] {
 }
 
 /**
- * Whether something that publishes this value is named right before it.
+ * Whether something that publishes this value is named next to it.
  *
- * Requiring the subject anywhere in the sentence was too loose to be useful:
- * `보유 목돈이 있어도 1년 안에 쓸 가능성이 크다면 … 해지 조건을 우선 점검해야`
- * was read as a statutory claim because `해지 조건` appears twenty characters
- * later. The subject has to sit next to the value, the way `주거 지원 기간은
- * 24개월` and `원금 120만원` do.
+ * Korean puts the owner on either side depending on the construction —
+ * `주거 지원 기간은 24개월` names it first, `6개월 이내에 폐업한 사업자만 신청할
+ * 수 있습니다` names it after — so both sides are read.
+ *
+ * What matters is that it is *next to* the value. Accepting the subject
+ * anywhere in the sentence read `보유 목돈이 있어도 1년 안에 쓸 가능성이
+ * 크다면 … 해지 조건을 우선 점검해야` as a statutory claim because a topic noun
+ * appears twenty characters later, when it is the reader's own judgement call.
  */
 const attributionWindow = 22;
 
-function subjectPrecedes(text: string, valueStart: number): boolean {
-  return subjectPattern.test(text.slice(Math.max(0, valueStart - attributionWindow), valueStart));
+function subjectAdjoins(text: string, value: ValueOccurrence): boolean {
+  const before = text.slice(Math.max(0, value.start - attributionWindow), value.start);
+  const after = text.slice(value.end, value.end + attributionWindow);
+  return subjectPattern.test(before) || subjectPattern.test(after);
 }
 
 /**
  * Things that own a published value: benefits, levies, products, institutions
  * and the documents that state their terms.
+ *
+ * `기간`, `기준` and `조건` carry a lookbehind because they also live inside
+ * words that own nothing — `장기간`, `판단기준` — and one of those was enough to
+ * turn the sentence above into a sourced claim.
  */
 const subjectPattern =
-  /(?:급여|공제|지원금|보조금|수당|연금|보험료|보험금|세액|세율|과세|환급금|가산세|한도|보장|이율|금리|원금|이자|잔액|납입액|납입금|수수료|위약금|연회비|보증금|월세|전세|임대료|통장|예금|적금|대출|카드|요금제|청약|공단|국세청|관세청|금융감독원|금융위원회|건강보험|고용보험|국민연금|산재보험|법령|시행령|시행규칙|고시|약관|상품설명서|공고문|모집공고|계약|신고|신청|접수|지급|기간|기한|기준)/u;
+  /(?:급여|공제|지원금|보조금|수당|연금|보험료|보험금|세액|세율|과세|환급금|가산세|한도|보장|이율|금리|원금|이자|잔액|납입액|납입금|수수료|위약금|연회비|보증금|월세|전세|임대료|통장|예금|적금|대출|카드|요금제|청약|사업자|공단|국세청|관세청|금융감독원|금융위원회|건강보험|고용보험|국민연금|산재보험|법령|시행령|시행규칙|고시|약관|상품설명서|공고문|모집공고|계약|신고|신청|접수|지급|납부|(?<![가-힣])(?:기간|기한|기준|조건))/u;
 
 const publicationMetaPattern = /(?:정보\s*기준일|최종\s*검토일)\s*[:：]/u;
 
