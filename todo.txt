@@ -248,7 +248,14 @@ tsc·eslint·vitest 는 전부 통과한 상태였다. 번들러 경계는 앱�
 2. **10자 부족 차단.** content-mst1wpt0-w4xtjm 이 CONTENT_SECTION_PROSE_
    INSUFFICIENT(minimum 250 / actual 240) 하나로 in_review 다. 5,074자 원고가
    한 섹션 10자 때문에 막히는데 화면이 무엇을 고치라고 말해 주지 않는다.
-3. PublishReadinessVerdict 신설 — resolution 필수 타입. 위 둘이 첫 대상.
+3. **Site Readiness 게이트가 페이지별 noindex 를 검사하지 않는다.**
+   2026-08-14 실측: 게이트가 15건 전부 통과라고 보고했는데, 같은 시점 Google
+   Search Console 은 /about/, /disclaimer/, http:// 루트 3개가 NOINDEX 로
+   제외됐다고 보고했다. 게이트의 검사 항목은 홈페이지의 전체 차단 신호
+   (검색 제외 설정, robots 전체 차단)만 본다. AdSense 가 요구하는 신뢰 페이지가
+   개별 noindex 여도 "준비 완료"로 보고된다.
+   → 사이트맵에 오르는 페이지의 meta robots 와 X-Robots-Tag 를 개별로 확인해야 한다.
+4. PublishReadinessVerdict 신설 — resolution 필수 타입. 위 셋이 첫 대상.
 
 == 다음 할 일 ==
 
