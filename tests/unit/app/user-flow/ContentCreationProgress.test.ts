@@ -24,7 +24,10 @@ describe("ContentCreationFlow recommendation progress", () => {
 
   it("locks the recommendation controls while work is running or the request changed", () => {
     expect(source).toContain('aria-busy={operation === "regenerating"}');
-    expect(source).toContain('disabled={working || dirtyRequest} onCustomKeywordChange={setCustomKeyword}');
+    // Asserts the confirmation is locked, not the order of props around it.
+    expect(source).toContain('<PrimaryKeywordConfirmation');
+    expect(source).toContain('disabled={working || dirtyRequest}');
+    expect(source).toContain('onCustomKeywordChange={setCustomKeyword}');
     expect(confirmationSource).toContain('fieldset className="mt-5 space-y-3" disabled={disabled}');
     expect(confirmationSource).toContain('disabled={!customKeywordSelected || disabled}');
     expect(source).toContain('checked={selected.includes(connection.id)} disabled={working}');

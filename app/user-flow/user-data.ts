@@ -99,6 +99,12 @@ export type ContentPlanningResult = Readonly<{
   estimateDisclosure: string;
   selectionMode?: ContentOpportunitySelectionMode;
   opportunityCandidates?: readonly ContentOpportunityCandidate[];
+  /**
+   * Topics the planner proposed that classification refused to offer. Kept so
+   * the confirmation screen can say a topic was dropped and why, instead of
+   * showing a shorter list than the run produced with no explanation.
+   */
+  excludedOpportunities?: readonly Readonly<{ selectedTopic: string; primaryKeyword: string; reason: string }>[];
   qualityTarget?: ContentPlanQualityTarget;
 }>;
 

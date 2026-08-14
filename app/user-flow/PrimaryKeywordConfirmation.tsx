@@ -21,6 +21,7 @@ export function PrimaryKeywordConfirmation({
   onSelectCandidate,
   onSelectCustom,
   onReanalyzeCustom,
+  generatedOpportunityId,
   opportunityCandidates,
   plan,
   request,
@@ -29,6 +30,8 @@ export function PrimaryKeywordConfirmation({
   customKeyword: string;
   customKeywordSelected: boolean;
   disabled: boolean;
+  /** The candidate the existing manuscript was generated from, when one exists. */
+  generatedOpportunityId?: string;
   onCustomKeywordChange: (value: string) => void;
   onSelectCandidate: (value: ContentOpportunityCandidate) => void;
   onSelectCustom: () => void;
@@ -38,6 +41,7 @@ export function PrimaryKeywordConfirmation({
   request: string;
   selectedOpportunityId: string;
 }>) {
+  const excludedOpportunities = plan.excludedOpportunities ?? [];
   return (
     <>
       <p className="text-xs font-semibold tracking-[0.12em] text-[#ff6b6b] uppercase">콘텐츠 기회 확인</p>
@@ -57,7 +61,7 @@ export function PrimaryKeywordConfirmation({
               <span className="flex items-start gap-3">
                 <input checked={selected} className="mt-1" name="content-opportunity" onChange={() => onSelectCandidate(candidate)} type="radio" />
                 <span className="min-w-0 flex-1">
-                  <span className="flex flex-wrap items-center gap-2"><strong>{candidate.selectedTopic}</strong><span className="rounded-full bg-[#f3f3f5] px-2.5 py-1 text-xs font-semibold text-[#5f5f68]">{recommendationTypeLabel(candidate.recommendationType)}</span></span>
+                  <span className="flex flex-wrap items-center gap-2"><strong>{candidate.selectedTopic}</strong><span className="rounded-full bg-[#f3f3f5] px-2.5 py-1 text-xs font-semibold text-[#5f5f68]">{recommendationTypeLabel(candidate.recommendationType)}</span>{candidate.opportunityId === generatedOpportunityId ? <span className="rounded-full bg-[#eef6ee] px-2.5 py-1 text-xs font-semibold text-[#2f6b39]">이 후보로 원고 생성됨</span> : null}</span>
                   <span className="mt-2 block"><span className="font-semibold text-[#66666f]">대표 키워드</span> · {candidate.primaryKeyword}</span>
                   <span className="mt-1 block"><span className="font-semibold text-[#66666f]">검색 의도</span> · {candidate.searchIntent}</span>
                   <span className="mt-1 block"><span className="font-semibold text-[#66666f]">주요 내용</span> · {expectedCoverage.join(", ") || secondaryKeywords.join(", ") || "후보 확정 후 원고에서 구체화"}</span>
@@ -89,6 +93,17 @@ export function PrimaryKeywordConfirmation({
           {customKeywordSelected ? <button className="mt-3 rounded-lg border bg-white px-3 py-2 text-xs font-semibold disabled:opacity-50" disabled={disabled || !customKeyword.trim()} onClick={onReanalyzeCustom} type="button">이 키워드로 콘텐츠 기회 다시 분석</button> : null}
         </label>
       </fieldset>
+      {excludedOpportunities.length ? (
+        <section className="mt-4 rounded-xl border border-black/8 bg-[#fafafa] px-4 py-3 text-sm">
+          <p className="font-semibold text-[#5f5f68]">이번 분석에서 제외된 주제 {excludedOpportunities.length}개</p>
+          <ul className="mt-2 space-y-1 text-[#77777f]">
+            {excludedOpportunities.map((item) => (
+              <li key={`${item.primaryKeyword}:${item.selectedTopic}`}>{item.selectedTopic} · {item.reason}</li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs leading-5 text-[#92929a]">제외된 주제는 선택할 수 없습니다. 다루고 싶다면 요청을 바꿔 다시 분석하거나 직접 입력으로 주제를 지정해 주세요.</p>
+        </section>
+      ) : null}
       <details className="mt-5 rounded-xl bg-[#f8f8fa] p-4">
         <summary className="cursor-pointer text-sm font-semibold">AI 분석 상세보기</summary>
         <dl className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -98,7 +113,7 @@ export function PrimaryKeywordConfirmation({
           <Info label="대상 독자" value={plan.targetAudience} />
           <Info label="목표" value={plan.contentGoal} />
           <Info label="선정 방식" value={plan.selectionMode === "automatic" ? "AI 자동 선정" : "사용자 지정"} />
-          <Info label="후보 수" value={`${opportunityCandidates.length}개`} />
+          <Info label="후보 수" value={excludedOpportunities.length ? `${opportunityCandidates.length}개 · 제외 ${excludedOpportunities.length}개` : `${opportunityCandidates.length}개`} />
           <Info label="신뢰도" value={formatOpportunityConfidence(plan.confidence)} />
           <Info label="주의사항" value={formatEvidenceLimitations([plan.estimateDisclosure]).join(" ") || "없음"} />
           <Info label="선택된 플랫폼" value={plan.recommendedPlatforms.map(platformLabel).join(", ") || platformLabel("canonical")} />

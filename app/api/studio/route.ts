@@ -647,12 +647,13 @@ async function performPlanning(data: UserData, project: UserData["projects"][num
   const contractedPlan = approvalSnapshot
     ? attachApprovalEvidenceContracts(rawPlan, approvalSnapshot)
     : rawPlan;
-  const classified = opportunityEvidenceService.classifyCandidates(contractedPlan.opportunityCandidates ?? [], evidenceBundle, data, project)
+  const classification = opportunityEvidenceService.classifyCandidates(contractedPlan.opportunityCandidates ?? [], evidenceBundle, data, project);
+  const classified = classification.candidates
     .map((candidate) => applyContentDepthPolicy(candidate, {
       domain: rawPlan.domain,
       projectStrategy: editorialContextWithoutDiversityPolicy(projectContext),
     }));
-  const plan = withClassifiedCandidates(contractedPlan, classified);
+  const plan = withClassifiedCandidates(contractedPlan, classified, classification.excluded);
   const saved = await persistPlanningResult(data, input, plan);
   return { plan, data: saved };
 }
@@ -757,10 +758,10 @@ async function persistServerMutation(base: UserData, next: UserData): Promise<Us
 function message(error: unknown): string { return error instanceof Error ? error.message : "Request failed."; }
 function required(value: unknown): string { if (typeof value !== "string" || !value.trim()) throw new Error("Required generation input is missing."); return value.trim(); }
 
-function withClassifiedCandidates(plan: import("../../user-flow/user-data").ContentPlanningResult, candidates: readonly import("../../../core/content").ContentOpportunityCandidate[]): import("../../user-flow/user-data").ContentPlanningResult {
+function withClassifiedCandidates(plan: import("../../user-flow/user-data").ContentPlanningResult, candidates: readonly import("../../../core/content").ContentOpportunityCandidate[], excludedOpportunities: readonly import("../../application/data-sources/OpportunityEvidenceService").ExcludedOpportunity[] = []): import("../../user-flow/user-data").ContentPlanningResult {
   const first = candidates[0];
   if (!first) throw new Error("안전 기준과 Project 정책을 통과한 Content Opportunity가 없습니다. 직접 입력한 주제라면 검색 의도와 안전 문구를 확인해 주세요.");
-  return Object.freeze({ ...plan, opportunityCandidates: Object.freeze(candidates), qualityTarget: first.qualityTarget, recommendedPrimaryKeyword: first.primaryKeyword, keywordCandidates: Object.freeze(candidates.map((value) => value.primaryKeyword)), providerSearchIntent: first.providerSearchIntent, searchIntent: first.searchIntent, recommendedContentType: first.contentType, relatedKeywords: first.secondaryKeywords, targetAudience: first.audience, contentGoal: first.contentAngle, recommendationReason: first.selectionRationale, confidence: first.confidence });
+  return Object.freeze({ ...plan, opportunityCandidates: Object.freeze(candidates), excludedOpportunities: Object.freeze(excludedOpportunities), qualityTarget: first.qualityTarget, recommendedPrimaryKeyword: first.primaryKeyword, keywordCandidates: Object.freeze(candidates.map((value) => value.primaryKeyword)), providerSearchIntent: first.providerSearchIntent, searchIntent: first.searchIntent, recommendedContentType: first.contentType, relatedKeywords: first.secondaryKeywords, targetAudience: first.audience, contentGoal: first.contentAngle, recommendationReason: first.selectionRationale, confidence: first.confidence });
 }
 
 function collectOpportunities(input: unknown): readonly import("../../../core/content").ContentOpportunityCandidate[] {

@@ -139,12 +139,23 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
    * doing so bounced them straight into the editor, which reads as the button
    * doing nothing at all.
    */
-  const openedAtFinishedArticleRef = useRef(
-    content?.planningWorkflow?.status === "generated" && Boolean(content.document),
-  );
+  const openedAtFinishedArticleRef = useRef<boolean | undefined>(undefined);
+
+  // Decided from the first Content this screen actually receives, not from the
+  // first render: on a cold page load the Content arrives after mount, so
+  // reading it at mount would record "not finished" for every article and hand
+  // the user straight back to the editor on refresh. This effect is declared
+  // before the hand-off so it settles the answer in the same commit.
+  useEffect(() => {
+    if (openedAtFinishedArticleRef.current === undefined && content) {
+      openedAtFinishedArticleRef.current = content.planningWorkflow?.status === "generated" && Boolean(content.document);
+    }
+  }, [content]);
 
   useEffect(() => {
-    if (openedAtFinishedArticleRef.current) return;
+    // `undefined` means no Content has arrived yet, so nothing was observed to
+    // hand off; only a screen opened at an unfinished article advances.
+    if (openedAtFinishedArticleRef.current !== false) return;
     if (content?.planningWorkflow?.status === "generated" && content.document) onOpenEditor(content.id);
   }, [content?.document, content?.id, content?.planningWorkflow?.status, onOpenEditor]);
 
@@ -546,7 +557,7 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
 
       {plan ? (
         <section aria-busy={operation === "regenerating"} className={`mt-6 rounded-[24px] border border-black/6 bg-white p-6 transition-opacity ${operation === "regenerating" ? "opacity-60" : ""}`}>
-          <PrimaryKeywordConfirmation customKeyword={customKeyword} customKeywordSelected={customKeywordSelected} disabled={working || dirtyRequest} onCustomKeywordChange={setCustomKeyword} onReanalyzeCustom={() => { const constrainedRequest = `${request}\n사용자 지정 주제와 대표 키워드: ${customKeyword.trim()}. 이 주제와 같은 검색 의도 안에서 완전한 콘텐츠 기회를 구성해 줘.`; setRequest(constrainedRequest); void analyze(false, true, constrainedRequest, "userSpecified"); }} onSelectCandidate={(candidate: ContentOpportunityCandidate) => { void selectOpportunity(candidate); }} onSelectCustom={() => setCustomKeywordSelected(true)} opportunityCandidates={opportunityCandidates} plan={plan} request={request} selectedOpportunityId={opportunityId} />
+          <PrimaryKeywordConfirmation customKeyword={customKeyword} customKeywordSelected={customKeywordSelected} disabled={working || dirtyRequest} generatedOpportunityId={content?.document ? content.opportunity?.opportunityId : undefined} onCustomKeywordChange={setCustomKeyword} onReanalyzeCustom={() => { const constrainedRequest = `${request}\n사용자 지정 주제와 대표 키워드: ${customKeyword.trim()}. 이 주제와 같은 검색 의도 안에서 완전한 콘텐츠 기회를 구성해 줘.`; setRequest(constrainedRequest); void analyze(false, true, constrainedRequest, "userSpecified"); }} onSelectCandidate={(candidate: ContentOpportunityCandidate) => { void selectOpportunity(candidate); }} onSelectCustom={() => setCustomKeywordSelected(true)} opportunityCandidates={opportunityCandidates} plan={plan} request={request} selectedOpportunityId={opportunityId} />
 
           <details className="mt-3 rounded-xl border border-black/6 p-4">
             <summary className="cursor-pointer text-sm font-semibold">발행 계정 선택 (선택)</summary>

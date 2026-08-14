@@ -13,6 +13,26 @@ import {
 import { createContentOpportunityCandidate, type ContentOpportunityCandidate, type OpportunityEvidence } from "../../../core/content";
 import type { UserContent, UserData, UserProject } from "../../user-flow/user-data";
 
+/**
+ * A topic the planner proposed and classification refused to offer.
+ *
+ * Refusing is correct — a duplicate or off-strategy topic must not be
+ * selectable — but the refusal used to leave no trace at all, so a Planning run
+ * that proposed three topics and showed two looked like the product had lost
+ * one. Approval preparation represents its verdicts as states rather than
+ * silently acting on them, and this is one of those verdicts.
+ */
+export type ExcludedOpportunity = Readonly<{
+  selectedTopic: string;
+  primaryKeyword: string;
+  reason: string;
+}>;
+
+export type ClassifiedOpportunities = Readonly<{
+  candidates: readonly ContentOpportunityCandidate[];
+  excluded: readonly ExcludedOpportunity[];
+}>;
+
 export class OpportunityEvidenceService {
   constructor(
     private readonly connections: DataSourceConnectionRepository,
@@ -37,13 +57,14 @@ export class OpportunityEvidenceService {
     return Object.freeze([...external, ...internal]);
   }
 
-  classifyCandidates(candidates: readonly ContentOpportunityCandidate[], bundle: readonly OpportunityEvidenceRecord[], data: UserData, project: UserProject): readonly ContentOpportunityCandidate[] {
+  classifyCandidates(candidates: readonly ContentOpportunityCandidate[], bundle: readonly OpportunityEvidenceRecord[], data: UserData, project: UserProject): ClassifiedOpportunities {
     const published = publicContents(data, project.id);
+    const excluded: ExcludedOpportunity[] = [];
     const classified = candidates.flatMap((candidate) => {
       const matched = matchEvidence(candidate, bundle, project);
       const duplicate = published.some((content) => isDirectDuplicate(candidate, content));
       const aligned = projectAligned(candidate, project);
-      const excluded = projectExcluded(candidate, project);
+      const excludedByProject = projectExcluded(candidate, project);
       const searchIntentClear = candidate.searchIntent.trim().length >= 4;
       const safe = safetyPassed(candidate);
       const editorialValue = assessOpportunityEditorialValue({
@@ -62,7 +83,7 @@ export class OpportunityEvidenceService {
         verificationClaimCount: candidate.verificationPlan?.claims.length ?? 0,
         duplicate,
         projectAligned: aligned,
-        projectExcluded: excluded,
+        projectExcluded: excludedByProject,
       });
       const assessment = assessOpportunityRecommendation({
         evidence: matched,
@@ -73,7 +94,14 @@ export class OpportunityEvidenceService {
       });
       const userSpecifiedFallback = candidate.selectionMode === "userSpecified" && searchIntentClear && safe;
       const recommendationType = assessment.recommendationType ?? (userSpecifiedFallback ? "blogGrowth" as const : undefined);
-      if (!recommendationType) return [];
+      if (!recommendationType) {
+        excluded.push(Object.freeze({
+          selectedTopic: candidate.selectedTopic,
+          primaryKeyword: candidate.primaryKeyword,
+          reason: exclusionReason({ duplicate, aligned, excluded: excludedByProject, searchIntentClear, safe, editorialValue }),
+        }));
+        return [];
+      }
       const evidenceConfidence = averageVerifiedEvidenceConfidence(matched);
       const summaries = matched.map(toOpportunityEvidence);
       const limitations = [...assessment.limitations, ...editorialValue.limitations];
@@ -97,12 +125,15 @@ export class OpportunityEvidenceService {
         projectId: project.id,
       }), editorialValue }];
     });
-    return Object.freeze(classified.sort((left, right) => compareOpportunityEditorialValue(left.editorialValue, right.editorialValue)
-      || recommendationTypePriority(left.candidate.recommendationType) - recommendationTypePriority(right.candidate.recommendationType)
-      || verifiedCount(right.candidate) - verifiedCount(left.candidate)
-      || freshnessPriority(left.candidate.freshness) - freshnessPriority(right.candidate.freshness)
-      || left.candidate.opportunityId.localeCompare(right.candidate.opportunityId))
-      .map((value) => value.candidate));
+    return Object.freeze({
+      candidates: Object.freeze(classified.sort((left, right) => compareOpportunityEditorialValue(left.editorialValue, right.editorialValue)
+        || recommendationTypePriority(left.candidate.recommendationType) - recommendationTypePriority(right.candidate.recommendationType)
+        || verifiedCount(right.candidate) - verifiedCount(left.candidate)
+        || freshnessPriority(left.candidate.freshness) - freshnessPriority(right.candidate.freshness)
+        || left.candidate.opportunityId.localeCompare(right.candidate.opportunityId))
+        .map((value) => value.candidate)),
+      excluded: Object.freeze(excluded),
+    });
   }
 
   async assertWorkspaceEvidenceIds(workspaceId: string, ids: readonly string[]): Promise<void> {
@@ -135,6 +166,35 @@ function buildInternalGrowthEvidence(data: UserData, project: UserProject, curre
     published.forEach((content) => result.push(createOpportunityEvidence({ ...common, confidence: 0.9, evidenceType: "internalLinkOpportunity", topic: content.title, keyword: content.primaryKeyword, contentId: content.id, pageUrl: content.publishedUrl, value: 1, unit: "verifiedPublicPage", limitations: ["This Evidence identifies a verified public internal-link target; it does not measure search volume."], sourceReference: `content:${content.id}:public-url`, resourceScope: "page" })));
   }
   return Object.freeze(result);
+}
+
+/**
+ * Names why a proposed topic could not be offered.
+ *
+ * The checks are reported in the order that decides the answer for the reader:
+ * an off-strategy topic is off-strategy whether or not it also duplicates
+ * something, and knowing it duplicates an existing article is more actionable
+ * than being told its search intent was thin. The editorial-value assessment
+ * already phrases its own findings, so those are passed through rather than
+ * restated.
+ */
+function exclusionReason(input: Readonly<{
+  duplicate: boolean;
+  aligned: boolean;
+  excluded: boolean;
+  searchIntentClear: boolean;
+  safe: boolean;
+  editorialValue: Readonly<{ eligible: boolean; limitations: readonly string[] }>;
+}>): string {
+  if (input.excluded) return "Project에서 제외한 주제입니다.";
+  if (!input.aligned) return "Project 전략과 연관성이 확인되지 않았습니다.";
+  if (input.duplicate) return "이미 공개된 콘텐츠와 주제가 중복됩니다.";
+  if (!input.searchIntentClear) return "검색 의도가 판단할 만큼 구체적이지 않습니다.";
+  if (!input.safe) return "안전성 기준을 통과하지 못했습니다.";
+  if (!input.editorialValue.eligible) {
+    return input.editorialValue.limitations[0] ?? "편집 가치 기준을 충족하지 못했습니다.";
+  }
+  return "추천 기준을 충족하지 못했습니다.";
 }
 
 function publicContents(data: UserData, projectId: string): UserContent[] { return data.contents.filter((value): value is UserContent & { publishedUrl: string } => value.projectId === projectId && typeof value.publishedUrl === "string" && /^https?:\/\//i.test(value.publishedUrl)); }

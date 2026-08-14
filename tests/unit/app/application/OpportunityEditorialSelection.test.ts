@@ -109,7 +109,13 @@ describe("editorial-first Content Opportunity selection", () => {
       resourceScope: "query",
     });
 
-    expect(service().classifyCandidates([rare], [internalGap, market], data, project)).toEqual([]);
+    const classification = service().classifyCandidates([rare], [internalGap, market], data, project);
+    expect(classification.candidates).toEqual([]);
+    // Dropping the topic is right; dropping it without a trace is what made a
+    // three-topic Planning run look like it had produced two.
+    expect(classification.excluded).toHaveLength(1);
+    expect(classification.excluded[0]!.selectedTopic).toBe(rare.selectedTopic);
+    expect(classification.excluded[0]!.reason).toBeTruthy();
   });
 
   it("sorts a concrete problem-solving topic ahead of a broader comprehensive opportunity", () => {
@@ -141,7 +147,7 @@ describe("editorial-first Content Opportunity selection", () => {
       resourceScope: "query",
     });
 
-    const classified = service().classifyCandidates([broad, useful], [internalGap, external], data, project);
+    const classified = service().classifyCandidates([broad, useful], [internalGap, external], data, project).candidates;
 
     expect(classified.map((value) => value.selectedTopic)).toEqual(["health screening result check", "health trend pulse"]);
     expect(classified[0]?.recommendationType).toBe("blogGrowth");
@@ -160,6 +166,8 @@ describe("editorial-first Content Opportunity selection", () => {
       readerProblem: "the reader cannot judge an investment recommendation",
     });
 
-    expect(service().classifyCandidates([excluded], [internalGap], { ...data, projects: [excludedProject] }, excludedProject)).toEqual([]);
+    const classification = service().classifyCandidates([excluded], [internalGap], { ...data, projects: [excludedProject] }, excludedProject);
+    expect(classification.candidates).toEqual([]);
+    expect(classification.excluded[0]!.reason).toBe("Project에서 제외한 주제입니다.");
   });
 });

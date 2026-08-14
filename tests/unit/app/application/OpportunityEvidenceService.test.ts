@@ -19,7 +19,7 @@ describe("server-owned Opportunity Evidence classification", () => {
     const snapshot = resolveApprovalPolicySnapshot("adsense_approval", "wordpress_life_economy_v1")!;
     const contract = createApprovalRequiredEvidenceContract(original, snapshot);
     const contracted = createContentOpportunityCandidate({ ...original, requiredEvidenceContract: contract });
-    const classified = service.classifyCandidates([contracted], await service.buildPlanningBundle(data, project), data, project)[0]!;
+    const classified = service.classifyCandidates([contracted], await service.buildPlanningBundle(data, project), data, project).candidates[0]!;
     expect(classified.requiredEvidenceContract).toEqual(contract);
     expect(classified.fingerprint).toBe(createContentOpportunityCandidate({ ...classified }).fingerprint);
   });
@@ -27,7 +27,7 @@ describe("server-owned Opportunity Evidence classification", () => {
   it("allows all three candidates to be blog-growth recommendations without forced type balancing", async () => {
     const store = new InMemoryPersistenceStore(), service = new OpportunityEvidenceService(new DurableDataSourceConnectionRepository(store), new DurableProjectDataSourceReferenceRepository(store), new DurableOpportunityEvidenceRepository(store));
     const bundle = await service.buildPlanningBundle(data, project);
-    const values = service.classifyCandidates([candidate("장 건강"), candidate("혈당 건강"), candidate("수면 건강")], bundle, data, project);
+    const values = service.classifyCandidates([candidate("장 건강"), candidate("혈당 건강"), candidate("수면 건강")], bundle, data, project).candidates;
     expect(values).toHaveLength(3);
     expect(values.every((value) => value.recommendationType === "blogGrowth")).toBe(true);
     expect(values.every((value) => value.marketEvidenceStatus === "unavailable")).toBe(true);
@@ -42,7 +42,7 @@ describe("server-owned Opportunity Evidence classification", () => {
     await evidence.saveMany([createOpportunityEvidence({ workspaceId: "workspace-1", connectionId: "gsc-1", projectId: null, provider: "googleSearchConsole", evidenceType: "searchPerformance", metric: "clicks", keyword: "장 건강 방법", observedAt: new Date().toISOString(), syncedAt: new Date().toISOString(), freshness: "fresh", verified: true, value: 10, unit: "clicks", confidence: 1, limitations: ["site performance"], sourceReference: "snapshot:1", resourceScope: "query" })]);
     const withPublished: UserData = { ...data, contents: [{ id: "published-1", workspaceId: "workspace-1", projectId: "project-1", title: "장 건강 기초", body: "", status: "draft_saved", primaryKeyword: "장 건강", publishedUrl: "https://example.com/gut", updatedAt: "now" }] };
     const bundle = await service.buildPlanningBundle(withPublished, project);
-    expect(service.classifyCandidates([candidate("장 건강")], bundle, withPublished, project)[0].recommendationType).toBe("comprehensive");
+    expect(service.classifyCandidates([candidate("장 건강")], bundle, withPublished, project).candidates[0].recommendationType).toBe("comprehensive");
   });
 
   it("includes latest GSC and NAVER Evidence from Connections owned by the current Project without literal Project-name overlap", async () => {
@@ -118,7 +118,7 @@ describe("server-owned Opportunity Evidence classification", () => {
     await references.save({ workspaceId: "workspace-1", projectId: project.id, connectionId: "gsc-only", enabled: true, updatedAt: "now" });
     await evidence.saveMany([createOpportunityEvidence({ workspaceId: "workspace-1", connectionId: "gsc-only", projectId: null, provider: "googleSearchConsole", evidenceType: "searchPerformance", metric: "impressions", keyword: "장 건강", observedAt: "2026-08-05", syncedAt: new Date().toISOString(), freshness: "fresh", verified: true, value: 120, unit: "siteImpressions", confidence: 1, limitations: ["Search Console impressions are site performance, not total market demand."], sourceReference: "snapshot-gsc:row-0:impressions", resourceScope: "query" })]);
 
-    const classified = service.classifyCandidates([candidate("장 건강")], await service.buildPlanningBundle(data, project), data, project)[0];
+    const classified = service.classifyCandidates([candidate("장 건강")], await service.buildPlanningBundle(data, project), data, project).candidates[0];
     const gscEvidence = classified.opportunityEvidence.find((value) => value.provider === "googleSearchConsole");
 
     expect(gscEvidence).toMatchObject({ evidenceType: "searchPerformance", metric: "impressions" });
@@ -139,7 +139,7 @@ describe("server-owned Opportunity Evidence classification", () => {
       createOpportunityEvidence({ workspaceId: "workspace-1", connectionId: "naver-current", projectId: null, provider: "naverSearchTrend", evidenceType: "risingTrend", metric: "trendChange", keyword: "장 건강", observedAt: "2026-08-05", syncedAt: new Date().toISOString(), freshness: "fresh", verified: true, value: 0.5, relativeValue: 72, unit: "relativeChangeRate", confidence: 1, limitations: ["A rising relative trend does not establish absolute market size."], sourceReference: "snapshot-naver:row-0:rising", resourceScope: "query" }),
     ]);
 
-    const classified = service.classifyCandidates([candidate("장 건강", 0)], await service.buildPlanningBundle(data, project), data, project)[0];
+    const classified = service.classifyCandidates([candidate("장 건강", 0)], await service.buildPlanningBundle(data, project), data, project).candidates[0];
 
     expect(classified).toMatchObject({ freshness: "fresh", marketEvidenceStatus: "verified" });
     expect(classified.confidence).toBeCloseTo((1 + 1 + 0.75) / 3);
@@ -152,7 +152,7 @@ describe("server-owned Opportunity Evidence classification", () => {
     const store = new InMemoryPersistenceStore();
     const service = new OpportunityEvidenceService(new DurableDataSourceConnectionRepository(store), new DurableProjectDataSourceReferenceRepository(store), new DurableOpportunityEvidenceRepository(store));
 
-    const classified = service.classifyCandidates([candidate("장 건강", 0, "userSpecified")], [], data, project)[0];
+    const classified = service.classifyCandidates([candidate("장 건강", 0, "userSpecified")], [], data, project).candidates[0];
 
     expect(classified.confidence).toBe(0);
     expect(classified.evidenceIds).toEqual([]);

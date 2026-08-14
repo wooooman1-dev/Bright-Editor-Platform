@@ -9,7 +9,7 @@ import { WorkspacePlatformOnboarding } from "../onboarding/WorkspacePlatformOnbo
 import type { WorkspaceSummary } from "../shared/view-models/workspace";
 import { applyTheme } from "../settings/theme";
 import { ContentCreationFlow } from "./ContentCreationFlow";
-import { resolveContentOpenDestination } from "./content-navigation";
+import { canReopenPlanningCandidates, resolveContentOpenDestination } from "./content-navigation";
 import { DangerZone } from "./DangerZone";
 import { EditorWorkspace } from "./EditorWorkspace";
 import { ProjectCardActions } from "./ProjectCardActions";
@@ -418,7 +418,11 @@ function screenFromLocation(data: UserData): Screen {
   if (!project) return { name: "home" };
   if (name === "create") {
     const content = contentId ? data.contents.find((item) => item.id === contentId && item.projectId === project.id && item.workspaceId === project.workspaceId) : undefined;
-    if (content?.document) return { name: "editor", projectId, contentId: content.id };
+    // A finished article used to be redirected to the editor here, because the
+    // create screen had nothing to offer once a manuscript existed. It does now:
+    // this is the address of the stored topic candidates, so reloading or
+    // sharing it has to land where it says.
+    if (content?.document && !canReopenPlanningCandidates(content)) return { name: "editor", projectId, contentId: content.id };
     return contentId && !content ? { name: "project", projectId } : { name: "create", projectId, ...(content ? { contentId: content.id } : {}) };
   }
   if (name === "editor") {
