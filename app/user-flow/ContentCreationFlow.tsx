@@ -129,7 +129,22 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
     return () => window.clearTimeout(timer);
   }, [content?.planningWorkflow?.revision, content?.planningWorkflow?.status, onRefresh]);
 
+  /**
+   * True when this screen was opened at an article that was already finished.
+   *
+   * The hand-off below exists to carry the user into the editor the moment a
+   * generation this screen is watching completes, including one that was still
+   * running when the page reloaded. It must not fire for someone who came back
+   * here deliberately to look at the stored candidates of a finished article —
+   * doing so bounced them straight into the editor, which reads as the button
+   * doing nothing at all.
+   */
+  const openedAtFinishedArticleRef = useRef(
+    content?.planningWorkflow?.status === "generated" && Boolean(content.document),
+  );
+
   useEffect(() => {
+    if (openedAtFinishedArticleRef.current) return;
     if (content?.planningWorkflow?.status === "generated" && content.document) onOpenEditor(content.id);
   }, [content?.document, content?.id, content?.planningWorkflow?.status, onOpenEditor]);
 
