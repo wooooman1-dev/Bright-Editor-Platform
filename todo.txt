@@ -7,20 +7,18 @@ npm run dev
 npm install 은 이전 브랜치에서 뒤처져 있을 때만. 이번 작업은 package.json 을
 건드리지 않았다.
 
-주의: 이 세션에서 커밋한 2개(5a165fe, 6a1bbde)가 세션 종료 시점에 origin 에
-아직 push 안 됐다(origin HEAD 는 d6da69e). 다음 세션 시작 시
-`git log origin/feat/scheduled-publishing-and-diversity -3` 로 push 여부부터
-확인할 것 — push 가 안 됐다면 사장님 지시 없이 임의로 push 하지 말고
-(CLAUDE.md/AGENTS.md 원칙상 커밋·푸시는 사용자가 지시할 때만) 먼저 확인받는다.
+이번 세션의 커밋은 사장님 지시로 origin 에 push 했다. 그래도 다음 세션 시작
+시 `git log origin/feat/scheduled-publishing-and-diversity -3` 으로 확인부터
+할 것 — 커밋·푸시는 CLAUDE.md/AGENTS.md 원칙상 사용자가 지시할 때만 한다.
 
-== 현재 상태 (2026-08-14, 6a1bbde) ==
-브랜치 feat/scheduled-publishing-and-diversity, HEAD = 6a1bbde, origin 보다
-2커밋 앞섬. 미커밋 변경은 next-env.d.ts(Next 자동 생성, 내용 diff 없음)와
-추적 대상이 아닌 진단 산출물 2개(evidence-diagnostic.json,
-project-evidence-verification.json)뿐 — 의도적으로 커밋에서 제외했다.
+== 현재 상태 (2026-08-14) ==
+브랜치 feat/scheduled-publishing-and-diversity. 미커밋 변경은 next-env.d.ts
+(Next 자동 생성, 내용 diff 없음)와 추적 대상이 아닌 진단 산출물 2개
+(evidence-diagnostic.json, project-evidence-verification.json)뿐 —
+의도적으로 커밋에서 제외했다.
 
-`npx vitest run tests/unit` 322파일 2001테스트 통과, `npx tsc --noEmit` 클린,
-`npx eslint .` 클린 — 커밋 후 실제로 실행한 결과다.
+`npx vitest run tests/unit` 322파일 2006테스트 통과, `npx tsc --noEmit` 클린,
+`npx eslint .` 클린 — 실제로 실행한 결과다.
 
 참고: tests/unit/app/application/ConnectionInfrastructure.test.ts 의 Windows
 DPAPI 테스트는 전체 스위트 부하에 따라 5000ms 제한을 넘나드는 플래키 테스트다
@@ -92,6 +90,35 @@ generatedFactualClaimInventory 는 items=14 / retained=0 / removed=14 —
 섹션 수치를 감싸주지 못함, 근거 없는 "예시" 문장은 그대로 삭제됨, 소수점
 분할 안 됨, dangling ID 없음.
 
+3. `1021d75 test: lock the withdrawal fix against the section that actually
+   broke` — 사고 당시 대출 상환방식 비교 섹션을 인벤토리에 남은 원문과 12개
+   수치로 재구성해, 고친 파이프라인이 그걸 그대로 보존하는지 고정했다.
+   대표 텍스트가 아니라 실제 프로덕션 입력이라 회귀하면 반드시 실패한다.
+
+4. UI 수정 3개 — 사장님이 "원고 생성한 뒤에는 추천 후보글 화면으로 다시
+   갈 수가 없다"고 지적해서 시작됐다.
+   - `3b95646 fix: let the editor return to an article's stored topic
+     candidates` — 편집기 상단에 "추천 주제 후보 다시 보기" 경로 추가.
+     후보는 생성 이후에도 Content 에 그대로 남아 있는데 돌아갈 길만 없었다.
+     조건은 content-navigation.ts 의 canReopenPlanningCandidates 로 분리.
+   - `a9ad452 fix: stop bouncing a finished article out of its own candidate
+     screen` — 위 버튼이 눌러도 반응이 없었다. ContentCreationFlow 의
+     "생성 완료 시 편집기로 넘김" effect 가 이미 완성된 원고에서 되돌아온
+     경우에도 발동했다. 이 화면이 직접 관찰한 전환일 때만 넘어가도록 수정.
+   - `7010373 fix: say which topics were dropped and which one produced the
+     article` — 사장님이 "후보가 3개였는데 2개만 보이고, 원고 생성했던
+     후보에 표시가 없다"고 지적. classifyCandidates 가 추천 유형을 못 정한
+     후보를 **아무 흔적 없이** 버리고 있었다(중복/전략 불일치/안전성/의도
+     불명확). 이제 탈락 사유와 함께 반환하고 확인 화면에 표시한다.
+     반환 타입이 ClassifiedOpportunities { candidates, excluded } 로 바뀌어
+     호출부와 테스트 3개 파일을 맞췄다. 생성된 후보에는 "이 후보로 원고
+     생성됨" 배지를 붙였다. 여기에 세 번째 결함도 있었다 —
+     FirstRunExperience 의 screenFromLocation 이 view=create 주소를 원고가
+     있으면 무조건 editor 로 바꿔서, URL 직접 진입과 새로고침이 튕겼다.
+
+UI 수정은 전부 브라우저로 직접 확인했다(개발 서버 3000 포트, Chrome 자동화).
+단위 테스트만으로는 화면 전환이 안 잡힌다 — 실제로 두 번 연속 놓쳤다.
+
 == 사장님 방침 (이번 세션에 확인) ==
 승인용 원고 본문에는 **출처를 표시할 수 있으면 최대한 표시한다**. 반드시 정부·
 금감원 같은 공식 기관 출처여야만 표시하는 게 아니라, 글의 내용이 어디서 왔는지
@@ -100,28 +127,102 @@ generatedFactualClaimInventory 는 items=14 / retained=0 / removed=14 —
 "출처 없는 지원금·세율·금리·신청 기간"(:232)이다. 위 2번 커밋의
 bodyOffersConfirmationPath 가 이 방침의 구현이다.
 
+== 재검증 결과 (2026-08-14 오후, 실제 생성으로 확인) ==
+
+사장님이 브라우저에서 원고를 새로 생성했고
+(content-msslmpe0-3ukj13 "예금 중도해지 이자 계산 방법을 해지 결정에 적용하는
+법", 34블록, status=ready), studio-data.json 실측으로 이번 세션 수정의 효과를
+확인했다. **수정 7건 중 5건이 실제 생성 결과로 검증됐다.**
+
+  [표 셀]        4x4 표 전부 채워짐. 빈칸 0개, "12,0" 같은 잘린 값 없음.
+                 (이전 원고는 15칸 중 14칸이 빈칸이었다)
+  [삭제 단위]    삭제 9건이 전부 개별 문장. 문단 통째 삭제 없음.
+  [structure]    참조 31개 / 블록 34개 / dangling 0개.
+                 (이전 원고 1개, 정부지원금 원고 5개였다)
+  [카드]         warning 섹션 → "주의·확인" 카드 정상 부착.
+  [게이트]       삭제 9건 → evidence needs_review, applicationReady=false.
+                 품질은 100점 approved=true 인데 승인 준비는 blocked.
+                 점수와 승인 준비가 분리돼 있음이 실제로 증명됐다.
+                 (이전 원고는 14건 삭제에도 applicationReady=true 였다)
+
+미검증 2건: 정보 기준일 면제(이번 원고엔 애초에 정보 기준일이 생성되지 않아
+시험되지 않음), 계산 가정 고지 면제(이번 원고에 계산 예시가 없었음).
+
+남은 결함은 하나로 수렴한다 — **본문에 출처와 정보 기준일이 없다.**
+approval_policy 가 blocked 이고 action 필드가 정확히 그 둘을 지목한다:
+"적용 프로필이 요구하는 출처 또는 검토 기준 표시가 없습니다. 정보 기준일 또는
+최종 검토일을 확인할 수 없습니다." 삭제된 게 아니라 생성이 쓰지 않았다.
+위 "다음 할 일" 1번이 이 문제다.
+
+== 이번 세션에 내가 틀렸다가 정정한 것 (다음 세션이 반복하지 않도록) ==
+
+- "OpportunityEvidenceService.classifyCandidates 는 flatMap 이라 후보 순서를
+  안 바꾼다" → **틀렸다.** 같은 함수 끝(:128-133)에
+  compareOpportunityEditorialValue → recommendationTypePriority →
+  verifiedCount → freshnessPriority 순으로 **정렬한다.** 첫 후보는 실제
+  "추천 1순위"가 맞고 03_USER_FLOW.md:118 과 어긋나지 않는다.
+- "approval_policy 가 위반 사유를 안 알려준다" → **틀렸다.** message 는 개수만
+  말하지만 action 필드에 위반 내용이 그대로 적혀 있다. 체크를 읽을 때는
+  message 만 보지 말고 action 을 함께 볼 것.
+- UI 수정을 두 번 연속 "코드상 맞아 보이는데 실제로는 안 되는" 상태로
+  커밋했다. app/user-flow 변경은 반드시 브라우저로 직접 확인할 것. 단위
+  테스트는 화면 전환 로직을 잡지 못한다.
+
+== 새로 발견한 결함 (2026-08-14 오후, 미수정) ==
+
+월세 세액공제 원고 생성이 Source Preflight 단계에서 차단됐다
+(content-msslmpe0-3ukj13, wf=failed, "필수 사실 근거가 완전히 검증되지 않아
+원고 생성을 시작하지 않았습니다"). 저장된 approvalSourcePreflightDiagnostic:
+
+  rejectionCode: coverage_incomplete / rejectionStage: coverage
+  requiredClaimId: "월세 세액공제 공제율"
+  웹 검색 1회 · 웹 소스 18개 → 공식 출처 3개
+  공식성 3/3 · 관련성 3/3 · 앵커 3/3 · 의미검증 7/9 통과
+  필수 Claim 4개 중 3개 충족, verification-claim-1647a4c4 만 미충족
+
+차단 자체는 정책과 일치한다 — 14_ADSENSE_APPROVAL_CONTENT_POLICY.md:99 가
+"실시간 공식 자료 없이 작성하는 세율"을 금지하므로 공제율 미검증 상태로
+원고를 쓰면 안 된다. 문제는 **출처를 이미 확보했는데도** 막혔다는 점이다.
+탈락한 두 출처는 국가법령정보센터(law.go.kr/lsLinkCommonInfo.do?
+lsJoLnkSeq=1031942147)와 국세청(nts.go.kr/...cntntsId=239025)이고, 둘 다
+rejectionCode 가 claim_normalization_failed 였다.
+
+core/approval/VerificationClaimEvidenceMatch.ts:48 기준으로 이 코드는
+normalizedValuePresent 가 false 라는 뜻이고, 그 값은
+core/approval/ExplicitVerificationPreflight.ts:47 에서
+normalizeExplicitClaimValue(spec, claim.value, sourceContext) 의 결과가
+비었을 때 false 가 된다. 즉 공식 출처는 찾았는데 거기서 공제율 값을 뽑아
+정규화하는 데 실패했다.
+
+다음 세션이 할 일: 해당 페이지 텍스트에서 공제율이 어떤 형태로 나타나는지
+확인하고 normalizeExplicitClaimValue 가 그 형태를 처리하지 못하는지
+판정한다. 정규화 결함이면 고치고, 모델이 애초에 값을 제출하지 않은 것이면
+프리플라이트 프롬프트 문제다 — 진단의 rejectionSamples 에 claim.value 가
+남지 않아 둘을 구분하려면 재현이 필요하다. 참고로 이 진단을 남기는 구조
+자체는 잘 작동했다(어느 Claim이 왜 막혔는지 정확히 알 수 있었다).
+
 == 다음 할 일 ==
-1. 후보 2로 원고를 **다시 생성**해 이번 수정 6가지가 실제로 먹혔는지 확인한다.
-   기존 content-mss9s98k-mo7oka 는 훼손된 상태로 저장돼 있으므로 발행하면 안
-   된다. 확인할 것: 비교 표에 숫자가 남는지, 정보 기준일과 계산 가정 고지가
-   살아남는지, removed 건수가 14 에서 얼마나 줄었는지, longFormStructure 에
-   dangling ID 가 없는지, evidence 체크가 어떤 상태로 뜨는지.
+1. **생성이 출처와 정보 기준일을 본문에 쓰게 만든다 (최우선).** 아래 재검증
+   결과에서 확정된 유일한 남은 결함이다. 게이트는 없는 걸 정확히 잡아냈지만
+   (approval_policy blocked), 애초에 쓰이게 하는 일은 안 되어 있다. 이번
+   세션은 사장님의 "본문에 출처를 최대한 표시하라" 지시를 게이트 쪽
+   (bodyOffersConfirmationPath) 으로만 구현했고 생성 프롬프트는 손대지 않았다.
+   프리플라이트가 공식 출처를 이미 확보해 두므로(이번 원고는 1개 확인)
+   없는 출처를 지어낼 위험 없이 그 값을 본문에 쓰도록 지시하면 된다.
+   확인은 생성 1회가 더 필요하다.
 2. 훼손된 기존 원고 복원. document.metadata.generatedFactualClaimInventory 에
    삭제된 블록의 원문(surfaceText)과 블록 ID(locations)가 그대로 남아 있어
    재생성 없이 되살릴 수 있다. 대상은 content-mss9s98k-mo7oka(14건),
    content-msoc80eo-qwbi43(8건), content-msmjpvq5-tjoeah(3건).
-3. "생성이 인벤토리 보고를 누락하는 계약 위반" 자체는 이번에 별도 수정을 넣지
-   않았다. 위 2번 커밋으로 미보고 삭제가 evidence needs_review 로 드러나긴
-   한다. 생성을 실패시킬지는 다음 생성에서 미보고가 몇 건 나오는지 보고
-   판단한다 — 이번 원고는 14건 전부가 unreported_generated_critical 이었다.
-4. Planning 후보 순서에 정렬이 없다. UI 기본값은 첫 번째 후보이고
-   (ContentCreationFlow.tsx:55), OpportunityEvidenceService.classifyCandidates
-   는 flatMap 이라 순서를 안 바꾼다. 즉 후보 순서 = AI 응답 순서이고
-   confidence 나 근거 강도를 반영하지 않는다. 이번 후보 2개는 confidence
-   0.984 vs 0.982 로 거의 같았지만 근거 강도는 크게 달랐다(후보 1 은 Search
-   Console 노출 1·클릭 0·평균순위 51, 후보 2 는 네이버 트렌드 비율 7.6~93.2).
-   03_USER_FLOW.md:118 은 "추천 1순위"를 전제하므로 문서와 코드가 어긋난다.
-5. identity 제외 목록(canonicalizerOwnedFields) 상한 고정 테스트 추가 —
+   content-mss9s98k-mo7oka 는 비교 표가 빈칸이라 발행하면 안 된다.
+3. 면책·한계 고지 문장이 삭제되는 문제. 이번 원고에서 지워진 9건 중에는
+   "이 글은 특정 상품의 금리나 해지 조건을 제시하지 않습니다.", "다만 이는
+   변수의 관계를 이해하기 위한 틀일 뿐이며, 실제 적용 기간의 계산 방식과
+   이율은 상품 조건을 따라야 합니다." 같은 **면책 고지**가 섞여 있다. 사실
+   주장이 아니라 오히려 정책이 권장하는 문장이다. 이번 세션에 계산 가정
+   고지는 면제했지만(disclosedSurfaces) "우리는 단정하지 않는다"류 고지는
+   면제 범위 밖이다. 계산 고지와 같은 방식으로 좁게 면제하는 것을 검토한다.
+4. identity 제외 목록(canonicalizerOwnedFields) 상한 고정 테스트 추가 —
    ApprovalReadinessAggregateIntegrity.test.ts. 지난 세션부터 미착수.
 
 == 보류/관찰 중인 항목 ==
