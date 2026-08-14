@@ -1,3 +1,4 @@
+import { evaluatePublicPageIndexability } from "../../../core/approval";
 import type {
   SiteApprovalReadinessAdapter,
   SiteApprovalReadinessAuditInput,
@@ -21,6 +22,8 @@ type MutableSiteCheck = {
   passed: boolean;
   message: string;
   requirement?: SiteApprovalReadinessRequirement;
+  /** D-039: 차단에는 사용자가 실제로 할 수 있는 다음 행동이 붙어야 한다. */
+  action?: string;
 };
 
 type PublicResource = Readonly<{
@@ -28,6 +31,7 @@ type PublicResource = Readonly<{
   finalUrl: string;
   status: number;
   contentType: string;
+  xRobotsTag: string;
   body: string;
   redirectCount: number;
 }>;
@@ -187,6 +191,60 @@ export async function auditWordPressSiteReadiness(
       : "권장: 문의 또는 연락 링크 후보를 확인하지 못했습니다.",
   });
 
+  /**
+   * 신뢰 페이지가 실제로 색인될 수 있는가.
+   *
+   * 위의 privacy·about·contact 검사는 홈페이지에 **링크가 있는지**만 본다.
+   * 그래서 2026-08-14 실측에서 이 감사는 15건 전부 통과라고 보고했고, 같은 날
+   * Search Console 은 `/about/` 과 `/disclaimer/` 가 NOINDEX 로 제외됐다고
+   * 보고했다. 링크가 있는 것과 그 페이지가 색인될 수 있는 것은 다른 사실이다.
+   *
+   * AdSense 가 찾는 바로 그 페이지들이므로, 링크를 찾았으면 열어서 확인한다.
+   */
+  const trustPageTargets = [
+    { label: "개인정보처리방침", link: privacyLinks[0] },
+    { label: "사이트 소개", link: aboutLinks[0] },
+    { label: "문의", link: contactLinks[0] },
+  ].flatMap((entry) => entry.link ? [{ label: entry.label, url: entry.link.url }] : []);
+
+  const trustPageResults: { label: string; url: string; state: "indexable" | "excluded" | "unreachable"; detail: string }[] = [];
+  for (const target of trustPageTargets) {
+    try {
+      const page = await session.get(target.url, "text/html,application/xhtml+xml");
+      // 링크는 있는데 페이지가 열리지 않으면 색인 가능 여부를 말할 수 없다.
+      if (page.status < 200 || page.status >= 400) {
+        trustPageResults.push({ ...target, state: "unreachable", detail: `HTTP ${page.status}` });
+        continue;
+      }
+      const indexability = evaluatePublicPageIndexability({ html: page.body, xRobotsTag: page.xRobotsTag });
+      trustPageResults.push(indexability.indexable
+        ? { ...target, state: "indexable", detail: "" }
+        : {
+            ...target,
+            state: "excluded",
+            detail: `${indexability.blockedBy === "header" ? "X-Robots-Tag" : "robots 메타태그"}: ${indexability.directive ?? "noindex"}`,
+          });
+    } catch (error) {
+      trustPageResults.push({ ...target, state: "unreachable", detail: safeErrorMessage(error) });
+    }
+  }
+  const excludedTrustPages = trustPageResults.filter((item) => item.state === "excluded");
+  const unreachableTrustPages = trustPageResults.filter((item) => item.state === "unreachable");
+  checks.push({
+    key: "trust_page_indexable",
+    passed: trustPageResults.length > 0 && !excludedTrustPages.length && !unreachableTrustPages.length,
+    message: !trustPageResults.length
+      ? "신뢰 페이지 링크를 찾지 못해 색인 가능 여부를 확인하지 못했습니다."
+      : excludedTrustPages.length
+        ? `신뢰 페이지가 검색에서 제외되어 있습니다: ${excludedTrustPages.map((item) => `${item.label}(${item.detail})`).join(", ")}.`
+        : unreachableTrustPages.length
+          ? `신뢰 페이지 색인 가능 여부를 확인하지 못했습니다: ${unreachableTrustPages.map((item) => item.label).join(", ")}.`
+          : `신뢰 페이지 ${trustPageResults.length}개가 검색에 노출될 수 있습니다: ${trustPageResults.map((item) => item.label).join(", ")}.`,
+    ...(excludedTrustPages.length
+      ? { action: `${excludedTrustPages.map((item) => item.url).join(", ")} 의 noindex 설정을 해제한 뒤 Search Console 에서 색인 생성을 요청하세요.` }
+      : {}),
+  });
+
   const placeholderFree = !/(?:coming\s*soon|under\s*(?:construction|maintenance)|maintenance\s*mode|공사\s*중|점검\s*중|준비\s*중|lorem\s*ipsum|sample\s*page|hello\s*world|내용을\s*입력)/i.test(`${title} ${text}`);
   checks.push({
     key: "placeholder_free",
@@ -212,7 +270,7 @@ export async function auditWordPressSiteReadiness(
       : `검색 로봇 설정 파일에 접근하지 못했습니다: ${robotsUrl}`,
   });
 
-  const noindex = hasPublicNoindex(html);
+  const noindex = hasPublicNoindex(home);
   const robotsBlocked = robots ? robotsBlocksPublicCrawlers(robots.body) : true;
   const crawlerAccess = Boolean(robots) && !noindex && !robotsBlocked;
   const crawlerRequirement: SiteApprovalReadinessRequirement | undefined =
@@ -299,6 +357,7 @@ class PublicAuditSession {
           finalUrl: response.url || currentUrl,
           status: response.status,
           contentType: response.headers.get("content-type") ?? "",
+          xRobotsTag: response.headers.get("x-robots-tag") ?? "",
           body,
           redirectCount,
         });
@@ -476,14 +535,11 @@ function isRedirect(status: number): boolean {
   return status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
 }
 
-function hasPublicNoindex(html: string): boolean {
-  for (const match of html.matchAll(/<meta\b[^>]*>/gi)) {
-    const tag = match[0];
-    if (!/(?:name|property)=["'](?:robots|googlebot|bingbot)["']/i.test(tag)) continue;
-    const content = /content=["']([^"']*)["']/i.exec(tag)?.[1] ?? "";
-    if (/\bnoindex\b/i.test(content)) return true;
-  }
-  return false;
+function hasPublicNoindex(resource: PublicResource): boolean {
+  return !evaluatePublicPageIndexability({
+    html: resource.body,
+    xRobotsTag: resource.xRobotsTag,
+  }).indexable;
 }
 
 function robotsBlocksPublicCrawlers(body: string): boolean {

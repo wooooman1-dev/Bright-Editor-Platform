@@ -178,6 +178,11 @@ export type SiteApprovalReadinessSnapshot = Readonly<{
     passed: boolean;
     message: string;
     requirement?: SiteApprovalReadinessRequirement;
+    /**
+     * D-039: 통과하지 못한 검사에는 사용자가 실제로 할 수 있는 다음 행동을 붙인다.
+     * 해결 경로 없는 차단 상태를 만들지 않기 위한 계약이다.
+     */
+    action?: string;
   }>[];
 }>;
 
