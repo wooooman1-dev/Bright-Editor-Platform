@@ -25,7 +25,11 @@ describe("WordPress table rendering", () => {
     expect(html).toContain('<td style="border:1px solid #dcdcde');
     expect(html).toContain("<figcaption");
     expect(html).toContain("overflow-x:auto");
-    expect(html).toContain("min-width:480px");
+    // 워드프레스는 본문 inline style 에서 overflow-x 를 지우고 min-width 는 남긴다.
+    // 스크롤 컨테이너가 사라지는 곳에서 표에 min-width 를 실으면 본문 칸을 뚫고
+    // 나간다 — 2026-08-14 발행분에서 960px 표가 720px 칸을 넘었다.
+    expect(html).not.toContain("min-width:480px");
+    expect(html).toMatch(/<table style="width:100%;[^"]*table-layout:auto/);
   });
 
   it("renders normalized lists semantically and omits source-empty image plans", () => {
