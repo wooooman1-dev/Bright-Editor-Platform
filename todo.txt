@@ -7,155 +7,131 @@ npm run dev
 npm install 은 이전 브랜치에서 뒤처져 있을 때만. 이번 작업은 package.json 을
 건드리지 않았다.
 
-주의: 이 세션에서 커밋한 3개(22f7329, 2c67dd1, d972cc3)가 세션 종료 시점에
-origin 에 아직 push 안 됐다(`git status -sb` 로 확인: "ahead 3", origin HEAD 는
-fe07307 에 머물러 있음). 다음 세션 시작 시 반드시
+주의: 이 세션에서 커밋한 2개(5a165fe, 6a1bbde)가 세션 종료 시점에 origin 에
+아직 push 안 됐다(origin HEAD 는 d6da69e). 다음 세션 시작 시
 `git log origin/feat/scheduled-publishing-and-diversity -3` 로 push 여부부터
-확인할 것 — push 가 안 됐다면 사장님 지시 없이 임의로 push 하지 말고(위
-CLAUDE.md/AGENTS.md 원칙상 커밋·푸시는 사용자가 지시할 때만) 먼저 확인부터
-받는다.
+확인할 것 — push 가 안 됐다면 사장님 지시 없이 임의로 push 하지 말고
+(CLAUDE.md/AGENTS.md 원칙상 커밋·푸시는 사용자가 지시할 때만) 먼저 확인받는다.
 
-== 현재 상태 (2026-08-14, d972cc3) ==
-브랜치 feat/scheduled-publishing-and-diversity, HEAD = d972cc3, origin 보다
-3커밋 앞섬(push 안 됨). `git status --short` 클린 — 미커밋 변경 없음.
+== 현재 상태 (2026-08-14, 6a1bbde) ==
+브랜치 feat/scheduled-publishing-and-diversity, HEAD = 6a1bbde, origin 보다
+2커밋 앞섬. 미커밋 변경은 next-env.d.ts(Next 자동 생성, 내용 diff 없음)와
+추적 대상이 아닌 진단 산출물 2개(evidence-diagnostic.json,
+project-evidence-verification.json)뿐 — 의도적으로 커밋에서 제외했다.
 
-이번 세션은 fe07307(지난 세션 handover) 이후 순수 버그 수정 3개 커밋을
-추가했다. "feat/scheduled-publishing-and-diversity" 브랜치 이름이 가리키는
-원래 기능(예약 발행, 다양성) 자체의 진행 상황은 이번 세션에서 손대지 않았다
-— 그 부분은 이 파일의 과거 기록(아래 남겨둔 절 밖의 것은 이미 지워졌으니
-git log 로 확인)을 참고할 것.
+`npx vitest run tests/unit` 322파일 2001테스트 통과, `npx tsc --noEmit` 클린,
+`npx eslint .` 클린 — 커밋 후 실제로 실행한 결과다.
 
-각 커밋 전 `npx tsc --noEmit` 클린 확인. 최종적으로
-`npx vitest run tests/unit` → 323 files / 1991 tests 전부 통과(3개 커밋
-합산 최종 실행), `npx eslint .` 클린 확인 — 전부 이번 세션에 실제로 실행한
-결과다.
+참고: tests/unit/app/application/ConnectionInfrastructure.test.ts 의 Windows
+DPAPI 테스트는 전체 스위트 부하에 따라 5000ms 제한을 넘나드는 플래키 테스트다
+(단독 실행 5.16초로 통과). 이번 세션 변경과 무관하며 손대지 않았다. 실패하면
+단독으로 다시 돌려볼 것.
 
-1. `22f7329 fix: write unverified example numbers as prose, not compressed
-   numerals` — approval-evidence 담당. `core/ai/ApprovalSourcePreflight.ts`의
-   `withApprovalSourcePreflightInstruction` 두 갈래(canonical Claim-ID 번들 /
-   ad-hoc 출처 번들) 모두에 "검증된 Claim이 아닌 예시·주기·근사 숫자는
-   압축형(1주) 대신 서술형으로 써라" 지시를 추가했다 — 제목·헤딩·리스트
-   라벨·표 셀 포함. 순수 프롬프트 예방책, 게이트(`GeneratedClaimBinding.ts`)
-   는 무변경. 신규 테스트
-   `tests/unit/core/ai/ApprovalSourcePreflightInstruction.test.ts`.
-   지난 세션이 "1주 수면 습관 점검표" 오탐을 "문법 신호가 전혀 없어 게이트로
-   못 고친다"고 남긴 항목(다음 할 일 2번)을 이 프롬프트 수정으로 처리한
-   것 — 재발 여부는 실제 생성으로만 확인 가능(아래 "다음 할 일" 참고).
+== 이번 세션에 한 일 ==
 
-2. `2c67dd1 fix: keep withdrawn-Claim removal from gutting section prose`
-   — quality-root-cause 담당. **이번 세션 핵심 발견**: 사장님이 "차단이
-   며칠째 안 풀린다"고 지적한 `CONTENT_SECTION_PROSE_INSUFFICIENT`의 진짜
-   원인을 실측(`content-msrfq4gt-fc8ub1` 재현)으로 확정했다. 게이트도
-   400/250자 하한도 문제가 아니었다 — 생성 직후엔 원고가 하한을 여유 있게
-   통과한다(실측: 411/497자 vs 250/400 하한). 문제는 생성 *이후*
-   `core/approval/GeneratedFactualClaimInventory.ts`의
-   `findUntrackedCriticalSurfaces` → `removeGeneratedFactualSurface`가
-   "인벤토리에 미보고된 critical 패턴 문장"을 발견하면 그 문장이 든
-   **문단 전체**를 삭제하는 것이었다 — 삭제된 문단 중엔 표를 설명하던
-   문단, 정보 기준일 날짜(정책상 오히려 필수)가 섞여 있었다. 화면의
-   "산문 부족" 진단 문구가 실제 원인(문단 삭제)을 전혀 가리키지 않고
-   있었다.
-   - `core/ai/AIWorkflow.ts`: `factualInventoryGeneration`(승인 모드) 전용
-     "Withdrawal-resilient paragraph contract" 추가 — 검증 대상 사실은
-     독립 문단에, 표/리스트 설명 산문과 섞지 말고, 하한은 비-사실 문단만
-     으로 채우라고 지시. 수익형 콘텐츠 경로는 안 건드림(위 pinned memory
-     "adsense-approval-vs-revenue-content-scope" 준수).
-   - `app/application/EditorialQualityPipeline.ts`: `manuscriptDiagnostics`
-     가 `CONTENT_INCOMPLETE_SECTION`만 2차(복구) 호출에 전달하고 정작
-     차단 사유인 `CONTENT_SECTION_PROSE_INSUFFICIENT`는 전달 안 하던
-     버그 수정. 이제 `blockingViolations`/`sectionProseShortfalls`
-     (heading·minimum·actual)를 전달하고 "새 사실 없이 설명 산문만으로
-     채워라" 지시 추가.
-   - `core/content/LongFormDiagnostics.ts`: 판정 로직 **무변경**.
-     `core/content/index.ts`가 400/250 상수를 `longFormNarrativeFloors`로
-     export해서 프롬프트 3곳 하드코딩 숫자가 게이트와 어긋나지 않게 함.
-   - 신규 테스트: `tests/unit/core/ai/
-     AIWorkflowWithdrawableFactIsolation.test.ts`.
-   - **미해결(삭제 로직 자체는 이번에 손 안 댐, 아래 "다음 할 일" 1번
-     참고)**: (1) 삭제 단위가 문장이 아니라 문단 전체, (2)
-     `criticalSurfacePattern`이 정책상 필수인 정보 기준일 날짜까지
-     critical로 오분류, (3) 생성이 Claim 인벤토리 보고를 누락하는 계약
-     위반 자체가 방치됨(한 원고에서 `unreported_generated_critical` 4건
-     발생), (4) 삭제 후 `longFormStructure`가 삭제된 블록 ID를 그대로
-     참조(desync). 이 4가지가 해결돼야 "차단 완전 해제"와 (아래 3번의)
-     "출처 소실"이 근본적으로 풀린다.
+지난 세션이 "다음 할 일 2번"으로 남긴 실제 원고 생성 재검증을 사장님이
+브라우저에서 수행했고, 그 결과를 .bright-studio/studio-data.json 실측으로
+분석해 결함 6가지를 확정하고 고쳤다.
 
-3. `d972cc3 fix: stop hiding the Evidence card and unreachable readiness
-   aggregates` — approval-readiness-designer 담당. 사장님이 "출처가
-   표시되지도 않고 출처 검토도 안 된다"고 지적한 원인 3가지를 밝은재테크
-   실 원고 19편 실측으로 확정:
-   - `app/user-flow/quality-review-ui.ts`의
-     `visibleApprovalReadinessChecks`가 `applicable !== false`만 통과시켜서,
-     mandatory Claim이 없어 `applicable: false`로 판정되는 Evidence 체크가
-     **패널에서 통째로 사라지고** 있었다(19편 중 8편이 이 경로, 그중 4편은
-     실제로 출처를 못 찾아 문장이 빠진 인벤토리 보유 — 시스템이 한 일이
-     화면에서 안 보였다). 이제 "필수 검증 대상 아님" 라벨로 표시.
-   - `core/quality/QualityEnginePolicy.ts`의 `standardQualityCheck`가
-     "품질 미승인"이라고만 말하고 이유를 안 줌 — 차단된 8편 중 5편이
-     점수는 전부 100점이라 점수판도 카드도 진짜 차단 사유를 안 알려주고
-     있었다. `standardQualityBlockingReasons` 신설, 차단된 task 메시지를
-     모아 카드에 표시.
-   - `app/application/approval/ApprovalAwarePersistenceStore.ts`의
-     `reconcileApprovalReadinessAggregates`가 기존 aggregate가 없으면 새로
-     derive 자체를 안 했음 — Quality report와 정책 스냅샷은 있는데
-     aggregate가 한 번도 없었던 원고 3편(19편 중)은 승인 준비 패널이
-     통째로 안 떴다. 이제 최초 1회도 derive·저장하도록 수정.
-   - 관련 파일: `core/approval/ApprovalReadiness.ts`,
-     `core/approval/ApprovalReadinessDerivation.ts`,
-     `app/application/approval/ApprovalReadinessApplicationServiceBase.ts`,
-     `app/user-flow/EditorWorkspaceImplementation.tsx`.
-   - 이 커밋을 만들던 에이전트가 세션 API 사용량 한도로 중간에 죽었지만
-     (재개 불필요, 실측·수정·테스트 모두 이미 완료된 상태였음) 커밋 직전
-     검증 중 스크래치 파일
-     `tests/unit/core/approval/ZzLiveReadinessProbe.test.ts`(세션 임시
-     디렉터리의 `live.json`을 절대경로로 읽는 디버깅용 코드, 실제
-     assertion 없음)를 발견해서 커밋에서 제외하고 삭제했다 — 다음 세션은
-     이 파일이 없다는 걸 이상하게 여기지 않아도 된다.
+실측 대상: content-mss9s98k-mo7oka "대출 상환방식 비교로 읽는 월 납입액과
+총이자의 차이" (밝은재테크, project-ms6sj39z-tmd83k, adsense_approval).
+Planning 후보 2개 중 사장님이 후보 2를 선택해 생성했다.
 
-세션 중 확인한 사실(오해 정정용): "3단계 AI 호출(출처 프리플라이트+생성+
-품질검토)"은 `contentPurpose: adsense_approval`일 때만 적용되는 의도된
-예외라는 걸 `core/approval/ApprovalPolicy.ts:255-272`,
-`core/ai/AIWorkflow.ts:105-116` 코드로 확인했다 — 수익형 콘텐츠는 여전히
-Decision Log 원칙대로 2콜이다.
+핵심 발견: 이 원고는 status=ready, 품질 100점, 승인 준비 6개 체크 전부 passed,
+applicationReady=true 로 통과했는데 실제로는 훼손돼 있었다. 비교 표 15개 셀 중
+14개가 빈 문자열이고, 남은 하나는 "12,0" 이라는 쓰레기 값이었다.
+generatedFactualClaimInventory 는 items=14 / retained=0 / removed=14 —
+보고된 사실이 하나도 살아남지 못했다.
+
+1. `5a165fe fix: withdraw factual claims by sentence without corrupting
+   nearby values` — GeneratedFactualClaimInventory.ts, LongFormDiagnostics.ts,
+   core/content/index.ts. 결함 4가지를 한 인과 사슬로 묶어 수정했다.
+   - 삭제 단위: findUntrackedCriticalSurfaces 가 readerVisibleSurfaces 로
+     **블록 텍스트 전체**를 하나의 surface 로 넘겨서, 문단 안 한 문장에 숫자가
+     있으면 문단 전체가 삭제됐다. removeExactSurface 자체는 원래도 부분
+     제거였다 — 지난 세션이 "문단 단위 삭제"라고 적은 것의 진짜 위치는
+     여기다. 이제 sentenceSurfaces 로 문장 단위로 넘긴다. 종결부호 뒤에
+     공백이나 문자열 끝이 올 때만 자르므로 12.5% 같은 소수는 안 쪼개진다.
+   - 값 훼손: removeExactSurface 가 value.replace(surfaceText, " ") 단순
+     치환이라 "60,000원" 을 지우면 이웃한 "12,060,000원" 이 "12,0" 이 됐다.
+     splitsAdjacentNumber 로 더 긴 숫자를 자르는 위치는 건너뛴다.
+   - 빈 표 껍데기: 값이 다 빠져 라벨만 남은 행이 살아남았다.
+     rowStillCarriesData 추가 — 다중 열 행은 라벨 옆에 값이 최소 하나 있어야
+     하고, 모든 행이 탈락하면 표 블록 자체를 버린다.
+   - 고지 오분류: criticalSurfacePattern 이 날짜/금액 패턴으로 정보 기준일과
+     "계산 예시는 …가정만 놓고 산출했습니다" 고지 문단을 잡아 지웠다. 즉
+     숫자의 출처를 먼저 지우고 나서 "출처 없음"으로 숫자를 지웠다.
+     disclosedSurfaces 로 면제한다. 면제는 고지가 있는 **섹션 안으로만**
+     한정되고, 고지 판정은 (계산 예시|가정) AND (산출|계산) AND (대신하지
+     않|반영하지 않|다를 수 있) 셋을 모두 요구한다 — "예시" 단어만으로는
+     면제되지 않는다.
+   - structure desync: 삭제로 블록이 사라져도 longFormStructure 가 그 ID 를
+     계속 참조했다(이 원고 1건, 정부지원금 원고 msoc80eo 5건 실측 확인).
+     pruneLongFormStructure 를 core/content(구조 소유자)에 두고 인벤토리가
+     반환 직전에 호출한다. 헤딩이 사라진 섹션은 통째로 버린다.
+
+2. `6a1bbde fix: stop reporting an article as application-ready after
+   withdrawals` — ApprovalReadiness.ts. 임계값 변경 2가지라 일부러 분리했다.
+   - optionalEvidenceCheck 가 무조건 passed 였다. 지난 세션 주석이 "측정
+     근거 없이 차단으로 바꾸지 않는다"고 명시했는데, 이번 실측이 그 측정을
+     제공했다. 이제 **실제로 삭제된 문장이 있을 때만** needs_review 이고
+     삭제가 없으면 종전대로 passed. blocked 가 아닌 이유는 정책 위반이
+     아니어서다.
+   - bodyOffersConfirmationPath 신설. 본문에 독자가 원문을 확인할 경로가
+     전혀 없으면 needs_review. URL 과 기관명뿐 아니라 계약서·상품설명서·
+     약관·공고문처럼 **독자가 직접 열어볼 수 있는 문서 지목**도 인정한다 —
+     공식 기관 페이지가 없는 주제를 배제하지 않기 위해서다. AGENTS.md 14장
+     ("A source label or the word 출처 is not evidence verification") 대로
+     needs_review 로 낮추기만 하고 절대 passed 로 올리지 않는다.
+   - 기존 테스트 픽스처 4곳에 확인 경로를 추가했다. 판정 로직을 완화한 게
+     아니라 픽스처를 실제 승인 원고처럼 만든 것이다. 실제 대출 원고는
+     "상품설명서" 를 4번 언급해 이 검사를 통과하므로 새 기준이 실제 출력에
+     과하게 엄격하지는 않다.
+
+회귀 테스트 11개 추가. 구멍 방지 테스트를 함께 넣었다 — 한 섹션의 고지가 다른
+섹션 수치를 감싸주지 못함, 근거 없는 "예시" 문장은 그대로 삭제됨, 소수점
+분할 안 됨, dangling ID 없음.
+
+== 사장님 방침 (이번 세션에 확인) ==
+승인용 원고 본문에는 **출처를 표시할 수 있으면 최대한 표시한다**. 반드시 정부·
+금감원 같은 공식 기관 출처여야만 표시하는 게 아니라, 글의 내용이 어디서 왔는지
+밝힐 수 있으면 밝힌다. 정책 14_ADSENSE_APPROVAL_CONTENT_POLICY.md 는 공식
+출처를 "우선 출처"로 두지 유일한 출처로 두지 않으며(:109-117), 차단 대상은
+"출처 없는 지원금·세율·금리·신청 기간"(:232)이다. 위 2번 커밋의
+bodyOffersConfirmationPath 가 이 방침의 구현이다.
 
 == 다음 할 일 ==
-0. (선행) `git log origin/feat/scheduled-publishing-and-diversity -3` 로
-   이번 세션 3개 커밋(22f7329, 2c67dd1, d972cc3)이 push 됐는지 확인한다.
-   이 handover 작성 시점엔 미확정(ahead 3) — 직접 확인하고 push 여부가
-   불확실하면 사장님께 먼저 확인받는다.
-1. `core/approval/GeneratedFactualClaimInventory.ts`의 문단 단위 삭제를
-   approval-evidence에게 맡겨 고친다 — 위 2번 커밋의 "미해결" 4항목
-   (문장 단위 삭제, 정보 기준일 오분류, 인벤토리 미보고 계약, structure
-   desync). 이게 풀려야 "차단"과 "출처 소실" 둘 다 근본적으로 해소된다.
-2. 실제 원고 생성으로 재검증한다 — 이번 세션은 단위 테스트로만
-   재현·검증했고(OpenAI 호출 비용 절약), 사장님이 직접 브라우저에서
-   생성해보겠다고 했다. 그 결과를 다음 세션이 확인해야 한다 — 특히 위
-   1번 커밋(예시 숫자 서술형) 재발 여부와 위 2번 커밋(문단 삭제) 이후
-   실제 차단 해제 여부.
-3. `content-mscjq0sq-xd8kp5`(정기결제 해지 방법, `genericClaim:cdusyk`
-   출처 미확보) 문제는 지난 세션이 "다음 할 일 1번"으로 남겼던 항목인데,
-   이번 세션에 확인해보니 이 기계의 `.bright-studio/studio-data.json`에는
-   애초에 이 콘텐츠가 없다(사장님이 "워크스페이스가 다르다"고 확인). 이
-   콘텐츠가 있는 다른 기계에서 재확인할 것.
-4. identity 제외 목록(`canonicalizerOwnedFields`) 상한을 고정하는 테스트를
-   `tests/unit/app/application/approval/
-   ApprovalReadinessAggregateIntegrity.test.ts` 에 추가한다(지난 세션
-   13번 후속 과제, 이번 세션엔 손 안 댐) — URL 재정규화나 provenance
-   변경처럼 "여전히 재검증돼야 하는" 케이스를 다음에 제외 목록을 넓힐 때
-   아무 테스트도 안 울리는 문제. 다음에 승인 관련 작업을 할 때 같이
-   처리해도 된다.
+1. 후보 2로 원고를 **다시 생성**해 이번 수정 6가지가 실제로 먹혔는지 확인한다.
+   기존 content-mss9s98k-mo7oka 는 훼손된 상태로 저장돼 있으므로 발행하면 안
+   된다. 확인할 것: 비교 표에 숫자가 남는지, 정보 기준일과 계산 가정 고지가
+   살아남는지, removed 건수가 14 에서 얼마나 줄었는지, longFormStructure 에
+   dangling ID 가 없는지, evidence 체크가 어떤 상태로 뜨는지.
+2. 훼손된 기존 원고 복원. document.metadata.generatedFactualClaimInventory 에
+   삭제된 블록의 원문(surfaceText)과 블록 ID(locations)가 그대로 남아 있어
+   재생성 없이 되살릴 수 있다. 대상은 content-mss9s98k-mo7oka(14건),
+   content-msoc80eo-qwbi43(8건), content-msmjpvq5-tjoeah(3건).
+3. "생성이 인벤토리 보고를 누락하는 계약 위반" 자체는 이번에 별도 수정을 넣지
+   않았다. 위 2번 커밋으로 미보고 삭제가 evidence needs_review 로 드러나긴
+   한다. 생성을 실패시킬지는 다음 생성에서 미보고가 몇 건 나오는지 보고
+   판단한다 — 이번 원고는 14건 전부가 unreported_generated_critical 이었다.
+4. Planning 후보 순서에 정렬이 없다. UI 기본값은 첫 번째 후보이고
+   (ContentCreationFlow.tsx:55), OpportunityEvidenceService.classifyCandidates
+   는 flatMap 이라 순서를 안 바꾼다. 즉 후보 순서 = AI 응답 순서이고
+   confidence 나 근거 강도를 반영하지 않는다. 이번 후보 2개는 confidence
+   0.984 vs 0.982 로 거의 같았지만 근거 강도는 크게 달랐다(후보 1 은 Search
+   Console 노출 1·클릭 0·평균순위 51, 후보 2 는 네이버 트렌드 비율 7.6~93.2).
+   03_USER_FLOW.md:118 은 "추천 1순위"를 전제하므로 문서와 코드가 어긋난다.
+5. identity 제외 목록(canonicalizerOwnedFields) 상한 고정 테스트 추가 —
+   ApprovalReadinessAggregateIntegrity.test.ts. 지난 세션부터 미착수.
 
 == 보류/관찰 중인 항목 ==
 
-- 줄바꿈(CRLF) 정리: 이전 세션 코드 diff 일부가 파일 전체의 줄바꿈을
-  LF→CRLF로 바꿔 diff를 부풀렸다 (예: app/application/OpenAIProvider.ts).
-  저장소에 .gitattributes 가 없어 파일마다 줄바꿈이 제각각이다. 사장님이
-  "병합 후로 미뤄"라고 지시했다 — 이 브랜치가 main 에 병합된 뒤 별도
-  `chore: normalize line endings` 커밋으로 처리한다. 지금 하면 진행 중인
-  다른 수정과 diff가 뒤섞인다.
+- 줄바꿈(CRLF) 정리: 저장소에 .gitattributes 가 없어 파일마다 줄바꿈이
+  제각각이다. 사장님이 "병합 후로 미뤄"라고 지시했다 — 이 브랜치가 main 에
+  병합된 뒤 별도 `chore: normalize line endings` 커밋으로 처리한다.
 
 == 따라가지 않는 것 ==
-.bright-studio/ 는 git 대상이 아니다. 이번 세션이 실측한 밝은재테크 원고
-19편, 진단 스크립트 산출물은 이 기계에만 남고 옮겨지지 않는다. 다음
-기계에 밝은재테크 Project 와 기존 발행 글이 있어야 반복 회피 컨텍스트와
-내부 링크 카탈로그, 승인 준비 게이트 검증이 같은 조건으로 동작한다.
+.bright-studio/ 는 git 대상이 아니다. 이 기계의 밝은재테크 Project 에는
+콘텐츠 12편(본문 있는 것 7편)이 있고, 이번 세션 실측은 전부 그 데이터에
+기반한다. 다음 기계에 같은 워크스페이스가 없으면 위 "다음 할 일" 1·2번은
+재현되지 않는다.
