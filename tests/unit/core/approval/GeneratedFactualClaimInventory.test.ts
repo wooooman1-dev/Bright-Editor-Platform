@@ -195,17 +195,32 @@ describe("Generated factual Claim sweep keeps surfaces the manuscript already so
   });
 
   it("keeps example figures whose assumptions the same section discloses", () => {
+    // The exact section the 대출 상환방식 비교 article shipped with every value
+    // stripped out, reconstructed from the disclosure and figures its own
+    // inventory recorded as withdrawn.
     const original = sectionDocument([
-      { id: "section-2-heading", type: "heading" as const, level: 2, text: "상환방식 비교 표" },
-      { id: "section-2-p1", type: "paragraph" as const, text: disclosure },
-      { id: "section-2-table", type: "table" as const, headers: ["방식", "1회차 납입액"], rows: [["원리금균등상환", "1,032,797원"]] },
+      { id: "section-2-heading", type: "heading" as const, level: 2, text: "대출 상환방식 비교 표로 보는 납입 패턴과 원금 잔액" },
+      { id: "section-2-paragraph-1", type: "paragraph" as const, text: "아래 계산 예시는 대출원금 1,200만 원, 연 6% 고정금리, 12개월, 매월 납부, 거치기간 없음이라는 가정만 놓고 산출했습니다. 수수료, 인지비용, 연체이자, 금리 변동과 실제 금융회사의 원 단위 절사 방식은 반영하지 않았으므로 계약상 청구액을 대신하지 않습니다." },
+      { id: "section-2-paragraph-3", type: "table" as const,
+        headers: ["방식", "1회차 납입액", "12회차 납입액", "예시 대출 총이자"],
+        rows: [
+          ["원리금균등상환", "약 1,032,797원", "약 1,032,797원", "약 393,566원"],
+          ["원금균등상환", "1,060,000원", "1,005,000원", "390,000원"],
+          ["만기일시상환", "60,000원", "12,060,000원", "720,000원"],
+        ] },
     ]);
     const result = applyGeneratedFactualClaimInventory({
       document: original, drafts: [], decisions: [], fallbackTitle: original.title,
     });
     expect(result.record.removedClaimCount).toBe(0);
     const table = result.document.blocks.find((block) => block.type === "table");
-    expect(table && table.type === "table" ? table.rows.flat() : []).toContain("1,032,797원");
+    const cells = table && table.type === "table" ? table.rows.flat() : [];
+    expect(cells).toContain("약 1,032,797원");
+    expect(cells).toContain("12,060,000원");
+    expect(cells).toContain("720,000원");
+    expect(cells).not.toContain("");
+    // The disclosure that sources those figures has to survive with them.
+    expect(result.document.blocks.some((block) => block.id === "section-2-paragraph-1")).toBe(true);
   });
 
   it("does not let a disclosure in one section shelter figures in another", () => {
