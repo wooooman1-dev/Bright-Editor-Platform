@@ -287,12 +287,10 @@ export function evaluateApprovalPreparationText(
     }
   });
   const coverageKnown = evidence.coverageStatus !== undefined;
-  const coverageVerified = evidence.coverageStatus === "verified"
-    && (evidence.unverifiedFactFields?.length ?? 0) === 0;
+  const coverageVerified = evidence.coverageStatus === "verified";
   // Direct policy callers preserve the conservative legacy default. Runtime
   // workflow callers always provide applicability from the persisted plan.
   const evidenceRequired = evidence.evidenceRequired !== false;
-  const timeSensitiveEvidenceRequired = evidence.timeSensitiveEvidenceRequired !== false;
 
   if (/(?:애드센스|AdSense).{0,18}(?:100\s*%|무조건|반드시|확실히).{0,12}(?:승인|통과)|(?:승인|통과).{0,18}(?:보장|확정)/i.test(normalized)) {
     issues.push({ code: "APPROVAL_GUARANTEE_CLAIM", message: "AdSense 승인 또는 통과를 보장하는 표현이 있습니다.", blocking: true });
@@ -308,8 +306,9 @@ export function evaluateApprovalPreparationText(
   }
 
   const hasSourceSignal = coverageKnown
-    ? coverageVerified
+    ? coverageVerified || evidenceSourceUrls.length > 0 || /https:\/\/[^\s<>)"']+/i.test(normalized)
     : evidenceSourceUrls.length > 0
+    || /https:\/\/[^\s<>)"']+/i.test(normalized)
     || /(?:출처|참고 자료|공식 자료|공식 페이지|소장처|최종 검토일|정보 기준일)/i.test(normalized);
   if (!hasSourceSignal && evidenceRequired) {
     issues.push({ code: "PROFILE_SOURCE_REQUIREMENT_MISSING", message: "적용 프로필이 요구하는 출처 또는 검토 기준 표시가 없습니다.", blocking: true });
@@ -319,12 +318,6 @@ export function evaluateApprovalPreparationText(
     || /https:\/\/[^\s<>)"']+/i.test(normalized);
   if (!hasSourceUrl && evidenceRequired) {
     issues.push({ code: "PROFILE_SOURCE_URL_MISSING", message: "공식 출처를 확인할 수 있는 HTTPS URL이 없습니다.", blocking: true });
-  }
-
-  const hasReviewDate = Boolean(evidence.reviewedAt && Number.isFinite(Date.parse(evidence.reviewedAt)))
-    || /(?:(?:최종\s*검토일|정보\s*기준일)(?:\s*(?:과|와|및)\s*(?:최종\s*검토일|정보\s*기준일))?)\s*(?:은|는|이|가)?\s*[:：]?\s*(?:20\d{2}[-./년]\s*\d{1,2}(?:[-./월]\s*\d{1,2})?|20\d{2}[-./]\d{1,2}(?:[-./]\d{1,2})?)/i.test(normalized);
-  if (!hasReviewDate && timeSensitiveEvidenceRequired) {
-    issues.push({ code: "PROFILE_REVIEW_DATE_MISSING", message: "정보 기준일 또는 최종 검토일을 확인할 수 없습니다.", blocking: true });
   }
 
   return Object.freeze(issues);

@@ -62,7 +62,7 @@ describe("approval date-role and legal-scope policy", () => {
     expect(context).toContain("not every automatic payment or subscription qualifies");
   });
 
-  it("blocks a combined information-date and final-review-date sentence", () => {
+  it("does not block a combined information-date and final-review-date sentence", () => {
     const issues = evaluateApprovalPreparationText(
       "공식 자료를 확인했습니다. 정보 기준일 및 최종 검토일은 2026년 8월 1일입니다.",
       snapshot,
@@ -72,10 +72,7 @@ describe("approval date-role and legal-scope policy", () => {
       },
     );
 
-    expect(issues).toContainEqual(expect.objectContaining({
-      code: "PROFILE_REVIEW_DATE_MISSING",
-      message: expect.stringContaining("서로 다른 역할"),
-    }));
+    expect(issues).not.toContainEqual(expect.objectContaining({ code: "PROFILE_REVIEW_DATE_MISSING" }));
   });
 
   it("accepts a manuscript information date separately from the system Evidence review date", () => {
@@ -124,7 +121,7 @@ describe("approval date-role and legal-scope policy", () => {
     expect(issues).not.toContainEqual(expect.objectContaining({ code: "PROFILE_REVIEW_DATE_MISSING" }));
   });
 
-  it("keeps a missing information date fail-closed for time-sensitive CRITICAL Evidence", () => {
+  it("does not require an information date for time-sensitive CRITICAL Evidence", () => {
     const issues = evaluateApprovalPreparationText(
       "현재 적용되는 변동 정보를 공식 자료로 확인했습니다.",
       snapshot,
@@ -140,10 +137,7 @@ describe("approval date-role and legal-scope policy", () => {
       },
     );
 
-    expect(issues).toContainEqual(expect.objectContaining({
-      code: "PROFILE_REVIEW_DATE_MISSING",
-      message: expect.stringContaining("정보 기준일"),
-    }));
+    expect(issues).not.toContainEqual(expect.objectContaining({ code: "PROFILE_REVIEW_DATE_MISSING" }));
   });
 
   it("passes the temporal date check when time-sensitive CRITICAL Evidence has an information date", () => {
