@@ -39,6 +39,7 @@ describe("usable Content flow UI", () => {
     expect(copied.contents).toHaveLength(2);
     expect(copied.contents.find((item) => item.id === "c")?.document).toEqual(document);
     expect(copied.contents.find((item) => item.id === "new-content")?.document).toBeUndefined();
+    expect(copied.contents.find((item) => item.id === "new-content")?.preservedFromContentId).toBe("c");
     expect(copied.contents.find((item) => item.id === "new-content")?.planningWorkflow?.status).toBe("opportunityConfirmed");
     const html = renderToStaticMarkup(<ContentCreationFlow content={withDocument.contents[0]} data={withDocument} project={project} onBack={vi.fn()} onContentStarted={vi.fn()} onOpenEditor={vi.fn()} onPersist={vi.fn()} onRefresh={vi.fn(async () => withDocument)} onRestore={vi.fn()} />);
     expect(html).toContain("기존 원고를 보존하고 새 Content로 생성");

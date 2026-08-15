@@ -171,6 +171,7 @@ export type UserContent = Readonly<{
   createdAt?: string;
   updatedAt: string;
   document?: ContentDocument;
+  preservedFromContentId?: string;
   quality?: QualityReport;
   platform?: string;
   publishedUrl?: string;
@@ -506,6 +507,7 @@ export function createContentFromPlan(data: UserData, input: Readonly<{
     id: input.id, workspaceId: project.workspaceId, projectId: project.id, ...(project.brandId ? { brandId: project.brandId } : {}),
     naturalLanguageRequest: request, interpretedIntent: input.plan.interpretedIntent, domain: input.plan.domain,
     planning: input.plan, opportunity,
+    ...(input.sourceContentId ? { preservedFromContentId: input.sourceContentId } : {}),
     planningWorkflow: workflow
       ? nextPlanningWorkflow(workflow, input.now, {
         status: "opportunityConfirmed",
