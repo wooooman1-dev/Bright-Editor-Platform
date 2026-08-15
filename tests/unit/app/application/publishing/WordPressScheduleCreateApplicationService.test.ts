@@ -130,14 +130,15 @@ describe("WordPress schedule create application service", () => {
     expect(execute.mock.calls[0][0]).toMatchObject({ schedule: { postStatus: "future" } });
   });
 
-  it("never applies a public schedule to AdSense approval content", async () => {
+  it("allows a public schedule for AdSense approval content when the explicit setting is enabled", async () => {
     const { service, execute } = drafts(executionResult());
 
-    await expect(new WordPressScheduleCreateApplicationService(service).execute(input({
+    const result = await new WordPressScheduleCreateApplicationService(service).execute(input({
       data: userData({ wordpressSchedulePublicPublish: true, contentPurpose: "adsense_approval" }),
       postStatus: "future",
-    }))).rejects.toMatchObject({ code: "SCHEDULE_APPROVAL_CONTENT_PUBLIC_BLOCKED" });
-    expect(execute).not.toHaveBeenCalled();
+    }));
+    expect(result.status).toBe("scheduled_verified");
+    expect(execute).toHaveBeenCalledOnce();
   });
 
   it("still allows a draft schedule for AdSense approval content", async () => {

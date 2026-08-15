@@ -5,6 +5,7 @@ import type { ContentDocument } from "../../../../core/content";
 describe("generated document citation source extraction", () => {
   it("preserves HTTPS URLs written in article prose as citation candidates", () => {
     const document = {
+      id: "content-1",
       title: "리볼빙 확인",
       blocks: [
         {

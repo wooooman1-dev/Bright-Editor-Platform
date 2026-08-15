@@ -914,6 +914,23 @@ content-match, or applicable corroboration rules.
 
 ---
 
+# D-042 AdSense Approval Content Public Scheduling
+
+Status: Accepted
+
+An `adsense_approval` WordPress Content may use `future` scheduled publishing
+when the Workspace explicitly enables `wordpressSchedulePublicPublish`, the
+current Revision passes the complete Quality, Approval Readiness, permission,
+and platform checks, and the user confirms that specific schedule. The global
+`publicPublish` setting remains disabled; immediate public publishing is not
+enabled by this decision.
+
+This is a scheduled-public exception after review, not an approval guarantee.
+Tistory and other platforms remain governed by their own platform-specific
+scheduled publishing contracts.
+
+---
+
 # D-038 WordPress Scheduled Publishing
 
 Status: Accepted
@@ -927,7 +944,7 @@ WordPress는 Tistory와 달리 공식 REST API가 예약을 지원하므로 브�
 - `draft` 예약: 글을 초안으로 유지하고 예약 시각만 플랫폼에 기록한다. 실제 공개는 사용자가 별도로 승인해야 한다. Review First · Draft Only 정책과 충돌하지 않으므로 기본값이다.
 - `future` 예약: `status=future`와 `date_gmt`로 등록하여 지정 시각에 자동 공개된다. 공개 발행에 해당하므로 기본 Disabled이다.
 
-`future` 예약은 Workspace Setting `wordpressSchedulePublicPublish`가 명시적으로 Enabled일 때만 실행할 수 있다. 이 설정의 기본값은 `false`이며, Workspace의 `publicPublish` 불변식은 변경하지 않는다. 즉시 공개 발행은 계속 금지한다.
+`future` 예약은 Workspace Setting `wordpressSchedulePublicPublish`가 명시적으로 Enabled일 때만 실행할 수 있다. 이 설정의 기본값은 `false`이며, Workspace의 `publicPublish` 불변식은 변경하지 않는다. 즉시 공개 발행은 계속 금지한다. `adsense_approval` Content도 현재 Revision의 품질·승인준비·권한 검사를 통과한 경우에 한해 이 예약 공개 경로를 사용할 수 있다.
 
 예약 안전 정책은 `D-034`와 동일하게 적용한다.
 
@@ -939,7 +956,7 @@ WordPress는 Tistory와 달리 공식 REST API가 예약을 지원하므로 브�
 
 `POST /posts` 응답만으로 완료 처리하지 않는다. 생성된 External Post ID를 다시 조회하여 `D-036`의 Draft 검증 항목에 더해 요청한 `status`와 `date_gmt`가 실제로 적용되었는지 검증한다. 검증하지 못한 예약은 `scheduled_unverified`로 보존하고 자동 재시도하지 않는다.
 
-AdSense 승인 준비 단계의 Content에는 `future` 예약을 적용하지 않는다. 승인 준비 Content의 공개 시점 판단은 Site Approval Readiness Gate 통과 이후 사용자 결정으로 남긴다.
+AdSense 승인 준비 단계의 Content에도 `future` 예약을 적용할 수 있다. 단, `wordpressSchedulePublicPublish` 명시적 허용, 현재 Revision의 전체 예약 준비 검사 통과, 예약별 사용자 최종 확인을 모두 요구한다. 승인 준비 통과 자체가 AdSense 승인을 보장하지는 않는다.
 
 ---
 

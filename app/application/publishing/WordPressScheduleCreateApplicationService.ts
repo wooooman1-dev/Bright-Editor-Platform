@@ -1,8 +1,7 @@
-import { normalizeContentPurpose } from "../../../core/approval";
 import type { PlatformConnection } from "../../../core/connections";
 import type { ScheduledPostStatus } from "../../../core/publishing";
 import { normalizeSiteUrl } from "../../../apps/wordpress";
-import type { UserContent, UserData } from "../../user-flow/user-data";
+import type { UserData } from "../../user-flow/user-data";
 import { resolveWorkspaceSettings } from "../settings/WorkspaceSettingsService";
 import type {
   WordPressDraftApplicationService,
@@ -137,19 +136,6 @@ function assertSchedulePolicy(input: WordPressScheduleCreateInput): void {
       "예약 공개 발행이 꺼져 있습니다. Workspace 설정에서 허용한 뒤 다시 시도하거나 초안 예약을 사용해 주세요.",
     );
   }
-  const content = input.data.contents.find((item) => item.id === input.contentId);
-  if (approvalPurpose(content)) {
-    throw new WordPressScheduleCreateError(
-      "SCHEDULE_APPROVAL_CONTENT_PUBLIC_BLOCKED",
-      "AdSense 승인 준비 콘텐츠는 예약 공개 발행을 사용할 수 없습니다. 초안 예약으로 등록해 주세요.",
-    );
-  }
-}
-
-function approvalPurpose(content: UserContent | undefined): boolean {
-  if (!content) return false;
-  const aware = content as UserContent & Readonly<{ contentPurpose?: unknown }>;
-  return normalizeContentPurpose(aware.contentPurpose) === "adsense_approval";
 }
 
 function managementUrl(connection: PlatformConnection, externalPostId?: string): string | undefined {

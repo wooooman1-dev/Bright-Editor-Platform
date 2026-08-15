@@ -29,7 +29,7 @@ const platformCopy: Readonly<Record<SchedulePlatform, Readonly<{
   wordpress: {
     title: "WordPress 예약 발행 권한",
     description: "기본값은 꺼짐입니다. 켜면 사용자가 최종 확인한 현재 원고 Revision을 WordPress 공식 REST API로 예약 등록할 수 있습니다. 기본 동작은 초안 예약이며, 글은 초안 상태로 유지되고 예약 시각만 기록됩니다.",
-    warning: "지정 시각에 글이 자동으로 공개되는 공개 예약은 이 권한만으로 실행되지 않습니다. 설정 → 발행에서 ‘WordPress 예약 공개 발행 허용’을 따로 켜야 하며, AdSense 승인 준비 콘텐츠에는 적용되지 않습니다.",
+    warning: "지정 시각에 글이 자동으로 공개되는 공개 예약은 이 권한만으로 실행되지 않습니다. 설정 → 발행에서 ‘WordPress 예약 공개 발행 허용’을 따로 켜야 하며, 현재 원고의 품질·승인준비 검사를 다시 통과해야 합니다.",
     confirm: "이 계정에 WordPress 예약 등록 권한을 허용할까요? 즉시 공개 발행 권한과 기존 글 수정·삭제 권한은 켜지지 않습니다.",
     enabled: "WordPress 예약 등록을 허용했습니다. 각 예약마다 현재 Revision과 예약 시각을 다시 확인해야 합니다.",
     disabled: "WordPress 예약 등록 권한을 껐습니다. 이미 외부에 등록된 예약은 자동 취소되지 않습니다.",
