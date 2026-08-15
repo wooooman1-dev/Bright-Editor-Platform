@@ -493,7 +493,9 @@ export function createContentFromPlan(data: UserData, input: Readonly<{
   const project = data.projects.find((item) => item.id === input.projectId);
   if (!project) throw new Error("프로젝트를 찾을 수 없습니다.");
   const request = normalizeRequiredName(input.naturalLanguageRequest);
-  const selectedOpportunity = input.opportunity ?? resolveLegacyOpportunity(input.plan, input.primaryKeyword, input.projectId, request);
+  const selectedOpportunity = input.sourceContentId && source?.opportunity
+    ? source.opportunity
+    : input.opportunity ?? resolveLegacyOpportunity(input.plan, input.primaryKeyword, input.projectId, request);
   const opportunity = confirmContentOpportunity(selectedOpportunity, {
     workspaceId: project.workspaceId,
     projectId: project.id,
