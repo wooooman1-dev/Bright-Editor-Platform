@@ -33,6 +33,10 @@ export type WordPressDraftCapabilities = Readonly<{
  */
 export type WordPressPostStatus = "draft" | "future";
 
+export type WordPressDraftUpdatePayload = Readonly<
+  Omit<WordPressDraftPayload, "status"> & { status?: WordPressPostStatus }
+>;
+
 export type WordPressDraftPayload = Readonly<{
   title: string;
   content: string;
@@ -189,6 +193,52 @@ export class WordPressDraftPublishingAdapter implements PublishingAdapter {
     return Object.freeze({ externalId: String(raw.id), responseStatus: raw.status ?? "unknown" });
   }
 
+  /**
+   * Rewrites a Post that already exists instead of creating another one.
+   *
+   * Publishing the same manuscript twice used to leave two Posts, because the
+   * execution identity carries the manuscript revision: editing one sentence
+   * produced a new identity, and a new identity meant a new Post. Measured on
+   * brightjaetech.kr 2026-08-14 — one article became Posts 92, 95, 98 and 101,
+   * and the reader-facing one had to be moved to the trash by hand.
+   *
+   * Two differences from `createDraft`. `status` is omitted unless the caller
+   * asks for one, so updating an article that is already public does not quietly
+   * return it to a draft. And a failed request is an ordinary failure rather
+   * than an uncertain one: writing the same body twice leaves the same Post, so
+   * a retry cannot duplicate anything.
+   */
+  async updateDraft(
+    input: WordPressConnectionInput & Readonly<{ externalId: string; payload: WordPressDraftUpdatePayload }>,
+  ): Promise<WordPressDraftCreateResult> {
+    const externalId = postId(input.externalId);
+    const payload = updatePayload(input.payload);
+    let response: Response;
+    try {
+      response = await this.request(`${normalizeSiteUrl(input.siteUrl)}/wp-json/wp/v2/posts/${externalId}`, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          Authorization: createWordPressAuthorizationHeader(input.username, input.applicationPassword),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+    } catch {
+      throw new Error("WordPress Post could not be updated.");
+    }
+    if (response.status === 404) throw new WordPressDraftNotFoundError();
+    if (response.status === 401 || response.status === 403) {
+      throw new Error("WordPress draft authentication or permission verification failed.");
+    }
+    if (!response.ok) throw new Error(await rejectionMessage(response, "WordPress Post could not be updated."));
+    const raw = await postResponse(response);
+    if ((typeof raw.id !== "string" && typeof raw.id !== "number") || !String(raw.id).trim()) {
+      throw new Error("WordPress returned an invalid Post update response.");
+    }
+    return Object.freeze({ externalId: String(raw.id), responseStatus: raw.status ?? "unknown" });
+  }
+
   async readDraft(
     input: WordPressConnectionInput & Readonly<{ externalId: string }>,
   ): Promise<WordPressExternalDraft> {
@@ -293,6 +343,16 @@ function createPayload(payload: WordPressDraftPayload): Readonly<Record<string, 
     };
   }
   return result;
+}
+
+/**
+ * The same body as a create, minus the one field an update must not assert.
+ * A Post that the reader can already see keeps whatever state WordPress holds.
+ */
+function updatePayload(payload: WordPressDraftUpdatePayload): Readonly<Record<string, unknown>> {
+  const result = { ...createPayload({ ...payload, status: payload.status ?? "draft" }) } as Record<string, unknown>;
+  if (payload.status === undefined) delete result.status;
+  return Object.freeze(result);
 }
 
 async function postResponse(response: Response): Promise<WordPressPostResponse> {

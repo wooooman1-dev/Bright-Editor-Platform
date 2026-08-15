@@ -104,7 +104,7 @@ export type WordPressDraftExecutionInput = Readonly<{
 type CategoryReader = Pick<WordPressCategoryAdapter, "listAllCategories">;
 type MediaWriter = Pick<WordPressMediaAdapter, "uploadMedia" | "storeAlt" | "readMedia" | "verifyMedia">;
 type DraftWriter =
-  & Pick<WordPressDraftPublishingAdapter, "prepare" | "createDraft" | "readDraft" | "verifyDraft">
+  & Pick<WordPressDraftPublishingAdapter, "prepare" | "createDraft" | "updateDraft" | "readDraft" | "verifyDraft">
   & Partial<Pick<WordPressDraftPublishingAdapter, "capabilities">>;
 
 export type WordPressDraftApplicationDependencies = Readonly<{
@@ -166,34 +166,100 @@ export class WordPressDraftApplicationService {
   }
 
   async existingRecord(input: WordPressDraftExecutionInput): Promise<PublishingExecutionRecord | undefined> {
-    return this.records.findByIdempotencyKey(this.identity(input).idempotencyKey);
+    const created = await this.records.findByIdempotencyKey(this.identity(input).idempotencyKey);
+    if (created || input.schedule) return created;
+    return this.records.findByIdempotencyKey(this.identity(input, "draft.update").idempotencyKey);
+  }
+
+  /**
+   * The Post this manuscript already occupies, when it is still there.
+   *
+   * Republishing an edited article used to leave the old Post standing and add a
+   * new one, because the execution identity carries the manuscript revision and
+   * an edited manuscript looks like a first publication. Measured on
+   * brightjaetech.kr 2026-08-14: one article became Posts 92, 95, 98 and 101,
+   * and the indexed one had to be moved to the trash by hand.
+   *
+   * The Post is confirmed to still exist before it is chosen. If WordPress no
+   * longer has it — the user deleted it — this is a first publication again and
+   * a new Post is correct. Scheduling always creates: a scheduled publication is
+   * a new Post by definition.
+   *
+   * This reads a secret and calls WordPress, so it runs only after every
+   * duplicate short-circuit has already declined to answer.
+   */
+  private async publishedPostToRewrite(
+    input: WordPressDraftExecutionInput,
+    identity: WordPressDraftExecutionIdentity,
+  ): Promise<string | undefined> {
+    if (input.schedule) return undefined;
+    const published = await this.records.findPublishedPostForContent({
+      workspaceId: identity.workspaceId,
+      projectId: identity.projectId,
+      contentId: identity.contentId,
+      platformConnectionId: identity.platformConnectionId,
+    });
+    const externalPostId = published?.externalPostId?.trim();
+    if (!published || !externalPostId) return undefined;
+    return await this.verifyExternalLiveness(input.connection, published) === "present"
+      ? externalPostId
+      : undefined;
   }
 
   async execute(input: WordPressDraftExecutionInput): Promise<WordPressDraftExecutionResult> {
-    let identity: WordPressDraftExecutionIdentity;
-    try { identity = this.identity(input); }
-    catch {
+    let createIdentity: WordPressDraftExecutionIdentity;
+    let updateIdentity: WordPressDraftExecutionIdentity;
+    try {
+      createIdentity = this.identity(input);
+      updateIdentity = input.schedule ? createIdentity : this.identity(input, "draft.update");
+    } catch {
       return failure("readiness", [], false, "WordPress Draft readiness could not be verified.");
     }
-    const existing = await this.records.findByIdempotencyKey(identity.idempotencyKey);
+    const legacy = await this.records.findByIdempotencyKey(createIdentity.legacyIdempotencyKey);
+    if (legacy) return legacyIdentityBlockedResult(createIdentity, legacy);
+
+    /**
+      * Both identities are asked before anything else happens.
+     *
+     * A repeat of an execution that already finished must be answered from the
+     * record alone — no secret read, no request to WordPress. Rewriting an
+     * existing Post needs a different key than creating one, so a repeat can now
+     * be recorded under either, and both have to be checked here rather than
+     * after the target lookup, which does touch the network.
+     */
+    let identity = createIdentity;
+    let updateTarget: string | undefined;
     let supersede: PublishingExecutionRecord | undefined;
-    if (existing) {
+    for (const candidate of identityCandidates(createIdentity, updateIdentity)) {
+      const existing = await this.records.findByIdempotencyKey(candidate.idempotencyKey);
+      if (!existing) continue;
       // A failure that never reached WordPress left nothing to duplicate, so an
       // explicit retry may supersede it instead of being blocked forever.
       if (input.explicitNewAttempt && isCleanFailedAttempt(existing)) {
+        identity = candidate;
         supersede = existing;
-      } else if (!input.explicitNewAttempt || existing.status !== "verified") {
-        return duplicateResult(existing);
-      } else {
-        const liveness = await this.verifyExternalLiveness(input.connection, existing);
-        if (liveness === "present") return duplicateResult(existing);
-        if (liveness === "unknown") return inconclusiveLivenessResult(existing);
-        supersede = existing;
+        break;
+      }
+      if (!input.explicitNewAttempt || existing.status !== "verified") return duplicateResult(existing);
+      const liveness = await this.verifyExternalLiveness(input.connection, existing);
+      if (liveness === "present") return duplicateResult(existing);
+      if (liveness === "unknown") return inconclusiveLivenessResult(existing);
+      identity = candidate;
+      supersede = existing;
+      break;
+    }
+    if (supersede) {
+      // An explicit new attempt only gets this far once the previous Post was
+      // confirmed gone or never existed. There is nothing to rewrite, and the
+      // user asked for a new one.
+      identity = createIdentity;
+    } else {
+      const rewriting = await this.publishedPostToRewrite(input, createIdentity);
+      if (rewriting) {
+        identity = updateIdentity;
+        updateTarget = rewriting;
       }
     }
-    const legacy = await this.records.findByIdempotencyKey(identity.legacyIdempotencyKey);
-    if (legacy) return legacyIdentityBlockedResult(identity, legacy);
-
     let prepared: PreparedExecution;
     try { prepared = await this.prepare(input); }
     catch {
@@ -340,24 +406,39 @@ export class WordPressDraftApplicationService {
         "FEATURED_IMAGE_NOT_VERIFIED", "The selected WordPress Featured Image was not verified.");
     }
 
+    /**
+     * `status` is deliberately absent from the update payload. Sending
+     * `status: "draft"` to a Post the reader can already see would pull it back
+     * out of public view on every correction.
+     */
+    const payload = {
+      title: prepared.content.document.title,
+      content: html,
+      excerpt: excerpt(prepared.content.document),
+      categories: categorySelection.categoryIds,
+      ...(input.schedule ? { scheduledAt: input.schedule.scheduledAt } : {}),
+      ...(input.slug?.trim() ? { slug: input.slug.trim() } : {}),
+      ...(featuredMediaId ? { featuredMediaId } : {}),
+      ...(prepared.seoMetadata ? { seoMetadata: prepared.seoMetadata } : {}),
+    };
     let externalId: string;
     try {
-      this.authorize("draft.create", input);
-      const created = await this.drafts.createDraft({
-        ...prepared.credentials,
-        payload: {
-          title: prepared.content.document.title,
-          content: html,
-          excerpt: excerpt(prepared.content.document),
-          status: input.schedule?.postStatus ?? "draft",
-          categories: categorySelection.categoryIds,
-          ...(input.schedule ? { scheduledAt: input.schedule.scheduledAt } : {}),
-          ...(input.slug?.trim() ? { slug: input.slug.trim() } : {}),
-          ...(featuredMediaId ? { featuredMediaId } : {}),
-          ...(prepared.seoMetadata ? { seoMetadata: prepared.seoMetadata } : {}),
-        },
-      });
-      externalId = created.externalId;
+      if (updateTarget) {
+        this.authorize("draft.update", input);
+        const updated = await this.drafts.updateDraft({
+          ...prepared.credentials,
+          externalId: updateTarget,
+          payload,
+        });
+        externalId = updated.externalId;
+      } else {
+        this.authorize("draft.create", input);
+        const created = await this.drafts.createDraft({
+          ...prepared.credentials,
+          payload: { ...payload, status: input.schedule?.postStatus ?? "draft" },
+        });
+        externalId = created.externalId;
+      }
       record = await this.persist(record, {
         status: "draft_created",
         stage: "draft_create",
@@ -366,6 +447,15 @@ export class WordPressDraftApplicationService {
         featuredImageAssigned: featuredMediaId !== undefined,
       });
     } catch (error) {
+      if (error instanceof WordPressDraftNotFoundError && updateTarget) {
+        // Confirmed present a moment ago and gone now — the user deleted it
+        // mid-run. Creating a replacement here would be a Post they never asked
+        // for, so this run stops and the next one publishes fresh.
+        return this.persistedFailure(record, identity, "draft_create", uploadedMedia,
+          "DRAFT_UPDATE_TARGET_REMOVED",
+          "The WordPress Post this manuscript was published to no longer exists. Publish again to create a new one.",
+          executionReadiness);
+      }
       if (error instanceof WordPressDraftCreateUncertainError) {
         record = await this.persist(record, {
           status: "unknown_result",
@@ -433,7 +523,10 @@ export class WordPressDraftApplicationService {
     }
   }
 
-  private identity(input: WordPressDraftExecutionInput): WordPressDraftExecutionIdentity {
+  private identity(
+    input: WordPressDraftExecutionInput,
+    workflowOverride?: PublishingExecutionWorkflow,
+  ): WordPressDraftExecutionIdentity {
     const workspaceId = input.data.workspace?.id;
     const project = input.data.projects.find((item) => item.id === input.projectId && item.workspaceId === workspaceId);
     const content = input.data.contents.find((item) => item.id === input.contentId
@@ -449,7 +542,7 @@ export class WordPressDraftApplicationService {
     const revisionId = contentRevisionId(content.document);
     const legacyRevisionId = legacyWordPressContentRevisionId(content.document);
     const canonicalContent = content as UserContent & Readonly<{ document: ContentDocument }>;
-    const workflow = executionWorkflow(input);
+    const workflow = workflowOverride ?? executionWorkflow(input);
     const executionRevisionId = wordpressDraftExecutionRevisionId(
       canonicalContent,
       input.connection.id,
@@ -676,7 +769,7 @@ export class WordPressDraftApplicationService {
    * scheduled release.
    */
   private authorize(
-    workflow: "media.upload" | "draft.create" | "draft.verify",
+    workflow: "media.upload" | "draft.create" | "draft.update" | "draft.verify",
     input: WordPressDraftExecutionInput,
   ): void {
     const scheduled = input.schedule
@@ -738,6 +831,19 @@ function safeExternalMessage(error: unknown, fallback: string): string {
   return value && !/authorization|application password|basic\s+[a-z0-9+/=]+/i.test(value)
     ? value
     : fallback;
+}
+
+/**
+ * The create identity is asked first so that pre-rewrite behaviour is unchanged
+ * for every manuscript that has never been published.
+ */
+function identityCandidates(
+  create: WordPressDraftExecutionIdentity,
+  update: WordPressDraftExecutionIdentity,
+): readonly WordPressDraftExecutionIdentity[] {
+  return create.idempotencyKey === update.idempotencyKey
+    ? Object.freeze([create])
+    : Object.freeze([create, update]);
 }
 
 function executionWorkflow(input: WordPressDraftExecutionInput): PublishingExecutionWorkflow {

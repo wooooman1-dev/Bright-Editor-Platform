@@ -13,9 +13,26 @@ export type WordPressPublishingRecordClaim = Readonly<
   | { claimed: false; record: PublishingExecutionRecord }
 >;
 
+export type PublishedPostQuery = Readonly<{
+  workspaceId: string;
+  projectId: string;
+  contentId: string;
+  platformConnectionId: string;
+}>;
+
 export interface WordPressPublishingRecordRepository {
   claim(record: PublishingExecutionRecord): Promise<WordPressPublishingRecordClaim>;
   findByIdempotencyKey(idempotencyKey: string): Promise<PublishingExecutionRecord | undefined>;
+  /**
+   * The Post this manuscript already occupies on the platform, if any.
+   *
+   * The Idempotency Key carries the manuscript revision, so editing one sentence
+   * produces a key nothing matches and the execution reads as brand new. That is
+   * correct for deduplication and wrong for the reader: the same article then
+   * gets a second Post. This lookup ignores the revision and asks the question
+   * the reader cares about — is this article already published here?
+   */
+  findPublishedPostForContent(query: PublishedPostQuery): Promise<PublishingExecutionRecord | undefined>;
   save(record: PublishingExecutionRecord): Promise<PublishingExecutionRecord>;
   /**
    * Compare-and-swap replacement of a confirmed-stale terminal record (e.g. a
@@ -41,6 +58,10 @@ export class InMemoryWordPressPublishingRecordRepository implements WordPressPub
 
   async findByIdempotencyKey(idempotencyKey: string): Promise<PublishingExecutionRecord | undefined> {
     return this.records.get(idempotencyKey);
+  }
+
+  async findPublishedPostForContent(query: PublishedPostQuery): Promise<PublishingExecutionRecord | undefined> {
+    return latestPublishedPost([...this.records.values()], query);
   }
 
   async save(record: PublishingExecutionRecord): Promise<PublishingExecutionRecord> {
@@ -88,6 +109,12 @@ export class PersistentWordPressPublishingRecordRepository implements WordPressP
     return data ? findRecord(data, idempotencyKey) : undefined;
   }
 
+  async findPublishedPostForContent(query: PublishedPostQuery): Promise<PublishingExecutionRecord | undefined> {
+    const data = await this.store.get<UserData>(USER_DATA_COLLECTION, USER_DATA_ID);
+    const records = (data?.publishingRecords ?? []).filter(isPublishingExecutionRecord);
+    return latestPublishedPost(records, query);
+  }
+
   async save(record: PublishingExecutionRecord): Promise<PublishingExecutionRecord> {
     const data = await this.store.update<UserData>(USER_DATA_COLLECTION, USER_DATA_ID, (current) => {
       if (!current) throw new Error("Workspace was not found.");
@@ -124,6 +151,25 @@ export class PersistentWordPressPublishingRecordRepository implements WordPressP
     if (!saved) throw new Error("WordPress publishing record could not be persisted.");
     return Object.freeze({ claimed, record: saved }) as WordPressPublishingRecordClaim;
   }
+}
+
+/**
+ * The most recently verified execution that left a Post behind. Failed and
+ * abandoned executions have no Post to rewrite, so they are not candidates.
+ */
+function latestPublishedPost(
+  records: readonly PublishingExecutionRecord[],
+  query: PublishedPostQuery,
+): PublishingExecutionRecord | undefined {
+  return records
+    .filter((record) => record.workspaceId === query.workspaceId
+      && record.projectId === query.projectId
+      && record.contentId === query.contentId
+      && record.platformConnectionId === query.platformConnectionId
+      && record.status === "verified"
+      && Boolean(record.externalPostId?.trim()))
+    .sort((left, right) => Date.parse(left.updatedAt) - Date.parse(right.updatedAt))
+    .at(-1);
 }
 
 function findRecord(data: UserData, idempotencyKey: string): PublishingExecutionRecord | undefined {

@@ -215,6 +215,79 @@ describe("Public programme Claims are not entity products", () => {
   });
 });
 
+describe("General consumer-finance Claims", () => {
+  const generalCardInstallmentFee = claim({
+    claimId: "claim-card-installment-fee",
+    field: "신용카드 할부 수수료",
+    kind: "money",
+    statement: "일반 신용카드 할부 거래에는 카드사가 정한 할부 수수료가 적용될 수 있다.",
+    qualifiers: {
+      subject: "일반 신용카드 할부 거래",
+      scope: "수수료 부과 가능성",
+      basis: "카드 거래 조건과 소비자 보호 제도",
+    },
+  });
+
+  it("keeps a general card concept in the public official-source path", () => {
+    expect(approvalClaimAuthorityKind(generalCardInstallmentFee)).toBe("profile_official");
+  });
+
+  it("accepts an official law source without inventing a card-issuer owner", () => {
+    expect(evaluateApprovalSourceAuthority({
+      profileId,
+      claims: [generalCardInstallmentFee],
+      page: page({
+        requestedUrl: "https://law.go.kr/lsLawLinkInfo.do?lsJoLnkSeq=1001141038",
+        finalUrl: "https://law.go.kr/lsLawLinkInfo.do?lsJoLnkSeq=1001141038",
+        title: "여신전문금융업법 시행령",
+        publisher: "국가법령정보센터",
+        text: "신용카드의 거래조건에는 할부 수수료와 결제방법을 포함한다.",
+      }),
+    })).toMatchObject({ status: "passed", authorityKinds: ["profile_official"] });
+  });
+});
+
+/**
+ * content-mssturco-59cywu ("자동결제 해지 방법") blocked generation entirely:
+ * `entityProductPattern` matched `해지 조건` inside a `kind: "legal"` Claim about
+ * 계속거래 (a statutory concept, not a company's product), so 법제처's own 법령해석례
+ * on law.go.kr was rejected as `source_owner_mismatch` — the subject was an
+ * abstract legal question, which no page can "own".
+ */
+describe("A legal Claim's own kind outranks incidental product vocabulary", () => {
+  const continuingTransactionClaim = claim({
+    claimId: "claim-continuing-transaction",
+    field: "계속거래 판단 요건",
+    kind: "legal",
+    statement: "계속거래 해당 여부는 계약이 1개월 이상 계속적으로 재화 또는 서비스를 공급하는지와 법령상 해지 조건을 충족하는지를 기준으로 판단해야 한다.",
+    rawValue: "1개월 이상",
+    qualifiers: {
+      subject: "계속거래 해당 여부",
+      scope: "대한민국 소비자 관련 법령상 판단",
+      basis: "현행 법령의 정의와 적용 요건",
+      note: "구체적 계약의 적용 여부는 공식 법령과 계약 조건을 함께 확인해야 한다.",
+    },
+  });
+
+  it("classifies it as law despite the 해지 조건 wording", () => {
+    expect(approvalClaimAuthorityKind(continuingTransactionClaim)).toBe("law");
+  });
+
+  it("accepts the national law portal instead of demanding an owner match", () => {
+    expect(evaluateApprovalSourceAuthority({
+      profileId,
+      claims: [continuingTransactionClaim],
+      page: page({
+        requestedUrl: "https://law.go.kr/expcInfoP.do?expcSeq=314441",
+        finalUrl: "https://law.go.kr/expcInfoP.do?expcSeq=314441",
+        title: "법제처 법령해석례 - 계속거래에 관한 적용 법률",
+        publisher: "법제처",
+        text: "「방문판매 등에 관한 법률」 제2조제10호에 따른 계속거래는 계약이 1개월 이상 계속적으로 재화 또는 용역을 공급하는 계약으로서 중도해지 시 대금 정산이 문제되는 거래를 말한다.",
+      }),
+    })).toMatchObject({ status: "passed", authorityKinds: ["law"] });
+  });
+});
+
 function opportunity(): ContentOpportunityCandidate {
   return createContentOpportunityCandidate({
     sourceRequest: "Explain the Alpha Bank Prime Savings rate and early termination terms.",

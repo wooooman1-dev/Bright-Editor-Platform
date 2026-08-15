@@ -5,8 +5,9 @@ import {
   type AIResponse,
   type AIProvider,
 } from "../../core/ai";
-import { activeGeneratedFactualClaims, guardQualityReviewFactualClaims, isApprovalPolicyProfileId, resolveApprovalPolicySnapshot, type ApprovalPolicySnapshot } from "../../core/approval";
-import { analyzeLongFormDocument, longFormNarrativeFloors, normalizeContentPlanQualityTarget, restoreProtectedImageAssets, restoreVerifiedEditorialLinks, type ContentDocument, type ContentPlanQualityTarget } from "../../core/content";
+import { approvalInformationDateContract } from "../../core/ai/AIWorkflow";
+import { activeGeneratedFactualClaims, evaluateApprovalPreparationText, guardQualityReviewFactualClaims, isApprovalPolicyProfileId, resolveApprovalPolicySnapshot, type ApprovalPolicySnapshot } from "../../core/approval";
+import { analyzeLongFormDocument, canonicalDocumentText, longFormNarrativeFloors, normalizeContentPlanQualityTarget, restoreProtectedImageAssets, restoreVerifiedEditorialLinks, type ContentDocument, type ContentPlanQualityTarget, type ContentSectionType } from "../../core/content";
 import { editorialRevisionId, evaluateQualityReviewReadiness, QualityEngine, type QualityReviewContext } from "../../core/quality";
 import { contentOpportunityAIContext, EditorialGenerationStrategy } from "./EditorialGenerationStrategy";
 import { preserveCanonicalSeoMetadata } from "./SeoMetadataPolicy";
@@ -204,7 +205,8 @@ function singlePassFinalReviewInstruction(
   const diagnostics = manuscriptDiagnostics(document, requiredInformation, target);
   const priorities = qualityPriorities(quality);
   const protectedClaims = protectedGeneratedFactualClaims(document);
-  return `${baseInstruction}
+  const informationDateRepair = missingApprovalInformationDate(document);
+  return `${baseInstruction}${informationDateRepair ? `\n\n${informationDateRepair}` : ""}
 
 This is the second and final AI call. Make only targeted editorial corrections to the current canonical document. Do not broadly rewrite strong sections or expand the manuscript into a new long-form draft. Return the complete publish-ready canonical ContentDocument in this one response. Do not return a review, plan, score, explanation, or partial patch. Every paragraph.text must be plain text; represent ordered or unordered lists with newline-prefixed \`1.\` or \`-\` items and never return HTML list or paragraph tags.
 Mandatory server approval contract after your edit:
@@ -222,7 +224,7 @@ Mandatory server approval contract after your edit:
 - preserve every required content element: ${target.requiredContentElements.join(" | ")}
 - repeated core advice = 0
   Work from the explicit priority list below. Correct blocked and below-threshold dimensions first, using their reasons, tasks, and evidence. Do not rewrite or expand a dimension that already meets its threshold unless a priority correction requires a small consistency edit. Judge every required element as missing, merely mentioned, or sufficiently explained. Only sufficient information counts as complete. Add only a small missing fact, criterion, example, caution, or next action when needed. Remove repetition and verbose explanation. When repeatedCoreAdviceCount is nonzero, keep the strongest occurrence in its owning H2 and delete or replace later repetitions with genuinely new section-specific information. When practicalToolSignals are insufficient, convert existing generic advice into a usable checklist, ordered decision path, comparison criteria, or worked application instead of appending general prose. A comparison may use a table, criteria, and lists instead of prose when that is clearer. When two candidates have equal quality, prefer the more concise result. Stop editing when the search intent and reader problem are fully resolved. This is not another AI call.
-Presentation semantics must remain useful and restrained. Preserve ordinary prose when it is sufficient. Use an unordered list for a real checklist, an ordered list for sequential actions, and a table only for genuine multi-column comparison or lookup; do not turn steps or reminders into tables and do not add decorative card-like sections. Preserve the current longFormStructure sectionType ownership so the deterministic renderer can distinguish checklist, warning, summary, comparison, steps, and standard content without changing factual text.
+Presentation semantics must remain useful and restrained. Preserve ordinary prose when it is sufficient. Use an unordered list for a real checklist, an ordered list for sequential actions, and a table only for genuine multi-column comparison or lookup; do not turn steps or reminders into tables and do not add decorative card-like sections. Preserve the current longFormStructure sectionType ownership so the deterministic renderer can distinguish checklist, warning, summary, comparison, steps, and standard content without changing factual text. The single exception is a role the manuscript diagnostics report as missing: when blockingViolations contains CONTENT_DECLARED_COMPARISON_MISSING, the section you repair must declare sectionType=comparison, and that declaration is the one the server keeps.
 Reader usefulness is a mandatory final-edit contract. Do not respond to a low usefulness score by merely adding sentences, rephrasing the same point, or filling length with general advice. Use the Quality report, manuscript diagnostics, required information, confirmed search intent, outline, H2 headings, and current section structure to identify which H2 fails to fulfill its own heading and editorial purpose, which H2 duplicates another section, which section lacks the concrete information appropriate to its purpose, and whether the conclusion lacks a useful next step. For every deficient section: identify the section purpose implied by the confirmed search intent, outline, and H2 heading; identify the information currently missing; add only the section-appropriate value such as a core concept, mechanism, distinguishing criterion, situation-specific difference, selection criterion, observable check, step sequence, applicability, exception, common mistake, or next action; remove or merge duplicate prose; and replace abstract encouragement with concrete explanation. Do not force methods, examples, cautions, or checklists into sections that do not need them. Every H2 must provide distinct new information, no H2 may consist only of generalities, and the conclusion must help the reader make a next decision or action rather than simply repeat the article. Preserve all already strong sections and do not damage approved keyword placement, links, images, or structure. Before returning JSON, verify for each H2: fulfillment of its heading and editorial purpose, the new information, the section-appropriate concrete value, and its distinction from every other section. If any H2 fails that check, revise it before returning the manuscript.
 Structural repair is a mandatory final-edit contract. Manuscript diagnostics list every blocking long-form violation with its measured minimum and actual value, and a manuscript that still carries one is rejected however high its scores are. CONTENT_SECTION_PROSE_INSUFFICIENT means the named H2 carries a table or a list while its running prose — paragraph text only, excluding table cells and list items — sits below the minimum of ${longFormNarrativeFloors.standard} characters excluding whitespace, or ${longFormNarrativeFloors.listShaped} when its sectionType is ${longFormNarrativeFloors.listShapedSectionTypes.join(", ")}. Read that gap as explanation the manuscript lost rather than as a section nobody wrote: the server deletes a paragraph whose factual surface it could not verify, and the reasoning around that fact is deleted with it. Repair each listed H2 by writing running prose into that section until it passes the minimum — what the rows or items mean, what makes them differ, which situation selects which, and what the reader should conclude. Do not close the gap with a new number, date, amount, rate, statute, eligibility rule, or any other externally verifiable fact; do not restore a sentence the server removed; and do not add list items or table rows, which are not counted. CONTENT_DECLARED_COMPARISON_MISSING means no section performs the comparison the plan promised, so give one H2 sectionType=comparison and contrast the named things in its body.
 Evidence integrity is a mandatory final-edit contract. Do not preserve or add any unsupported research, survey, statistic, percentage, probability, ranking, market-volume, treatment-effect, expert-consensus, or causal claim unless the current canonical document or supplied editorial context contains the exact approved evidence and source. Do not preserve or add fabricated first-person experience, product-use experience, treatment experience, or testimonial language unless the user explicitly supplied it as verified source material. When the Quality report or diagnostics signals unsupportedClaimSignal, fabricatedExperienceRisk, an unsupported evidence claim, or a blocked usefulness finding, remove the offending sentence or rewrite it as accurate general guidance, observable criteria, conditional wording, or a statement that individual results may differ. Never solve this by inventing a citation, source, number, or personal story. Before returning JSON, scan the full manuscript and ensure no such claim remains; a manuscript containing even one is not complete and must not be returned.
@@ -235,6 +237,18 @@ Protected verified factual surfaces: ${JSON.stringify(protectedClaims)}
   Manuscript diagnostics: ${JSON.stringify(diagnostics)}
 Required information: ${JSON.stringify(requiredInformation)}
   Current canonical document: ${JSON.stringify(contentDocumentAIContext(document))}`;
+}
+
+/**
+ * The final call is the last chance to add the information date the approval
+ * policy requires in the body. It is only issued to a manuscript that carries
+ * an approval policy snapshot and does not already state the line, so revenue
+ * content never sees it and an article that already has one is left alone.
+ */
+function missingApprovalInformationDate(document: ContentDocument): string | undefined {
+  if (!document.metadata?.approvalPolicy) return undefined;
+  if (/정보\s*기준일\s*[:：]/u.test(canonicalDocumentText(document))) return undefined;
+  return `${approvalInformationDateContract(new Date().toISOString().slice(0, 10))} The current manuscript does not carry this line, so add it during this edit.`;
 }
 
 function qualityPriorities(quality: QualityReport) {
@@ -352,8 +366,51 @@ function meetsStandardApprovalTarget(document: ContentDocument, report: QualityR
   );
 }
 
+/**
+ * What is blocking this manuscript, counted.
+ *
+ * Measured on content-mssph0q6-ftn4h7: every scored dimension read 100 and the
+ * article was still blocked, because CONTENT_DECLARED_COMPARISON_MISSING is a
+ * finding rather than a score. The acceptance rule compared score vectors and,
+ * on the tie those identical scores produce, preferred the shorter manuscript —
+ * so the final call, which is explicitly told to write the missing comparison,
+ * could not produce anything acceptable: a repaired manuscript is necessarily
+ * longer than the one that never wrote the comparison, and it lost on length.
+ *
+ * Counting the blockers puts clearing one ahead of both the score vector and
+ * prose length. That ordering matches `meetsStandardApprovalTarget`, which lets
+ * a single violation veto approval however high the scores are, and the
+ * document-level guards that run first — verified links, manuscript safety and
+ * `detectEditorialReviewRegression` — still reject a repair that pays for
+ * itself with lost information.
+ *
+ * Approval-policy issues are counted only for a manuscript that carries an
+ * approval policy snapshot, so revenue content keeps ranking on quality alone.
+ */
+function blockingDeficit(document: ContentDocument): number {
+  const target = document.metadata?.qualityTarget;
+  const structural = target ? analyzeLongFormDocument(document, target).violations.length : 0;
+  const snapshot = document.metadata?.approvalPolicy;
+  if (!snapshot) return structural;
+  const evidence = document.metadata?.approvalEvidence;
+  const policyIssues = evaluateApprovalPreparationText(canonicalDocumentText(document), snapshot, {
+    sourceUrls: evidence?.sources
+      .filter((source) => source.provenance !== "search_candidate")
+      .map((source) => source.canonicalUrl ?? source.url),
+    reviewedAt: evidence?.reviewedAt,
+    coverageStatus: evidence?.coverageStatus ?? evidence?.status,
+    requiredFactFields: evidence?.requiredFactFields,
+    verifiedFactFields: evidence?.verifiedFactFields,
+    unverifiedFactFields: evidence?.unverifiedFactFields,
+  }).filter((issue) => issue.blocking).length;
+  return structural + policyIssues;
+}
+
 function betterThan(candidateDocument: ContentDocument, candidate: QualityReport, bestDocument: ContentDocument, best: QualityReport): boolean {
   if (verifiedLinkError(bestDocument, candidateDocument) || manuscriptSafetyError(bestDocument, candidateDocument) || detectEditorialReviewRegression(bestDocument, candidateDocument)) return false;
+  const candidateDeficit = blockingDeficit(candidateDocument);
+  const bestDeficit = blockingDeficit(bestDocument);
+  if (candidateDeficit !== bestDeficit) return candidateDeficit < bestDeficit;
   const candidateStandard = candidate.approved && candidate.approvalType === "standard";
   const bestStandard = best.approved && best.approvalType === "standard";
   if (candidateStandard && !bestStandard) return true;
@@ -404,10 +461,7 @@ function preserveReviewMetadata(current: ContentDocument, candidate: ContentDocu
   const metadata = {
     ...baseMetadata,
     qualityTarget: current.metadata?.qualityTarget ?? protectedCandidate.metadata?.qualityTarget,
-    longFormStructure: preserveSectionTypeOwnership(
-      current.metadata?.longFormStructure,
-      protectedCandidate.metadata?.longFormStructure,
-    ),
+    longFormStructure: preserveSectionTypeOwnership(current, protectedCandidate),
     ...(protectedCandidate.metadata?.tags?.length ? { tags: protectedCandidate.metadata.tags } : current.metadata?.tags?.length ? { tags: current.metadata.tags } : {}),
     ...(current.metadata?.approvalEvidence ? { approvalEvidence: current.metadata.approvalEvidence } : {}),
     ...(current.metadata?.generatedClaimVerification ? { generatedClaimVerification: current.metadata.generatedClaimVerification } : {}),
@@ -419,19 +473,52 @@ function preserveReviewMetadata(current: ContentDocument, candidate: ContentDocu
   return Object.freeze({ ...protectedCandidate, metadata: Object.freeze({ ...metadata, reviewDiagnostic: diagnostic }) });
 }
 
+/**
+ * The review call may not relabel section roles, with one exception: a role the
+ * plan requires and the current manuscript is blocked for not having.
+ *
+ * Restoring the current role unconditionally made the repair the final call is
+ * instructed to perform — "give one H2 sectionType=comparison" — impossible to
+ * land, because the label was reverted to the one that produced
+ * CONTENT_DECLARED_COMPARISON_MISSING in the first place. Accepting the label
+ * is safe: a section that declares `comparison` without contrasting anything
+ * fails its own section diagnostic, so a decorative label costs the candidate a
+ * violation instead of buying it one.
+ *
+ * Roles are matched by heading rather than by position so a repaired manuscript
+ * with one more section cannot shift every later role by one.
+ */
 function preserveSectionTypeOwnership(
-  current: NonNullable<ContentDocument["metadata"]>["longFormStructure"],
-  candidate: NonNullable<ContentDocument["metadata"]>["longFormStructure"],
+  current: ContentDocument,
+  candidate: ContentDocument,
 ): NonNullable<ContentDocument["metadata"]>["longFormStructure"] {
-  if (!candidate) return current;
-  if (!current) return candidate;
+  const currentStructure = current.metadata?.longFormStructure;
+  const candidateStructure = candidate.metadata?.longFormStructure;
+  if (!candidateStructure) return currentStructure;
+  if (!currentStructure) return candidateStructure;
+  const repairableRoles = blockedSectionRoles(current);
+  const ownedRoles = new Map(currentStructure.sections.map((section) =>
+    [sectionHeadingText(current, section.headingBlockId), section.sectionType]));
   return Object.freeze({
-    ...candidate,
-    sections: Object.freeze(candidate.sections.map((section, index) => Object.freeze({
-      ...section,
-      sectionType: current.sections[index]?.sectionType ?? section.sectionType,
-    }))),
+    ...candidateStructure,
+    sections: Object.freeze(candidateStructure.sections.map((section) => {
+      if (section.sectionType && repairableRoles.has(section.sectionType)) return section;
+      const owned = ownedRoles.get(sectionHeadingText(candidate, section.headingBlockId));
+      return owned ? Object.freeze({ ...section, sectionType: owned }) : section;
+    })),
   });
+}
+
+function blockedSectionRoles(document: ContentDocument): ReadonlySet<ContentSectionType> {
+  const target = document.metadata?.qualityTarget;
+  const missingComparison = Boolean(target) && analyzeLongFormDocument(document, target)
+    .violations.some((violation) => violation.code === "CONTENT_DECLARED_COMPARISON_MISSING");
+  return new Set<ContentSectionType>(missingComparison ? ["comparison"] : []);
+}
+
+function sectionHeadingText(document: ContentDocument, headingBlockId: string): string {
+  const block = document.blocks.find((item) => item.id === headingBlockId);
+  return block?.type === "heading" ? block.text.trim() : "";
 }
 
 /**
@@ -459,11 +546,23 @@ export function detectEditorialReviewRegression(current: ContentDocument, candid
   const after = analyzeLongFormDocument(candidate, target);
   const beforeHeadings = before.sections.map((item) => item.heading.trim());
   const afterHeadings = after.sections.map((item) => item.heading.trim());
-  if (JSON.stringify(beforeHeadings) !== JSON.stringify(afterHeadings)) return "h2_structure_changed";
+  /**
+   * Section structure is frozen so the final call cannot restructure a healthy
+   * article, not so that it cannot repair a broken one. The final call is told
+   * to give one H2 the comparison role its plan promised, and that repair
+   * usually needs a section the manuscript does not have yet; refusing every
+   * heading change made the instruction unfollowable.
+   */
+  const structuralRepair = after.violations.length < before.violations.length;
+  if (!structuralRepair && JSON.stringify(beforeHeadings) !== JSON.stringify(afterHeadings)) return "h2_structure_changed";
   if (!target) return undefined;
   if (before.requiredContentElements.some((item) => item.satisfied && !after.requiredContentElements.find((next) => next.element === item.element)?.satisfied)) return "required_content_element_removed";
-  if (before.sections.some((item, index) =>
-    item.completeness === "sufficient" && after.sections[index]?.completeness !== "sufficient")) {
+  /** Matched by heading so an inserted section cannot shift every later comparison by one. */
+  const afterByHeading = new Map(after.sections.map((item) => [item.heading.trim(), item]));
+  if (before.sections.some((item) => {
+    const next = afterByHeading.get(item.heading.trim());
+    return item.completeness === "sufficient" && next !== undefined && next.completeness !== "sufficient";
+  })) {
     return "section_completeness_regressed";
   }
   const beforeInformation = before.sections.reduce((sum, item) => sum + item.informationElementCount, 0);

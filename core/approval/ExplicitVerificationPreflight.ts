@@ -142,6 +142,8 @@ function normalizeExplicitClaimValue(spec: VerificationClaimSpec, value: string,
 type MoneyBasis = "oneTime" | "daily" | "monthly" | "annual" | "total" | "perPerson" | "perHousehold";
 
 function normalizeExplicitMoney(text: string, spec: VerificationClaimSpec): VerificationSourceAssessment["normalizedValue"] {
+  const feeApplicability = normalizeFeeApplicabilityMoney(text, spec);
+  if (feeApplicability) return feeApplicability;
   const compact = text.replace(/,/gu, "");
   const match = compact.match(/^(?:(최대|최소|이상|이하|미만|초과)\s*)?(?:(월|매월|월간|월별|연|연간|연별|매년|일|일일|매일|하루|1인당|인당|개인당|가구당|세대당|1회|일회|한\s*번)\s+)?(?:(최대|최소|이상|이하|미만|초과)\s*)?(-?\d+(?:\.\d+)?)\s*(억원|만원|천원|원|KRW|달러|USD)(?:\s*(이상|이하|미만|초과))?(?:\s*(?:\/\s*)?(월|매월|월간|월별|연|연간|연별|매년|일|일일|매일|하루|1인당|인당|개인당|가구당|세대당|1회|일회|한\s*번))?$/iu);
   if (!match) return undefined;
@@ -164,6 +166,22 @@ function normalizeExplicitMoney(text: string, spec: VerificationClaimSpec): Veri
       currency,
       basis,
       ...(comparator ? { comparator } : {}),
+    },
+  };
+}
+
+function normalizeFeeApplicabilityMoney(text: string, spec: VerificationClaimSpec): VerificationSourceAssessment["normalizedValue"] {
+  const context = `${spec.field} ${spec.statement} ${spec.rawValue ?? ""} ${spec.qualifiers.subject ?? ""} ${spec.qualifiers.scope ?? ""} ${text}`;
+  if (!/(?:수수료|fee)/iu.test(context)) return undefined;
+  if (/(?:면제|없(?:다|음)|무료|free|waiv(?:e|ed))/iu.test(context)) return undefined;
+  if (!/(?:적용|부과|발생|청구|부담|낼\s*수|나올\s*수|may\s+(?:apply|be\s+(?:charged|incurred))|can\s+(?:apply|be\s+(?:charged|incurred)))/iu.test(context)) return undefined;
+  if (!/(?:수\s*있|가능|될\s*수|may|can)/iu.test(context)) return undefined;
+  return {
+    kind: "money",
+    value: {
+      semantic: "feeApplicability",
+      applicability: "mayApply",
+      basis: moneyBasis(spec),
     },
   };
 }

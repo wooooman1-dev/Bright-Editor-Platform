@@ -11,6 +11,7 @@ import {
   WordPressMediaUploadUncertainError,
   type WordPressCategoryListResult,
   type WordPressDraftPayload,
+  type WordPressDraftUpdatePayload,
   type WordPressMediaUploadInput,
 } from "../../../../../apps/wordpress";
 import { safeDraftPermissions, type PlatformConnection } from "../../../../../core/connections";
@@ -409,7 +410,11 @@ describe("WordPress Draft application service", () => {
 
     expect(second.status).toBe("verified");
     expect(second.idempotencyKey).not.toBe(first.idempotencyKey);
-    expect(harness.drafts.createDraft).toHaveBeenCalledTimes(2);
+    // 리비전이 바뀌면 여전히 새 실행이다. 달라진 것은 그 실행이 두 번째 글을
+    // 만드는 대신 첫 번째 글을 고쳐 쓴다는 점뿐이다.
+    expect(harness.drafts.createDraft).toHaveBeenCalledOnce();
+    expect(harness.drafts.updateDraft).toHaveBeenCalledOnce();
+    expect(second.externalId).toBe(first.externalId);
   });
 
   it("uses a new Idempotency Key for another WordPress Connection", async () => {
@@ -618,6 +623,70 @@ describe("WordPress Draft application service", () => {
     expect(warn).not.toHaveBeenCalled();
     expect(errorLog).not.toHaveBeenCalled();
   });
+
+  /**
+   * 원고를 고쳐 다시 발행하면 새 글이 아니라 그 글이 고쳐져야 한다.
+   *
+   * 2026-08-14 brightjaetech.kr: 원고 하나가 92·95·98·101번 네 개의 글이 되었고,
+   * 색인된 글은 사람이 직접 휴지통으로 옮겨야 했다. 발행 식별자에 원고 리비전이
+   * 들어가 있어, 한 문장만 고쳐도 "처음 발행"으로 보였기 때문이다.
+   */
+  it("republishes an edited manuscript into the Post it already occupies", async () => {
+    const records = new InMemoryWordPressPublishingRecordRepository();
+    const first = createHarness(textDocument(), { records });
+    expect((await first.service.execute(execution(first.data, first.connection))).status).toBe("verified");
+    expect(first.drafts.createDraft).toHaveBeenCalledOnce();
+
+    const edited: ContentDocument = {
+      ...textDocument(),
+      blocks: [...textDocument().blocks, { id: "added", type: "paragraph", text: "고쳐서 덧붙인 문단입니다." }],
+    };
+    const second = createHarness(edited, { records });
+    const result = await second.service.execute(execution(second.data, second.connection));
+
+    expect(result.status).toBe("verified");
+    expect(result.externalId).toBe("501");
+    expect(second.drafts.updateDraft).toHaveBeenCalledOnce();
+    expect(second.drafts.createDraft).not.toHaveBeenCalled();
+    expect(second.drafts.updateDraft.mock.calls[0]?.[0].externalId).toBe("501");
+    expect(result.record?.workflow).toBe("draft.update");
+  });
+
+  /**
+   * 공개된 글을 고칠 때 status를 실어 보내면 독자가 보던 글이 임시글로 내려간다.
+   */
+  it("does not send a status when rewriting, so a public Post stays public", async () => {
+    const records = new InMemoryWordPressPublishingRecordRepository();
+    const first = createHarness(textDocument(), { records });
+    await first.service.execute(execution(first.data, first.connection));
+
+    const edited: ContentDocument = { ...textDocument(), title: `${textDocument().title} 개정` };
+    const second = createHarness(edited, { records });
+    await second.service.execute(execution(second.data, second.connection));
+
+    const sent = second.drafts.updateDraft.mock.calls[0]?.[0].payload;
+    expect(sent).not.toHaveProperty("status");
+    expect(sent?.title).toBe(edited.title);
+  });
+
+  /**
+   * 사용자가 워드프레스에서 글을 지웠다면 그건 다시 첫 발행이다.
+   */
+  it("creates a new Post when the recorded one no longer exists", async () => {
+    const records = new InMemoryWordPressPublishingRecordRepository();
+    const first = createHarness(textDocument(), { records });
+    await first.service.execute(execution(first.data, first.connection));
+
+    const edited: ContentDocument = { ...textDocument(), title: `${textDocument().title} 재발행` };
+    const second = createHarness(edited, { records });
+    second.drafts.readDraft.mockRejectedValueOnce(new WordPressDraftNotFoundError());
+    const result = await second.service.execute(execution(second.data, second.connection));
+
+    expect(result.status).toBe("verified");
+    expect(second.drafts.createDraft).toHaveBeenCalledOnce();
+    expect(second.drafts.updateDraft).not.toHaveBeenCalled();
+    expect(result.record?.workflow).toBe("draft.create");
+  });
 });
 
 function createHarness(document: ContentDocument, options: Readonly<{
@@ -625,6 +694,7 @@ function createHarness(document: ContentDocument, options: Readonly<{
   mediaPermission?: boolean;
   categoryConnectionId?: string;
   categories?: WordPressCategoryListResult["categories"];
+  records?: InMemoryWordPressPublishingRecordRepository;
 }> = {}) {
   const data = baseData(document, options.featuredImageAssetId);
   const connection = baseConnection(options.mediaPermission);
@@ -654,6 +724,7 @@ function createHarness(document: ContentDocument, options: Readonly<{
     }),
   };
   let payload: WordPressDraftPayload | undefined;
+  let externalPostId = "501";
   const verifier = new WordPressDraftPublishingAdapter(vi.fn<typeof fetch>());
   const drafts = {
     capabilities: vi.fn(async () => ({
@@ -669,8 +740,13 @@ function createHarness(document: ContentDocument, options: Readonly<{
       payload = input.payload;
       return { externalId: "501", responseStatus: "draft" };
     }),
+    updateDraft: vi.fn(async (input: Readonly<{ externalId: string; payload: WordPressDraftUpdatePayload }>) => {
+      payload = { ...input.payload, status: input.payload.status ?? "draft" };
+      externalPostId = input.externalId;
+      return { externalId: input.externalId, responseStatus: "publish" };
+    }),
     readDraft: vi.fn(async () => ({
-      externalId: "501",
+      externalId: externalPostId,
       status: "draft",
       title: payload?.title ?? "",
       content: payload?.content ?? "",
@@ -683,12 +759,14 @@ function createHarness(document: ContentDocument, options: Readonly<{
   };
   const secrets = { readSecret: vi.fn(async () => SECRET) };
   const localMedia = { read: vi.fn(async () => PNG) };
+  const records = options.records;
   const service = new WordPressDraftApplicationService({
     secrets,
     categories,
     media,
     drafts,
     localMedia,
+    ...(records ? { records } : {}),
   });
   return {
     data,
@@ -698,6 +776,7 @@ function createHarness(document: ContentDocument, options: Readonly<{
     media,
     drafts,
     localMedia,
+    records,
     service,
     createdPayload: () => {
       if (!payload) throw new Error("Draft payload was not created.");

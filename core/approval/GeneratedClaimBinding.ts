@@ -206,7 +206,7 @@ function claimTextTokens(
   };
   add(claim.rawValue);
 
-  if (normalizedValue?.kind === "money") {
+  if (normalizedValue?.kind === "money" && "amount" in normalizedValue.value) {
     const { amount, currency } = normalizedValue.value;
     const suffix = currency.toUpperCase() === "KRW" ? "원" : ` ${currency.toUpperCase()}`;
     add(`${amount}${suffix}`);

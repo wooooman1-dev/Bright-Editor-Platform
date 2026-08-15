@@ -101,13 +101,25 @@ export function approvalClaimAuthorityKind(
     return "government_program";
   }
   if (financialRegulationPattern.test(context)) return "financial_regulation";
+  /**
+   * Planning already tags a Claim `kind: "legal"`, and that must outrank the
+   * incidental vocabulary test below: a Claim about a statutory concept such as
+   * 계속거래 states its condition as "법령상 해지 조건", which matches
+   * `entityProductPattern`'s `해지\s*조건` even though nothing here is a
+   * company's product. Classified as `entity_product`, the Claim then requires
+   * its subject — an abstract legal question, not an organization — to match a
+   * page owner, which no source can ever satisfy, so 법제처's own 법령해석례
+   * for the concept was rejected as `source_owner_mismatch`.
+   */
+  if (claim.kind === "legal") return "law";
   if (entityProductClaim(claim, context)) return "entity_product";
-  if (claim.kind === "legal" || legalClaimPattern.test(context)) return "law";
+  if (legalClaimPattern.test(context)) return "law";
   return "profile_official";
 }
 
 function entityProductClaim(claim: VerificationClaimSpec, context: string): boolean {
-  return Boolean(claim.qualifiers.subject?.trim())
+  const subject = claim.qualifiers.subject?.trim();
+  return Boolean(subject && !genericFinancialProductSubjectPattern.test(subject))
     && entityProductPattern.test(context);
 }
 
@@ -189,6 +201,14 @@ const publicProgramPattern = /(?:고용\s*보험|산재\s*보험|국민\s*연금
 const financialRegulationPattern = /(?:금융\s*(?:규제|제도|감독|정책)|예금자\s*보호|소비자\s*보호\s*규제|financial\s+(?:regulation|supervision|policy)|deposit\s+protection)/iu;
 const legalClaimPattern = /(?:법률|법적\s*요건|법령|시행령|시행규칙|조문|statute|regulation|legal\s+requirement)/iu;
 const entityProductPattern = /(?:은행|카드사?|보험사?|금융\s*회사|bank|card\s+(?:issuer|company|product)|insur(?:er|ance)|상품|product|금리|이자율|중도\s*해지|해지\s*조건|상품\s*조건|수수료|연회비|보험료|보장\s*조건|상품\s*설명서|약관|공시|disclosure|fee|premium|coverage|terms?)/iu;
+/**
+ * A regulator or law portal is the appropriate primary source for a general
+ * consumer-finance concept. Requiring it to be "owned" by an abstract subject
+ * such as "general credit-card instalment transactions" makes every official
+ * public source fail the entity-owner check, while no particular card issuer
+ * has been named. Named issuers remain entity-owned product Claims.
+ */
+const genericFinancialProductSubjectPattern = /^(?:(?:일반|개별|해당)\s*)?(?:(?:신용|체크|직불)\s*)?(?:카드|은행|보험|금융)(?:\s*(?:상품|거래|할부|결제|대출|예금|적금|계좌|수수료|금리))*$/iu;
 const officialProductDocumentPattern = /(?:공식\s*상품|상품\s*(?:안내|설명서|공시)|약관|공시|금리\s*안내|수수료\s*안내|보험\s*상품\s*설명서|official\s+product|product\s+(?:page|guide|description|disclosure)|terms\s+and\s+conditions|fee\s+schedule|policy\s+document)/iu;
 const organizationSuffixPattern = /(?:주식회사|유한회사|㈜|\(주\)|은행|카드사?|보험사?|금융회사|금융|bank|card\s+(?:issuer|company)|insurance\s+company|insurer|corporation|corp(?:oration)?\.?|company|co\.?|limited|ltd\.?|inc(?:orporated)?\.?|official)/giu;
 const organizationStopWords = new Set(["the", "www", "official", "company"]);

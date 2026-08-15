@@ -25,9 +25,15 @@ export type PublishingVerificationCheckRecord = Readonly<{
  * Workflows that own an external WordPress post execution. `schedule.create`
  * shares the whole draft pipeline and differs only in the requested post state
  * and the permission it authorizes against. See D-038.
+ *
+ * `draft.update` rewrites the Post a previous execution already created rather
+ * than adding another one. It shares the pipeline and the `draft.create`
+ * permission; it is a separate workflow only so the Idempotency Key and the
+ * record say which of the two actually happened.
  */
 export const publishingExecutionWorkflows = Object.freeze([
   "draft.create",
+  "draft.update",
   "schedule.create",
 ] as const);
 

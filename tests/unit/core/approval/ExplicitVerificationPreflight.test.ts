@@ -122,6 +122,50 @@ describe("explicit verification snapshot", () => {
     });
   });
 
+  it("preserves a numeric-free fee applicability money Claim as a semantic value", () => {
+    const feeClaim: VerificationClaimSpec = {
+      claimId: "card-installment-fee",
+      field: "신용카드 할부 수수료",
+      kind: "money",
+      statement: "신용카드 할부 거래에는 카드사가 정한 할부 수수료가 적용될 수 있다.",
+      rawValue: "수수료 부과 가능성",
+      qualifiers: {
+        subject: "신용카드 할부 거래",
+        scope: "수수료 부과 가능성",
+      },
+      temporalRequirement: { mode: "current" },
+      required: true,
+      risk: "critical",
+    };
+    const excerpt = "신용카드 할부 거래에는 할부 수수료가 적용될 수 있으며, 거래 조건에 따라 달라질 수 있습니다.";
+    const [assessment] = assessmentsFromExplicitDiscovery({
+      claims: [feeClaim],
+      sources: [{
+        requestedUrl: "https://law.go.kr/card-installment-fee",
+        pageText: excerpt,
+        evidenceExcerpt: excerpt,
+        claims: [{ claimId: feeClaim.claimId, value: "할부 수수료가 적용될 수 있으며", evidenceExcerpt: excerpt }],
+        role: "primaryOfficial",
+        authoritative: true,
+        observedAt: "2026-08-15T00:00:00.000Z",
+      }],
+    });
+
+    expect(assessment).toMatchObject({
+      supports: true,
+      normalizedValue: {
+        kind: "money",
+        value: {
+          semantic: "feeApplicability",
+          applicability: "mayApply",
+          basis: "total",
+        },
+      },
+    });
+    expect(assessment?.diagnostics).not.toContain("claim_normalization_failed");
+    expect(assessment?.diagnostics).not.toContain("claim_raw_value_mismatch");
+  });
+
   it("verifies the persisted failure-shaped legal Claims from their separate authoritative excerpts", () => {
     const claims: readonly VerificationClaimSpec[] = [
       {
