@@ -292,6 +292,7 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
       plan: confirmedPlan,
       opportunity: selectedOpportunity,
       selectedPublishingAccountIds: readyAccountIds,
+      ...(target === "new" ? { sourceContentId: contentId } : {}),
       now: now(),
     });
     latestDataRef.current = next;
@@ -338,6 +339,7 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
         plan: confirmedPlan,
         opportunity: selectedOpportunity,
         selectedPublishingAccountIds: persistedAccountIds,
+        ...(target === "new" ? { sourceContentId: contentId } : {}),
         now: now(),
       });
       latestDataRef.current = next;

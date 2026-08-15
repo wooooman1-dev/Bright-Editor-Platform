@@ -485,8 +485,10 @@ export function completeContentGeneration(data: UserData, input: Readonly<{
 export function createContentFromPlan(data: UserData, input: Readonly<{
   id: string; projectId: string; naturalLanguageRequest: string; plan: ContentPlanningResult;
   opportunity?: ContentOpportunityCandidate; primaryKeyword?: string; selectedPublishingAccountIds: readonly string[]; now: string;
+  sourceContentId?: string;
 }>): UserData {
   const existing = data.contents.find((content) => content.id === input.id);
+  const source = input.sourceContentId ? data.contents.find((content) => content.id === input.sourceContentId) : undefined;
   const project = data.projects.find((item) => item.id === input.projectId);
   if (!project) throw new Error("프로젝트를 찾을 수 없습니다.");
   const request = normalizeRequiredName(input.naturalLanguageRequest);
@@ -498,18 +500,29 @@ export function createContentFromPlan(data: UserData, input: Readonly<{
     confirmedAt: input.now,
   });
   if (!request) throw new Error("요청과 콘텐츠 기회를 확인해 주세요.");
+  const workflow = existing?.planningWorkflow ?? source?.planningWorkflow;
   const content: UserContent = {
     ...(existing ?? {}),
     id: input.id, workspaceId: project.workspaceId, projectId: project.id, ...(project.brandId ? { brandId: project.brandId } : {}),
     naturalLanguageRequest: request, interpretedIntent: input.plan.interpretedIntent, domain: input.plan.domain,
     planning: input.plan, opportunity,
-    planningWorkflow: existing?.planningWorkflow
-      ? nextPlanningWorkflow(existing.planningWorkflow, input.now, {
+    planningWorkflow: workflow
+      ? nextPlanningWorkflow(workflow, input.now, {
         status: "opportunityConfirmed",
         selectedOpportunityId: opportunity.opportunityId,
         lastSuccessfulStep: "confirmation",
       })
-      : undefined,
+      : input.sourceContentId ? {
+        status: "opportunityConfirmed",
+        request,
+        selectionMode: input.plan.selectionMode ?? "automatic",
+        operationId: `content-confirmation-${input.id}`,
+        selectedOpportunityId: opportunity.opportunityId,
+        lastSuccessfulStep: "confirmation",
+        revision: 1,
+        createdAt: input.now,
+        updatedAt: input.now,
+      } : undefined,
     primaryKeyword: opportunity.primaryKeyword, relatedKeywords: opportunity.secondaryKeywords, searchIntent: opportunity.searchIntent,
     providerSearchIntent: opportunity.providerSearchIntent,
     targetAudience: opportunity.audience, contentGoal: opportunity.contentAngle, contentType: opportunity.contentType,
