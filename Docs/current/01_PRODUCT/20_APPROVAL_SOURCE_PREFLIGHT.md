@@ -3,7 +3,8 @@
 ## Claim Risk Applicability (v2)
 
 Evidence applicability is Claim-based, not article-wide and not inferred from
-the approval profile alone.
+the approval profile alone. Source trust is also route-based rather than
+official-domain-only.
 
 - `NONE`: editorial advice, observation guidance, and checklists. Evidence is
   N/A.
@@ -57,9 +58,17 @@ not become official Evidence.
 
 ## Purpose
 
-Approval-preparation content must not begin manuscript Generation until Bright Studio has verified every factual Claim required by the confirmed Content Opportunity against actual official source pages.
+Approval-preparation content must not treat a source as trusted merely because
+it has a URL. Bright Studio must fetch the cited page and confirm material
+content relevance. An accepted official/first-party source may satisfy that
+trust route alone; a non-official source requires independent corroboration of
+the same material Claim. Information dates and reader-visible review dates are
+optional diagnostics, not approval blockers.
 
-A single usable URL is not sufficient. Every required Claim must have a submitted field, value, and Claim-level evidence excerpt, and the server must independently confirm those values against the fetched final page before Generation starts.
+A URL alone is not sufficient. The server must independently confirm that the
+fetched page materially supports the cited content. Fine-grained general prose
+Claims are not all mandatory blockers; unsupported or conflicting high-risk
+Claims remain blocking diagnostics.
 
 This policy prevents the system from spending a full Generation call on a manuscript whose factual basis is incomplete, inaccessible, fabricated, mismatched, or outside the active official-source profile.
 
@@ -214,14 +223,22 @@ A source may enter the Generation bundle only when all checks pass:
 3. Every redirect target remains a safe public HTTPS destination.
 4. The final direct page responds successfully.
 5. Bright Studio can extract supported text from the response within the bounded size limit.
-6. The final URL is accepted as an official source by the active approval profile.
-7. The proposed source-level evidence excerpt exists in the extracted page text.
-8. Every submitted Claim has field, value, and Claim evidence excerpt.
-9. Every Claim value and excerpt passes server verification against the fetched final page.
-10. All required Planning Claim fields are covered across the accepted source set.
-11. Required temporal/freshness policy is satisfied for the Claim.
+6. The fetched page materially matches the cited manuscript Claim.
+7. An accepted official/first-party source uses the single-source trust route.
+8. A non-official or secondary source has independent corroboration for the
+   same material Claim.
+9. The proposed source-level evidence excerpt, when present, exists in the
+   extracted page text.
+10. High-risk Claim values and qualifiers pass server verification against the
+    fetched final page.
+11. Missing information dates or reader-visible review dates remain diagnostics
+    unless a separate high-risk policy explicitly requires them.
 
-Search-result pages, navigation pages, secondary blogs, copied articles, community posts, inaccessible pages, unsupported binary documents, empty pages, malformed documents, unofficial pages, fabricated values, fabricated excerpts, stale required evidence and incomplete Claim sets are excluded.
+Search-result pages, navigation pages, inaccessible pages, unsupported binary
+documents, empty pages, malformed documents, fabricated values, fabricated
+excerpts, and conflicting high-risk Claims are excluded. Secondary blogs,
+copied articles, and community posts are not automatically excluded; they need
+independent corroboration before they become trusted Evidence.
 
 Several official sources may divide the required Claims. Generation starts only when their combined verified Coverage is complete.
 

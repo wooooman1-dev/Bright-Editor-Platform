@@ -865,6 +865,38 @@ Source Authority와 Claim relevance는 독립 Gate로 유지한다. 다른 사�
 
 ---
 
+# D-040 Approval Source Trust and Corroboration
+
+Status: Accepted
+
+Approval source readiness does not require a government, institutional, or
+other official domain, and it does not require an information-as-of date or a
+reader-visible final-review date. The required source is the URL that the AI
+actually used when preparing the manuscript.
+
+The source verifier must still fetch the URL and confirm that the page content
+is relevant to the manuscript's material factual claims. A URL or a matching
+keyword alone is not sufficient.
+
+- An accessible source whose content materially supports the claim may be
+  trusted alone when the source is an accepted official/first-party source.
+- A non-official or secondary source may be trusted only when an independent
+  second source supports the same material claim.
+- `citation`, page access, content match, corroboration, and `system_verified`
+  remain separate states.
+- Missing information dates and reader-visible review-date labels are
+  informational diagnostics, not approval-policy blockers.
+- General prose Claims do not all become mandatory blockers. Material factual
+  Claims remain subject to content-match checks; high-risk unsupported or
+  conflicting Claims may still block quality or approval policy.
+
+This decision replaces the assumption that every approval source must pass an
+official-domain allowlist and that every required Claim must have an official
+source. The source URL, source-content match, and applicable corroboration
+route are the trust conditions.
+
+---
+
 # D-038 WordPress Scheduled Publishing
 
 Status: Accepted

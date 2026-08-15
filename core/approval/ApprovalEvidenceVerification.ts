@@ -71,7 +71,7 @@ export function verifyApprovalEvidence(
       }),
       verifiedSourceCount: 0,
       rejectedSourceCount: 0,
-      reasons: Object.freeze(["검증할 공식 출처 후보가 없습니다."]),
+      reasons: Object.freeze(["검증할 AI 참고 출처 후보가 없습니다."]),
     });
   }
 
@@ -96,9 +96,7 @@ export function verifyApprovalEvidence(
 
   const reasons: string[] = [];
   const seenCanonicalUrls = new Set<string>();
-  let verifiedSourceCount = 0;
-
-  const sources = existing.sources.map((source) => {
+  const sourceResults = existing.sources.map((source) => {
     const canonicalUrl = canonicalizeApprovalEvidenceUrl(source.url);
     if (seenCanonicalUrls.has(canonicalUrl)) {
       const reason = `${source.url}: 동일한 canonical 출처가 이미 검사되어 중복 후보에서 제외했습니다.`;
@@ -215,23 +213,6 @@ export function verifyApprovalEvidence(
       );
     }
 
-    if (!official) {
-      const reason = `${source.url}: 적용 프로필의 공식 출처로 확인되지 않았습니다.`;
-      reasons.push(reason);
-      return diagnosticSource(
-        source,
-        reviewedAt,
-        "unofficial_source",
-        reason,
-        {
-          ...pageDetails,
-          official: false,
-          selected: false,
-        },
-        page,
-      );
-    }
-
     const provenance = sourceProvenance(source);
     if (provenance === "search_candidate") {
       const reason = `${source.url}: 검색 후보는 본문 인용 또는 사용자 선택 출처로 채택되기 전에는 Claim 검증에 사용할 수 없습니다.`;
@@ -243,7 +224,7 @@ export function verifyApprovalEvidence(
         reason,
         {
           ...pageDetails,
-          official: true,
+          official,
           selected: false,
         },
         page,
@@ -273,7 +254,7 @@ export function verifyApprovalEvidence(
         reason,
         {
           ...pageDetails,
-          official: true,
+          official,
           selected: false,
           matchedFacts: Object.freeze([]),
         },
@@ -293,7 +274,7 @@ export function verifyApprovalEvidence(
         reason,
         {
           ...pageDetails,
-          official: true,
+          official,
           selected: false,
           matchedFacts: Object.freeze(matchedFacts),
         },
@@ -301,14 +282,12 @@ export function verifyApprovalEvidence(
       );
     }
 
-    verifiedSourceCount += 1;
-    for (const fact of matchedFacts) verifiedFactFields.add(fact.field);
     return Object.freeze({
       ...source,
       title: verifiedSourceTitle(page, source, matchedFacts),
       publisher: verifiedSourcePublisher(page, canonicalUrl, source),
       retrievedAt: reviewedAt,
-      verified: true,
+      verified: official,
       facts: source.facts,
       canonicalUrl,
       finalUrl: page.finalUrl,
@@ -324,11 +303,11 @@ export function verifyApprovalEvidence(
       ...(page.contentLength !== undefined
         ? { contentLength: page.contentLength }
         : {}),
-      official: true,
-      selected: provenance === "citation" || provenance === "user_selected",
-      verificationStatus: "verified" as const,
+      official,
+      selected: official && (provenance === "citation" || provenance === "user_selected" || provenance === "system_verified"),
+      verificationStatus: official ? "verified" as const : "needs_corroboration" as const,
       accessVerificationStatus: "verified" as const,
-      officialDomainVerificationStatus: "verified" as const,
+      officialDomainVerificationStatus: official ? "verified" as const : "failed" as const,
       claimVerificationStatus: "verified" as const,
       matchedFacts: Object.freeze(matchedFacts),
       linkedBlockIds: Object.freeze([...new Set([
@@ -337,27 +316,51 @@ export function verifyApprovalEvidence(
           fact.blockId ? [fact.blockId] : []),
       ])]),
       checkedAt: reviewedAt,
+      ...(official ? { trustRoute: "official_single" as const } : {}),
     } satisfies ApprovalEvidenceSource);
   });
 
+  const sources = sourceResults.map((source) => {
+    if (source.verificationStatus !== "needs_corroboration") return source;
+    const matchedFields = new Set((source.matchedFacts ?? []).map((fact) => fact.field));
+    const corroboratingSource = sourceResults.find((candidate) =>
+      candidate.sourceId !== source.sourceId
+      && (candidate.verified || candidate.verificationStatus === "needs_corroboration")
+      && (candidate.matchedFacts ?? []).some((fact) => matchedFields.has(fact.field)));
+    if (!corroboratingSource) return source;
+    return Object.freeze({
+      ...source,
+      verified: true,
+      selected: true,
+      provenance: "system_verified" as const,
+      verificationStatus: "verified" as const,
+      trustRoute: "external_corroborated" as const,
+      corroborated: true,
+      corroborationSourceIds: Object.freeze([corroboratingSource.sourceId]),
+    });
+  });
+
+  let verifiedSourceCount = 0;
+  for (const source of sources) {
+    if (!source.verified) continue;
+    verifiedSourceCount += 1;
+    for (const fact of source.matchedFacts ?? []) verifiedFactFields.add(fact.field);
+  }
+
   const unverifiedFactFields = requiredFactFields.filter((field) =>
     !verifiedFactFields.has(field));
-  if (unverifiedFactFields.length) {
+  const blockingUnverifiedFactFields = unverifiedFactFields.filter(isBlockingApprovalFactField);
+  if (blockingUnverifiedFactFields.length) {
     reasons.push(
-      `핵심 Claim 검증이 완료되지 않았습니다: ${unverifiedFactFields.join(", ")}`,
+      `중요 Claim 검증이 완료되지 않았습니다: ${blockingUnverifiedFactFields.join(", ")}`,
     );
   }
-  const hasAdoptedSource = sources.some((source) =>
-    source.claimVerificationStatus === "verified"
-    && (
-      sourceProvenance(source) === "citation"
-      || sourceProvenance(source) === "user_selected"
-    ));
+  const hasAdoptedSource = sources.some((source) => source.verified && source.selected);
   if (!hasAdoptedSource) {
-    reasons.push("본문 인용 또는 사용자 선택으로 채택된 공식 출처가 없습니다.");
+    reasons.push("본문 인용 또는 사용자 선택으로 채택된 출처가 없습니다.");
   }
   const verified = verifiedSourceCount > 0
-    && unverifiedFactFields.length === 0
+    && blockingUnverifiedFactFields.length === 0
     && hasAdoptedSource;
   const pack: ApprovalEvidencePack = Object.freeze({
     version: "1.0",
@@ -542,6 +545,10 @@ export function canonicalizeApprovalEvidenceUrl(value: string): string {
   } catch {
     return value.trim();
   }
+}
+
+function isBlockingApprovalFactField(field: string): boolean {
+  return /(?:amount|eligibility|period|date|rate|fee|disclosure|cancellation|legal|tax|duty|threshold|condition|refund|deadline|requirement|qualification)/i.test(field);
 }
 
 function diagnosticSource(

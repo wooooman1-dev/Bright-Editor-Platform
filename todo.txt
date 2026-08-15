@@ -4,6 +4,23 @@ git switch feat/scheduled-publishing-and-diversity
 git pull
 npm run dev
 
+== Decision D-040 기록 — Approval Source Trust and Corroboration ==
+
+2026-08-15 변경 기록. 승인준비 출처 기준을 공식 도메인 필수 방식에서
+출처 신뢰 경로 방식으로 변경한다.
+
+- AI가 실제로 참고한 URL은 반드시 저장한다.
+- URL만으로 통과하지 않고 Fetch 성공과 원고 핵심 내용의 실질적 일치를 확인한다.
+- 공식·1차 출처는 다른 출처 없이 단독 검증을 허용한다.
+- 비공식·2차 출처는 독립된 다른 출처에서 같은 핵심 내용이 확인될 때만
+  `system_verified`로 승격한다.
+- 정보 기준일과 독자 노출 최종 검토일은 승인 차단 조건에서 제외한다.
+- 일반 Claim 전체를 필수 차단 Claim으로 만들지 않고, 중대한 미지원·충돌
+  Claim만 품질 또는 승인 정책 차단 대상으로 유지한다.
+
+수정 대상: `08_DECISION_LOG.md`, 승인 출처 정책 문서,
+`ApprovalEvidenceVerification`, `ApprovalReadiness` 및 회귀 테스트.
+
 npm install 은 이전 브랜치에서 뒤처져 있을 때만. 이번 작업은 package.json 을
 건드리지 않았다.
 

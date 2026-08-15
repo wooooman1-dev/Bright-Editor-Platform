@@ -118,10 +118,10 @@ export function ApprovalReadinessActions(props: Readonly<{
     running.current = true;
     setState("running");
     setMessage(evidenceApplicable
-      ? trigger === "automatic" ? "현재 문서 버전의 공식 출처와 공개 사이트를 자동 검사하고 있습니다." : "공식 출처와 공개 사이트를 다시 검사하고 있습니다."
+      ? trigger === "automatic" ? "현재 문서 버전의 참고 출처와 공개 사이트를 자동 검사하고 있습니다." : "참고 출처와 공개 사이트를 다시 검사하고 있습니다."
       : trigger === "automatic" ? "현재 문서 버전의 공개 사이트를 자동 검사하고 있습니다." : "공개 사이트 상태를 다시 검사하고 있습니다.");
     try {
-      const response = await fetch("/api/approval/readiness", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ workspaceId: props.workspaceId, contentId: props.contentId }) });
+      const response = await fetch("/api/approval/readiness", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ workspaceId: props.workspaceId, contentId: props.contentId, forceRefresh: trigger === "manual" }) });
       const result = await response.json() as { data?: UserData; document?: ContentDocument; quality?: QualityReport; evidence?: { status: ApprovalEvidenceSummary["status"]; coverageStatus?: ApprovalEvidenceSummary["coverageStatus"]; reviewedAt?: string; informationAsOf?: string; presentationStatus?: ApprovalEvidenceSummary["presentationStatus"]; verifiedSourceCount: number; rejectedSourceCount: number; sources: readonly ApprovalEvidenceSource[] }; siteReadiness?: { status: "passed" | "needs_review" | "blocked" }; error?: string };
       if (!response.ok || !result.data || !result.document || !result.quality) throw new Error(result.error ?? "승인 준비 검사를 완료하지 못했습니다.");
       await onCompleted.current({ data: result.data, document: result.document, quality: result.quality });
@@ -137,7 +137,7 @@ export function ApprovalReadinessActions(props: Readonly<{
         : result.evidence?.status === "verified"
         ? `채택된 공식 근거 ${result.evidence.verifiedSourceCount}개 검증 완료`
         : result.evidence?.status === "missing"
-          ? "공식 출처 없음"
+          ? "참고 출처 없음"
           : `채택 근거 확인 필요 ${result.evidence?.rejectedSourceCount ?? 0}개`;
       setMessage([trigger === "automatic" ? "자동 검사 완료" : "저장 결과 확인 완료", evidenceLabel].filter(Boolean).join(" · "));
     } catch (error) {
@@ -182,9 +182,9 @@ export function ApprovalReadinessActions(props: Readonly<{
     <p className="max-w-[640px] text-right text-xs text-[#77777f]">자동 검사는 공개 사이트 상태를 진단하며 애드센스 승인을 보장하지 않습니다.</p>
     {message ? <p aria-live="polite" className={`max-w-[640px] text-right text-xs ${state === "error" ? "text-red-700" : state === "success" ? "text-emerald-700" : "text-[#77777f]"}`}>{message}</p> : null}
     {evidenceApplicable && sources.length ? <details className="mt-2 w-full rounded-xl border border-black/6 bg-[#fafafa] p-4 text-left">
-      <summary className="cursor-pointer text-sm font-semibold">공식 근거 {selectedSources.length}개 · 검색 후보 {candidateSources.length}개</summary>
-      {summary ? <p className="mt-2 text-xs text-[#66666f]">필수 Claim coverage: {summary.coverageStatus ?? summary.status} · Claim 최종 검토일: {summary.reviewedAt?.slice(0, 10) ?? "미완료"} · 원고 정보 기준일: {summary.informationAsOf ?? "미기록"}</p> : null}
-      {selectedSources.length ? <section className="mt-3"><h4 className="text-xs font-semibold">채택된 공식 근거</h4><div className="mt-2 space-y-2">{selectedSources.map((source, index) => <EvidenceSourceCard key={`${source.sourceId}-selected-${index}`} source={source} index={index} candidate={false} />)}</div></section> : <p className="mt-3 rounded-lg bg-amber-50 p-3 text-xs text-amber-900">현재 원고의 필수 Claim을 뒷받침하도록 채택된 공식 근거가 없습니다.</p>}
+      <summary className="cursor-pointer text-sm font-semibold">확인된 출처 {selectedSources.length}개 · 검색 후보 {candidateSources.length}개</summary>
+      {summary ? <p className="mt-2 text-xs text-[#66666f]">출처 내용 일치: {summary.coverageStatus ?? summary.status} · 검토일 표시: {summary.reviewedAt ? "있음" : "선택 사항"}</p> : null}
+      {selectedSources.length ? <section className="mt-3"><h4 className="text-xs font-semibold">채택된 출처</h4><div className="mt-2 space-y-2">{selectedSources.map((source, index) => <EvidenceSourceCard key={`${source.sourceId}-selected-${index}`} source={source} index={index} candidate={false} />)}</div></section> : <p className="mt-3 rounded-lg bg-amber-50 p-3 text-xs text-amber-900">현재 원고에서 확인된 출처가 없습니다.</p>}
       {candidateSources.length ? <details className="mt-3 rounded-lg border border-black/6 bg-white p-3"><summary className="cursor-pointer text-xs font-semibold">검색 후보 {candidateSources.length}개 · 승인 판정 제외</summary><p className="mt-2 text-xs text-[#66666f]">새 후보는 채택되기 전까지 Claim coverage와 승인 상태를 변경하지 않습니다.</p><div className="mt-2 space-y-2">{candidateSources.map((source, index) => <EvidenceSourceCard key={`${source.sourceId}-candidate-${index}`} source={source} index={index} candidate />)}</div></details> : null}
     </details> : null}
   </div>;
@@ -197,7 +197,7 @@ function EvidenceSourceCard(props: Readonly<{
 }>) {
   const { source, index, candidate } = props;
   const status = evidenceStatusLabel(source, candidate);
-  return <article className="rounded-xl bg-white p-3 text-xs"><div className="flex justify-between gap-3"><strong>{source.title || source.publisher || `공식 출처 ${index + 1}`}</strong><span>{status}</span></div><a className="mt-2 block break-all text-blue-700 underline" href={source.canonicalUrl ?? source.url} rel="noreferrer" target="_blank">{source.canonicalUrl ?? source.url}</a>{source.failureReason ? <p className={`mt-2 rounded-lg p-2 ${candidate ? "bg-[#f4f4f5] text-[#66666f]" : "bg-amber-50 text-amber-900"}`}>{source.failureReason}</p> : null}</article>;
+  return <article className="rounded-xl bg-white p-3 text-xs"><div className="flex justify-between gap-3"><strong>{source.title || source.publisher || `출처 ${index + 1}`}</strong><span>{status}</span></div><a className="mt-2 block break-all text-blue-700 underline" href={source.canonicalUrl ?? source.url} rel="noreferrer" target="_blank">{source.canonicalUrl ?? source.url}</a>{source.failureReason ? <p className={`mt-2 rounded-lg p-2 ${candidate ? "bg-[#f4f4f5] text-[#66666f]" : "bg-amber-50 text-amber-900"}`}>{source.failureReason}</p> : null}</article>;
 }
 
 export function evidenceStatusLabel(source: ApprovalEvidenceSource, candidate: boolean): string {
@@ -209,7 +209,8 @@ export function evidenceStatusLabel(source: ApprovalEvidenceSource, candidate: b
     case "malformed_content": return "문서 형식 오류";
     case "content_too_large": return "문서 크기 초과";
     case "unsupported_claim": return "지원되지 않는 Claim";
-    case "unofficial_source": return "공식 출처 아님";
+    case "needs_corroboration": return "교차 확인 필요";
+    case "unofficial_source": return "보조 출처";
     case "fact_mismatch": return "Claim 불일치";
     case "duplicate_source": return "중복 후보";
     case "excluded": return "후보 · 판정 제외";

@@ -88,6 +88,7 @@ export class ApprovalReadinessApplicationService {
     contentId: string;
     connection?: PlatformConnection;
     selectedTarget?: boolean;
+    forceRefresh?: boolean;
   }>): Promise<ApprovalReadinessExecutionResult> {
     const content = input.data.contents.find((item) => item.id === input.contentId);
     if (!content?.document) throw new Error("승인 준비 검사를 실행할 기준 원고가 없습니다.");
@@ -134,7 +135,7 @@ export class ApprovalReadinessApplicationService {
      * failed to reach articles that had already been inspected.
      */
     const cached = storedApprovalReadinessSnapshots(content, executionIdentity.key);
-    if (cached) {
+    if (cached && input.forceRefresh !== true) {
       return finalizeApprovalReadinessResult({
         data: input.data,
         content,

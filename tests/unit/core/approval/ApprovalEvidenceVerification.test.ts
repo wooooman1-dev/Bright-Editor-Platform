@@ -215,7 +215,7 @@ describe("ApprovalEvidenceVerification", () => {
     });
   });
 
-  it("does not verify a user-generated blog even when the text repeats the article facts", () => {
+  it("keeps a user-generated blog in review until another source corroborates the facts", () => {
     const page = {
       ...officialPage,
       requestedUrl: "https://example.tistory.com/entry/starry-night",
@@ -236,8 +236,40 @@ describe("ApprovalEvidenceVerification", () => {
 
     expect(result.pack.status).toBe("needs_review");
     expect(result.pack.sources[0]?.verified).toBe(false);
-    expect(result.pack.sources[0]?.verificationStatus).toBe("unofficial_source");
-    expect(result.reasons[0]).toContain("공식 출처로 확인되지 않았습니다");
+    expect(result.pack.sources[0]?.verificationStatus).toBe("needs_corroboration");
+    expect(result.reasons[0]).toContain("Claim 검증이 완료되지 않았습니다");
+  });
+
+  it("verifies matching non-official sources after independent corroboration", () => {
+    const firstPage = {
+      ...officialPage,
+      requestedUrl: "https://example.tistory.com/entry/starry-night",
+      finalUrl: "https://example.tistory.com/entry/starry-night",
+      publisher: "example.tistory.com",
+    };
+    const secondPage = {
+      ...officialPage,
+      requestedUrl: "https://example.com/starry-night-reference",
+      finalUrl: "https://example.com/starry-night-reference",
+      publisher: "example.com",
+    };
+    const pack: ApprovalEvidencePack = {
+      ...candidatePack,
+      sources: [
+        { ...candidatePack.sources[0]!, url: firstPage.requestedUrl },
+        { ...candidatePack.sources[0]!, sourceId: "source-2", url: secondPage.requestedUrl },
+      ],
+    };
+    const result = verifyApprovalEvidence(
+      { ...document(), metadata: { ...document().metadata!, approvalEvidence: pack } },
+      "tistory_vivarain_art_v1",
+      [firstPage, secondPage],
+      "2026-07-27T10:00:00.000Z",
+    );
+
+    expect(result.pack.status).toBe("verified");
+    expect(result.pack.sources.every((source) => source.verified)).toBe(true);
+    expect(result.pack.sources.every((source) => source.trustRoute === "external_corroborated")).toBe(true);
   });
 
   it("accepts explicitly trusted Getty pages for the Vivarain art profile", () => {
