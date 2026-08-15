@@ -83,6 +83,9 @@ describe("AIWorkflow approval information-date contract", () => {
     expect(instruction).toContain("Information-date contract (mandatory for approval preparation)");
     expect(instruction).toContain(`"정보 기준일: ${new Date().toISOString().slice(0, 10)}"`);
     expect(instruction).toContain("The server supplies this date, so do not guess another one");
+    expect(instruction).toContain('heading "정보 기준과 다시 확인할 곳"');
+    expect(instruction).toContain("Do not place this date under the title");
+    expect(instruction).toContain("This paragraph is reader guidance, not source content");
   });
 
   it("keeps the system-owned review dates out of the manuscript and invents no source", async () => {

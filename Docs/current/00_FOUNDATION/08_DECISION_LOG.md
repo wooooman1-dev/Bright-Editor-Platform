@@ -931,6 +931,25 @@ scheduled publishing contracts.
 
 ---
 
+# D-043 Information Date Placement and Source Guidance Separation
+
+Status: Accepted
+
+For newly generated `adsense_approval` manuscripts, the AI-generated
+`정보 기준일: YYYY-MM-DD` line must not appear under the title, in the
+introduction, or inside ordinary article prose. It belongs once in a distinct
+final section named `정보 기준과 다시 확인할 곳`, after the conclusion.
+
+The reader-facing sentence that names an official service or page for
+re-checking is guidance, not source content. It must be a separate paragraph
+from factual or legal explanation. Verified source links and system-owned
+review dates remain separate system projections.
+
+This applies to new Generation and Quality Review results. Existing saved Drafts
+are not rewritten by this decision.
+
+---
+
 # D-038 WordPress Scheduled Publishing
 
 Status: Accepted

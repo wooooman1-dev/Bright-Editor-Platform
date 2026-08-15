@@ -41,7 +41,7 @@ describe("approval date-role and legal-scope policy", () => {
     ].join("\n");
 
     expect(snapshot.requiredPrinciples).toContain(
-      "본문에는 정보 기준일과 공식 재확인 경로를 제공한다. 출처 확인일과 Claim 최종 검토일은 Bright Studio가 Evidence 검증 후 별도로 기록한다.",
+      "본문 마지막의 별도 '정보 기준과 다시 확인할 곳' 영역에 정보 기준일과 공식 재확인 경로를 제공한다. 출처 확인일과 Claim 최종 검토일은 Bright Studio가 Evidence 검증 후 별도로 기록한다.",
     );
     expect(snapshot.sourceRequirements).toContain(
       "본문 정보 기준일과 시스템 Evidence 검토일의 역할 분리",
@@ -51,7 +51,7 @@ describe("approval date-role and legal-scope policy", () => {
     );
     expect(profileContract).not.toContain("정보 기준일, 최종 검토일과 공식 확인 경로를 제공한다.");
     expect(profileContract).not.toContain("정보 기준일과 최종 검토일");
-    expect(context).toContain("본문에는 정보 기준일과 공식 재확인 경로를 제공한다.");
+    expect(context).toContain("본문 마지막의 별도 '정보 기준과 다시 확인할 곳' 영역에 정보 기준일과 공식 재확인 경로를 제공한다.");
     expect(context).toContain("출처 확인일과 Claim 최종 검토일은 Bright Studio가 Evidence 검증 후 별도로 기록한다.");
     expect(context).not.toContain("정보 기준일, 최종 검토일과 공식 확인 경로를 제공한다.");
     expect(context).toContain("Date ownership contract");
