@@ -21,6 +21,15 @@ npm run dev
 수정 대상: `08_DECISION_LOG.md`, 승인 출처 정책 문서,
 `ApprovalEvidenceVerification`, `ApprovalReadiness` 및 회귀 테스트.
 
+== Decision D-041 기록 — Generated Citation URL Preservation ==
+
+원고 본문·메타데이터에 AI가 실제로 작성한 HTTPS 출처 URL을 생성 단계에서
+Evidence 후보로 병합한다. Provider web-search 진단에 URL이 빠져도 원고가
+사용한 출처를 검증하며, URL만으로 통과시키지 않고 기존 Fetch·Claim 일치·교차
+확인 규칙을 그대로 적용한다.
+
+수정 대상: `core/ai/AIWorkflow.ts`, `08_DECISION_LOG.md`.
+
 npm install 은 이전 브랜치에서 뒤처져 있을 때만. 이번 작업은 package.json 을
 건드리지 않았다.
 

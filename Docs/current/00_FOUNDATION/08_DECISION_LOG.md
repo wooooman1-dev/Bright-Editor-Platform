@@ -897,6 +897,23 @@ route are the trust conditions.
 
 ---
 
+# D-041 Generated Citation URL Preservation
+
+Status: Accepted
+
+When an AI-generated manuscript contains a source URL in its body or metadata,
+that URL is an Evidence candidate even when the provider's web-search
+diagnostics omit it. The candidate remains an ordinary `citation` until the
+shared Fetch and Claim-content matcher verifies it. This prevents an unrelated
+diagnostic result from replacing the source the manuscript actually used.
+
+The workflow must merge three source inputs before Evidence verification:
+generation preflight sources, provider citation diagnostics, and URLs extracted
+from the generated document. URL presence alone never bypasses Fetch,
+content-match, or applicable corroboration rules.
+
+---
+
 # D-038 WordPress Scheduled Publishing
 
 Status: Accepted

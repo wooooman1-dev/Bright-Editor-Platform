@@ -215,6 +215,7 @@ export class AIWorkflow {
         [
           ...(generationPreflight?.sources ?? []),
           ...(response.diagnostics?.webSources ?? []),
+          ...generatedDocumentCitationSources(policyDocument),
         ],
         undefined,
         generationPreflight?.claimSources,
@@ -604,6 +605,29 @@ function generatedEditorialValues(
       return [];
     }),
   ].filter(Boolean));
+}
+
+/**
+ * Preserve URLs that the model actually printed in the generated document.
+ * Provider web-search diagnostics are not guaranteed to include every URL the
+ * model selected in its prose, so relying on diagnostics alone can associate a
+ * document with an unrelated search result. These candidates remain ordinary
+ * citations and are verified by the shared Evidence Fetch/Claim matcher.
+ */
+export function generatedDocumentCitationSources(
+  document: ContentDocument,
+): readonly AIWebSource[] {
+  const urls = new Set<string>();
+  for (const value of generatedEditorialValues(document)) {
+    for (const match of value.matchAll(/https:\/\/[^\s<>'"\])}]+/gi)) {
+      const url = match[0].replace(/[.,;:!?]+$/g, "");
+      if (url) urls.add(url);
+    }
+  }
+  return Object.freeze([...urls].map((url) => Object.freeze({
+    url,
+    provenance: "citation" as const,
+  })));
 }
 
 function approvalEvidenceCandidates(
