@@ -950,6 +950,24 @@ are not rewritten by this decision.
 
 ---
 
+# D-044 Preserve Existing Manuscripts When Generating a New Content
+
+Status: Accepted
+
+When a Content already has a manuscript, the existing regeneration action keeps
+its current replacement behavior and requires explicit confirmation. The
+creation flow also exposes a separate action that creates a new Content ID from
+the confirmed planning opportunity. That action must preserve the original
+Content and route persistence, platform preparation, generation, recovery, and
+editor navigation through the new Content ID.
+
+The new Content path is a Content-level copy of the confirmed planning context,
+not a document copy. The existing manuscript, review state, and generation
+history remain attached to the original Content; generation starts a fresh
+manuscript on the new Content.
+
+---
+
 # D-038 WordPress Scheduled Publishing
 
 Status: Accepted

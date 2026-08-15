@@ -32,6 +32,16 @@ describe("usable Content flow UI", () => {
     const retried = createContentFromPlan(contentData, { id: "c", projectId: "p", naturalLanguageRequest: "request", plan, primaryKeyword: "keyword", selectedPublishingAccountIds: [], now: "later" });
     expect(retried.contents).toHaveLength(1);
   });
+  it("preserves the existing manuscript when confirmation targets a new Content id", () => {
+    const document = { id: "c-document", title: "Original", blocks: [{ id: "p", type: "paragraph" as const, text: "Original manuscript" }] };
+    const withDocument = applyCanonicalDocument(contentData, "c", document, "generation", "now");
+    const copied = createContentFromPlan(withDocument, { id: "new-content", projectId: "p", naturalLanguageRequest: "request", plan, opportunity: withDocument.contents[0].opportunity, selectedPublishingAccountIds: [], now: "later" });
+    expect(copied.contents).toHaveLength(2);
+    expect(copied.contents.find((item) => item.id === "c")?.document).toEqual(document);
+    expect(copied.contents.find((item) => item.id === "new-content")?.document).toBeUndefined();
+    const html = renderToStaticMarkup(<ContentCreationFlow content={withDocument.contents[0]} data={withDocument} project={project} onBack={vi.fn()} onContentStarted={vi.fn()} onOpenEditor={vi.fn()} onPersist={vi.fn()} onRefresh={vi.fn(async () => withDocument)} onRestore={vi.fn()} />);
+    expect(html).toContain("기존 원고를 보존하고 새 Content로 생성");
+  });
   it.each([
     ["legacy", { score: 100, seoReady: true, readabilityReady: true }],
     ["undefined dimensions", { dimensions: undefined }],
