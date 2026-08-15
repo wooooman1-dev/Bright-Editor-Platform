@@ -351,7 +351,6 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
       if (target === "new") {
         setPreservedOpportunityId(content?.opportunity?.opportunityId);
         onRestore(next);
-        onContentStarted(targetContentId);
       }
       if (!generate) {
         onOpenEditor(targetContentId);
