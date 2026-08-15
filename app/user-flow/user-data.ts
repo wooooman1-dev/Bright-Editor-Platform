@@ -531,7 +531,7 @@ export function createContentFromPlan(data: UserData, input: Readonly<{
     qualityTarget: opportunity.qualityTarget,
     selectedPublishingAccountIds: [...new Set(input.selectedPublishingAccountIds)],
     ...(input.selectedPublishingAccountIds.length === 1 ? { publishingAccountId: input.selectedPublishingAccountIds[0], platform: resolveProjectStrategy(project).defaultPlatform } : {}),
-    title: opportunity.selectedTopic,
+    title: existing?.document?.title ?? opportunity.selectedTopic,
     body: existing?.body ?? "", status: "planning", creationMethod: "natural_language", createdAt: existing?.createdAt ?? input.now, updatedAt: input.now,
   };
   return { ...data, contents: existing ? data.contents.map((item) => item.id === existing.id ? content : item) : [...data.contents, content] };
@@ -687,10 +687,11 @@ export function parseStoredUserData(raw: string | null): UserData {
   if (!raw) return emptyUserData;
   try {
     const parsed = JSON.parse(raw) as Partial<UserData>;
+    const contents = Array.isArray(parsed.contents) ? parsed.contents.map((content) => content?.document?.title ? { ...content, title: content.document.title } : content) : [];
     return {
       workspace: parsed.workspace,
       brands: Array.isArray(parsed.brands) ? parsed.brands : [], projects: Array.isArray(parsed.projects) ? parsed.projects : [],
-      contents: Array.isArray(parsed.contents) ? parsed.contents : [], history: Array.isArray(parsed.history) ? parsed.history : [],
+      contents, history: Array.isArray(parsed.history) ? parsed.history : [],
       mediaMetadata: Array.isArray(parsed.mediaMetadata) ? parsed.mediaMetadata : [], qualityReports: Array.isArray(parsed.qualityReports) ? parsed.qualityReports : [],
       publishingRecords: Array.isArray(parsed.publishingRecords) ? parsed.publishingRecords : [], scheduledPublishing: Array.isArray(parsed.scheduledPublishing) ? parsed.scheduledPublishing : [],
     };

@@ -52,7 +52,7 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
   const contentIdentity = `${project.id}:${content?.id ?? draftContentId}`;
   const [request, setRequest] = useState(restoredWorkflow?.request ?? content?.naturalLanguageRequest ?? "");
   const [plan, setPlan] = useState<ContentPlanningResult | undefined>(content?.planning);
-  const [opportunityId, setOpportunityId] = useState(restoredWorkflow?.selectedOpportunityId ?? content?.planning?.opportunityCandidates?.[0]?.opportunityId ?? "");
+  const [opportunityId, setOpportunityId] = useState(content?.opportunity?.opportunityId ?? restoredWorkflow?.selectedOpportunityId ?? content?.planning?.opportunityCandidates?.[0]?.opportunityId ?? "");
   const [customKeyword, setCustomKeyword] = useState("");
   const [customKeywordSelected, setCustomKeywordSelected] = useState(false);
   const [preservedOpportunityId, setPreservedOpportunityId] = useState<string | undefined>();
@@ -93,7 +93,7 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
     planningSubmissionRef.current = false;
     setRequest(content?.planningWorkflow?.request ?? content?.naturalLanguageRequest ?? "");
     setPlan(content?.planning);
-    setOpportunityId(content?.planningWorkflow?.selectedOpportunityId ?? content?.planning?.opportunityCandidates?.[0]?.opportunityId ?? "");
+    setOpportunityId(content?.opportunity?.opportunityId ?? content?.planningWorkflow?.selectedOpportunityId ?? content?.planning?.opportunityCandidates?.[0]?.opportunityId ?? "");
     setCustomKeyword("");
     setCustomKeywordSelected(false);
     setSelected(content?.selectedPublishingAccountIds ?? project.selectedPublishingAccountIds ?? []);
@@ -113,7 +113,7 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
       activeOperationRef.current = workflow.operationId;
       setRequest(workflow.request);
       setPlan(content.planning);
-      setOpportunityId(workflow.selectedOpportunityId ?? content.planning?.opportunityCandidates?.[0]?.opportunityId ?? "");
+      setOpportunityId(content.opportunity?.opportunityId ?? workflow.selectedOpportunityId ?? content.planning?.opportunityCandidates?.[0]?.opportunityId ?? "");
       setSelected(content.selectedPublishingAccountIds ?? project.selectedPublishingAccountIds ?? []);
       setCustomKeyword("");
       setCustomKeywordSelected(false);

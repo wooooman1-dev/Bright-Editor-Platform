@@ -42,6 +42,8 @@ describe("usable Content flow UI", () => {
     expect(copied.contents.find((item) => item.id === "new-content")?.preservedFromContentId).toBe("c");
     expect(copied.contents.find((item) => item.id === "new-content")?.planningWorkflow?.status).toBe("opportunityConfirmed");
     expect(copied.contents.find((item) => item.id === "c")?.title).toBe(withDocument.contents[0].title);
+    const reconfirmed = createContentFromPlan(withDocument, { id: "c", projectId: "p", naturalLanguageRequest: "request", plan, opportunity: withDocument.contents[0].opportunity, selectedPublishingAccountIds: [], now: "later-1" });
+    expect(reconfirmed.contents.find((item) => item.id === "c")?.title).toBe(document.title);
     const generating = startContentGeneration(copied, { workspaceId: "w", projectId: "p", contentId: "new-content", operationId: "new-generation", now: "later-2" });
     expect(generating.contents.find((item) => item.id === "new-content")?.planningWorkflow?.status).toBe("generating");
     const html = renderToStaticMarkup(<ContentCreationFlow content={withDocument.contents[0]} data={withDocument} project={project} onBack={vi.fn()} onContentStarted={vi.fn()} onOpenEditor={vi.fn()} onPersist={vi.fn()} onRefresh={vi.fn(async () => withDocument)} onRestore={vi.fn()} />);
