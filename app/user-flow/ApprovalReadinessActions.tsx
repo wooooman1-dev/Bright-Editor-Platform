@@ -9,7 +9,7 @@ import {
   type SiteApprovalReadinessSnapshot,
 } from "../../core/approval";
 import type { ContentDocument } from "../../core/content";
-import { editorialRevisionId, isStandardQualityApproved, type QualityReport } from "../../core/quality";
+import { editorialRevisionId, type QualityReport } from "../../core/quality";
 import {
   approvalEvidenceFingerprint,
   approvalReadinessInspectionVersion,
@@ -82,7 +82,6 @@ export function approvalReadinessAutoRunDecision(content: UserContent | undefine
     && execution.publishingContextKey === publishingContextKey
     && execution.evidenceFingerprint === evidenceFingerprint;
   const qualityIsCurrent = content.quality !== undefined
-    && isStandardQualityApproved(content.quality)
     && content.quality.reviewedRevisionId === currentRevisionId;
   return Object.freeze({
     currentRevisionId,

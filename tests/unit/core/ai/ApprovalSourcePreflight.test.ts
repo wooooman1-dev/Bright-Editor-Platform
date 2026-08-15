@@ -312,7 +312,7 @@ describe("Approval Source Preflight", () => {
     );
     expect(result.document.metadata?.approvalEvidence?.sources).toMatchObject([{
       url: sourceUrl,
-      provenance: "citation",
+      provenance: "system_verified",
       cited: true,
       selected: true,
       citationExcerpt: sourceEvidenceExcerpt,

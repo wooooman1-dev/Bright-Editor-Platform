@@ -359,6 +359,14 @@ function standardQualityCheck(
   supersededReview = false,
   blockingReasons: readonly string[] = [],
 ): ApprovalReadinessCheck {
+  if (supersededReview && passed) {
+    return Object.freeze({
+      key: "standard_quality",
+      status: "blocked",
+      message: "마지막 품질 검토 이후 원고가 수정되어 현재 문서 버전에는 기본 품질 승인이 없습니다.",
+      action: "현재 문서 버전으로 품질 검토를 다시 실행하세요.",
+    });
+  }
   if (passed) {
     return Object.freeze({ key: "standard_quality", status: "passed", message: "현재 문서 버전이 기본 품질 승인을 통과했습니다." });
   }

@@ -118,10 +118,10 @@ export class ApprovalReadinessApplicationService {
      * with that reason instead of throwing, which used to leave the previous
      * run's stale verdict on screen with no way to clear it.
      */
-    if (!isStandardQualityApproved(content.quality)
-      || content.quality.reviewedRevisionId !== editorialRevision) {
-      return pendingStandardQualityResult(input.data, content, content.document);
-    }
+    // Evidence, public-site readiness, and the public-post catalog are
+    // independent inspections. They run for the current editorial revision
+    // even when Standard Quality is blocked. Standard Quality remains an
+    // aggregate input and still prevents applicationReady.
     const executionIdentity = approvalReadinessExecutionIdentity(content, input.connection?.id);
     const evidenceRequirement = resolveApprovalEvidenceRequirement(content.opportunity);
     const evidenceApplicable = evidenceRequirement !== "not_required";
@@ -280,7 +280,7 @@ function finalizeApprovalReadinessResult(input: Readonly<{
  * the same Core function the persistence boundary uses, so the answer the API
  * returns is the answer that gets saved.
  */
-function pendingStandardQualityResult(
+export function pendingStandardQualityResult(
   data: UserData,
   content: UserContent,
   document: ContentDocument,

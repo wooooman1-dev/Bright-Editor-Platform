@@ -212,7 +212,10 @@ export class AIWorkflow {
       const evidenceDocument = withApprovalEvidenceMetadata(
         policyDocument,
         input.editorialContext,
-        generationPreflight?.sources ?? response.diagnostics?.webSources ?? [],
+        [
+          ...(generationPreflight?.sources ?? []),
+          ...(response.diagnostics?.webSources ?? []),
+        ],
         undefined,
         generationPreflight?.claimSources,
         generationPreflight?.coverage,
@@ -494,15 +497,20 @@ export function withApprovalEvidenceMetadata(
     snapshot,
     retrievedAt,
     claimSources,
+    sourcePolicyCompliance,
   );
   if (!candidates.length) return document;
+  const preflightVerified = sourcePolicyCompliance === "passed"
+    && coverage?.status === "covered"
+    && candidates.some((source) => source.provenance === "system_verified" && source.verified);
   return Object.freeze({
     ...document,
     metadata: Object.freeze({
       ...document.metadata,
       approvalEvidence: Object.freeze({
         version: "1.0" as const,
-        status: "needs_review" as const,
+        status: preflightVerified ? "verified" as const : "needs_review" as const,
+        ...(preflightVerified ? { reviewedAt: retrievedAt } : {}),
         ...(coverage ? {
           coverageStatus: coverage.status === "covered"
             ? "verified" as const
@@ -603,19 +611,28 @@ function approvalEvidenceCandidates(
   snapshot: ApprovalPolicySnapshot,
   retrievedAt: string,
   claimSources: readonly ApprovalSourcePreflightClaimSource[],
+  sourcePolicyCompliance?: "passed" | "failed" | "not_required",
 ): readonly ApprovalEvidenceSource[] {
   const claimsByUrl = new Map(claimSources.map((source) => [
     canonicalizeApprovalEvidenceUrl(source.url),
     source.claims,
   ]));
+  const preflightVerifiedUrls = new Set(
+    sourcePolicyCompliance === "passed"
+      ? claimSources.map((source) => canonicalizeApprovalEvidenceUrl(source.url))
+      : [],
+  );
   const candidates = new Map<string, ApprovalEvidenceSource>();
   for (const source of webSources) {
     const url = canonicalizeApprovalEvidenceUrl(source.url);
     if (!url.startsWith("https://") || candidates.has(url)) continue;
     const publisher = sourcePublisher(url);
-    const provenance = source.provenance === "citation"
+    const preflightVerified = preflightVerifiedUrls.has(url);
+    const provenance = preflightVerified
+      ? "system_verified" as const
+      : source.provenance === "citation"
       ? "citation"
-      : "search_candidate";
+      : "search_candidate" as const;
     const verifiedClaims = claimsByUrl.get(url) ?? [];
     const claimFacts: readonly ApprovalEvidenceFact[] = Object.freeze(
       verifiedClaims.map((claim) => Object.freeze({
@@ -635,7 +652,7 @@ function approvalEvidenceCandidates(
         ? "official_archive"
         : "official_institution",
       retrievedAt,
-      verified: false,
+      verified: preflightVerified,
       provenance,
       ...(source.excerpt ? { citationExcerpt: source.excerpt } : {}),
       facts: claimFacts.length
@@ -648,8 +665,16 @@ function approvalEvidenceCandidates(
                 })]
               : [],
           ),
-      cited: provenance === "citation",
-      selected: provenance === "citation",
+      ...(preflightVerified ? {
+        official: true,
+        verificationStatus: "verified" as const,
+        accessVerificationStatus: "verified" as const,
+        officialDomainVerificationStatus: "verified" as const,
+        claimVerificationStatus: "verified" as const,
+        checkedAt: retrievedAt,
+      } : {}),
+      cited: source.provenance === "citation",
+      selected: preflightVerified || provenance === "citation",
     }));
   }
   return Object.freeze([...candidates.values()]);

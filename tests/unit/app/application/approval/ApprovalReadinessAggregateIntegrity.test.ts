@@ -471,8 +471,8 @@ describe("approval readiness aggregate integrity", () => {
 
   describe("P5 · a blocked Standard Quality reports the other five states", () => {
     it("returns a full six-check report instead of throwing, and explains the unevaluated ones", async () => {
-      // No site audit has ever run for this manuscript, so site_readiness is
-      // genuinely unevaluated and must say why it is still empty.
+      // Standard Quality is blocked, but independent Evidence/site checks must
+      // still inspect the current manuscript revision.
       const source = baseDocument();
       const metadata = { ...source.metadata! };
       delete metadata.siteApprovalReadiness;
@@ -485,16 +485,15 @@ describe("approval readiness aggregate integrity", () => {
         () => "2026-08-13T00:00:00.000Z",
       ).execute({ data: userData(item), contentId: "content-1", connection });
 
-      expect(request).not.toHaveBeenCalled();
+      expect(request).toHaveBeenCalled();
       const report = (result.quality as ApprovalAwareQualityReport).approvalReadiness;
       expect(report?.checks).toHaveLength(6);
       expect(check(report, "standard_quality").status).toBe("blocked");
-      expect(check(report, "site_readiness").status).toBe("not_evaluated");
-      expect(check(report, "site_readiness").action).toContain("기본 품질 승인을 통과해야");
+      expect(check(report, "site_readiness").status).not.toBe("not_evaluated");
       // Standard Quality must not decide the other states: a duplicate check
       // that really passed still reads as passed.
       expect(check(report, "duplicate").status).toBe("passed");
-      expect(result.inspectionPerformed).toBe(false);
+      expect(result.inspectionPerformed).toBe(true);
     });
 
     it("returns the same aggregate the persistence boundary will store", async () => {
@@ -513,7 +512,7 @@ describe("approval readiness aggregate integrity", () => {
         .toEqual((result.quality as ApprovalAwareQualityReport).approvalReadiness);
     });
 
-    it("records no completed inspection identity for a run that inspected nothing", async () => {
+    it("records a completed inspection identity even when Standard Quality is blocked", async () => {
       const document = baseDocument();
       const item = content({ document, quality: standardQuality(document, false) });
 
@@ -522,7 +521,7 @@ describe("approval readiness aggregate integrity", () => {
         () => "2026-08-13T00:00:00.000Z",
       ).execute({ data: userData(item), contentId: "content-1", connection });
 
-      expect(result.document.metadata?.approvalReadinessExecution).toBeUndefined();
+      expect(result.document.metadata?.approvalReadinessExecution?.status).toBe("completed");
     });
 
     it("replaces a verdict left over from a superseded revision and names that as the cause", async () => {
