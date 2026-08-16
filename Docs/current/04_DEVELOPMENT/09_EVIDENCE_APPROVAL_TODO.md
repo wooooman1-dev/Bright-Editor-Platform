@@ -14,7 +14,7 @@ Updated: 2026-08-16
 
 - [x] Preserve the existing source-display changes in `481b74d`.
 - [x] Remove numeric/raw-value equality as a blocking condition in `VerificationClaimEvidenceMatch`.
-- [ ] Change `VerificationClaimPolicy` so high-risk Claims pass with either one authoritative official source or at least two independent institutions when no official source exists.
+- [x] Change `VerificationClaimPolicy` so high-risk Claims pass with either one authoritative official source or at least two independent institutions when no official source exists.
 - [ ] Confirm the pre-generation discovery path performs free web search for non-official Evidence and adds the corroborating source before Generation.
 - [ ] Do not silently fall back to Generation when corroborating Evidence is missing.
 - [ ] Add regression tests for:
@@ -25,3 +25,10 @@ Updated: 2026-08-16
   - [ ] `6개월 / 2개월 / 2년` legal Claim regression
 - [ ] Run the relevant unit/integration tests.
 - [ ] Record the final implementation commit SHA here after verification.
+
+## Current implementation record
+
+- `481b74d`: preserved the source-display/evidence normalization changes.
+- `5542e618`: numeric/raw-value mismatch is no longer a blocking condition in Claim Evidence Match.
+- `2e75a684`: high-risk verification now accepts either one authoritative primary official source or two independent institutions when no official source exists.
+- The existing source normalization preserves `search_candidate` sources; the upstream discovery step still needs to be verified to ensure free web search is invoked before Generation whenever corroboration is required.
