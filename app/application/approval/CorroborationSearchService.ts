@@ -166,7 +166,6 @@ async function fetchCandidatePage(
     const contentType = response.headers.get("content-type") ?? "";
     if (!/(?:text\/html|application\/xhtml\+xml|text\/plain)/iu.test(contentType)) return undefined;
     const text = await response.text();
-    if (text.trim().length < 200) return undefined;
     const title = extractTitle(text);
     const bodyText = stripHtml(text).slice(0, 100_000);
     return Object.freeze({
