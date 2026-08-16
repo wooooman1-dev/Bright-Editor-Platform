@@ -22,8 +22,10 @@ export function evaluateVerificationClaimEvidenceMatch(input: Readonly<{
   const excerpt = normalizeWhitespace(input.evidenceExcerpt);
   const page = normalizeWhitespace(input.pageText);
   const excerptFound = Boolean(excerpt) && compact(page).includes(compact(excerpt));
-  const semanticMatch = propositionConceptMatch(input.spec, excerpt);
-  const valueSupported = semanticMatch;
+  // Semantic identity must be established from the server-fetched page, not
+  // from the untrusted excerpt supplied by discovery. Otherwise a fabricated
+  // excerpt can make an unrelated page look like support for the Claim.
+  const valueSupported = propositionConceptMatch(input.spec, page);
   const rawValueMatches = input.normalizedValueMatchesPlanned;
   const claimShapeCompatible = claimValueShapeCompatible(input.spec, input.submittedValue);
   const matched = Boolean(
@@ -93,15 +95,14 @@ function durationShape(value: string): string {
 
 function propositionConceptMatch(
   spec: VerificationClaimSpec,
-  evidenceExcerpt: string,
+  pageText: string,
 ): boolean {
-  const evidence = compact(evidenceExcerpt);
-
-  // `field` is an internal/server-owned identifier and is not guaranteed to
-  // be human-readable (for example, "amount" while the statement says
-  // "지원 금액"). The natural-language statement therefore participates in
-  // Claim identity as well as proposition matching. This keeps explicit
-  // source verification independent of provider-specific field naming.
+  const evidence = compact(pageText);
+  const fieldConcepts = concepts(spec.field);
+  const subjectConcepts = concepts([
+    spec.qualifiers.subject ?? "",
+    spec.qualifiers.scope ?? "",
+  ].join(" "));
   const identityConcepts = concepts([
     spec.field,
     spec.statement,
@@ -112,15 +113,33 @@ function propositionConceptMatch(
     spec.statement,
     spec.qualifiers.basis ?? "",
   ].join(" "));
-  const identityMatches = identityConcepts.filter((token) => conceptPresent(evidence, token));
   const distinctiveIdentityConcepts = identityConcepts.filter((token) => !genericIdentityConcepts.has(token));
-  const distinctiveIdentityMatches = distinctiveIdentityConcepts.filter((token) => conceptPresent(evidence, token));
-  const propositionMatches = propositionConcepts.filter((token) => conceptPresent(evidence, token));
-  const identityMatched = distinctiveIdentityConcepts.length > 0
-    ? distinctiveIdentityMatches.length >= 1
-    : identityMatches.length >= 1;
+
+  // Prefer concepts shared by the server-owned field and subject. This gives
+  // legal Claims a stable semantic anchor (for example, "확정일자") instead
+  // of allowing a broad legal term such as "법적" to match an unrelated law.
+  const fieldSubjectAnchors = [...new Set([
+    ...fieldConcepts.filter((token) => subjectConcepts.includes(token)),
+    ...fieldConcepts.filter((token) => !genericIdentityConcepts.has(token)),
+  ])];
+  const strictAnchors = spec.kind === "legal"
+    ? fieldSubjectAnchors
+    : fieldSubjectAnchors.slice(0, 2);
+  const anchorMatches = strictAnchors.filter((token) => conceptPresent(evidence, token, spec.kind === "legal"));
+  if (strictAnchors.length > 0 && anchorMatches.length === 0) return false;
+
+  const distinctiveIdentityMatches = distinctiveIdentityConcepts.filter((token) =>
+    conceptPresent(evidence, token, spec.kind === "legal"));
+  const propositionMatches = propositionConcepts.filter((token) =>
+    conceptPresent(evidence, token, spec.kind === "legal"));
+  const identityMatched = strictAnchors.length > 0
+    ? anchorMatches.length >= 1
+    : distinctiveIdentityConcepts.length > 0
+      ? distinctiveIdentityMatches.length >= 1
+      : identityConcepts.some((token) => conceptPresent(evidence, token, spec.kind === "legal"));
+
   return identityMatched
-    && new Set(propositionMatches).size >= (distinctiveIdentityMatches.length > 0 ? 1 : 2);
+    && propositionMatches.length >= (spec.kind === "legal" && strictAnchors.length > 0 ? 1 : 1);
 }
 
 function concepts(value: string): readonly string[] {
@@ -132,9 +151,9 @@ function concepts(value: string): readonly string[] {
     .slice(0, 40));
 }
 
-function conceptPresent(compactEvidence: string, token: string): boolean {
+function conceptPresent(compactEvidence: string, token: string, strict = false): boolean {
   if (compactEvidence.includes(token)) return true;
-  if (token.length < 4) return false;
+  if (strict || token.length < 4) return false;
   const stem = token.slice(0, Math.max(3, token.length - 1));
   return compactEvidence.includes(stem);
 }
