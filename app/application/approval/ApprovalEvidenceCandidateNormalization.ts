@@ -137,6 +137,10 @@ export function canonicalSources(
     if (!canonicalUrl.startsWith("https://")) continue;
     const provenance = source.provenance
       ?? (source.cited === true ? "citation" : source.selected === true ? "user_selected" : "search_candidate");
+    // Search results are discovery candidates, not article evidence. They may
+    // enter the persisted Evidence set only after becoming linked to a Claim
+    // through a document link/citation/selection or an explicit system route.
+    if (provenance === "search_candidate" && !(source.linkedBlockIds?.length)) continue;
     const normalized = Object.freeze({
       ...source,
       originalUrl: source.originalUrl ?? source.url,
