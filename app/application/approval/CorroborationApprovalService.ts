@@ -2,6 +2,7 @@ import {
   canonicalizeApprovalEvidenceUrl,
   deriveApprovalReadinessReport,
   verifyApprovalEvidence,
+  type ApprovalEvidencePack,
   type ApprovalEvidenceSource,
   type ApprovalPolicyProfileId,
   type ApprovalSourcePage,
@@ -111,12 +112,13 @@ export async function corroborateApprovalReadinessResult(
     pages,
     checkedAt,
   );
+  const effectiveVerification = applyCorroborationPolicy(verification, checkedAt);
 
   const document: ContentDocument = Object.freeze({
     ...documentWithCandidates,
     metadata: Object.freeze({
       ...documentWithCandidates.metadata!,
-      approvalEvidence: verification.pack,
+      approvalEvidence: effectiveVerification.pack,
       updatedAt: checkedAt,
     }),
   });
@@ -152,7 +154,42 @@ export async function corroborateApprovalReadinessResult(
     data,
     document,
     quality,
-    evidence: verification,
+    evidence: effectiveVerification,
+  });
+}
+
+/**
+ * Corroboration has a deliberately narrower approval rule than the ordinary
+ * official-source route: two distinct unofficial URLs that independently
+ * verify the same Claim are sufficient. It must not be downgraded merely
+ * because another optional/required fact field has no corroborating source.
+ *
+ * The Core verifier still performs access, extraction, Claim matching and
+ * official-source checks. This application-layer override only changes the
+ * aggregate pack verdict for the explicitly corroborated route; it never
+ * changes an official-source verdict.
+ */
+function applyCorroborationPolicy(
+  verification: ReturnType<typeof verifyApprovalEvidence>,
+  reviewedAt: string,
+): ReturnType<typeof verifyApprovalEvidence> {
+  const corroboratedSources = verification.pack.sources.filter((source) =>
+    source.verified
+    && source.trustRoute === "external_corroborated"
+    && source.verificationStatus === "verified",
+  );
+  if (corroboratedSources.length < 2) return verification;
+
+  const pack: ApprovalEvidencePack = Object.freeze({
+    ...verification.pack,
+    status: "verified",
+    coverageStatus: "verified",
+    sourcePolicyCompliance: "passed",
+    reviewedAt,
+  });
+  return Object.freeze({
+    ...verification,
+    pack,
   });
 }
 
