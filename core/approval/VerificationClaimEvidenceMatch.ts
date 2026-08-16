@@ -185,13 +185,14 @@ function propositionConceptMatch(
   ].join(" "));
   const distinctiveIdentityConcepts = identityConcepts.filter((token) => !genericIdentityConcepts.has(token));
 
-  // Prefer concepts shared by the server-owned field and subject. This gives
-  // legal Claims a stable semantic anchor (for example, "확정일자")
-  // instead of allowing a broad legal term such as "법적" to match an unrelated law.
-  const fieldSubjectAnchors = [...new Set([
-    ...fieldConcepts.filter((token) => subjectConcepts.includes(token)),
-    ...fieldConcepts.filter((token) => !genericIdentityConcepts.has(token)),
-  ])];
+  // A field is a server-owned semantic hint, not necessarily literal page text.
+  // Machine-oriented fields such as "amount" or "loanScope" must not become
+  // mandatory anchors when the actual evidence uses the human-readable Claim
+  // wording (for example, "지원 금액"). When a subject/scope overlaps the
+  // field, retain that overlap as the strongest identity anchor.
+  const fieldSubjectAnchors = [...new Set(
+    fieldConcepts.filter((token) => subjectConcepts.includes(token)),
+  )];
   const strictAnchors = spec.kind === "legal"
     ? fieldSubjectAnchors
     : fieldSubjectAnchors.slice(0, 2);
