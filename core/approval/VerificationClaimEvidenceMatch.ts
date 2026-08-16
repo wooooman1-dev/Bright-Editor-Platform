@@ -29,7 +29,9 @@ export function evaluateVerificationClaimEvidenceMatch(input: Readonly<{
   // For scalar Claims, the discovered value itself must also be observable in
   // the fetched page. This distinguishes a legitimate source-value change
   // (100만원 is actually on the page) from an excerpt that claims 100만원 while
-  // the server-fetched page actually says 50만원.
+  // the server-fetched page actually says 50만원. Equivalent date/number
+  // renderings are accepted because Korean public pages routinely render
+  // ISO dates and numeric values in localized forms.
   const submittedValueSupported = scalarValuePresentInPage(input.spec, input.submittedValue, page);
   const valueSupported = semanticConceptsMatch && submittedValueSupported;
   const rawValueMatches = input.normalizedValueMatchesPlanned;
@@ -60,7 +62,59 @@ function scalarValuePresentInPage(
 ): boolean {
   if (["general", "legal", "eligibility"].includes(spec.kind)) return true;
   const submitted = compact(submittedValue);
-  return Boolean(submitted) && compact(pageText).includes(submitted);
+  const page = compact(pageText);
+  if (!submitted) return false;
+  if (page.includes(submitted)) return true;
+
+  switch (spec.kind) {
+    case "date":
+      return dateValuePresent(submittedValue, pageText);
+    case "dateRange":
+      return dateRangeValuePresent(submittedValue, pageText);
+    case "money":
+    case "ratio":
+    case "duration":
+      return numericUnitValuePresent(submittedValue, pageText);
+    default:
+      return false;
+  }
+}
+
+function numericUnitValuePresent(value: string, pageText: string): boolean {
+  const normalizedValue = value.normalize("NFKC").toLocaleLowerCase("ko-KR");
+  const numbers = normalizedValue.match(/\d+(?:[,.]\d+)?/gu);
+  if (!numbers || numbers.length === 0) return false;
+  const compactPage = compact(pageText);
+  const numericTokens = numbers.map((token) => token.replace(/,/gu, ""));
+  return numericTokens.every((number) => {
+    if (compactPage.includes(number)) return true;
+    const withCommas = number.replace(/\B(?=(\d{3})+(?!\d))/gu, ",");
+    return compactPage.includes(compact(withCommas));
+  });
+}
+
+function dateValuePresent(value: string, pageText: string): boolean {
+  const iso = value.match(/(\d{4})[-./](\d{1,2})[-./](\d{1,2})/u);
+  if (!iso) return false;
+  const [, year, month, day] = iso;
+  const page = compact(pageText);
+  const candidates = [
+    `${year}-${pad2(month)}-${pad2(day)}`,
+    `${year}.${pad2(month)}.${pad2(day)}`,
+    `${year}년${Number(month)}월${Number(day)}일`,
+    `${year}년${pad2(month)}월${pad2(day)}일`,
+  ];
+  return candidates.some((candidate) => page.includes(compact(candidate)));
+}
+
+function dateRangeValuePresent(value: string, pageText: string): boolean {
+  const dates = value.match(/\d{4}[-./]\d{1,2}[-./]\d{1,2}/gu) ?? [];
+  if (dates.length < 2) return false;
+  return dates.every((date) => dateValuePresent(date, pageText));
+}
+
+function pad2(value: string): string {
+  return value.padStart(2, "0");
 }
 
 function claimValueShapeCompatible(spec: VerificationClaimSpec, submittedValue: string): boolean {
@@ -132,8 +186,8 @@ function propositionConceptMatch(
   const distinctiveIdentityConcepts = identityConcepts.filter((token) => !genericIdentityConcepts.has(token));
 
   // Prefer concepts shared by the server-owned field and subject. This gives
-  // legal Claims a stable semantic anchor (for example, "확정일자") instead
-  // of allowing a broad legal term such as "법적" to match an unrelated law.
+  // legal Claims a stable semantic anchor (for example, "확정일자")
+  // instead of allowing a broad legal term such as "법적" to match an unrelated law.
   const fieldSubjectAnchors = [...new Set([
     ...fieldConcepts.filter((token) => subjectConcepts.includes(token)),
     ...fieldConcepts.filter((token) => !genericIdentityConcepts.has(token)),
