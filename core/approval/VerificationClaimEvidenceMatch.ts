@@ -7,9 +7,9 @@ export type VerificationClaimEvidenceMatch = Readonly<{
 
 /**
  * Binds an untrusted discovered Claim to the server-owned Planning Claim.
- * Numeric/date/duration literals are not independently compared with the
- * planning value. Evidence must still be anchored to the source and contain
- * enough subject/proposition concepts to bind the discovered Claim.
+ * Numeric/date/duration literals are independently compared with the
+ * planning value so a semantically similar but materially different source
+ * value cannot satisfy the Claim.
  */
 export function evaluateVerificationClaimEvidenceMatch(input: Readonly<{
   spec: VerificationClaimSpec;
@@ -24,10 +24,12 @@ export function evaluateVerificationClaimEvidenceMatch(input: Readonly<{
   const excerptFound = Boolean(excerpt) && compact(page).includes(compact(excerpt));
   const semanticMatch = propositionConceptMatch(input.spec, excerpt);
   const valueSupported = semanticMatch;
+  const rawValueMatches = input.normalizedValueMatchesPlanned;
   const matched = Boolean(
     excerptFound
     && input.normalizedValuePresent
-    && valueSupported,
+    && valueSupported
+    && rawValueMatches,
   );
 
   return Object.freeze({
@@ -35,7 +37,7 @@ export function evaluateVerificationClaimEvidenceMatch(input: Readonly<{
     diagnostics: Object.freeze([
       ...(excerptFound ? [] : ["claim_evidence_excerpt_not_found"]),
       ...(valueSupported ? [] : ["claim_value_not_found"]),
-      ...(input.normalizedValueMatchesPlanned ? [] : ["claim_raw_value_mismatch_ignored"]),
+      ...(rawValueMatches ? [] : ["claim_raw_value_mismatch"]),
       ...(input.normalizedValuePresent ? [] : ["claim_normalization_failed"]),
     ]),
   });
