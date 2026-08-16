@@ -38,24 +38,14 @@ export class ApprovalReadinessApplicationService extends BaseApprovalReadinessAp
     const result = await super.execute(effectiveInput);
     if (!result.inspectionPerformed) return result;
 
-    const corroborated = await enrichWithCorroboration(result, thisFetcher(), input.connection?.id);
-    if (corroborated !== result) return withCurrentInspectionIdentity(corroborated, input.connection?.id);
-    return withCurrentInspectionIdentity(result, input.connection?.id);
+    const corroborated = await enrichWithCorroboration(result, fetch);
+    return withCurrentInspectionIdentity(corroborated, input.connection?.id);
   }
-
-  privateFetcher(): typeof fetch {
-    return fetch;
-  }
-}
-
-function thisFetcher(): typeof fetch {
-  return fetch;
 }
 
 async function enrichWithCorroboration(
   result: ApprovalReadinessExecutionResult,
   fetcher: typeof fetch,
-  connectionId?: string,
 ): Promise<ApprovalReadinessExecutionResult> {
   const content = result.data.contents.find((item) => item.id === result.document.id)
     ?? result.data.contents.find((item) => item.document?.id === result.document.id);
@@ -82,7 +72,6 @@ async function enrichWithCorroboration(
     const originalIndex = nextSources.findIndex((item) => item.sourceId === source.sourceId);
     if (originalIndex < 0) continue;
 
-    const corroborationIds: string[] = [];
     const supportedFields = new Set(candidate.facts.map((fact) => fact.field));
     const original = nextSources[originalIndex]!;
     const originalSupported = (original.matchedFacts ?? original.facts)
@@ -117,7 +106,6 @@ async function enrichWithCorroboration(
       corroborationSourceIds: Object.freeze([original.sourceId]),
       checkedAt: searchedAt,
     });
-    corroborationIds.push(candidate.sourceId);
 
     const updatedOriginal: ApprovalEvidenceSource = Object.freeze({
       ...original,
@@ -129,7 +117,7 @@ async function enrichWithCorroboration(
       claimVerificationStatus: "verified",
       trustRoute: "external_corroborated",
       corroborated: true,
-      corroborationSourceIds: Object.freeze(corroborationIds),
+      corroborationSourceIds: Object.freeze([candidate.sourceId]),
       checkedAt: searchedAt,
     });
 
