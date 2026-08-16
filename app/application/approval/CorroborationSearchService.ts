@@ -37,9 +37,8 @@ const maximumCandidatesPerSource = 6;
  * source that needs corroboration. DuckDuckGo's no-JS HTML endpoint is used so
  * this stage does not add a paid search API or another LLM call.
  *
- * Corroboration requires a different source URL, but it does not require a
- * different institution group. The verification decision is based on whether
- * the same content is supported by another fetched page.
+ * Corroboration requires a different institution group. A different URL from
+ * the same institution is not an independent corroborating source.
  */
 export async function searchCorroborationCandidates(
   source: ApprovalEvidenceSource,
@@ -50,6 +49,13 @@ export async function searchCorroborationCandidates(
   const searchedQueries: string[] = [];
   const candidates: CorroborationSearchCandidate[] = [];
   const seenUrls = new Set<string>();
+  const originalIdentity = canonicalizeVerificationSourceIdentity({
+    requestedUrl: source.url,
+    finalUrl: source.finalUrl,
+    publisherId: source.publisher,
+    role: "primaryOfficial",
+    authoritative: source.official === true,
+  });
 
   for (const { query } of queries) {
     searchedQueries.push(query);
@@ -76,6 +82,7 @@ export async function searchCorroborationCandidates(
         authoritative: false,
       });
       if (!identity) continue;
+      if (originalIdentity && identity.institutionGroupId === originalIdentity.institutionGroupId) continue;
 
       candidates.push(Object.freeze({
         sourceId: approvalCompatibleSourceId(canonicalUrl),
