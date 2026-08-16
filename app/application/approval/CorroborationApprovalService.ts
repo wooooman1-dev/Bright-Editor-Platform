@@ -8,6 +8,7 @@ import {
 } from "../../../core/approval";
 import type { ContentDocument } from "../../../core/content";
 import {
+  editorialRevisionId,
   isStandardQualityApproved,
   standardQualityBlockingReasons,
 } from "../../../core/quality";
@@ -123,7 +124,7 @@ export async function corroborateApprovalReadinessResult(
     ...(content.opportunity ? { opportunity: content.opportunity } : {}),
     standardQualityApproved: isStandardQualityApproved(content.quality),
     supersededQualityReview: content.quality?.reviewedRevisionId !== undefined
-      && content.quality.reviewedRevisionId !== result.document.id,
+      && content.quality.reviewedRevisionId !== editorialRevisionId(document),
     standardQualityBlockingReasons: standardQualityBlockingReasons(content.quality),
   });
   const quality = Object.freeze({
