@@ -96,8 +96,15 @@ function propositionConceptMatch(
   evidenceExcerpt: string,
 ): boolean {
   const evidence = compact(evidenceExcerpt);
+
+  // `field` is an internal/server-owned identifier and is not guaranteed to
+  // be human-readable (for example, "amount" while the statement says
+  // "지원 금액"). The natural-language statement therefore participates in
+  // Claim identity as well as proposition matching. This keeps explicit
+  // source verification independent of provider-specific field naming.
   const identityConcepts = concepts([
     spec.field,
+    spec.statement,
     spec.qualifiers.subject ?? "",
     spec.qualifiers.scope ?? "",
   ].join(" "));
