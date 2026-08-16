@@ -93,10 +93,14 @@ function resolveFreshConsensus(sources: readonly VerificationSourceAssessment[])
 
   const primary = votes.find((source) => source.role === "primaryOfficial" && source.authoritative === true);
   if (primary?.normalizedValue) {
-    const primaryKey = canonicalValue(primary.normalizedValue);
-    const authoritativeConflict = votes.some((source) => source.authoritative === true && canonicalValue(source.normalizedValue) !== primaryKey);
+    const primaryValue = primary.normalizedValue;
+    const primaryKey = canonicalValue(primaryValue);
+    const authoritativeConflict = votes.some((source) => {
+      const value = source.normalizedValue;
+      return source.authoritative === true && !!value && canonicalValue(value) !== primaryKey;
+    });
     return Object.freeze({
-      normalizedValue: primary.normalizedValue,
+      normalizedValue: primaryValue,
       conflicted: authoritativeConflict,
       resolved: true,
       ...(authoritativeConflict ? { diagnostic: "authoritative_value_conflict" } : {}),
@@ -105,13 +109,16 @@ function resolveFreshConsensus(sources: readonly VerificationSourceAssessment[])
 
   const counts = new Map<string, { value: VerificationNormalizedValue; count: number }>();
   for (const vote of votes) {
-    const key = canonicalValue(vote.normalizedValue);
+    const value = vote.normalizedValue;
+    if (!value) continue;
+    const key = canonicalValue(value);
     const entry = counts.get(key);
     if (entry) entry.count += 1;
-    else counts.set(key, { value: vote.normalizedValue, count: 1 });
+    else counts.set(key, { value, count: 1 });
   }
   const ranked = [...counts.values()].sort((left, right) => right.count - left.count);
-  const winner = ranked[0]!;
+  const winner = ranked[0];
+  if (!winner) return Object.freeze({ conflicted: false, resolved: false });
   const tied = ranked.length > 1 && ranked[1]!.count === winner.count;
   if (tied) return Object.freeze({ conflicted: true, resolved: false, diagnostic: "corroboration_value_tie" });
   const hadDisagreement = counts.size > 1;
