@@ -19,6 +19,13 @@ import { corroborateApprovalReadinessResult } from "./CorroborationApprovalServi
 export * from "./ApprovalReadinessApplicationServiceBase";
 
 export class ApprovalReadinessApplicationService extends BaseApprovalReadinessApplicationService {
+  private readonly corroborationFetcher: NonNullable<ConstructorParameters<typeof BaseApprovalReadinessApplicationService>[0]>;
+
+  constructor(...args: ConstructorParameters<typeof BaseApprovalReadinessApplicationService>) {
+    super(...args);
+    this.corroborationFetcher = args[0] ?? fetch;
+  }
+
   override async execute(input: Parameters<BaseApprovalReadinessApplicationService["execute"]>[0]): Promise<ApprovalReadinessExecutionResult> {
     const content = input.data.contents.find((item) => item.id === input.contentId);
     const source = content?.document;
@@ -44,7 +51,7 @@ export class ApprovalReadinessApplicationService extends BaseApprovalReadinessAp
         result,
         resultContent,
         approvalProfileId,
-        this.fetcher,
+        this.corroborationFetcher,
         checkedAt,
       );
     }
