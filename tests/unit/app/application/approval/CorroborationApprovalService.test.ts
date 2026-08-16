@@ -195,7 +195,7 @@ describe("CorroborationApprovalService", () => {
     }));
   });
 
-  it("allows a second URL from the same institution group when it confirms the same content", async () => {
+  it("does not corroborate when the second URL belongs to the same institution group", async () => {
     const next = await corroborateApprovalReadinessResult(
       createResult(),
       content,
@@ -204,11 +204,12 @@ describe("CorroborationApprovalService", () => {
       "2026-08-16T01:00:00.000Z",
     );
 
-    expect(next.evidence.pack.status).toBe("verified");
-    expect(next.evidence.pack.sources).toHaveLength(2);
-    expect(next.evidence.pack.sources).toEqual(expect.arrayContaining([
-      expect.objectContaining({ url: originalUrl, verified: true }),
-      expect.objectContaining({ url: sameGroupUrl, verified: true }),
-    ]));
+    expect(next.evidence.pack.status).toBe("needs_review");
+    expect(next.evidence.pack.sources).toHaveLength(1);
+    expect(next.evidence.pack.sources[0]).toEqual(expect.objectContaining({
+      url: originalUrl,
+      verified: false,
+      verificationStatus: "needs_corroboration",
+    }));
   });
 });
