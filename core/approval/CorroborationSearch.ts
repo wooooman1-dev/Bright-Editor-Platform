@@ -57,20 +57,16 @@ export function buildCorroborationSearchQueries(
 }
 
 /**
- * Checks whether a fetched search result materially overlaps the Claim without
- * requiring exact numeric/date equality. A corroborating page must still carry
- * at least two meaningful Claim tokens (or the whole short Claim) in its title,
- * publisher, or extracted text.
+ * Returns exactly the Claims that a candidate page supports. Numeric/date
+ * equality is intentionally not required; this is a semantic corroboration
+ * gate, not a second exact-value parser.
  */
-export function corroborationPageSupportsFacts(
+export function corroborationSupportedFacts(
   page: CorroborationCandidatePage,
   facts: readonly ApprovalEvidenceFact[],
-): boolean {
-  const haystack = normalizeForMatching(
-    `${page.title} ${page.publisher} ${page.text}`,
-  );
-
-  return facts.some((fact) => {
+): readonly ApprovalEvidenceFact[] {
+  const haystack = normalizeForMatching(`${page.title} ${page.publisher} ${page.text}`);
+  return Object.freeze(facts.filter((fact) => {
     const claim = normalizeForMatching(fact.value);
     if (claim.length >= 16 && haystack.includes(claim)) return true;
     const tokens = significantClaimTokens(fact.value);
@@ -78,7 +74,14 @@ export function corroborationPageSupportsFacts(
     const matched = tokens.filter((token) => haystack.includes(token));
     return matched.length >= minimumRelevantTokens
       && matched.length / tokens.length >= 0.5;
-  });
+  }));
+}
+
+export function corroborationPageSupportsFacts(
+  page: CorroborationCandidatePage,
+  facts: readonly ApprovalEvidenceFact[],
+): boolean {
+  return corroborationSupportedFacts(page, facts).length > 0;
 }
 
 /**
