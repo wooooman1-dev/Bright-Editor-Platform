@@ -135,7 +135,7 @@ export async function searchMissingApprovalFactCandidates(
 ): Promise<readonly MissingApprovalFactSearchResult[]> {
   const queries = buildMissingApprovalFactSearchQueries(facts);
   const byField = new Map<string, MissingApprovalFactSearchResult>();
-  const seenUrls = new Set<string>();
+  const seenUrlsByField = new Map<string, Set<string>>();
 
   for (const { field, query } of queries) {
     const current = byField.get(field) ?? {
@@ -145,6 +145,8 @@ export async function searchMissingApprovalFactCandidates(
     };
     const searchedQueries = [...current.searchedQueries, query];
     const candidates = [...current.candidates];
+    const seenUrls = seenUrlsByField.get(field) ?? new Set<string>();
+    seenUrlsByField.set(field, seenUrls);
     const results = await searchDuckDuckGo(query, fetcher);
     for (const result of results) {
       if (candidates.length >= maximumCandidatesPerMissingFact) break;
