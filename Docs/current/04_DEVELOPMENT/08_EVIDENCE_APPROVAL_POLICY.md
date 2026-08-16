@@ -60,9 +60,14 @@ Search should be performed before Generation and should reuse existing discovery
 
 - [x] Preserve the existing source-display changes in commit `481b74d`.
 - [x] Remove numeric/raw-value equality from the Claim Evidence Match approval decision.
-- [ ] Require independent corroboration for non-official high-risk Claims in the verification policy.
-- [ ] Connect free web search to the pre-generation Evidence enrichment path if the existing discovery path does not already do so.
+- [x] Change the verification policy so high-risk Claims pass with one authoritative primary official source OR at least two independent institutions when no official source exists.
+- [ ] Verify and, if necessary, connect the existing free web-search/discovery path so a non-official Claim automatically receives the required independent corroborating source before Generation.
 - [ ] Add regression tests for official single-source, non-official two-source, and numeric/period mismatch cases.
+- [ ] Run the relevant unit/integration tests and record the result.
+
+## Confirmed implementation notes
+
+`ApprovalEvidenceCandidateNormalization` already preserves `search_candidate` sources in the source set. The remaining implementation task is to verify the upstream discovery/search step that populates those candidates and ensure it is invoked before Generation when a non-official Claim needs corroboration.
 
 ## Regression cases
 
