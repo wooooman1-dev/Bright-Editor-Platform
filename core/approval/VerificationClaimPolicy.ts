@@ -1,7 +1,20 @@
 import type { VerificationClaimKind, VerificationClaimResult, VerificationClaimSpec } from "./VerificationClaim";
 import { countAuthoritativeInstitutions, countIndependentInstitutions, hasPrimaryOfficial } from "./VerificationSourceIdentity";
+
 export const highRiskVerificationKinds: readonly VerificationClaimKind[] = ["money", "ratio", "date", "dateRange", "location", "eligibility", "legal"];
 export const configurableHighRiskVerificationKinds: readonly VerificationClaimKind[] = ["duration"];
+
+/**
+ * Evidence approval policy:
+ * - Numeric/date/duration values are not independently compared with the
+ *   Planning Claim at the approval gate.
+ * - One authoritative primary official source is sufficient.
+ * - Without an official source, a high-risk Claim requires at least one
+ *   independent corroborating institution in addition to the first source.
+ *
+ * Discovery/search is responsible for supplying the corroborating source
+ * before Generation. This policy itself performs no network I/O.
+ */
 export function evaluateVerificationClaim(spec: VerificationClaimSpec, result: Omit<VerificationClaimResult, "status" | "independentInstitutionCount" | "authoritativeInstitutionCount" | "primarySourceFound">): VerificationClaimResult {
   const sources = result.sourceAssessments;
   const independentInstitutionCount = countIndependentInstitutions(sources);
@@ -12,11 +25,12 @@ export function evaluateVerificationClaim(spec: VerificationClaimSpec, result: O
   const staleSupporting = sources.some((source) => source.supports && source.normalizedValue && source.freshnessStatus === "stale");
   const unknownSupporting = sources.some((source) => source.supports && source.normalizedValue && source.freshnessStatus === "unknown")
     || result.diagnostics.some((diagnostic) => diagnostic === "freshness_unknown");
-  // CRITICAL is an authority and complete-Coverage policy, not a popularity
-  // vote. One fresh authoritative primary source can own a Claim; additional
-  // sources are useful for conflict detection but are never a universal quota.
-  const thresholdPassed = !highRisk || (authoritativeInstitutionCount >= 1 && primarySourceFound);
+
+  const officialCoveragePassed = authoritativeInstitutionCount >= 1 && primarySourceFound;
+  const corroboratedNonOfficialCoveragePassed = independentInstitutionCount >= 2;
+  const thresholdPassed = !highRisk || officialCoveragePassed || corroboratedNonOfficialCoveragePassed;
   const freshnessPassed = usableFresh.length > 0 && thresholdPassed;
+
   const status = result.unresolvedConflict
     ? "conflicted"
     : result.normalizedValue && freshnessPassed
@@ -26,6 +40,8 @@ export function evaluateVerificationClaim(spec: VerificationClaimSpec, result: O
         : highRisk || unknownSupporting || usableFresh.length > 0
           ? "insufficient"
           : "planned";
+
   return Object.freeze({ ...result, status, freshnessPassed, independentInstitutionCount, authoritativeInstitutionCount, primarySourceFound });
 }
+
 export function isHighRiskVerificationKind(kind: VerificationClaimKind): boolean { return highRiskVerificationKinds.includes(kind); }
