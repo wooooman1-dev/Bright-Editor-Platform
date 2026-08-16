@@ -7,9 +7,9 @@ export type VerificationClaimEvidenceMatch = Readonly<{
 
 /**
  * Binds an untrusted discovered Claim to the server-owned Planning Claim.
- * Numeric/date/duration literals are independently compared with the
- * planning value so a semantically similar but materially different source
- * value cannot satisfy the Claim.
+ * A source value may differ from the Planning Claim: that difference is
+ * retained as a diagnostic and resolved later by the evidence consensus
+ * policy. The source must still independently prove the Claim semantics.
  */
 export function evaluateVerificationClaimEvidenceMatch(input: Readonly<{
   spec: VerificationClaimSpec;
@@ -28,8 +28,7 @@ export function evaluateVerificationClaimEvidenceMatch(input: Readonly<{
   const matched = Boolean(
     excerptFound
     && input.normalizedValuePresent
-    && valueSupported
-    && rawValueMatches,
+    && valueSupported,
   );
 
   return Object.freeze({
