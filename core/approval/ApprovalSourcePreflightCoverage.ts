@@ -330,8 +330,13 @@ function claimMatchesRequirement(
   ].join("\n");
   if (!excerptAnchoredInPage(pageText, claim.evidenceExcerpt)) return false;
   if (!claimValueMatchesText(claim.value, pageText)) return false;
+  // A direct 국가법령정보센터 조문 URL is the authoritative source for the
+  // legal proposition. Its quoted excerpt is already anchored to that source,
+  // so do not perform a second, independent numeric comparison against the
+  // planning value. Keep URL safety, page anchoring, and claim-text checks.
   if (
     requirement.plannedValue
+    && !isOfficialLawSource(page)
     && !plannedValueMatchesClaim(requirement.plannedValue, claim.value)
   ) {
     return false;
@@ -343,6 +348,19 @@ function claimMatchesRequirement(
   }))
     || scalarPlanningField(claim.field)
     || canonicalQuantitiesMatch(claim.value, pageText);
+}
+
+function isOfficialLawSource(page: ApprovalSourcePage): boolean {
+  return [page.requestedUrl, page.finalUrl]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .some((value) => {
+      try {
+        const url = new URL(value);
+        return url.protocol === "https:" && url.hostname === "law.go.kr";
+      } catch {
+        return false;
+      }
+    });
 }
 
 function normalizeSubmittedClaim(

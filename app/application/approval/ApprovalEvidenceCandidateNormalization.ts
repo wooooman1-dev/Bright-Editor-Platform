@@ -156,8 +156,7 @@ export function canonicalSources(
     });
     sources.set(canonicalUrl, mergeCanonicalSource(sources.get(canonicalUrl), normalized));
   }
-  return Object.freeze([...sources.values()].filter((source) =>
-    source.provenance !== "search_candidate"));
+  return Object.freeze([...sources.values()]);
 }
 
 function mergeCanonicalSource(

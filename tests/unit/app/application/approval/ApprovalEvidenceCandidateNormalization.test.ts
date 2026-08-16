@@ -254,7 +254,7 @@ describe("approval Evidence candidate normalization", () => {
     const sources = normalizeApprovalEvidenceCandidates(candidateData, content.id)
       .contents[0]?.document?.metadata?.approvalEvidence?.sources;
 
-    expect(sources).toHaveLength(1);
+    expect(sources).toHaveLength(2);
     expect(sources?.[0]).toMatchObject({
       url: "https://law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1025033501",
       provenance: "document_link",

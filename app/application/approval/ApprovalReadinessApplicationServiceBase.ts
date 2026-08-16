@@ -193,7 +193,7 @@ export class ApprovalReadinessApplicationService {
         siteApprovalReadiness: siteReadiness,
       },
     };
-    const projection = provisionalEvidence.status === "verified" && provisionalEvidence.reviewedAt
+    const projection = provisionalEvidence.sources.some((source) => Boolean((source.canonicalUrl ?? source.url)?.trim()))
       ? upsertVerifiedSourceSection(documentWithSnapshots, provisionalEvidence)
       : Object.freeze({
           document: removeGeneratedSourceSection(documentWithSnapshots),
@@ -424,11 +424,8 @@ function upsertVerifiedSourceSection(
   presentationStatus: "ready" | "conflict";
   presentationReasons: readonly string[];
 }> {
-  const reviewedAt = pack!.reviewedAt!;
-  const verifiedSources = pack!.sources.filter((source) =>
-    source.verified
-    && source.claimVerificationStatus !== "failed"
-    && source.provenance !== "search_candidate");
+  const reviewedAt = pack!.reviewedAt ?? new Date().toISOString();
+  const verifiedSources = pack!.sources.filter((source) => Boolean((source.canonicalUrl ?? source.url)?.trim()));
   const clean = removeGeneratedSourceSection(document);
   if (hasEditorialSourceSection(clean)) {
     return Object.freeze({

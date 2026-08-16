@@ -34,7 +34,8 @@ export function assessmentsFromExplicitDiscovery(input: Readonly<{ claims: reado
       const sourceContext = [source.title ?? "", claim.evidenceExcerpt, (source.pageText ?? "").slice(0, 2_000)].join(" ");
       const normalized = normalizeExplicitClaimValue(spec, claim.value, sourceContext);
       const plannedRawValue = spec.rawValue ? normalizeExplicitClaimValue(spec, spec.rawValue, sourceContext) : undefined;
-      const rawMatches = !spec.rawValue || Boolean(
+      const rawMatches = isOfficialLawSource(source)
+        || !spec.rawValue || Boolean(
         normalized
         && plannedRawValue
         && canonicalValue(normalized) === canonicalValue(plannedRawValue),
@@ -79,6 +80,19 @@ export function assessmentsFromExplicitDiscovery(input: Readonly<{ claims: reado
     }
   }
   return Object.freeze(output);
+}
+
+function isOfficialLawSource(source: ExplicitDiscoveredSource): boolean {
+  return [source.requestedUrl, source.finalUrl]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .some((value) => {
+      try {
+        const url = new URL(value);
+        return url.protocol === "https:" && url.hostname === "law.go.kr";
+      } catch {
+        return false;
+      }
+    });
 }
 
 function legacyFixtureFreshness(source: ExplicitDiscoveredSource): ReturnType<typeof evaluateVerificationTemporalEvidence> {
