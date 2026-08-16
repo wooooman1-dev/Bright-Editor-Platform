@@ -20,6 +20,33 @@ describe("Verification policy", () => {
     expect(result.status).toBe("verified");
     expect(result.independentInstitutionCount).toBe(2);
   });
+  it("selects the majority value from independent non-official institutions", () => {
+    const result = evaluateVerificationClaim(spec, input([
+      source("a", "independentCorroborating", false, 50_000),
+      source("b", "independentCorroborating", false, 70_000),
+      source("c", "independentCorroborating", false, 70_000),
+    ]));
+    expect(result.status).toBe("verified");
+    expect(result.normalizedValue).toEqual({ kind: "money", value: { amount: 70_000, currency: "KRW", basis: "total" } });
+    expect(result.diagnostics).toContain("corroboration_value_majority_selected");
+  });
+  it("does not treat a same-institution second URL as a second majority vote", () => {
+    const result = evaluateVerificationClaim(spec, input([
+      source("a", "independentCorroborating", false, 50_000),
+      source("a", "independentCorroborating", false, 50_000),
+      source("b", "independentCorroborating", false, 70_000),
+    ]));
+    expect(result.status).toBe("insufficient");
+    expect(result.status).not.toBe("verified");
+  });
+  it("keeps a tied non-official value conflict blocked", () => {
+    const result = evaluateVerificationClaim(spec, input([
+      source("a", "independentCorroborating", false, 50_000),
+      source("b", "independentCorroborating", false, 70_000),
+    ]));
+    expect(result.status).toBe("conflicted");
+    expect(result.diagnostics).toContain("corroboration_value_tie");
+  });
   it("excludes unknown and stale assessments from verification counts without contaminating usable fresh authority", () => {
     const unknown = { ...source("unknown", "primaryOfficial", true), fresh: false, freshnessStatus: "unknown" as const };
     const stale = { ...source("stale", "officialCorroborating", true), fresh: false, freshnessStatus: "stale" as const };
