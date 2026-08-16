@@ -48,7 +48,7 @@ describe("VerificationClaimEvidenceMatch", () => {
     expect(result.diagnostics).toContain("claim_value_not_found");
   });
 
-  it("does not block a scalar Claim when the source contains a different numeric literal", () => {
+  it("allows a scalar Claim to proceed when the source contains a different numeric literal so corroboration can resolve the value", () => {
     const amountClaim: VerificationClaimSpec = {
       claimId: "claim-amount",
       field: "지원 금액",
@@ -69,7 +69,7 @@ describe("VerificationClaimEvidenceMatch", () => {
       normalizedValueMatchesPlanned: false,
     })).toMatchObject({
       matched: true,
-      diagnostics: ["claim_raw_value_mismatch_ignored"],
+      diagnostics: ["claim_raw_value_mismatch"],
     });
   });
 
