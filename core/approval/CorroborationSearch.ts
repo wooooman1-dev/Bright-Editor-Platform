@@ -22,9 +22,9 @@ const minimumRelevantTokens = 2;
  * unofficial Evidence source. This is deliberately deterministic: no second
  * LLM call is needed just to discover a corroborating page.
  *
- * Numeric tokens are removed from the query. The approval policy is about the
- * Claim's meaning and independent institutional support, not about requiring a
- * search engine result to repeat a particular number or period verbatim.
+ * Numeric tokens are removed from the query. The search query is only for
+ * discovery; numeric/date equality is enforced separately when deciding
+ * whether the fetched page actually supports the same content.
  */
 export function buildCorroborationSearchQueries(
   source: ApprovalEvidenceSource,
@@ -57,9 +57,13 @@ export function buildCorroborationSearchQueries(
 }
 
 /**
- * Returns exactly the Claims that a candidate page supports. Numeric/date
- * equality is intentionally not required; this is a semantic corroboration
- * gate, not a second exact-value parser.
+ * Returns exactly the Claims that a candidate page supports.
+ *
+ * A corroborating page must support the same content, not merely expose the
+ * same fact field. Numeric/date tokens are therefore compared explicitly so
+ * values such as "19세 이상" cannot corroborate "65세 이상". For textual
+ * paraphrases, the remaining significant tokens must still substantially
+ * overlap with the candidate page.
  */
 export function corroborationSupportedFacts(
   page: CorroborationCandidatePage,
@@ -69,11 +73,16 @@ export function corroborationSupportedFacts(
   return Object.freeze(facts.filter((fact) => {
     const claim = normalizeForMatching(fact.value);
     if (claim.length >= 16 && haystack.includes(claim)) return true;
+
     const tokens = significantClaimTokens(fact.value);
     if (tokens.length < minimumRelevantTokens) return false;
+
+    const numericTokens = tokens.filter((token) => /\d/iu.test(token));
+    if (numericTokens.some((token) => !haystack.includes(token))) return false;
+
     const matched = tokens.filter((token) => haystack.includes(token));
     return matched.length >= minimumRelevantTokens
-      && matched.length / tokens.length >= 0.5;
+      && matched.length / tokens.length >= 0.75;
   }));
 }
 
@@ -127,7 +136,7 @@ function significantClaimTokens(value: string): readonly string[] {
     "있습니다", "있다", "합니다", "한다", "해야", "하여", "하는", "되는", "대해",
   ]);
   const tokens = new Set<string>();
-  for (const match of normalizeForMatching(value).matchAll(/[가-힣A-Za-z]{2,}/gu)) {
+  for (const match of normalizeForMatching(value).matchAll(/[가-힣A-Za-z0-9]{2,}/gu)) {
     const token = match[0];
     if (!stopWords.has(token)) tokens.add(token);
   }
