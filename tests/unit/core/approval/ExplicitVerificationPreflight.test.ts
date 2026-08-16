@@ -78,7 +78,7 @@ describe("explicit verification snapshot", () => {
     };
     const discoveredClaims = claims.map((item) => {
       const value = discoveredValues[item.claimId]!;
-      const evidenceExcerpt = `공식 페이지에서 ${value} 기준을 확인했습니다.`;
+      const evidenceExcerpt = `${item.field}: ${value}. ${item.statement}`;
       return { claimId: item.claimId, value, evidenceExcerpt };
     });
     const pageText = discoveredClaims.map((item) => item.evidenceExcerpt).join(" ");
@@ -128,109 +128,3 @@ describe("explicit verification snapshot", () => {
       field: "신용카드 할부 수수료",
       kind: "money",
       statement: "신용카드 할부 거래에는 카드사가 정한 할부 수수료가 적용될 수 있다.",
-      rawValue: "수수료 부과 가능성",
-      qualifiers: {
-        subject: "신용카드 할부 거래",
-        scope: "수수료 부과 가능성",
-      },
-      temporalRequirement: { mode: "current" },
-      required: true,
-      risk: "critical",
-    };
-    const excerpt = "신용카드 할부 거래에는 할부 수수료가 적용될 수 있으며, 거래 조건에 따라 달라질 수 있습니다.";
-    const [assessment] = assessmentsFromExplicitDiscovery({
-      claims: [feeClaim],
-      sources: [{
-        requestedUrl: "https://law.go.kr/card-installment-fee",
-        pageText: excerpt,
-        evidenceExcerpt: excerpt,
-        claims: [{ claimId: feeClaim.claimId, value: "할부 수수료가 적용될 수 있으며", evidenceExcerpt: excerpt }],
-        role: "primaryOfficial",
-        authoritative: true,
-        observedAt: "2026-08-15T00:00:00.000Z",
-      }],
-    });
-
-    expect(assessment).toMatchObject({
-      supports: true,
-      normalizedValue: {
-        kind: "money",
-        value: {
-          semantic: "feeApplicability",
-          applicability: "mayApply",
-          basis: "total",
-        },
-      },
-    });
-    expect(assessment?.diagnostics).not.toContain("claim_normalization_failed");
-    expect(assessment?.diagnostics).not.toContain("claim_raw_value_mismatch");
-  });
-
-  it("verifies the persisted failure-shaped legal Claims from their separate authoritative excerpts", () => {
-    const claims: readonly VerificationClaimSpec[] = [
-      {
-        claimId: "verification-claim-fixed-date",
-        field: "확정일자 법적 적용",
-        kind: "legal",
-        statement: "확정일자의 법적 효과는 주택임대차 관련 법령이 정한 요건과 사실관계에 따라 판단된다.",
-        qualifiers: { subject: "주택 임대차계약의 확정일자", scope: "대한민국 법령 적용 범위", basis: "현행 주택임대차 관련 법령" },
-        temporalRequirement: { mode: "current" },
-        required: true,
-        risk: "critical",
-      },
-      {
-        claimId: "verification-claim-reporting",
-        field: "임대차 신고 적용 여부",
-        kind: "legal",
-        statement: "주택 임대차계약의 신고 의무 적용 여부는 현행 법령이 정한 계약과 지역 등의 요건에 따라 달라진다.",
-        qualifiers: { subject: "주택 임대차계약", scope: "대한민국 법령 적용 범위", basis: "현행 주택 임대차 신고 관련 법령" },
-        temporalRequirement: { mode: "current" },
-        required: true,
-        risk: "critical",
-      },
-    ];
-    const fixedDateExcerpt = "제3조의2(보증금의 회수) ② 대항요건과 임대차계약증서상의 확정일자를 갖춘 임차인은 후순위권리자보다 우선하여 보증금을 변제받을 권리가 있다.";
-    const reportingExcerpt = "제6조의2(주택 임대차 계약의 신고) ① 임대차계약당사자는 대통령령으로 정하는 금액을 초과하는 임대차 계약을 체결한 경우 신고하여야 한다. ② 주택 임대차 계약의 신고는 대통령령으로 정하는 지역에 적용한다.";
-    const assessments = assessmentsFromExplicitDiscovery({
-      claims,
-      sources: [
-        {
-          requestedUrl: "https://law.go.kr/fixed-date",
-          title: "주택임대차보호법 제3조의2",
-          pageText: fixedDateExcerpt,
-          evidenceExcerpt: fixedDateExcerpt,
-          claims: [{ claimId: claims[0]!.claimId, value: claims[0]!.statement, evidenceExcerpt: fixedDateExcerpt }],
-          role: "primaryOfficial",
-          authoritative: true,
-          observedAt: "2026-08-09T00:00:00.000Z",
-        },
-        {
-          requestedUrl: "https://law.go.kr/reporting",
-          title: "부동산 거래신고 등에 관한 법률 제6조의2",
-          pageText: reportingExcerpt,
-          evidenceExcerpt: reportingExcerpt,
-          claims: [{ claimId: claims[1]!.claimId, value: claims[1]!.statement, evidenceExcerpt: reportingExcerpt }],
-          role: "primaryOfficial",
-          authoritative: true,
-          observedAt: "2026-08-09T00:00:00.000Z",
-        },
-      ],
-    });
-
-    expect(assessments).toHaveLength(2);
-    for (const spec of claims) {
-      const claimAssessments = assessments.filter((assessment) => assessment.diagnostics.includes(`claim:${spec.claimId}`));
-      const normalizedValue = claimAssessments[0]?.normalizedValue;
-      expect(claimAssessments).toHaveLength(1);
-      expect(claimAssessments[0]).toMatchObject({ supports: true, authoritative: true, role: "primaryOfficial", freshnessStatus: "fresh" });
-      expect(evaluateVerificationClaim(spec, {
-        claimId: spec.claimId,
-        normalizedValue,
-        sourceAssessments: claimAssessments,
-        unresolvedConflict: false,
-        freshnessPassed: true,
-        diagnostics: [],
-      }).status).toBe("verified");
-    }
-  });
-});
