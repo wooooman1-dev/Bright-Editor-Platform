@@ -33,7 +33,18 @@ export function evaluateVerificationClaim(spec: VerificationClaimSpec, result: O
   const resolvedNormalizedValue = consensus.normalizedValue ?? result.normalizedValue;
   const unresolvedConflict = consensus.conflicted || (result.unresolvedConflict && !consensus.resolved);
 
-  const officialCoveragePassed = authoritativeInstitutionCount >= 1 && primarySourceFound;
+  // A primary official source may resolve a changed value only after that
+  // value has corroborating evidence. A lone primary source whose discovered
+  // value conflicts with the server-owned Planning Claim remains insufficient
+  // until corroboration resolves the discrepancy. Matching primary evidence
+  // retains the one-authoritative-source fast path.
+  const primaryOfficialValueMatchesPlan = sources.some((source) =>
+    source.role === "primaryOfficial"
+    && source.authoritative === true
+    && source.supports
+    && !source.diagnostics.includes("claim_raw_value_mismatch"),
+  );
+  const officialCoveragePassed = authoritativeInstitutionCount >= 1 && primarySourceFound && primaryOfficialValueMatchesPlan;
   const corroboratedNonOfficialCoveragePassed = countFreshNonAuthoritativeInstitutions(sources) >= 2;
   const thresholdPassed = !highRisk || officialCoveragePassed || corroboratedNonOfficialCoveragePassed;
   const freshnessPassed = usableFresh.length > 0 && thresholdPassed;
