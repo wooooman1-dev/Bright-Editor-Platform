@@ -6,6 +6,7 @@ import {
   extractProfileApprovalFacts,
   officialDomainAllowed,
   verifyApprovalEvidence,
+  type ApprovalEvidenceFact,
   type ApprovalEvidencePack,
   type ApprovalEvidenceSource,
   type ApprovalPolicyProfileId,
@@ -99,6 +100,10 @@ export async function corroborateApprovalReadinessResult(
       fetcher,
       new Date(checkedAt),
     );
+    const missingCandidatesById = new Map<string, {
+      candidate: (typeof missingFactSearches[number])["candidates"][number];
+      facts: ApprovalEvidenceFact[];
+    }>();
     for (const search of missingFactSearches) {
       const fact = missingFacts.find((item) => item.field === search.field);
       if (!fact) continue;
@@ -108,34 +113,48 @@ export async function corroborateApprovalReadinessResult(
         try { hostname = new URL(candidate.page.finalUrl ?? candidate.url).hostname; } catch { continue; }
         if (!officialDomains.length || !officialDomainAllowed(hostname, officialDomains)) continue;
         if (!approvalFactMatchesPage(candidate.page, fact)) continue;
-        seenCandidateIds.add(candidate.sourceId);
-        candidateSources.push(Object.freeze({
-          sourceId: candidate.sourceId,
-          url: candidate.url,
-          title: candidate.title,
-          publisher: candidate.publisher,
-          sourceType: "public_agency",
-          retrievedAt: checkedAt,
-          verified: false,
-          facts: Object.freeze([fact]),
-          provenance: "system_verified",
-          official: false,
-          selected: false,
-          verificationStatus: "needs_corroboration",
-        }));
-        candidatePages.push(Object.freeze({
-          requestedUrl: candidate.url,
-          finalUrl: candidate.page.finalUrl ?? candidate.url,
-          status: 200,
-          contentType: "text/html; charset=utf-8",
-          title: candidate.page.title,
-          publisher: candidate.page.publisher,
-          text: candidate.page.text,
-          documentFormat: "html",
-          extractionStatus: "extracted",
-          contentLength: candidate.page.text.length,
-        }));
+        const existing = missingCandidatesById.get(candidate.sourceId);
+        if (existing) {
+          if (!existing.facts.some((item) => item.field === fact.field && item.value === fact.value)) {
+            existing.facts.push(fact);
+          }
+        } else {
+          missingCandidatesById.set(candidate.sourceId, {
+            candidate,
+            facts: [fact],
+          });
+        }
       }
+    }
+    for (const { candidate, facts } of missingCandidatesById.values()) {
+      if (seenCandidateIds.has(candidate.sourceId)) continue;
+      seenCandidateIds.add(candidate.sourceId);
+      candidateSources.push(Object.freeze({
+        sourceId: candidate.sourceId,
+        url: candidate.url,
+        title: candidate.title,
+        publisher: candidate.publisher,
+        sourceType: "public_agency",
+        retrievedAt: checkedAt,
+        verified: false,
+        facts: Object.freeze([...facts]),
+        provenance: "system_verified",
+        official: false,
+        selected: false,
+        verificationStatus: "needs_corroboration",
+      }));
+      candidatePages.push(Object.freeze({
+        requestedUrl: candidate.url,
+        finalUrl: candidate.page.finalUrl ?? candidate.url,
+        status: 200,
+        contentType: "text/html; charset=utf-8",
+        title: candidate.page.title,
+        publisher: candidate.page.publisher,
+        text: candidate.page.text,
+        documentFormat: "html",
+        extractionStatus: "extracted",
+        contentLength: candidate.page.text.length,
+      }));
     }
   }
 
