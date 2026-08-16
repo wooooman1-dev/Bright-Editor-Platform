@@ -1,7 +1,13 @@
 import {
+  approvalCompatibleSourceId,
+  approvalFactMatchesPage,
+  approvalOfficialDomains,
   canonicalizeApprovalEvidenceUrl,
   deriveApprovalReadinessReport,
+  extractProfileApprovalFacts,
+  officialDomainAllowed,
   verifyApprovalEvidence,
+  type ApprovalEvidenceFact,
   type ApprovalEvidencePack,
   type ApprovalEvidenceSource,
   type ApprovalPolicyProfileId,
@@ -17,15 +23,20 @@ import {
 import type { UserContent } from "../../user-flow/user-data";
 import type { ApprovalReadinessExecutionResult, ApprovalReadinessFetch } from "./ApprovalReadinessApplicationServiceBase";
 import { fetchApprovalSourcePages } from "./ApprovalSourceFetchService";
-import { searchCorroborationCandidates } from "./CorroborationSearchService";
+import {
+  searchCorroborationCandidates,
+  searchMissingApprovalFactCandidates,
+} from "./CorroborationSearchService";
 
 /**
- * Runs the free web corroboration pass only for unofficial Evidence that the
- * first deterministic verification marked as needing corroboration.
+ * Runs the free web corroboration/coverage repair pass after deterministic
+ * Evidence verification. No LLM or paid search API is introduced here.
  *
- * This is an application-layer orchestration step: the Core verifier remains
- * deterministic and receives the resulting Evidence candidates as ordinary
- * system-verified sources. No LLM or paid search API is introduced.
+ * There are two distinct repairs:
+ * 1. unofficial Evidence can be corroborated by an independent institution;
+ * 2. an otherwise valid article can have required fact fields that its cited
+ *    official page did not cover. Those fields are searched independently for
+ *    another official page instead of spending another LLM call.
  */
 export async function corroborateApprovalReadinessResult(
   result: ApprovalReadinessExecutionResult,
@@ -39,7 +50,8 @@ export async function corroborateApprovalReadinessResult(
     source.official !== true
     && source.verificationStatus === "needs_corroboration",
   ) ?? [];
-  if (!sourcesNeedingCorroboration.length) return result;
+  const missingFactFields = existingPack?.unverifiedFactFields ?? [];
+  if (!sourcesNeedingCorroboration.length && !missingFactFields.length) return result;
 
   const candidateSources: ApprovalEvidenceSource[] = [];
   const candidatePages: ApprovalSourcePage[] = [];
@@ -77,6 +89,55 @@ export async function corroborateApprovalReadinessResult(
         extractionStatus: "extracted",
         contentLength: candidate.page.text.length,
       }));
+    }
+  }
+
+  const missingFacts = extractProfileApprovalFacts(result.document, profileId)
+    .filter((fact) => missingFactFields.includes(fact.field));
+  if (missingFacts.length) {
+    const officialDomains = approvalOfficialDomains(profileId) ?? [];
+    const missingFactSearches = await searchMissingApprovalFactCandidates(
+      missingFacts,
+      fetcher,
+      new Date(checkedAt),
+    );
+    for (const search of missingFactSearches) {
+      const fact = missingFacts.find((item) => item.field === search.field);
+      if (!fact) continue;
+      for (const candidate of search.candidates) {
+        if (seenCandidateIds.has(candidate.sourceId)) continue;
+        let hostname = "";
+        try { hostname = new URL(candidate.page.finalUrl ?? candidate.url).hostname; } catch { continue; }
+        if (!officialDomains.length || !officialDomainAllowed(hostname, officialDomains)) continue;
+        if (!approvalFactMatchesPage(candidate.page, fact)) continue;
+        seenCandidateIds.add(candidate.sourceId);
+        candidateSources.push(Object.freeze({
+          sourceId: candidate.sourceId,
+          url: candidate.url,
+          title: candidate.title,
+          publisher: candidate.publisher,
+          sourceType: "public_agency",
+          retrievedAt: checkedAt,
+          verified: false,
+          facts: Object.freeze([fact]),
+          provenance: "system_verified",
+          official: false,
+          selected: false,
+          verificationStatus: "needs_corroboration",
+        }));
+        candidatePages.push(Object.freeze({
+          requestedUrl: candidate.url,
+          finalUrl: candidate.page.finalUrl ?? candidate.url,
+          status: 200,
+          contentType: "text/html; charset=utf-8",
+          title: candidate.page.title,
+          publisher: candidate.page.publisher,
+          text: candidate.page.text,
+          documentFormat: "html",
+          extractionStatus: "extracted",
+          contentLength: candidate.page.text.length,
+        }));
+      }
     }
   }
 
