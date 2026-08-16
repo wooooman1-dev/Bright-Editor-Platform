@@ -1,4 +1,4 @@
-import type { VerificationClaimSpec } from "./VerificationClaim";
+import type { VerificationClaimKind, VerificationClaimSpec } from "./VerificationClaim";
 
 export type VerificationClaimEvidenceMatch = Readonly<{
   matched: boolean;
@@ -7,9 +7,9 @@ export type VerificationClaimEvidenceMatch = Readonly<{
 
 /**
  * Binds an untrusted discovered Claim to the server-owned Planning Claim.
- * A source value may differ from the Planning Claim: that difference is
- * retained as a diagnostic and resolved later by the evidence consensus
- * policy. The source must still independently prove the Claim semantics.
+ * A source may disagree on the literal value, but it must still describe the
+ * same semantic Claim shape. Numeric/date values are therefore resolved by
+ * corroboration consensus instead of being rejected merely for differing.
  */
 export function evaluateVerificationClaimEvidenceMatch(input: Readonly<{
   spec: VerificationClaimSpec;
@@ -25,10 +25,12 @@ export function evaluateVerificationClaimEvidenceMatch(input: Readonly<{
   const semanticMatch = propositionConceptMatch(input.spec, excerpt);
   const valueSupported = semanticMatch;
   const rawValueMatches = input.normalizedValueMatchesPlanned;
+  const claimShapeCompatible = claimValueShapeCompatible(input.spec, input.submittedValue);
   const matched = Boolean(
     excerptFound
     && input.normalizedValuePresent
-    && valueSupported,
+    && valueSupported
+    && (rawValueMatches || claimShapeCompatible),
   );
 
   return Object.freeze({
@@ -37,9 +39,56 @@ export function evaluateVerificationClaimEvidenceMatch(input: Readonly<{
       ...(excerptFound ? [] : ["claim_evidence_excerpt_not_found"]),
       ...(valueSupported ? [] : ["claim_value_not_found"]),
       ...(rawValueMatches ? [] : ["claim_raw_value_mismatch"]),
+      ...(claimShapeCompatible ? [] : ["claim_value_shape_mismatch"]),
       ...(input.normalizedValuePresent ? [] : ["claim_normalization_failed"]),
     ]),
   });
+}
+
+function claimValueShapeCompatible(spec: VerificationClaimSpec, submittedValue: string): boolean {
+  if (!spec.rawValue) return true;
+  const planned = spec.rawValue.normalize("NFKC").replace(/\s+/gu, " ").trim();
+  const submitted = submittedValue.normalize("NFKC").replace(/\s+/gu, " ").trim();
+  if (!planned || !submitted) return false;
+
+  if (spec.kind === "money") {
+    const plannedBasis = moneyBasisToken(planned);
+    const submittedBasis = moneyBasisToken(submitted);
+    return !plannedBasis || !submittedBasis || plannedBasis === submittedBasis;
+  }
+  if (spec.kind === "ratio") return ratioShape(planned) === ratioShape(submitted);
+  if (spec.kind === "duration") return durationShape(planned) === durationShape(submitted);
+  return true;
+}
+
+function moneyBasisToken(value: string): string | undefined {
+  const normalized = value.toLocaleLowerCase("ko-KR");
+  if (/(?:월|매월|월간|월별)/u.test(normalized)) return "monthly";
+  if (/(?:연|연간|연별|매년)/u.test(normalized)) return "annual";
+  if (/(?:일|일일|매일|하루)/u.test(normalized)) return "daily";
+  if (/(?:1인당|인당|개인당)/u.test(normalized)) return "perPerson";
+  if (/(?:가구당|세대당)/u.test(normalized)) return "perHousehold";
+  if (/(?:1회|일회|한\s*번)/u.test(normalized)) return "oneTime";
+  return undefined;
+}
+
+function ratioShape(value: string): string {
+  const normalized = value.toLocaleLowerCase("ko-KR");
+  if (/%p|퍼센트포인트/u.test(normalized)) return "percentagePoint";
+  return /%|퍼센트/u.test(normalized) ? "percent" : "unknown";
+}
+
+function durationShape(value: string): string {
+  const normalized = value.toLocaleLowerCase("ko-KR");
+  const unit = /(?:일간?|일)/u.test(normalized) ? "day"
+    : /(?:주간?|주)/u.test(normalized) ? "week"
+      : /(?:개월?|달)/u.test(normalized) ? "month"
+        : /(?:년간?|년)/u.test(normalized) ? "year"
+          : "unknown";
+  const comparator = /(?:최대|이하|이내)/u.test(normalized) ? "upTo"
+    : /(?:최소|이상)/u.test(normalized) ? "atLeast"
+      : "none";
+  return `${unit}:${comparator}`;
 }
 
 function propositionConceptMatch(
