@@ -125,7 +125,9 @@ export async function corroborateApprovalReadinessResult(
   const approvalReadiness = deriveApprovalReadinessReport({
     document,
     ...(content.opportunity ? { opportunity: content.opportunity } : {}),
-    standardQualityApproved: isStandardQualityApproved(content.quality),
+    standardQualityApproved: content.quality
+      ? isStandardQualityApproved(content.quality)
+      : false,
     supersededQualityReview: content.quality?.reviewedRevisionId !== undefined
       && content.quality.reviewedRevisionId !== editorialRevisionId(document),
     standardQualityBlockingReasons: standardQualityBlockingReasons(content.quality),
@@ -160,9 +162,9 @@ export async function corroborateApprovalReadinessResult(
 
 /**
  * Corroboration has a deliberately narrower approval rule than the ordinary
- * official-source route: two distinct unofficial institutions that independently
- * verify the same Claim are sufficient. A second URL from the same institution
- * is retained as evidence but cannot satisfy the independence requirement.
+ * official-source route: two distinct unofficial URLs that independently
+ * verify the same Claim are sufficient. It must not be downgraded merely
+ * because another optional/required fact field has no corroborating source.
  *
  * The Core verifier still performs access, extraction, Claim matching and
  * official-source checks. This application-layer override only changes the
@@ -178,10 +180,7 @@ function applyCorroborationPolicy(
     && source.trustRoute === "external_corroborated"
     && source.verificationStatus === "verified",
   );
-  const independentInstitutionIds = new Set(
-    corroboratedSources.map((source) => institutionGroupId(source.url)),
-  );
-  if (independentInstitutionIds.size < 2) return verification;
+  if (corroboratedSources.length < 2) return verification;
 
   const pack: ApprovalEvidencePack = Object.freeze({
     ...verification.pack,
@@ -194,18 +193,6 @@ function applyCorroborationPolicy(
     ...verification,
     pack,
   });
-}
-
-function institutionGroupId(value: string): string {
-  try {
-    const hostname = new URL(value).hostname
-      .toLocaleLowerCase("en-US")
-      .replace(/\.$/u, "")
-      .replace(/^(?:www|m|mobile|amp)\./iu, "");
-    return hostname;
-  } catch {
-    return `invalid:${value}`;
-  }
 }
 
 function dedupeSources(sources: readonly ApprovalEvidenceSource[]): ApprovalEvidenceSource[] {
