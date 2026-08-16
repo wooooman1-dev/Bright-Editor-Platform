@@ -1,4 +1,4 @@
-import type { VerificationClaimKind, VerificationClaimResult, VerificationClaimSpec } from "./VerificationClaim";
+import type { VerificationClaimKind, VerificationClaimResult, VerificationClaimSpec, VerificationSourceAssessment } from "./VerificationClaim";
 import { countAuthoritativeInstitutions, countIndependentInstitutions, hasPrimaryOfficial } from "./VerificationSourceIdentity";
 
 export const highRiskVerificationKinds: readonly VerificationClaimKind[] = ["money", "ratio", "date", "dateRange", "location", "eligibility", "legal"];
@@ -45,7 +45,7 @@ export function evaluateVerificationClaim(spec: VerificationClaimSpec, result: O
   return Object.freeze({ ...result, status, freshnessPassed, independentInstitutionCount, authoritativeInstitutionCount, primarySourceFound });
 }
 
-function countFreshNonAuthoritativeInstitutions(sources: readonly VerificationClaimResult["sourceAssessments"][number][]): number {
+function countFreshNonAuthoritativeInstitutions(sources: readonly VerificationSourceAssessment[]): number {
   return new Set(
     sources
       .filter((source) => source.supports
