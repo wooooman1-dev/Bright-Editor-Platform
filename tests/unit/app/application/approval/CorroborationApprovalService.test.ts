@@ -11,6 +11,7 @@ import type { QualityReport } from "../../../../../core/quality";
 const profileId = "wordpress_life_economy_v1" as const;
 const originalUrl = "https://blog.example.com/support";
 const corroboratingUrl = "https://public.example.org/support";
+const sameGroupUrl = "https://blog.example.com/other-support";
 const claimText = "지원 대상: 만 19세 이상 신청자";
 
 const document: ContentDocument = {
@@ -110,47 +111,49 @@ const siteReadiness: SiteApprovalReadinessSnapshot = {
   checks: [],
 };
 
-function html(title: string): string {
-  return `<html><head><title>${title}</title></head><body>${claimText.repeat(30)}</body></html>`;
+function html(title: string, body = claimText): string {
+  return `<html><head><title>${title}</title></head><body>${body.repeat(30)}</body></html>`;
 }
 
-function fetcher() {
+function fetcher(candidateUrl = corroboratingUrl, candidateBody = claimText) {
   return async (input: string | URL): Promise<Response> => {
     const url = String(input);
     if (url.startsWith("https://html.duckduckgo.com/")) {
       return new Response(
-        `<html><body><a class="result__a" href="${originalUrl}">같은 기관</a><a class="result__a" href="${corroboratingUrl}">공공기관 안내</a></body></html>`,
+        `<html><body><a class="result__a" href="${candidateUrl}">보강 출처</a></body></html>`,
         { status: 200, headers: { "content-type": "text/html; charset=utf-8" } },
       );
     }
     if (url === originalUrl) return new Response(html("원래 안내"), { status: 200, headers: { "content-type": "text/html; charset=utf-8" } });
-    if (url === corroboratingUrl) return new Response(html("공공기관 안내"), { status: 200, headers: { "content-type": "text/html; charset=utf-8" } });
+    if (url === candidateUrl) return new Response(html("보강 안내", candidateBody), { status: 200, headers: { "content-type": "text/html; charset=utf-8" } });
     return new Response("not found", { status: 404 });
   };
 }
 
-describe("CorroborationApprovalService", () => {
-  it("searches after an unofficial Evidence verdict and upgrades the pack when an independent source corroborates the Claim", async () => {
-    const resultDocument = {
-      ...document,
-      metadata: { ...document.metadata, approvalEvidence: evidence },
-    } as ContentDocument;
-    const result: ApprovalReadinessExecutionResult = {
-      data,
-      document: resultDocument,
-      quality,
-      evidence: {
-        pack: evidence,
-        verifiedSourceCount: 0,
-        rejectedSourceCount: 1,
-        reasons: ["보강 필요"],
-      },
-      siteReadiness,
-      inspectionPerformed: true,
-    };
+function createResult(): ApprovalReadinessExecutionResult {
+  const resultDocument = {
+    ...document,
+    metadata: { ...document.metadata, approvalEvidence: evidence },
+  } as ContentDocument;
+  return {
+    data,
+    document: resultDocument,
+    quality,
+    evidence: {
+      pack: evidence,
+      verifiedSourceCount: 0,
+      rejectedSourceCount: 1,
+      reasons: ["보강 필요"],
+    },
+    siteReadiness,
+    inspectionPerformed: true,
+  };
+}
 
+describe("CorroborationApprovalService", () => {
+  it("upgrades the pack when another fetched source confirms the same content", async () => {
     const next = await corroborateApprovalReadinessResult(
-      result,
+      createResult(),
       content,
       profileId,
       fetcher(),
@@ -172,11 +175,40 @@ describe("CorroborationApprovalService", () => {
         provenance: "system_verified",
       }),
     ]));
-    const readiness = (next.quality as QualityReport & {
-      approvalReadiness?: { checks: readonly { key: string; status: string }[] };
-    }).approvalReadiness;
-    expect(readiness?.checks).toEqual(expect.arrayContaining([
-      expect.objectContaining({ key: "evidence", status: "passed" }),
+  });
+
+  it("does not corroborate when the second source changes the numeric content", async () => {
+    const next = await corroborateApprovalReadinessResult(
+      createResult(),
+      content,
+      profileId,
+      fetcher(corroboratingUrl, "지원 대상: 만 65세 이상 신청자"),
+      "2026-08-16T01:00:00.000Z",
+    );
+
+    expect(next.evidence.pack.status).toBe("needs_review");
+    expect(next.evidence.pack.sources).toHaveLength(1);
+    expect(next.evidence.pack.sources[0]).toEqual(expect.objectContaining({
+      url: originalUrl,
+      verified: false,
+      verificationStatus: "needs_corroboration",
+    }));
+  });
+
+  it("allows a second URL from the same institution group when it confirms the same content", async () => {
+    const next = await corroborateApprovalReadinessResult(
+      createResult(),
+      content,
+      profileId,
+      fetcher(sameGroupUrl),
+      "2026-08-16T01:00:00.000Z",
+    );
+
+    expect(next.evidence.pack.status).toBe("verified");
+    expect(next.evidence.pack.sources).toHaveLength(2);
+    expect(next.evidence.pack.sources).toEqual(expect.arrayContaining([
+      expect.objectContaining({ url: originalUrl, verified: true }),
+      expect.objectContaining({ url: sameGroupUrl, verified: true }),
     ]));
   });
 });
