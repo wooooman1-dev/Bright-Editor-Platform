@@ -36,7 +36,7 @@ describe("Verification policy", () => {
       source("a", "independentCorroborating", false, 50_000),
       source("b", "independentCorroborating", false, 70_000),
     ]));
-    expect(result.status).toBe("insufficient");
+    expect(result.status).toBe("conflicted");
     expect(result.status).not.toBe("verified");
   });
   it("keeps a tied non-official value conflict blocked", () => {
