@@ -1,6 +1,6 @@
 import {
   buildCorroborationSearchQueries,
-  corroborationPageSupportsFacts,
+  corroborationSupportedFacts,
   isLikelyStaleCorroborationPage,
   type CorroborationCandidatePage,
 } from "../../../core/approval/CorroborationSearch";
@@ -68,7 +68,8 @@ export async function searchCorroborationCandidates(
       if (!page) continue;
       if (isLikelyStaleCorroborationPage(page, now)) continue;
       const facts = source.matchedFacts?.length ? source.matchedFacts : source.facts;
-      if (!corroborationPageSupportsFacts(page, facts)) continue;
+      const supportedFacts = corroborationSupportedFacts(page, facts);
+      if (!supportedFacts.length) continue;
 
       const identity = canonicalizeVerificationSourceIdentity({
         requestedUrl: canonicalUrl,
@@ -87,7 +88,7 @@ export async function searchCorroborationCandidates(
         title: page.title || result.title,
         publisher: page.publisher || result.publisher,
         page,
-        facts: Object.freeze(facts),
+        facts: Object.freeze(supportedFacts),
         institutionGroupId: identity.institutionGroupId,
       }));
     }
@@ -160,7 +161,8 @@ async function fetchCandidatePage(
         "user-agent": "Mozilla/5.0 (compatible; BrightEditor/1.0; +https://bright-editor.local)",
       },
     });
-    if (!response.ok || !response.url || !/^https:\/\//iu.test(response.url)) return undefined;
+    const finalUrl = response.url || url;
+    if (!response.ok || !/^https:\/\//iu.test(finalUrl)) return undefined;
     const contentType = response.headers.get("content-type") ?? "";
     if (!/(?:text\/html|application\/xhtml\+xml|text\/plain)/iu.test(contentType)) return undefined;
     const text = await response.text();
@@ -170,9 +172,9 @@ async function fetchCandidatePage(
     return Object.freeze({
       url,
       title,
-      publisher: new URL(response.url).hostname.replace(/^www\./iu, ""),
+      publisher: new URL(finalUrl).hostname.replace(/^www\./iu, ""),
       text: bodyText,
-      finalUrl: response.url,
+      finalUrl,
     });
   } catch {
     return undefined;
