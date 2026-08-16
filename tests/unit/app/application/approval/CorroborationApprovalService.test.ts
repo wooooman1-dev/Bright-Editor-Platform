@@ -131,12 +131,13 @@ function fetcher() {
 
 describe("CorroborationApprovalService", () => {
   it("searches after an unofficial Evidence verdict and upgrades the pack when an independent source corroborates the Claim", async () => {
+    const resultDocument = {
+      ...document,
+      metadata: { ...document.metadata, approvalEvidence: evidence },
+    } as ContentDocument;
     const result: ApprovalReadinessExecutionResult = {
       data,
-      document: {
-        ...document,
-        metadata: { ...document.metadata, approvalEvidence: evidence },
-      },
+      document: resultDocument,
       quality,
       evidence: {
         pack: evidence,
@@ -171,7 +172,10 @@ describe("CorroborationApprovalService", () => {
         provenance: "system_verified",
       }),
     ]));
-    expect(next.quality.approvalReadiness?.checks).toEqual(expect.arrayContaining([
+    const readiness = (next.quality as QualityReport & {
+      approvalReadiness?: { checks: readonly { key: string; status: string }[] };
+    }).approvalReadiness;
+    expect(readiness?.checks).toEqual(expect.arrayContaining([
       expect.objectContaining({ key: "evidence", status: "passed" }),
     ]));
   });
