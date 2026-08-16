@@ -10,7 +10,8 @@ export const configurableHighRiskVerificationKinds: readonly VerificationClaimKi
  *   Planning Claim at the approval gate.
  * - One authoritative primary official source is sufficient.
  * - Without an official source, a high-risk Claim requires at least one
- *   independent corroborating institution in addition to the first source.
+ *   independent non-authoritative corroborating institution in addition to
+ *   the first non-authoritative source.
  *
  * Discovery/search is responsible for supplying the corroborating source
  * before Generation. This policy itself performs no network I/O.
@@ -27,7 +28,7 @@ export function evaluateVerificationClaim(spec: VerificationClaimSpec, result: O
     || result.diagnostics.some((diagnostic) => diagnostic === "freshness_unknown");
 
   const officialCoveragePassed = authoritativeInstitutionCount >= 1 && primarySourceFound;
-  const corroboratedNonOfficialCoveragePassed = independentInstitutionCount >= 2;
+  const corroboratedNonOfficialCoveragePassed = countFreshNonAuthoritativeInstitutions(sources) >= 2;
   const thresholdPassed = !highRisk || officialCoveragePassed || corroboratedNonOfficialCoveragePassed;
   const freshnessPassed = usableFresh.length > 0 && thresholdPassed;
 
@@ -42,6 +43,19 @@ export function evaluateVerificationClaim(spec: VerificationClaimSpec, result: O
           : "planned";
 
   return Object.freeze({ ...result, status, freshnessPassed, independentInstitutionCount, authoritativeInstitutionCount, primarySourceFound });
+}
+
+function countFreshNonAuthoritativeInstitutions(sources: readonly VerificationClaimResult["sourceAssessments"][number][]): number {
+  return new Set(
+    sources
+      .filter((source) => source.supports
+        && source.normalizedValue
+        && source.fresh
+        && source.freshnessStatus !== "stale"
+        && source.freshnessStatus !== "unknown"
+        && source.authoritative !== true)
+      .map((source) => source.institutionGroupId),
+  ).size;
 }
 
 export function isHighRiskVerificationKind(kind: VerificationClaimKind): boolean { return highRiskVerificationKinds.includes(kind); }
