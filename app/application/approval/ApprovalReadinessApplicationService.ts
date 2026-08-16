@@ -14,6 +14,7 @@ import {
   ApprovalReadinessApplicationService as BaseApprovalReadinessApplicationService,
   type ApprovalReadinessExecutionResult,
 } from "./ApprovalReadinessApplicationServiceBase";
+import { corroborateApprovalReadinessResult } from "./CorroborationApprovalService";
 
 export * from "./ApprovalReadinessApplicationServiceBase";
 
@@ -22,8 +23,9 @@ export class ApprovalReadinessApplicationService extends BaseApprovalReadinessAp
     const content = input.data.contents.find((item) => item.id === input.contentId);
     const source = content?.document;
     let effectiveInput = input;
+    let approvalProfileId: ApprovalPolicyProfileId | undefined;
     if (content && source) {
-      const approvalProfileId = (content as UserContent & {
+      approvalProfileId = (content as UserContent & {
         approvalProfileId?: ApprovalPolicyProfileId;
       }).approvalProfileId;
       let document = normalizeApprovalDateOwnership(source);
@@ -32,22 +34,26 @@ export class ApprovalReadinessApplicationService extends BaseApprovalReadinessAp
       }
       if (document !== source) effectiveInput = { ...input, data: withNormalizedDocument(input.data, content, document) };
     }
-    const result = await super.execute(effectiveInput);
-    /**
-     * A run that inspected nothing must not leave a "completed" inspection
-     * identity behind; that record is what later tells the service and the UI
-     * that the stored artefacts are current.
-     */
+    let result = await super.execute(effectiveInput);
     if (!result.inspectionPerformed) return result;
+
+    if (content && approvalProfileId) {
+      const checkedAt = result.document.metadata?.approvalReadinessExecution?.checkedAt ?? new Date().toISOString();
+      result = await corroborateApprovalReadinessResult(
+        result,
+        content,
+        approvalProfileId,
+        this.fetcher,
+        checkedAt,
+      );
+    }
+
     return withCurrentInspectionIdentity(result, input.connection?.id);
   }
 }
 
 function withNormalizedDocument(data: UserData, content: UserContent, document: ContentDocument): UserData {
   const normalizedAt = new Date().toISOString();
-  // Approved quality follows the normalized editorial revision as before.
-  // A blocked review keeps its previous identity so the aggregate can report
-  // that Standard Quality still belongs to an older revision.
   const quality = content.quality
     ? Object.freeze({
       ...content.quality,
