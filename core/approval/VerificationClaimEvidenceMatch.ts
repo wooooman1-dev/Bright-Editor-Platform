@@ -1,4 +1,4 @@
-import type { VerificationClaimKind, VerificationClaimSpec } from "./VerificationClaim";
+import type { VerificationClaimSpec } from "./VerificationClaim";
 
 export type VerificationClaimEvidenceMatch = Readonly<{
   matched: boolean;
@@ -25,7 +25,13 @@ export function evaluateVerificationClaimEvidenceMatch(input: Readonly<{
   // Semantic identity must be established from the server-fetched page, not
   // from the untrusted excerpt supplied by discovery. Otherwise a fabricated
   // excerpt can make an unrelated page look like support for the Claim.
-  const valueSupported = propositionConceptMatch(input.spec, page);
+  const semanticConceptsMatch = propositionConceptMatch(input.spec, page);
+  // For scalar Claims, the discovered value itself must also be observable in
+  // the fetched page. This distinguishes a legitimate source-value change
+  // (100만원 is actually on the page) from an excerpt that claims 100만원 while
+  // the server-fetched page actually says 50만원.
+  const submittedValueSupported = scalarValuePresentInPage(input.spec, input.submittedValue, page);
+  const valueSupported = semanticConceptsMatch && submittedValueSupported;
   const rawValueMatches = input.normalizedValueMatchesPlanned;
   const claimShapeCompatible = claimValueShapeCompatible(input.spec, input.submittedValue);
   const matched = Boolean(
@@ -45,6 +51,16 @@ export function evaluateVerificationClaimEvidenceMatch(input: Readonly<{
       ...(input.normalizedValuePresent ? [] : ["claim_normalization_failed"]),
     ]),
   });
+}
+
+function scalarValuePresentInPage(
+  spec: VerificationClaimSpec,
+  submittedValue: string,
+  pageText: string,
+): boolean {
+  if (["general", "legal", "eligibility"].includes(spec.kind)) return true;
+  const submitted = compact(submittedValue);
+  return Boolean(submitted) && compact(pageText).includes(submitted);
 }
 
 function claimValueShapeCompatible(spec: VerificationClaimSpec, submittedValue: string): boolean {
@@ -138,8 +154,7 @@ function propositionConceptMatch(
       ? distinctiveIdentityMatches.length >= 1
       : identityConcepts.some((token) => conceptPresent(evidence, token, spec.kind === "legal"));
 
-  return identityMatched
-    && propositionMatches.length >= (spec.kind === "legal" && strictAnchors.length > 0 ? 1 : 1);
+  return identityMatched && propositionMatches.length >= 1;
 }
 
 function concepts(value: string): readonly string[] {
