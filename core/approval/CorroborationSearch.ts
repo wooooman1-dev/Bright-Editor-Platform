@@ -5,6 +5,11 @@ export type CorroborationSearchQuery = Readonly<{
   query: string;
 }>;
 
+export type MissingApprovalFactSearchQuery = Readonly<{
+  field: string;
+  query: string;
+}>;
+
 export type CorroborationCandidatePage = Readonly<{
   url: string;
   title: string;
@@ -15,6 +20,7 @@ export type CorroborationCandidatePage = Readonly<{
 }>;
 
 const maximumQueriesPerSource = 3;
+const maximumMissingFactQueries = 2;
 const minimumRelevantTokens = 2;
 
 /**
@@ -54,6 +60,34 @@ export function buildCorroborationSearchQueries(
       .slice(0, maximumQueriesPerSource)
       .map((query) => Object.freeze({ sourceId: source.sourceId, query })),
   );
+}
+
+/**
+ * Builds a small deterministic search set for fact fields that the current
+ * approval evidence pack still does not cover. This is intentionally separate
+ * from the unofficial-source corroboration path: missing official facts must
+ * be searched independently rather than asking another LLM to repeat the same
+ * source discovery request.
+ */
+export function buildMissingApprovalFactSearchQueries(
+  facts: readonly ApprovalEvidenceFact[],
+): readonly MissingApprovalFactSearchQuery[] {
+  const queries: MissingApprovalFactSearchQuery[] = [];
+  for (const fact of facts) {
+    const field = cleanSearchText(fact.field.replace(/([a-z])([A-Z])/g, "$1 $2"));
+    const value = cleanFactSearchText(fact.value);
+    const excerpt = cleanFactSearchText(fact.excerpt ?? "");
+    const candidates = [
+      [value, field, "공식"].filter(Boolean).join(" "),
+      [excerpt || value, "공식 안내"].filter(Boolean).join(" "),
+    ];
+    for (const query of candidates) {
+      const normalized = normalizeWhitespace(query);
+      if (normalized.length >= 8) queries.push(Object.freeze({ field: fact.field, query: normalized }));
+      if (queries.filter((item) => item.field === fact.field).length >= maximumMissingFactQueries) break;
+    }
+  }
+  return Object.freeze(queries);
 }
 
 /**
@@ -120,6 +154,15 @@ function cleanSearchText(value: string): string {
       .replace(/\b\d+(?:\.\d+)?\s*(?:년|개월|일|주|원|만원|억원|%|퍼센트)\b/gu, " ")
       .replace(/\b\d+(?:\.\d+)?\b/gu, " "),
   );
+}
+
+function cleanFactSearchText(value: string): string {
+  const cleaned = normalizeWhitespace(
+    value
+      .replace(/https?:\/\/\S+/giu, " ")
+      .replace(/[\[\]{}()<>|]/gu, " "),
+  );
+  return cleaned.length > 120 ? cleaned.slice(0, 120) : cleaned;
 }
 
 function normalizeWhitespace(value: string): string {
