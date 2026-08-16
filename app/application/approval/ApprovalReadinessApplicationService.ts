@@ -37,11 +37,12 @@ export class ApprovalReadinessApplicationService extends BaseApprovalReadinessAp
     let result = await super.execute(effectiveInput);
     if (!result.inspectionPerformed) return result;
 
-    if (content && approvalProfileId) {
+    const resultContent = result.data.contents.find((item) => item.id === input.contentId);
+    if (resultContent && approvalProfileId) {
       const checkedAt = result.document.metadata?.approvalReadinessExecution?.checkedAt ?? new Date().toISOString();
       result = await corroborateApprovalReadinessResult(
         result,
-        content,
+        resultContent,
         approvalProfileId,
         this.fetcher,
         checkedAt,
