@@ -11,6 +11,7 @@ import {
   editorialRevisionId,
   isStandardQualityApproved,
   standardQualityBlockingReasons,
+  type QualityReport,
 } from "../../../core/quality";
 import type { UserContent } from "../../user-flow/user-data";
 import type { ApprovalReadinessExecutionResult, ApprovalReadinessFetch } from "./ApprovalReadinessApplicationServiceBase";
@@ -65,7 +66,7 @@ export async function corroborateApprovalReadinessResult(
       }));
       candidatePages.push(Object.freeze({
         requestedUrl: candidate.url,
-        finalUrl: candidate.page.finalUrl,
+        finalUrl: candidate.page.finalUrl ?? candidate.url,
         status: 200,
         contentType: "text/html; charset=utf-8",
         title: candidate.page.title,
@@ -130,7 +131,7 @@ export async function corroborateApprovalReadinessResult(
   const quality = Object.freeze({
     ...result.quality,
     ...(approvalReadiness ? { approvalReadiness } : {}),
-  });
+  }) as QualityReport;
   const nextContent: UserContent = Object.freeze({
     ...content,
     document,
