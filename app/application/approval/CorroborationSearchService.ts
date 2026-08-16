@@ -1,5 +1,6 @@
 import {
   buildCorroborationSearchQueries,
+  buildMissingApprovalFactSearchQueries,
   corroborationSupportedFacts,
   isLikelyStaleCorroborationPage,
   type CorroborationCandidatePage,
@@ -29,8 +30,24 @@ export type CorroborationSearchCandidate = Readonly<{
   institutionGroupId: string;
 }>;
 
+export type MissingApprovalFactSearchResult = Readonly<{
+  field: string;
+  candidates: readonly MissingApprovalFactSearchCandidate[];
+  searchedQueries: readonly string[];
+}>;
+
+export type MissingApprovalFactSearchCandidate = Readonly<{
+  sourceId: string;
+  url: string;
+  title: string;
+  publisher: string;
+  page: CorroborationCandidatePage;
+  facts: readonly ApprovalEvidenceFact[];
+}>;
+
 const maximumResultsPerQuery = 5;
 const maximumCandidatesPerSource = 6;
+const maximumCandidatesPerMissingFact = 4;
 
 /**
  * Performs one deterministic, no-API-key web search pass for each unofficial
@@ -103,6 +120,60 @@ export async function searchCorroborationCandidates(
     candidates: Object.freeze(candidates),
     searchedQueries: Object.freeze(searchedQueries),
   });
+}
+
+/**
+ * Searches only for the fact fields that the current Evidence pack left
+ * uncovered. This is a deterministic/free repair pass used after the initial
+ * official-source verification. Candidate acceptance is still decided by the
+ * Core verifier, so a search hit can never by itself mark a Claim verified.
+ */
+export async function searchMissingApprovalFactCandidates(
+  facts: readonly ApprovalEvidenceFact[],
+  fetcher: SiteApprovalReadinessFetch,
+  now = new Date(),
+): Promise<readonly MissingApprovalFactSearchResult[]> {
+  const queries = buildMissingApprovalFactSearchQueries(facts);
+  const byField = new Map<string, MissingApprovalFactSearchResult>();
+  const seenUrls = new Set<string>();
+
+  for (const { field, query } of queries) {
+    const current = byField.get(field) ?? {
+      field,
+      candidates: Object.freeze([]),
+      searchedQueries: Object.freeze([]),
+    };
+    const searchedQueries = [...current.searchedQueries, query];
+    const candidates = [...current.candidates];
+    const results = await searchDuckDuckGo(query, fetcher);
+    for (const result of results) {
+      if (candidates.length >= maximumCandidatesPerMissingFact) break;
+      const canonicalUrl = canonicalizeApprovalEvidenceUrl(result.url);
+      if (!canonicalUrl || seenUrls.has(canonicalUrl)) continue;
+      seenUrls.add(canonicalUrl);
+      const page = await fetchCandidatePage(canonicalUrl, fetcher);
+      if (!page || isLikelyStaleCorroborationPage(page, now)) continue;
+      const fact = facts.find((item) => item.field === field);
+      if (!fact) continue;
+      const supportedFacts = corroborationSupportedFacts(page, [fact]);
+      if (!supportedFacts.length) continue;
+      candidates.push(Object.freeze({
+        sourceId: approvalCompatibleSourceId(canonicalUrl),
+        url: canonicalUrl,
+        title: page.title || result.title,
+        publisher: page.publisher || result.publisher,
+        page,
+        facts: Object.freeze(supportedFacts),
+      }));
+    }
+    byField.set(field, Object.freeze({
+      field,
+      candidates: Object.freeze(candidates),
+      searchedQueries: Object.freeze(searchedQueries),
+    }));
+  }
+
+  return Object.freeze([...byField.values()]);
 }
 
 type SearchResult = Readonly<{
