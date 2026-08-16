@@ -11,7 +11,7 @@ function source(overrides: Partial<ApprovalEvidenceSource> = {}): ApprovalEviden
     finalUrl: "https://blog.example.com/lease",
     title: "계약갱신요구권 안내",
     publisher: "blog.example.com",
-    sourceType: "web",
+    sourceType: "official_institution",
     retrievedAt: "2026-08-16T00:00:00.000Z",
     verified: false,
     facts: [
