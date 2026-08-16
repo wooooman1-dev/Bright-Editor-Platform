@@ -50,7 +50,7 @@ export async function searchCorroborationCandidates(
     requestedUrl: source.url,
     finalUrl: source.finalUrl,
     publisherId: source.publisher,
-    role: "secondary",
+    role: "independentCorroborating",
     authoritative: false,
   });
 
@@ -75,7 +75,7 @@ export async function searchCorroborationCandidates(
         requestedUrl: canonicalUrl,
         finalUrl: page.finalUrl,
         publisherId: page.publisher,
-        role: "secondary",
+        role: "independentCorroborating",
         authoritative: false,
       });
       if (!identity) continue;
