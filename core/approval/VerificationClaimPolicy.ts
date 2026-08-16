@@ -1,4 +1,4 @@
-import type { VerificationClaimKind, VerificationClaimResult, VerificationClaimSpec, VerificationSourceAssessment } from "./VerificationClaim";
+import type { VerificationClaimKind, VerificationClaimResult, VerificationClaimSpec, VerificationNormalizedValue, VerificationSourceAssessment } from "./VerificationClaim";
 import { countAuthoritativeInstitutions, countIndependentInstitutions, hasPrimaryOfficial } from "./VerificationSourceIdentity";
 
 export const highRiskVerificationKinds: readonly VerificationClaimKind[] = ["money", "ratio", "date", "dateRange", "location", "eligibility", "legal"];
@@ -6,15 +6,18 @@ export const configurableHighRiskVerificationKinds: readonly VerificationClaimKi
 
 /**
  * Evidence approval policy:
- * - Numeric/date/duration values are not independently compared with the
- *   Planning Claim at the approval gate.
- * - One authoritative primary official source is sufficient.
- * - Without an official source, a high-risk Claim requires at least one
- *   independent non-authoritative corroborating institution in addition to
- *   the first non-authoritative source.
+ * - A discovered source may support the Claim with a materially different
+ *   value. A value difference is evidence to resolve, not an automatic
+ *   failure.
+ * - One authoritative primary official source is sufficient and owns the
+ *   authoritative value when authoritative sources agree with it.
+ * - Without a primary official source, one vote is counted per independent
+ *   institution. A unique fresh majority may select the Claim value.
+ * - A tie or disagreement among authoritative sources remains conflicted.
+ * - Same-institution URLs never create additional consensus votes.
  *
- * Discovery/search is responsible for supplying the corroborating source
- * before Generation. This policy itself performs no network I/O.
+ * Discovery/search is responsible for supplying corroborating sources before
+ * Generation. This policy itself performs no network I/O.
  */
 export function evaluateVerificationClaim(spec: VerificationClaimSpec, result: Omit<VerificationClaimResult, "status" | "independentInstitutionCount" | "authoritativeInstitutionCount" | "primarySourceFound">): VerificationClaimResult {
   const sources = result.sourceAssessments;
@@ -26,15 +29,18 @@ export function evaluateVerificationClaim(spec: VerificationClaimSpec, result: O
   const staleSupporting = sources.some((source) => source.supports && source.normalizedValue && source.freshnessStatus === "stale");
   const unknownSupporting = sources.some((source) => source.supports && source.normalizedValue && source.freshnessStatus === "unknown")
     || result.diagnostics.some((diagnostic) => diagnostic === "freshness_unknown");
+  const consensus = resolveFreshConsensus(usableFresh);
+  const resolvedNormalizedValue = consensus.normalizedValue ?? result.normalizedValue;
+  const unresolvedConflict = consensus.conflicted || (result.unresolvedConflict && !consensus.resolved);
 
   const officialCoveragePassed = authoritativeInstitutionCount >= 1 && primarySourceFound;
   const corroboratedNonOfficialCoveragePassed = countFreshNonAuthoritativeInstitutions(sources) >= 2;
   const thresholdPassed = !highRisk || officialCoveragePassed || corroboratedNonOfficialCoveragePassed;
   const freshnessPassed = usableFresh.length > 0 && thresholdPassed;
 
-  const status = result.unresolvedConflict
+  const status = unresolvedConflict
     ? "conflicted"
-    : result.normalizedValue && freshnessPassed
+    : resolvedNormalizedValue && freshnessPassed
       ? "verified"
       : usableFresh.length === 0 && staleSupporting
         ? "stale"
@@ -42,7 +48,16 @@ export function evaluateVerificationClaim(spec: VerificationClaimSpec, result: O
           ? "insufficient"
           : "planned";
 
-  return Object.freeze({ ...result, status, freshnessPassed, independentInstitutionCount, authoritativeInstitutionCount, primarySourceFound });
+  return Object.freeze({
+    ...result,
+    ...(resolvedNormalizedValue ? { normalizedValue: resolvedNormalizedValue } : {}),
+    ...(consensus.diagnostic ? { diagnostics: Object.freeze([...result.diagnostics, consensus.diagnostic]) } : {}),
+    status,
+    freshnessPassed,
+    independentInstitutionCount,
+    authoritativeInstitutionCount,
+    primarySourceFound,
+  });
 }
 
 function countFreshNonAuthoritativeInstitutions(sources: readonly VerificationSourceAssessment[]): number {
@@ -56,6 +71,72 @@ function countFreshNonAuthoritativeInstitutions(sources: readonly VerificationSo
         && source.authoritative !== true)
       .map((source) => source.institutionGroupId),
   ).size;
+}
+
+type ConsensusResult = Readonly<{
+  normalizedValue?: VerificationNormalizedValue;
+  conflicted: boolean;
+  resolved: boolean;
+  diagnostic?: string;
+}>;
+
+/** Resolves fresh values after collapsing multiple URLs from one institution into one vote. */
+function resolveFreshConsensus(sources: readonly VerificationSourceAssessment[]): ConsensusResult {
+  const institutionVotes = new Map<string, VerificationSourceAssessment>();
+  for (const source of sources) {
+    if (!source.normalizedValue) continue;
+    const existing = institutionVotes.get(source.institutionGroupId);
+    if (!existing || sourcePriority(source) > sourcePriority(existing)) institutionVotes.set(source.institutionGroupId, source);
+  }
+  const votes = [...institutionVotes.values()];
+  if (!votes.length) return Object.freeze({ conflicted: false, resolved: false });
+
+  const primary = votes.find((source) => source.role === "primaryOfficial" && source.authoritative === true);
+  if (primary?.normalizedValue) {
+    const primaryKey = canonicalValue(primary.normalizedValue);
+    const authoritativeConflict = votes.some((source) => source.authoritative === true && canonicalValue(source.normalizedValue) !== primaryKey);
+    return Object.freeze({
+      normalizedValue: primary.normalizedValue,
+      conflicted: authoritativeConflict,
+      resolved: true,
+      ...(authoritativeConflict ? { diagnostic: "authoritative_value_conflict" } : {}),
+    });
+  }
+
+  const counts = new Map<string, { value: VerificationNormalizedValue; count: number }>();
+  for (const vote of votes) {
+    const key = canonicalValue(vote.normalizedValue);
+    const entry = counts.get(key);
+    if (entry) entry.count += 1;
+    else counts.set(key, { value: vote.normalizedValue, count: 1 });
+  }
+  const ranked = [...counts.values()].sort((left, right) => right.count - left.count);
+  const winner = ranked[0]!;
+  const tied = ranked.length > 1 && ranked[1]!.count === winner.count;
+  if (tied) return Object.freeze({ conflicted: true, resolved: false, diagnostic: "corroboration_value_tie" });
+  const hadDisagreement = counts.size > 1;
+  return Object.freeze({
+    normalizedValue: winner.value,
+    conflicted: false,
+    resolved: true,
+    ...(hadDisagreement ? { diagnostic: "corroboration_value_majority_selected" } : {}),
+  });
+}
+
+function sourcePriority(source: VerificationSourceAssessment): number {
+  if (source.role === "primaryOfficial" && source.authoritative === true) return 3;
+  if (source.authoritative === true) return 2;
+  return 1;
+}
+
+function canonicalValue(value: VerificationNormalizedValue): string {
+  return JSON.stringify(sortValue(value));
+}
+
+function sortValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortValue).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => [key, sortValue(item)]));
+  return value;
 }
 
 export function isHighRiskVerificationKind(kind: VerificationClaimKind): boolean { return highRiskVerificationKinds.includes(kind); }
