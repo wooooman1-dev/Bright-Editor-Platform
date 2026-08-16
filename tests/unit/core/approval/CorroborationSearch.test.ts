@@ -39,16 +39,28 @@ describe("CorroborationSearch", () => {
     expect(queries[0]?.query).toContain("계약갱신요구권");
   });
 
-  it("accepts semantic corroboration even when the period numbers differ", () => {
+  it("accepts corroboration when the same period content is supported", () => {
     const facts = [{ field: "renewalPeriod", value: "계약 종료 6개월 전부터 2개월 전까지 행사" }];
     const supported = corroborationSupportedFacts({
       url: "https://other.example.org/lease",
       finalUrl: "https://other.example.org/lease",
       title: "계약갱신요구권 행사 안내",
       publisher: "other.example.org",
-      text: "임차인은 임대차 종료 전에 계약갱신요구권을 행사할 수 있으며 행사 방법을 확인해야 합니다.",
+      text: "임대차 종료 6개월 전부터 2개월 전까지 계약갱신요구권을 행사할 수 있습니다.",
     }, facts);
     expect(supported).toHaveLength(1);
+  });
+
+  it("rejects corroboration when the numeric content changes", () => {
+    const facts = [{ field: "renewalPeriod", value: "계약 종료 6개월 전부터 2개월 전까지 행사" }];
+    const supported = corroborationSupportedFacts({
+      url: "https://other.example.org/lease",
+      finalUrl: "https://other.example.org/lease",
+      title: "계약갱신요구권 행사 안내",
+      publisher: "other.example.org",
+      text: "임대차 종료 12개월 전부터 1개월 전까지 계약갱신요구권을 행사할 수 있습니다.",
+    }, facts);
+    expect(supported).toHaveLength(0);
   });
 
   it("rejects an obviously expired event/application page", () => {
