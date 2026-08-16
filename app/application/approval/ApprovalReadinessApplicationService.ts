@@ -41,11 +41,27 @@ export class ApprovalReadinessApplicationService extends BaseApprovalReadinessAp
       }
       if (document !== source) effectiveInput = { ...input, data: withNormalizedDocument(input.data, content, document) };
     }
+
+    const effectiveContent = effectiveInput.data.contents.find((item) => item.id === input.contentId);
+    const cachedExecution = effectiveContent?.document?.metadata?.approvalReadinessExecution;
+    const cachedIdentity = effectiveContent
+      ? approvalReadinessExecutionIdentity(effectiveContent, input.connection?.id)
+      : undefined;
+    const reusedInspection = input.forceRefresh !== true
+      && cachedExecution?.version === approvalReadinessInspectionVersion
+      && cachedIdentity !== undefined
+      && cachedExecution.key === cachedIdentity.key;
+
     let result = await super.execute(effectiveInput);
     if (!result.inspectionPerformed) return result;
 
+    // Corroboration is an explicit repair pass for a newly inspected result.
+    // A matching cached inspection must remain idempotent: refreshing the page
+    // must not silently trigger new DuckDuckGo fetches or change a persisted
+    // needs-review verdict. A user-requested force refresh deliberately opts
+    // back into the inspection and its repair pass.
     const resultContent = result.data.contents.find((item) => item.id === input.contentId);
-    if (resultContent && approvalProfileId) {
+    if (resultContent && approvalProfileId && !reusedInspection) {
       const checkedAt = result.document.metadata?.approvalReadinessExecution?.checkedAt ?? new Date().toISOString();
       result = await corroborateApprovalReadinessResult(
         result,
