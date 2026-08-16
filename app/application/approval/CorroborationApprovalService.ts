@@ -1,5 +1,4 @@
 import {
-  approvalCompatibleSourceId,
   approvalFactMatchesPage,
   approvalOfficialDomains,
   canonicalizeApprovalEvidenceUrl,
@@ -7,7 +6,6 @@ import {
   extractProfileApprovalFacts,
   officialDomainAllowed,
   verifyApprovalEvidence,
-  type ApprovalEvidenceFact,
   type ApprovalEvidencePack,
   type ApprovalEvidenceSource,
   type ApprovalPolicyProfileId,
