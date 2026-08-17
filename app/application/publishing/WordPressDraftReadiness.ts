@@ -26,10 +26,8 @@ export function calculateWordPressDraftReadiness(input: Readonly<{ data: UserDat
   const categoriesReady = !input.categoryResult.hasMore && categorySelection.valid && categorySelection.source === "content" && categorySelection.policyCompliant !== false;
   const qualityReady = standardQualityReady(content);
 
-  // Official Source First contract: no legacy GeneratedClaim/VerificationSnapshot gate.
-  const articleIntegrity = content.document ? evaluateApprovalDraftIntegrity(content.document, false, resolveApprovalTemporalRequirement(content.opportunity) !== "not_required") : Object.freeze({ passed: false, reasons: Object.freeze(["기준 원고가 없습니다."]) });
-  const officialSourceIntegrity = content.document ? evaluateOfficialSourceIntegrity(content.document) : Object.freeze({ passed: false, reasons: Object.freeze(["기준 원고가 없습니다."]) });
-  const approvalIntegrity = Object.freeze({ passed: articleIntegrity.passed && officialSourceIntegrity.passed, reasons: Object.freeze([...articleIntegrity.reasons, ...officialSourceIntegrity.reasons]) });
+  // Official Source First contract: Approval Evidence is advisory here, not a readiness gate.
+  const approvalIntegrity = content.document ? evaluateApprovalDraftIntegrity(content.document, false, resolveApprovalTemporalRequirement(content.opportunity) !== "not_required") : Object.freeze({ passed: false, reasons: Object.freeze(["기준 원고가 없습니다."]) });
   const policy = resolveWorkspaceSettings(data).publishing;
   const localImageCount = content.document?.blocks.filter((block) => block.type === "image" && /^\/api\/media\//i.test(block.source)).length ?? 0;
   const mediaFilesReady = localImageCount === 0 || input.mediaValidationPassed === true;
@@ -48,7 +46,7 @@ export function calculateWordPressDraftReadiness(input: Readonly<{ data: UserDat
     check("category_catalog", categoriesReady, categorySelection.valid && categorySelection.policyCompliant !== false ? `워드프레스 카테고리 ${categorySelection.categoryIds.length}개를 검증했습니다.` : "워드프레스 카테고리를 확인했습니다.", categoryMessage(categorySelection, input.categoryResult.hasMore)),
     check("planning_identity", identityContamination.length === 0, "기획 주제와 검색 키워드에 프로젝트명 또는 브랜드명이 검색어로 섞이지 않았습니다.", `기존 기획에 검색 주제가 아닌 프로젝트명 또는 브랜드명이 포함되어 있습니다: ${identityContamination.join(", ")}. 새 Content에서 Planning을 다시 실행해 주세요.`),
     check("quality_revision", qualityReady, "현재 문서 버전의 기본 품질 승인을 확인했습니다.", "현재 문서 버전이 기본 품질 승인을 통과해야 합니다."),
-    check("approval_article_integrity", approvalIntegrity.passed, "현재 승인 준비 원고의 정책·공식 출처·중복 무결성을 확인했습니다.", approvalIntegrity.reasons.join(" ") || "현재 승인 준비 원고의 공식 출처 무결성을 확인해야 합니다."),
+    check("approval_article_integrity", approvalIntegrity.passed, "현재 승인 준비 원고의 정책·중복 무결성을 확인했습니다.", approvalIntegrity.reasons.join(" ") || "현재 승인 준비 원고의 무결성을 확인해야 합니다."),
     check("review_first", policy.reviewFirst, "검토 후 저장 정책이 활성화되어 있습니다.", "검토 후 저장 정책이 활성화되어 있어야 합니다."),
     check("draft_only", policy.draftOnly, "임시글만 저장 정책이 활성화되어 있습니다.", "임시글만 저장 정책이 활성화되어 있어야 합니다."),
     check("public_publish_off", !policy.publicPublish, "공개 발행이 비활성화되어 있습니다.", "공개 발행은 비활성화되어 있어야 합니다."),
@@ -74,13 +72,6 @@ export function assertWordPressCategoryLookupAllowed(input: Readonly<{ data: Use
 }
 
 function standardQualityReady(content: UserContent): boolean { if (!content.document || !content.quality) return false; try { new PublishingGate().assertReady(content.quality, editorialRevisionId(content.document), content.document); return true; } catch { return false; } }
-
-function evaluateOfficialSourceIntegrity(document: UserContent["document"]): Readonly<{ passed: boolean; reasons: readonly string[] }> {
-  const sources = document?.metadata?.approvalEvidence?.sources ?? [];
-  if (sources.length === 0) return Object.freeze({ passed: false, reasons: Object.freeze(["공식 출처 검증 결과가 없습니다."]) });
-  const invalid = sources.some((source) => { const url = source.canonicalUrl ?? source.url; return !url.startsWith("https://") || source.verified !== true || source.provenance !== "system_verified" || source.facts.length === 0; });
-  return invalid ? Object.freeze({ passed: false, reasons: Object.freeze(["공식 출처는 HTTPS URL, system_verified provenance, verified 상태와 검증된 fact를 모두 가져야 합니다."]) }) : Object.freeze({ passed: true, reasons: Object.freeze([]) });
-}
 
 function permissionAllowed(workflow: string, data: UserData, project: UserProject, content: UserContent, connection?: PlatformConnection): boolean {
   if (!data.workspace || !connection) return false;
