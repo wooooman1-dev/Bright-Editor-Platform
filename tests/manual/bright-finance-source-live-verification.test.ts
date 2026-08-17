@@ -177,21 +177,17 @@ describe.runIf(enabled)("Bright Finance live Source Preflight verification", () 
 
     const latest = generated.payload.data ?? await getStudioData();
     const stored = latest.contents.find((item) => item.id === contentId);
-    const verification = stored?.document?.metadata?.generatedClaimVerification;
-    const sourceSummary = verification?.verificationSnapshot.results.flatMap((result) =>
-      result.sourceAssessments.map((source) => ({
-        claimId: result.claimId,
-        status: result.status,
-        sourceId: source.sourceId,
-        canonicalUrl: source.canonicalUrl,
-        institutionGroupId: source.institutionGroupId,
-        role: source.role,
-        supports: source.supports,
-        authoritative: source.authoritative,
-        fresh: source.fresh,
-        freshnessStatus: source.freshnessStatus,
-      })),
-    ) ?? [];
+    const approvalEvidence = stored?.document?.metadata?.approvalEvidence;
+    const sourceSummary = approvalEvidence?.sources.map((source) => ({
+      sourceId: source.sourceId,
+      canonicalUrl: source.canonicalUrl ?? source.url,
+      title: source.title,
+      publisher: source.publisher,
+      provenance: source.provenance,
+      verified: source.verified,
+      verificationStatus: source.verificationStatus,
+      factsCount: source.facts.length,
+    })) ?? [];
 
     console.log(`BRIGHT_FINANCE_SOURCE_GENERATION ${JSON.stringify({
       contentId,
@@ -201,10 +197,13 @@ describe.runIf(enabled)("Bright Finance live Source Preflight verification", () 
       callCounts: generated.payload.callCounts,
       reachedTarget: generated.payload.reachedTarget,
       quality: generated.payload.quality,
-      verificationOverallStatus: verification?.verificationSnapshot.overallStatus,
-      unverifiedDetectedCount: verification?.unverifiedDetectedCount,
-      verifiedClaimIds: verification?.verifiedClaimIds,
-      sources: sourceSummary,
+      approvalEvidence: {
+        status: approvalEvidence?.status,
+        coverageStatus: approvalEvidence?.coverageStatus,
+        sourcePolicyCompliance: approvalEvidence?.sourcePolicyCompliance,
+        sourceCount: sourceSummary.length,
+        sources: sourceSummary,
+      },
       publishingAttempted: false,
       approvalSourcePreflightDiagnostic: generated.payload.approvalSourcePreflightDiagnostic,
     })}`);
@@ -212,12 +211,10 @@ describe.runIf(enabled)("Bright Finance live Source Preflight verification", () 
     expect(generated.status, generated.payload.error ?? generated.payload.aiReviewError).toBe(200);
     expect(generated.payload.callCounts).toEqual({ generation: 1, review: 1 });
     expect(stored?.document).toBeDefined();
-    expect(verification?.verificationSnapshot.verificationMode).toBe("explicit");
-    expect(verification?.verificationSnapshot.overallStatus).toBe("verified");
-    expect(verification?.unverifiedDetectedCount).toBe(0);
+    expect(approvalEvidence?.sourcePolicyCompliance).toBe("passed");
     expect(sourceSummary.length).toBeGreaterThan(0);
     expect(sourceSummary.every((source) =>
-      !source.canonicalUrl || source.canonicalUrl.startsWith("https://")),
+      source.canonicalUrl.startsWith("https://")),
     ).toBe(true);
   }, 1_000_000);
 });
