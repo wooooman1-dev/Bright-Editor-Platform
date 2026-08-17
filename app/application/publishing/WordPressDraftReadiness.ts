@@ -1,5 +1,5 @@
 import type { PlatformConnection } from "../../../core/connections";
-import { evaluateApprovalDraftIntegrity, resolveApprovalTemporalRequirement } from "../../../core/approval";
+import { evaluateApprovalDraftIntegrity, evaluateGeneratedClaimVerificationIntegrity, resolveApprovalTemporalRequirement } from "../../../core/approval";
 import { editorialRevisionId, PublishingGate } from "../../../core/quality";
 import { PublishingPermissionGate } from "../../../core/publishing";
 import type { WordPressCategoryListResult } from "../../../apps/wordpress";
@@ -25,11 +25,24 @@ export function calculateWordPressDraftReadiness(input: Readonly<{ data: UserDat
   const categorySelection = connection ? resolveWordPressCategorySelection({ project, content, connection, categoryResult: input.categoryResult }) : invalidCategorySelection();
   const categoriesReady = !input.categoryResult.hasMore && categorySelection.valid && categorySelection.source === "content" && categorySelection.policyCompliant !== false;
   const qualityReady = standardQualityReady(content);
+  const currentRevisionId = content.document ? editorialRevisionId(content.document) : undefined;
 
   // Official Source First contract: Approval Evidence is advisory here, not a readiness gate.
-  // Keep the integrity evaluation/check for diagnostics and approval-state reporting, but do not
-  // make its result an execution prerequisite. Generated Claim Verification, claim-first source
-  // summary, and unofficial-source corroboration are not approval gates for WordPress drafts.
+  // Keep integrity evaluations as diagnostics and approval-state reporting, but do not make
+  // Generated Claim Verification, claim-first source summary, or unofficial corroboration
+  // execution prerequisites for WordPress drafts.
+  const generatedClaimIntegrity = content.document
+    ? evaluateGeneratedClaimVerificationIntegrity({
+        document: content.document,
+        plan: content.opportunity?.verificationPlan,
+        currentRevisionId,
+      })
+    : Object.freeze({
+        passed: !content.opportunity?.verificationPlan,
+        reasons: content.opportunity?.verificationPlan
+          ? Object.freeze(["검증할 canonical 원고가 없습니다."])
+          : Object.freeze([]),
+      });
   const approvalIntegrity = content.document ? evaluateApprovalDraftIntegrity(content.document, false, resolveApprovalTemporalRequirement(content.opportunity) !== "not_required") : Object.freeze({ passed: false, reasons: Object.freeze(["기준 원고가 없습니다."]) });
   const policy = resolveWorkspaceSettings(data).publishing;
   const localImageCount = content.document?.blocks.filter((block) => block.type === "image" && /^\/api\/media\//i.test(block.source)).length ?? 0;
@@ -49,6 +62,7 @@ export function calculateWordPressDraftReadiness(input: Readonly<{ data: UserDat
     check("category_catalog", categoriesReady, categorySelection.valid && categorySelection.policyCompliant !== false ? `워드프레스 카테고리 ${categorySelection.categoryIds.length}개를 검증했습니다.` : "워드프레스 카테고리를 확인했습니다.", categoryMessage(categorySelection, input.categoryResult.hasMore)),
     check("planning_identity", identityContamination.length === 0, "기획 주제와 검색 키워드에 프로젝트명 또는 브랜드명이 검색어로 섞이지 않았습니다.", `기존 기획에 검색 주제가 아닌 프로젝트명 또는 브랜드명이 포함되어 있습니다: ${identityContamination.join(", ")}. 새 Content에서 Planning을 다시 실행해 주세요.`),
     check("quality_revision", qualityReady, "현재 문서 버전의 기본 품질 승인을 확인했습니다.", "현재 문서 버전이 기본 품질 승인을 통과해야 합니다."),
+    check("generated_claim_verification", generatedClaimIntegrity.passed, generatedClaimIntegrity.passed ? content.opportunity?.verificationPlan ? "현재 원고의 고위험 Claim 검증 상태를 확인했습니다." : "현재 원고에는 explicit Verification Claim Gate가 필요하지 않습니다." : generatedClaimIntegrity.reasons.join(" ") || "현재 원고의 고위험 Claim 검증 상태를 확인해야 합니다."),
     check("approval_article_integrity", approvalIntegrity.passed, "현재 승인 준비 원고의 정책·중복 무결성을 확인했습니다.", approvalIntegrity.reasons.join(" ") || "현재 승인 준비 원고의 무결성을 확인해야 합니다."),
     check("review_first", policy.reviewFirst, "검토 후 저장 정책이 활성화되어 있습니다.", "검토 후 저장 정책이 활성화되어 있어야 합니다."),
     check("draft_only", policy.draftOnly, "임시글만 저장 정책이 활성화되어 있습니다.", "임시글만 저장 정책이 활성화되어 있어야 합니다."),
@@ -62,12 +76,10 @@ export function calculateWordPressDraftReadiness(input: Readonly<{ data: UserDat
     check("final_confirmation", input.finalConfirmation, "사용자의 최종 확인이 완료되었습니다.", "사용자의 최종 확인이 필요합니다."),
   ]);
 
-  // Approval Article Integrity is intentionally excluded from the executable readiness gate.
-  // It remains a first-class diagnostic check above and can be consumed by approval/reporting
-  // flows, but Official Source First does not permit its evidence requirements to block draft
-  // execution at this boundary.
+  // Approval Article Integrity and Generated Claim Verification are intentionally excluded from
+  // the executable readiness gate. They remain first-class diagnostic checks for approval/reporting.
   const ready = checks
-    .filter((item) => item.key !== "final_confirmation" && item.key !== "approval_article_integrity")
+    .filter((item) => item.key !== "final_confirmation" && item.key !== "approval_article_integrity" && item.key !== "generated_claim_verification")
     .every((item) => item.passed);
   return Object.freeze({ ready, executable: ready && input.finalConfirmation, checks, localImageCount, categorySelection, ...(input.featuredImageAssetId ? { featuredImageAssetId: input.featuredImageAssetId } : {}) });
 }
