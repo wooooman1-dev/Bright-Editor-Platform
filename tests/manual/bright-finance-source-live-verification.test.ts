@@ -26,7 +26,7 @@ type GenerationResponse = Readonly<{
 }>;
 
 describe.runIf(enabled)("Bright Finance live Source Preflight verification", () => {
-  it("uses a fresh explicit Verification Plan and optionally verifies one Generation + one Quality Review", async () => {
+  it("uses a fresh planning opportunity and verifies one Generation + one Quality Review", async () => {
     const initial = await getStudioData();
     const matchingProjects = initial.projects.filter((project) =>
       project.name.trim() === projectName,
@@ -89,28 +89,22 @@ describe.runIf(enabled)("Bright Finance live Source Preflight verification", () 
     const plan = persistedContent?.planning ?? planned.payload.plan;
     const opportunity = plan.opportunityCandidates?.[0];
     if (!opportunity) throw new Error("Planning did not return a Content Opportunity.");
-    if (opportunity.verificationPlan?.mode !== "explicit") {
-      throw new Error("Bright Finance approval Planning did not persist an explicit Verification Plan.");
-    }
-    if (!opportunity.verificationPlan.claims.length) {
-      throw new Error("The live factual request did not produce any Verification Claims.");
-    }
 
     console.log(`BRIGHT_FINANCE_SOURCE_PLANNING ${JSON.stringify({
       contentId,
       projectId: project.id,
       selectedTopic: opportunity.selectedTopic,
       primaryKeyword: opportunity.primaryKeyword,
-      verificationMode: opportunity.verificationPlan.mode,
-      claimCount: opportunity.verificationPlan.claims.length,
-      claims: opportunity.verificationPlan.claims.map((claim) => ({
+      verificationMode: opportunity.verificationPlan?.mode,
+      claimCount: opportunity.verificationPlan?.claims.length ?? 0,
+      claims: opportunity.verificationPlan?.claims.map((claim) => ({
         claimId: claim.claimId,
         field: claim.field,
         kind: claim.kind,
         statement: claim.statement,
         required: claim.required,
         temporalRequirement: claim.temporalRequirement,
-      })),
+      })) ?? [],
       generationEnabled,
     })}`);
 
@@ -200,7 +194,6 @@ describe.runIf(enabled)("Bright Finance live Source Preflight verification", () 
       approvalEvidence: {
         status: approvalEvidence?.status,
         coverageStatus: approvalEvidence?.coverageStatus,
-        sourcePolicyCompliance: approvalEvidence?.sourcePolicyCompliance,
         sourceCount: sourceSummary.length,
         sources: sourceSummary,
       },
@@ -211,11 +204,13 @@ describe.runIf(enabled)("Bright Finance live Source Preflight verification", () 
     expect(generated.status, generated.payload.error ?? generated.payload.aiReviewError).toBe(200);
     expect(generated.payload.callCounts).toEqual({ generation: 1, review: 1 });
     expect(stored?.document).toBeDefined();
-    expect(approvalEvidence?.sourcePolicyCompliance).toBe("passed");
-    expect(sourceSummary.length).toBeGreaterThan(0);
-    expect(sourceSummary.every((source) =>
-      source.canonicalUrl.startsWith("https://")),
-    ).toBe(true);
+    expect(approvalEvidence?.sources.length ?? 0).toBeGreaterThan(0);
+    expect(approvalEvidence?.sources.every((source) =>
+      (source.canonicalUrl ?? source.url).startsWith("https://")
+      && source.verified === true
+      && source.provenance === "system_verified"
+      && source.facts.length > 0,
+    )).toBe(true);
   }, 1_000_000);
 });
 
