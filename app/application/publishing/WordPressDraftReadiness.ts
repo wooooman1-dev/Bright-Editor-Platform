@@ -27,6 +27,9 @@ export function calculateWordPressDraftReadiness(input: Readonly<{ data: UserDat
   const qualityReady = standardQualityReady(content);
 
   // Official Source First contract: Approval Evidence is advisory here, not a readiness gate.
+  // Keep the integrity evaluation/check for diagnostics and approval-state reporting, but do not
+  // make its result an execution prerequisite. Generated Claim Verification, claim-first source
+  // summary, and unofficial-source corroboration are not approval gates for WordPress drafts.
   const approvalIntegrity = content.document ? evaluateApprovalDraftIntegrity(content.document, false, resolveApprovalTemporalRequirement(content.opportunity) !== "not_required") : Object.freeze({ passed: false, reasons: Object.freeze(["기준 원고가 없습니다."]) });
   const policy = resolveWorkspaceSettings(data).publishing;
   const localImageCount = content.document?.blocks.filter((block) => block.type === "image" && /^\/api\/media\//i.test(block.source)).length ?? 0;
@@ -58,7 +61,14 @@ export function calculateWordPressDraftReadiness(input: Readonly<{ data: UserDat
     check("media_upload_permission", mediaUpload, localImageCount === 0 ? "로컬 이미지가 없어 이미지 업로드 권한이 필요하지 않습니다." : "이미지 업로드 권한을 확인했습니다.", "로컬 이미지가 있으면 이미지 업로드 권한을 명시적으로 허용해야 합니다."),
     check("final_confirmation", input.finalConfirmation, "사용자의 최종 확인이 완료되었습니다.", "사용자의 최종 확인이 필요합니다."),
   ]);
-  const ready = checks.filter((item) => item.key !== "final_confirmation").every((item) => item.passed);
+
+  // Approval Article Integrity is intentionally excluded from the executable readiness gate.
+  // It remains a first-class diagnostic check above and can be consumed by approval/reporting
+  // flows, but Official Source First does not permit its evidence requirements to block draft
+  // execution at this boundary.
+  const ready = checks
+    .filter((item) => item.key !== "final_confirmation" && item.key !== "approval_article_integrity")
+    .every((item) => item.passed);
   return Object.freeze({ ready, executable: ready && input.finalConfirmation, checks, localImageCount, categorySelection, ...(input.featuredImageAssetId ? { featuredImageAssetId: input.featuredImageAssetId } : {}) });
 }
 
