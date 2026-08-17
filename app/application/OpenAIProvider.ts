@@ -292,10 +292,9 @@ function objectValue(value: unknown): Record<string, unknown> | undefined {
 function approvalWebSearchPolicy(metadata?: Readonly<Record<string, string>>) {
   if (metadata?.approvalPurpose !== "adsense_approval") return undefined;
   const task = metadata.task;
-  const preflight = task === "approval-source-preflight";
   const legacyInlineSearch = task === "content-generation"
     && metadata.approvalEvidenceMode !== "preflight_verified";
-  if (!preflight && !legacyInlineSearch) return undefined;
+  if (!legacyInlineSearch) return undefined;
   const domains = approvalOfficialDomains(metadata.approvalProfileId as ApprovalPolicyProfileId);
   return {
     type: "web_search" as const,

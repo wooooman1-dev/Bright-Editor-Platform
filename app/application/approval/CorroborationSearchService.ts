@@ -12,6 +12,7 @@ import type {
 import { approvalCompatibleSourceId, canonicalizeVerificationSourceIdentity } from "../../../core/approval/VerificationSourceIdentity";
 import type { SiteApprovalReadinessFetch } from "../../../core/approval";
 import { canonicalizeApprovalEvidenceUrl } from "../../../core/approval";
+import type { ApprovalSearchProvider } from "../../../core/ai/ApprovalSourcePreflight";
 
 export type CorroborationSearchResult = Readonly<{
   sourceId: string;
@@ -61,6 +62,7 @@ export async function searchCorroborationCandidates(
   source: ApprovalEvidenceSource,
   fetcher: SiteApprovalReadinessFetch,
   now = new Date(),
+  searchProvider?: ApprovalSearchProvider,
 ): Promise<CorroborationSearchResult> {
   const queries = buildCorroborationSearchQueries(source);
   const searchedQueries: string[] = [];
@@ -76,7 +78,7 @@ export async function searchCorroborationCandidates(
 
   for (const { query } of queries) {
     searchedQueries.push(query);
-    const results = await searchDuckDuckGo(query, fetcher);
+    const results = await searchDuckDuckGo(query, fetcher, searchProvider);
     for (const result of results) {
       if (candidates.length >= maximumCandidatesPerSource) break;
       const canonicalUrl = canonicalizeApprovalEvidenceUrl(result.url);
@@ -132,6 +134,7 @@ export async function searchMissingApprovalFactCandidates(
   facts: readonly ApprovalEvidenceFact[],
   fetcher: SiteApprovalReadinessFetch,
   now = new Date(),
+  searchProvider?: ApprovalSearchProvider,
 ): Promise<readonly MissingApprovalFactSearchResult[]> {
   const queries = buildMissingApprovalFactSearchQueries(facts);
   const byField = new Map<string, MissingApprovalFactSearchResult>();
@@ -147,7 +150,7 @@ export async function searchMissingApprovalFactCandidates(
     const candidates = [...current.candidates];
     const seenUrls = seenUrlsByField.get(field) ?? new Set<string>();
     seenUrlsByField.set(field, seenUrls);
-    const results = await searchDuckDuckGo(query, fetcher);
+    const results = await searchDuckDuckGo(query, fetcher, searchProvider);
     for (const result of results) {
       if (candidates.length >= maximumCandidatesPerMissingFact) break;
       const canonicalUrl = canonicalizeApprovalEvidenceUrl(result.url);
@@ -187,6 +190,7 @@ type SearchResult = Readonly<{
 async function searchDuckDuckGo(
   query: string,
   fetcher: SiteApprovalReadinessFetch,
+  fallbackProvider?: ApprovalSearchProvider,
 ): Promise<readonly SearchResult[]> {
   const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
   try {
@@ -199,9 +203,30 @@ async function searchDuckDuckGo(
         "user-agent": "Mozilla/5.0 (compatible; BrightEditor/1.0; +https://bright-editor.local)",
       },
     });
-    if (!response.ok) return Object.freeze([]);
+    if (!response.ok) {
+      return fallbackProviderResults(query, fetcher, fallbackProvider);
+    }
     const html = await response.text();
-    return Object.freeze(parseDuckDuckGoResults(html).slice(0, maximumResultsPerQuery));
+    const results = parseDuckDuckGoResults(html).slice(0, maximumResultsPerQuery);
+    return results.length ? Object.freeze(results) : fallbackProviderResults(query, fetcher, fallbackProvider);
+  } catch {
+    return fallbackProviderResults(query, fetcher, fallbackProvider);
+  }
+}
+
+async function fallbackProviderResults(
+  query: string,
+  fetcher: SiteApprovalReadinessFetch,
+  provider?: ApprovalSearchProvider,
+): Promise<readonly SearchResult[]> {
+  if (!provider) return Object.freeze([]);
+  try {
+    const urls = await provider.search(query, fetcher);
+    return Object.freeze(urls.slice(0, maximumResultsPerQuery).map((url) => Object.freeze({
+      url,
+      title: "",
+      publisher: (() => { try { return new URL(url).hostname.replace(/^www\./iu, ""); } catch { return ""; } })(),
+    })));
   } catch {
     return Object.freeze([]);
   }

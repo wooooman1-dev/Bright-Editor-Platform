@@ -30,6 +30,7 @@ import { AIProviderError, type AIProvider, type AIResponse, type AIWebSource } f
 import {
   runApprovalSourcePreflight,
   withApprovalSourcePreflightInstruction,
+  type ApprovalSearchProvider,
   type ApprovalSourcePreflightClaimSource,
 } from "./ApprovalSourcePreflight";
 import { appendAIUsageToDocument } from "./AIUsageCost";
@@ -92,7 +93,10 @@ export class AIWorkflow {
   constructor(
     private readonly provider: AIProvider,
     private readonly strategy: ContentGenerationStrategy,
-    private readonly options: Readonly<{ verifyEvidenceFetcher?: SiteApprovalReadinessFetch }> = {},
+    private readonly options: Readonly<{
+      verifyEvidenceFetcher?: SiteApprovalReadinessFetch;
+      approvalSearchProvider?: ApprovalSearchProvider;
+    }> = {},
   ) {}
 
   getState(): AIWorkflowState {
@@ -116,6 +120,7 @@ export class AIWorkflow {
             opportunity: input.contentOpportunity,
             platform: input.platform,
             contentType: input.contentType,
+            ...(this.options.approvalSearchProvider ? { searchProvider: this.options.approvalSearchProvider } : {}),
           })
         : undefined;
       const generationPreflight = sourcePreflight

@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { runApprovalSourcePreflight, type ApprovalSourcePreflightResult } from "../../../../core/ai/ApprovalSourcePreflight";
+import { ApprovalSourcePreflightError, buildClaimPreflightQueries, runApprovalSourcePreflight, type ApprovalSourcePreflightResult } from "../../../../core/ai/ApprovalSourcePreflight";
 import { assessmentsFromExplicitDiscovery } from "../../../../core/approval/ExplicitVerificationPreflight";
 import { resolveApprovalPolicySnapshot } from "../../../../core/approval";
 import { ensureApprovalEvidenceContract } from "../../../../app/application/ContentPlanningStrategy";
 import { createContentOpportunityCandidate, createContentOpportunityVerificationPlan, confirmContentOpportunity } from "../../../../core/content";
 import type { AIProvider, AIResponse } from "../../../../core/ai";
 import type { VerificationClaimSpec } from "../../../../core/approval";
+
 
 const snapshot = resolveApprovalPolicySnapshot("adsense_approval", "wordpress_life_economy_v1")!;
 const urls = ["https://www.gov.kr/amount", "https://law.go.kr/amount", "https://www.nts.go.kr/amount"];
@@ -492,5 +493,572 @@ describe("runApprovalSourcePreflight explicit integration", () => {
     expect(trustedFresh).toMatchObject({ freshnessStatus: "fresh", fresh: true });
     expect(stale).toMatchObject({ freshnessStatus: "stale", fresh: false }); expect(stale.diagnostics).toContain("claim_stale");
     expect(noObservation).toMatchObject({ freshnessStatus: "unknown", fresh: false }); expect(noObservation.diagnostics).toContain("freshness_unknown");
+  });
+
+  describe("corroboration vs authoritative source preflight guard regression", () => {
+    it("passes Preflight with one verified official source", async () => {
+      const contracted = ensureApprovalEvidenceContract(opportunity(), snapshot);
+      const provider = new FixtureProvider(
+        [source("https://www.gov.kr/amount")],
+        { webSources: [{ url: "https://www.gov.kr/amount", provenance: "search_candidate" }] },
+      );
+      const result = await runApprovalSourcePreflight({
+        provider,
+        snapshot,
+        opportunity: contracted,
+        platform: "wordpress",
+        contentType: "article",
+        fetcher: async () => page("50만원"),
+      });
+      expect(result.verificationSnapshot?.results[0]?.status).toBe("verified");
+      expect(result.verificationSnapshot?.overallStatus).toBe("verified");
+      expect(result.sourcePolicyCompliance).toBe("passed");
+      expect(result.coverage.status).toBe("covered");
+    });
+
+    it("passes Preflight when non-official sources corroborate the claim with verified status from two independent institutions", async () => {
+      const nonOfficial1 = "https://news.alpha.com/amount";
+      const nonOfficial2 = "https://media.beta.org/amount";
+      const contracted = ensureApprovalEvidenceContract(opportunity(), snapshot);
+      const provider = new FixtureProvider(
+        [source(nonOfficial1), source(nonOfficial2)],
+        { webSources: [{ url: nonOfficial1, provenance: "search_candidate" }, { url: nonOfficial2, provenance: "search_candidate" }] },
+      );
+      const result = await runApprovalSourcePreflight({
+        provider,
+        snapshot,
+        opportunity: contracted,
+        platform: "wordpress",
+        contentType: "article",
+        fetcher: async () => page("50만원"),
+      });
+      expect(result.verificationSnapshot?.results[0]?.status).toBe("verified");
+      expect(result.verificationSnapshot?.results[0]?.independentInstitutionCount).toBe(2);
+      expect(result.verificationSnapshot?.results[0]?.authoritativeInstitutionCount).toBe(0);
+      expect(result.verificationSnapshot?.overallStatus).toBe("verified");
+      expect(result.sourcePolicyCompliance).toBe("passed");
+      expect(result.coverage.status).toBe("covered");
+    });
+  });
+
+  describe("Mandatory Preflight Verification Specification Tests (A through I)", () => {
+    const contracted = ensureApprovalEvidenceContract(opportunity(), snapshot);
+    const ddgSearchHtml = (results: readonly string[]) =>
+      `<html><body>${results.map((r) => `<a class="result__a" href="${r}">Result</a>`).join("")}</body></html>`;
+
+    it("Test A: 공식 출처 1개 -> verified -> Fallback 실행 안 함", async () => {
+      let ddgCalled = false;
+      const provider = new FixtureProvider(
+        [source("https://www.gov.kr/amount")],
+        { webSources: [{ url: "https://www.gov.kr/amount", provenance: "search_candidate" }] },
+      );
+      const result = await runApprovalSourcePreflight({
+        provider,
+        snapshot,
+        opportunity: contracted,
+        platform: "wordpress",
+        contentType: "article",
+        fetcher: async (url) => {
+          if (String(url).includes("duckduckgo.com")) {
+            ddgCalled = true;
+            return new Response(ddgSearchHtml([]), { status: 200, headers: { "content-type": "text/html" } });
+          }
+          return page("50만원");
+        },
+      });
+      expect(ddgCalled).toBe(false);
+      expect(result.verificationSnapshot?.results[0]?.status).toBe("verified");
+      expect(result.verificationSnapshot?.overallStatus).toBe("verified");
+      expect(result.sourcePolicyCompliance).toBe("passed");
+      expect(result.coverage.status).toBe("covered");
+    });
+
+    it("Test B: 비공식 usable source 1개 -> verified 아님 -> Fallback 실행 -> 독립기관 1개 추가 -> 총 2개 -> PASS", async () => {
+      let ddgCalled = false;
+      const nonOfficial1 = "https://news.alpha.com/amount";
+      const nonOfficial2 = "https://media.beta.org/amount";
+      const provider = new FixtureProvider(
+        [source(nonOfficial1)],
+        { webSources: [{ url: nonOfficial1, provenance: "search_candidate" }] },
+      );
+      const result = await runApprovalSourcePreflight({
+        provider,
+        snapshot,
+        opportunity: contracted,
+        platform: "wordpress",
+        contentType: "article",
+        fetcher: async (url) => {
+          const urlStr = String(url);
+          if (urlStr.includes("duckduckgo.com")) {
+            ddgCalled = true;
+            return new Response(ddgSearchHtml([nonOfficial2]), { status: 200, headers: { "content-type": "text/html" } });
+          }
+          return page("50만원");
+        },
+      });
+      expect(ddgCalled).toBe(true);
+      expect(result.verificationSnapshot?.results[0]?.status).toBe("verified");
+      expect(result.verificationSnapshot?.results[0]?.independentInstitutionCount).toBe(2);
+      expect(result.verificationSnapshot?.overallStatus).toBe("verified");
+      expect(result.sourcePolicyCompliance).toBe("passed");
+    });
+
+    it("Test C: 비공식 usable source 2개 + 서로 다른 기관 + Claim 일치 -> PASS -> 3번째 검색 안 함", async () => {
+      let ddgCalled = false;
+      const nonOfficial1 = "https://news.alpha.com/amount";
+      const nonOfficial2 = "https://media.beta.org/amount";
+      const provider = new FixtureProvider(
+        [source(nonOfficial1), source(nonOfficial2)],
+        { webSources: [{ url: nonOfficial1, provenance: "search_candidate" }, { url: nonOfficial2, provenance: "search_candidate" }] },
+      );
+      const result = await runApprovalSourcePreflight({
+        provider,
+        snapshot,
+        opportunity: contracted,
+        platform: "wordpress",
+        contentType: "article",
+        fetcher: async (url) => {
+          if (String(url).includes("duckduckgo.com")) {
+            ddgCalled = true;
+            return new Response(ddgSearchHtml([]), { status: 200, headers: { "content-type": "text/html" } });
+          }
+          return page("50만원");
+        },
+      });
+      expect(ddgCalled).toBe(false);
+      expect(result.verificationSnapshot?.results[0]?.status).toBe("verified");
+      expect(result.verificationSnapshot?.results[0]?.independentInstitutionCount).toBe(2);
+      expect(result.verificationSnapshot?.overallStatus).toBe("verified");
+    });
+
+    it("counts fallback fetch attempts separately from successful fetches", async () => {
+      const initialUrl = "https://news.alpha.com/initial";
+      const failedFallbackUrl = "https://news.alpha.com/fallback-failed";
+      const successfulFallbackUrl = "https://news.alpha.com/fallback-success";
+      const provider = new FixtureProvider(
+        [source(initialUrl)],
+        { webSources: [{ url: initialUrl, provenance: "search_candidate" }] },
+      );
+      await expect(runApprovalSourcePreflight({
+        provider,
+        snapshot,
+        opportunity: contracted,
+        platform: "wordpress",
+        contentType: "article",
+        searchProvider: { search: async () => [failedFallbackUrl, successfulFallbackUrl] },
+        fetcher: async (url) => {
+          const urlString = String(url);
+          if (urlString.includes("duckduckgo.com") || urlString.includes("lite.duckduckgo.com")) {
+            return new Response(ddgSearchHtml([]), { status: 200, headers: { "content-type": "text/html" } });
+          }
+          if (urlString === failedFallbackUrl) throw new Error("fallback fetch failed");
+          return page("50留뚯썝");
+        },
+      })).rejects.toMatchObject({
+        diagnostic: expect.objectContaining({
+          fetchAttemptedCount: 3,
+          fetchSucceededCount: 2,
+        }),
+      });
+    });
+
+    it("Test D: 비공식 source 3개지만 같은 기관 -> FAIL", async () => {
+      const sameInst1 = "https://news.alpha.com/post-1";
+      const sameInst2 = "https://news.alpha.com/post-2";
+      const sameInst3 = "https://news.alpha.com/post-3";
+      const provider = new FixtureProvider(
+        [source(sameInst1), source(sameInst2), source(sameInst3)],
+        { webSources: [{ url: sameInst1, provenance: "search_candidate" }, { url: sameInst2, provenance: "search_candidate" }, { url: sameInst3, provenance: "search_candidate" }] },
+      );
+      await expect(runApprovalSourcePreflight({
+        provider,
+        snapshot,
+        opportunity: contracted,
+        platform: "wordpress",
+        contentType: "article",
+        fetcher: async () => page("50만원"),
+      })).rejects.toThrow(ApprovalSourcePreflightError);
+    });
+
+    it("Test E: 비공식 source 2개가 서로 다른 기관이지만 값 충돌 -> FAIL", async () => {
+      const nonOfficial1 = "https://news.alpha.com/amount";
+      const nonOfficial2 = "https://media.beta.org/amount";
+      const excerpt1 = "공식 안내에 따르면 지원 금액은 50만원이며 신청 전에 세부 기준을 확인해야 합니다.";
+      const excerpt2 = "공식 안내에 따르면 지원 금액은 70만원이며 신청 전에 세부 기준을 확인해야 합니다.";
+      const provider = new FixtureProvider(
+        [
+          source(nonOfficial1, "50만원", excerpt1),
+          source(nonOfficial2, "70만원", excerpt2),
+        ],
+        { webSources: [{ url: nonOfficial1, provenance: "search_candidate" }, { url: nonOfficial2, provenance: "search_candidate" }] },
+      );
+      await expect(runApprovalSourcePreflight({
+        provider,
+        snapshot,
+        opportunity: contracted,
+        platform: "wordpress",
+        contentType: "article",
+        fetcher: async (url) => String(url) === nonOfficial2 ? page("70만원", excerpt2) : page("50만원", excerpt1),
+      })).rejects.toThrow(ApprovalSourcePreflightError);
+    });
+
+    it("Test F: Fallback 후보 1개 실패 + 후보 2개 독립기관 A + 후보 3개 독립기관 B -> PASS", async () => {
+      const failUrl = "https://invalid.candidate.com/fail";
+      const candA = "https://news.alpha.com/amount";
+      const candB = "https://media.beta.org/amount";
+      const provider = new FixtureProvider(
+        [],
+        { webSources: [] },
+      );
+      const result = await runApprovalSourcePreflight({
+        provider,
+        snapshot,
+        opportunity: contracted,
+        platform: "wordpress",
+        contentType: "article",
+        fetcher: async (url) => {
+          const urlStr = String(url);
+          if (urlStr.includes("duckduckgo.com")) {
+            return new Response(ddgSearchHtml([failUrl, candA, candB]), { status: 200, headers: { "content-type": "text/html" } });
+          }
+          if (urlStr === failUrl) {
+            return new Response("Not Found", { status: 404, headers: { "content-type": "text/plain" } });
+          }
+          return page("50만원");
+        },
+      });
+      expect(result.verificationSnapshot?.results[0]?.status).toBe("verified");
+      expect(result.verificationSnapshot?.results[0]?.independentInstitutionCount).toBe(2);
+      expect(result.verificationSnapshot?.overallStatus).toBe("verified");
+    });
+
+    it("Test G: Fallback 후보 3개까지 시도해도 독립기관 2개 미충족 -> FAIL", async () => {
+      const fail1 = "https://fail1.com/a";
+      const fail2 = "https://fail2.com/b";
+      const onlyOne = "https://news.alpha.com/amount";
+      const provider = new FixtureProvider(
+        [],
+        { webSources: [] },
+      );
+      await expect(runApprovalSourcePreflight({
+        provider,
+        snapshot,
+        opportunity: contracted,
+        platform: "wordpress",
+        contentType: "article",
+        fetcher: async (url) => {
+          const urlStr = String(url);
+          if (urlStr.includes("duckduckgo.com")) {
+            return new Response(ddgSearchHtml([fail1, fail2, onlyOne]), { status: 200, headers: { "content-type": "text/html" } });
+          }
+          if (urlStr === fail1 || urlStr === fail2) {
+            return new Response("Error", { status: 500, headers: { "content-type": "text/plain" } });
+          }
+          return page("50만원");
+        },
+      })).rejects.toThrow(ApprovalSourcePreflightError);
+    });
+
+    it("Test H: 404 HTML이 extractionStatus=extracted여도 usable로 잘못 판단하지 않고 Fallback 실행", async () => {
+      let ddgCalled = false;
+      const provider = new FixtureProvider(
+        [source("https://www.gov.kr/amount")],
+        { webSources: [{ url: "https://www.gov.kr/amount", provenance: "search_candidate" }] },
+      );
+      const nonOfficial1 = "https://news.alpha.com/amount";
+      const nonOfficial2 = "https://media.beta.org/amount";
+      const result = await runApprovalSourcePreflight({
+        provider,
+        snapshot,
+        opportunity: contracted,
+        platform: "wordpress",
+        contentType: "article",
+        fetcher: async (url) => {
+          const urlStr = String(url);
+          if (urlStr.includes("duckduckgo.com")) {
+            ddgCalled = true;
+            return new Response(ddgSearchHtml([nonOfficial1, nonOfficial2]), { status: 200, headers: { "content-type": "text/html" } });
+          }
+          if (urlStr === "https://www.gov.kr/amount") {
+            const body = "<html><head><title>404 Error</title></head><body>요청하신 페이지를 찾을 수 없습니다. 서비스 이용에 불편을 드려 죄송합니다. 다시 확인 후 시도해주시기 바랍니다. ".repeat(6) + "</body></html>";
+            return new Response(body, { status: 404, headers: { "content-type": "text/html" } });
+          }
+          return page("50만원");
+        },
+      });
+      expect(ddgCalled).toBe(true);
+      expect(result.verificationSnapshot?.results[0]?.status).toBe("verified");
+      expect(result.verificationSnapshot?.results[0]?.independentInstitutionCount).toBe(2);
+      expect(result.verificationSnapshot?.overallStatus).toBe("verified");
+      expect(result.sourcePolicyCompliance).toBe("passed");
+    });
+
+    it("Test I: 실제 잘못된 페이지/본문/관련성 오류 -> FAIL", async () => {
+      const nonOfficial1 = "https://news.alpha.com/amount";
+      const nonOfficial2 = "https://media.beta.org/amount";
+      const provider = new FixtureProvider(
+        [source(nonOfficial1), source(nonOfficial2)],
+        { webSources: [{ url: nonOfficial1, provenance: "search_candidate" }, { url: nonOfficial2, provenance: "search_candidate" }] },
+      );
+      // nonOfficial2 has irrelevant content / missing excerpt anchor
+      await expect(runApprovalSourcePreflight({
+        provider,
+        snapshot,
+        opportunity: contracted,
+        platform: "wordpress",
+        contentType: "article",
+        fetcher: async (url) => {
+          if (String(url) === nonOfficial2) {
+            return new Response("<html><body>전혀 관련 없는 우주 여행과 외계인 탐사 기사입니다. ".repeat(10) + "</body></html>", {
+              status: 200,
+              headers: { "content-type": "text/html" },
+            });
+          }
+          return page("50만원");
+        },
+      })).rejects.toThrow(ApprovalSourcePreflightError);
+    });
+  });
+
+  describe("Claim-targeted Fallback Query and Verification Coverage Tests (Tests 1 through 5)", () => {
+    const contracted = ensureApprovalEvidenceContract(opportunity(), snapshot);
+    const ddgSearchHtml = (results: readonly string[]) =>
+      `<html><body>${results.map((r) => `<a class="result__a" href="${r}">Result</a>`).join("")}</body></html>`;
+
+    it("Test 1: 미검증 Claim이 존재할 때 전체 topic이 아니라 Claim-targeted query 생성", () => {
+      const queries = buildClaimPreflightQueries(
+        [
+          { field: "2026년 예금자보호 한도", statement: "2026년 현재 예금자보호 한도 금액은 공식 자료로 확인되어야 한다." },
+          { field: "공동명의 등 예외 산정", statement: "공동명의 예금의 한도 산정 방식은 별도 공식 기준으로 확인되어야 한다." },
+        ],
+        "예금자보호 한도 합산 확인 방법",
+        "2026년 예금자보호 한도 합산 확인 방법으로 금융회사별 보호범위 계산하기",
+      );
+      expect(queries.some((q) => q.includes("2026년 예금자보호 한도"))).toBe(true);
+      expect(queries.some((q) => q.includes("공동명의 등 예외 산정") || q.includes("공동명의 예금"))).toBe(true);
+      expect(queries[0]).not.toBe("2026년 예금자보호 한도 합산 확인 방법으로 금융회사별 보호범위 계산하기");
+    });
+
+    it("Test 2: 다중 Claim 분할 Coverage -> 전체 만족 시 세 번째 검색 생략", async () => {
+      let ddgCallCount = 0;
+      let candidateFetchCount = 0;
+      const candidate1 = "https://www.gov.kr/part1";
+      const candidate2 = "https://law.go.kr/part2";
+      const candidate3 = "https://www.nts.go.kr/part3";
+
+      const claimA: VerificationClaimSpec = { claimId: "claim-a", field: "partA", kind: "money", statement: "지원금 금액은 50만원이며 지원 대상입니다.", rawValue: "50만원", qualifiers: {}, required: true, temporalRequirement: { mode: "notRequired" } };
+      const claimB: VerificationClaimSpec = { claimId: "claim-b", field: "partB", kind: "legal", statement: "지원금 기준은 법률기준이며 적용 대상입니다.", rawValue: "법률기준", qualifiers: {}, required: true, temporalRequirement: { mode: "notRequired" } };
+      const multiClaimOpportunity = ensureApprovalEvidenceContract(opportunity([claimA, claimB]), snapshot);
+
+      const provider = new FixtureProvider([], { webSources: [] });
+      const result = await runApprovalSourcePreflight({
+        provider,
+        snapshot,
+        opportunity: multiClaimOpportunity,
+        platform: "wordpress",
+        contentType: "article",
+        fetcher: async (url) => {
+          const urlStr = String(url);
+          if (urlStr.includes("duckduckgo.com")) {
+            ddgCallCount += 1;
+            return new Response(ddgSearchHtml([candidate1, candidate2, candidate3]), { status: 200, headers: { "content-type": "text/html" } });
+          }
+          candidateFetchCount += 1;
+          if (urlStr === candidate1) {
+            return page("50만원", "공식 안내에 따르면 지원금 금액은 50만원이며 지원 대상입니다.");
+          }
+          if (urlStr === candidate2) {
+            return page("법률기준", "공식 규정에 따르면 지원금 기준은 법률기준이며 적용 대상입니다.");
+          }
+          return page("50만원");
+        },
+      });
+      // candidate1 covers claimA, candidate2 covers claimB -> Coverage complete -> candidate3 is never fetched!
+      expect(candidateFetchCount).toBe(2);
+      expect(result.coverage.status).toBe("covered");
+      expect(result.verificationSnapshot?.overallStatus).toBe("verified");
+    });
+
+    it("Test 3: 비공식 후보 2개로 Corroboration 충족 시 세 번째 후보 검색 생략", async () => {
+      let candidateFetchCount = 0;
+      const cand1 = "https://news.alpha.com/amount";
+      const cand2 = "https://media.beta.org/amount";
+      const cand3 = "https://daily.gamma.net/amount";
+
+      const provider = new FixtureProvider([], { webSources: [] });
+      const result = await runApprovalSourcePreflight({
+        provider,
+        snapshot,
+        opportunity: contracted,
+        platform: "wordpress",
+        contentType: "article",
+        fetcher: async (url) => {
+          const urlStr = String(url);
+          if (urlStr.includes("duckduckgo.com")) {
+            return new Response(ddgSearchHtml([cand1, cand2, cand3]), { status: 200, headers: { "content-type": "text/html" } });
+          }
+          candidateFetchCount += 1;
+          return page("50만원");
+        },
+      });
+      expect(candidateFetchCount).toBe(2);
+      expect(result.verificationSnapshot?.results[0]?.independentInstitutionCount).toBe(2);
+      expect(result.verificationSnapshot?.overallStatus).toBe("verified");
+    });
+
+    it("Test 4: 3개 후보 모두 처리했지만 required Claim이 남으면 fail-closed 유지", async () => {
+      let candidateFetchCount = 0;
+      const cand1 = "https://news.alpha.com/fail";
+      const cand2 = "https://media.beta.org/fail";
+      const cand3 = "https://daily.gamma.net/fail";
+
+      const provider = new FixtureProvider([], { webSources: [] });
+      await expect(runApprovalSourcePreflight({
+        provider,
+        snapshot,
+        opportunity: contracted,
+        platform: "wordpress",
+        contentType: "article",
+        fetcher: async (url) => {
+          const urlStr = String(url);
+          if (urlStr.includes("duckduckgo.com")) {
+            return new Response(ddgSearchHtml([cand1, cand2, cand3]), { status: 200, headers: { "content-type": "text/html" } });
+          }
+          candidateFetchCount += 1;
+          // Return irrelevant page lacking required claim value
+          return new Response("<html><body>전혀 관련 없는 내용의 웹페이지입니다. ".repeat(10) + "</body></html>", { status: 200, headers: { "content-type": "text/html" } });
+        },
+      })).rejects.toThrow(ApprovalSourcePreflightError);
+      expect(candidateFetchCount).toBeGreaterThanOrEqual(3);
+    });
+
+    it("Test 5: 404/5xx 후보가 있어도 정상 후보를 계속 탐색하여 최대 3개 내에서 검증", async () => {
+      let candidateFetchCount = 0;
+      const errorUrl = "https://www.gov.kr/error-404";
+      const validUrl = "https://www.gov.kr/valid";
+
+      const provider = new FixtureProvider([], { webSources: [] });
+      const result = await runApprovalSourcePreflight({
+        provider,
+        snapshot,
+        opportunity: contracted,
+        platform: "wordpress",
+        contentType: "article",
+        fetcher: async (url) => {
+          const urlStr = String(url);
+          if (urlStr.includes("duckduckgo.com")) {
+            return new Response(ddgSearchHtml([errorUrl, validUrl]), { status: 200, headers: { "content-type": "text/html" } });
+          }
+          candidateFetchCount += 1;
+          if (urlStr === errorUrl) {
+            return new Response("Not Found", { status: 404, headers: { "content-type": "text/plain" } });
+          }
+          return page("50만원");
+        },
+      });
+      expect(candidateFetchCount).toBe(2);
+      expect(result.verificationSnapshot?.results[0]?.status).toBe("verified");
+      expect(result.sourcePolicyCompliance).toBe("passed");
+    });
+
+    it("Regression Test: 2026년 예금자보호 한도 및 공동명의 등 예외 산정 Claim에 대한 Fallback 타겟팅 및 분할 검증", async () => {
+      let candidateFetchCount = 0;
+      const kdicLimitUrl = "https://www.kdic.or.kr/protect/limit";
+      const kdicJointUrl = "https://www.kdic.or.kr/protect/joint";
+
+      const claimLimit: VerificationClaimSpec = {
+        claimId: "claim-deposit-limit-2026",
+        field: "2026년 예금자보호 한도",
+        kind: "money",
+        statement: "2026년 현재 예금자보호 한도 금액은 5,000만원이다.",
+        rawValue: "5,000만원",
+        qualifiers: { subject: "예금자보호" },
+        required: true,
+        temporalRequirement: { mode: "notRequired" },
+      };
+      const claimJoint: VerificationClaimSpec = {
+        claimId: "claim-joint-ownership",
+        field: "공동명의 등 예외 산정",
+        kind: "general",
+        statement: "공동명의 예금은 예금자보호 한도가 지분 비율에 따라 1인당 각각 분할 적용된다.",
+        rawValue: "지분 비율 분할",
+        qualifiers: { subject: "예금자보호" },
+        required: true,
+        temporalRequirement: { mode: "notRequired" },
+      };
+      const depositOpportunity = ensureApprovalEvidenceContract(
+        confirmContentOpportunity(
+          createContentOpportunityCandidate({
+            sourceRequest: "2026년 예금자보호 한도와 금융회사별 합산 확인 방법",
+            selectionMode: "userSpecified",
+            selectedTopic: "2026년 예금자보호 한도 합산 확인 방법으로 금융회사별 보호범위 계산하기",
+            primaryKeyword: "예금자보호 한도 합산 확인 방법",
+            secondaryKeywords: ["예금자보호", "공동명의 예금"],
+            searchIntent: "예금자보호 한도 계산",
+            audience: "예금자",
+            contentType: "article",
+            contentAngle: "공식 기준",
+            readerProblem: "예금자보호 한도 확인",
+            expectedCoverage: ["2026년 예금자보호 한도", "공동명의 등 예외 산정"],
+            selectionRationale: "fixture",
+            opportunityEvidence: [{ source: "unknown", summary: "fixture" }],
+            confidence: 1,
+            cautions: [],
+            projectId: "project-1",
+            verificationPlan: createContentOpportunityVerificationPlan([claimLimit, claimJoint]),
+          }),
+          {
+            workspaceId: "workspace-1",
+            projectId: "project-1",
+            contentId: "content-1",
+            confirmedAt: "2026-08-07T00:00:00.000Z",
+          },
+        ),
+        snapshot,
+      );
+
+      const searchedQueries: string[] = [];
+      const provider = new FixtureProvider([], { webSources: [] });
+      const result = await runApprovalSourcePreflight({
+        provider,
+        snapshot,
+        opportunity: depositOpportunity,
+        platform: "wordpress",
+        contentType: "article",
+        fetcher: async (url) => {
+          const urlStr = String(url);
+          if (urlStr.includes("duckduckgo.com")) {
+            const parsed = new URL(urlStr);
+            const q = parsed.searchParams.get("q") ?? "";
+            searchedQueries.push(q);
+            if (q.includes("공동명의") || q.includes("joint")) {
+              return new Response(ddgSearchHtml([kdicJointUrl]), { status: 200, headers: { "content-type": "text/html" } });
+            }
+            return new Response(ddgSearchHtml([kdicLimitUrl]), { status: 200, headers: { "content-type": "text/html" } });
+          }
+          candidateFetchCount += 1;
+          if (urlStr === kdicLimitUrl) {
+            return new Response(
+              "<html><body>예금자보호법에 따른 금융회사별 2026년 현재 예금자보호 한도 금액은 1인당 최고 5,000만원까지 보호됩니다. 자세한 산정 기준과 법률 규정을 확인하세요. ".repeat(6) + "</body></html>",
+              { status: 200, headers: { "content-type": "text/html" } },
+            );
+          }
+          if (urlStr === kdicJointUrl) {
+            return new Response(
+              "<html><body>공동명의 예금의 경우 각 예금자의 지분 비율에 따라 1인당 한도가 각각 분할 적용되어 계산됩니다. 공동명의 관련 유의사항을 확인하세요. ".repeat(6) + "</body></html>",
+              { status: 200, headers: { "content-type": "text/html" } },
+            );
+          }
+          return new Response("Not Found", { status: 404, headers: { "content-type": "text/plain" } });
+        },
+      });
+
+      expect(searchedQueries.some((q) => q.includes("2026") || q.includes("예금자보호"))).toBe(true);
+      expect(searchedQueries.some((q) => q.includes("공동명의"))).toBe(true);
+      expect(candidateFetchCount).toBe(2);
+      expect(result.coverage.status).toBe("covered");
+      expect(result.verificationSnapshot?.overallStatus).toBe("verified");
+      expect(result.sourcePolicyCompliance).toBe("passed");
+    });
   });
 });

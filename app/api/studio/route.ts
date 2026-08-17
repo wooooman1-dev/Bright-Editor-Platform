@@ -36,6 +36,7 @@ import { isPublishingConnectionSelectedForContent } from "../../application/publ
 import { resolveConfirmedGenerationKeywords, resolveConfirmedGenerationOpportunity } from "../../application/ConfirmedGenerationPolicy";
 import { OpportunityEvidenceService } from "../../application/data-sources/OpportunityEvidenceService";
 import { dataSourceConnectionRepository, opportunityEvidenceRepository, projectDataSourceReferenceRepository } from "../../application/data-sources/data-source-runtime";
+import { NaverWebSearchProvider } from "../../application/approval/NaverWebSearchProvider";
 
 const collection = "application";
 const stateId = "user-data";
@@ -128,7 +129,9 @@ export async function POST(request: Request) {
         : resolvedOpportunity;
       const keywords = generationContract.keywords;
       const provider = new OpenAIProvider(undefined, openAIGenerationModel());
-      const workflow = new AIWorkflow(provider, new EditorialGenerationStrategy());
+      const workflow = new AIWorkflow(provider, new EditorialGenerationStrategy(), {
+        approvalSearchProvider: new NaverWebSearchProvider(owned.workspace!.id, dataSourceConnectionRepository),
+      });
       const generationStartedAt = new Date();
       const result = await workflow.generate({
         contentId,

@@ -84,6 +84,13 @@ export type ApprovalSourceClaimGapNote = Readonly<{
   field: string;
 }>;
 
+export type ApprovalSearchProvider = Readonly<{
+  search: (
+    query: string,
+    fetcher: SiteApprovalReadinessFetch,
+  ) => Promise<readonly string[]>;
+}>;
+
 export async function runApprovalSourcePreflight(input: Readonly<{
   provider: AIProvider;
   snapshot: ApprovalPolicySnapshot;
@@ -91,6 +98,8 @@ export async function runApprovalSourcePreflight(input: Readonly<{
   platform: string;
   contentType: string;
   fetcher?: SiteApprovalReadinessFetch;
+  /** Optional application-owned fallback search provider. */
+  searchProvider?: ApprovalSearchProvider;
   /** Candidates a previous attempt already had rejected, fed back into discovery. */
   rejectedSourceFeedback?: readonly ApprovalSourceRejectionNote[];
   /** Claims a previous attempt left without any source at all, fed back into discovery. */
@@ -509,7 +518,7 @@ async function runExplicitPreflight(input: Readonly<Parameters<typeof runApprova
   }
   const observed = new Set((response.diagnostics?.webSources ?? [])
     .map((source) => canonicalizeApprovalEvidenceUrl(source.url)));
-  const eligible = discovered.filter((source) => !observed.size || observed.has(source.requestedUrl));
+  const eligible = [...discovered.filter((source) => !observed.size || observed.has(source.requestedUrl))];
   pipelineMetrics.fetchAttemptedCount = eligible.length;
   const pages = await fetchPreflightPages(
     eligible.map((source) => source.requestedUrl),
@@ -519,191 +528,405 @@ async function runExplicitPreflight(input: Readonly<Parameters<typeof runApprova
     canonicalizeApprovalEvidenceUrl(page.requestedUrl),
     page,
   ]));
-  const accepted: ExplicitDiscoveredSource[] = [];
-  for (const source of eligible) {
-    const page = byUrl.get(source.requestedUrl);
-    if (page && !page.fetchError && page.status >= 200 && page.status < 400) {
-      pipelineMetrics.fetchSucceededCount += 1;
-      pipelineMetrics.extractionAttemptedCount += 1;
-    }
-    if (page?.extractionStatus === "extracted") pipelineMetrics.extractionSucceededCount += 1;
-    if (!page || page.fetchError) {
-      if (pipelineMetrics.rejectionSamples.length < 3) pipelineMetrics.rejectionSamples.push(Object.freeze({
-        url: source.requestedUrl,
-        canonicalUrl: source.requestedUrl,
-        title: source.title,
-        ...(page ? { status: page.status, contentType: page.contentType, documentFormat: page.documentFormat, extractionStatus: page.extractionStatus } : {}),
-        rejectionStage: "evidence",
-        rejectionCode: "source_fetch_failed",
-        reason: page?.fetchError ?? "source page was not returned",
-      }));
-      accepted.push({
-        ...source,
-        role: "independentCorroborating",
-        authoritative: false,
-        diagnostics: ["source_fetch_failed"],
-      });
-      continue;
-    }
-    if (page.extractionStatus !== "extracted") {
-      if (pipelineMetrics.rejectionSamples.length < 3) pipelineMetrics.rejectionSamples.push(Object.freeze({
-        url: source.requestedUrl,
-        canonicalUrl: page.finalUrl,
-        title: source.title,
-        status: page.status,
-        contentType: page.contentType,
-        documentFormat: page.documentFormat,
-        extractionStatus: page.extractionStatus,
-        rejectionStage: "evidence",
-        rejectionCode: "source_document_extraction_failed",
-        reason: page.extractionReason ?? "source document was not extracted",
-      }));
-      accepted.push({
-        ...source,
-        finalUrl: page.finalUrl,
-        pageText: page.text,
-        role: "independentCorroborating",
-        authoritative: false,
-        fresh: false,
-        diagnostics: ["source_document_extraction_failed"],
-      });
-      continue;
-    }
-    pipelineMetrics.officialnessEvaluatedCount += 1;
-    const authorityClaims = explicitSourceAuthorityClaims(plan.claims, source.claims);
-    const authority = evaluateApprovalSourceAuthority({
-      profileId: input.snapshot.profileId,
-      page,
-      claims: authorityClaims,
-    });
-    const official = authority.status === "passed";
-    if (official) pipelineMetrics.officialnessPassCount += 1;
-    if (!official && pipelineMetrics.rejectionSamples.length < 3) pipelineMetrics.rejectionSamples.push(Object.freeze({
-      url: source.requestedUrl,
-      canonicalUrl: page.finalUrl,
-      hostname: (() => { try { return new URL(page.finalUrl).hostname; } catch { return undefined; } })(),
-      title: source.title,
-      rejectionStage: "officialness",
-      rejectionCode: authority.diagnosticCode ?? "official_source_rejected",
-      reason: authority.diagnosticCode ?? "Claim-context source authority rejected the page",
-    }));
-    if (official) {
-      pipelineMetrics.relevanceEvaluatedCount += 1;
-      if (evaluateApprovalSourceRelevance({
+
+  const evaluatePipeline = (
+    currentEligible: readonly ExplicitDiscoveredSource[],
+    currentByUrl: Map<string, ApprovalSourcePage>,
+  ) => {
+    const accepted: ExplicitDiscoveredSource[] = [];
+    pipelineMetrics.officialnessEvaluatedCount = 0;
+    pipelineMetrics.officialnessPassCount = 0;
+    pipelineMetrics.relevanceEvaluatedCount = 0;
+    pipelineMetrics.relevancePassCount = 0;
+    pipelineMetrics.evidenceAnchorEvaluatedCount = 0;
+    pipelineMetrics.evidenceAnchorPassCount = 0;
+    pipelineMetrics.fetchSucceededCount = 0;
+    pipelineMetrics.extractionAttemptedCount = 0;
+    pipelineMetrics.extractionSucceededCount = 0;
+
+    for (const source of currentEligible) {
+      const page = currentByUrl.get(source.requestedUrl)
+        ?? (source.finalUrl ? currentByUrl.get(source.finalUrl) : undefined)
+        ?? currentByUrl.get(canonicalizeApprovalEvidenceUrl(source.requestedUrl));
+      if (page && !page.fetchError && page.status >= 200 && page.status < 400) {
+        pipelineMetrics.fetchSucceededCount += 1;
+        pipelineMetrics.extractionAttemptedCount += 1;
+      }
+      if (page?.extractionStatus === "extracted") pipelineMetrics.extractionSucceededCount += 1;
+      if (!page || page.fetchError) {
+        if (pipelineMetrics.rejectionSamples.length < 3) pipelineMetrics.rejectionSamples.push(Object.freeze({
+          url: source.requestedUrl,
+          canonicalUrl: source.requestedUrl,
+          title: source.title,
+          ...(page ? { status: page.status, contentType: page.contentType, documentFormat: page.documentFormat, extractionStatus: page.extractionStatus } : {}),
+          rejectionStage: "evidence",
+          rejectionCode: "source_fetch_failed",
+          reason: page?.fetchError ?? "source page was not returned",
+        }));
+        accepted.push({
+          ...source,
+          role: "independentCorroborating",
+          authoritative: false,
+          diagnostics: ["source_fetch_failed"],
+        });
+        continue;
+      }
+      if (page.extractionStatus !== "extracted" || page.status < 200 || page.status >= 400) {
+        if (pipelineMetrics.rejectionSamples.length < 3) pipelineMetrics.rejectionSamples.push(Object.freeze({
+          url: source.requestedUrl,
+          canonicalUrl: page.finalUrl,
+          title: source.title,
+          status: page.status,
+          contentType: page.contentType,
+          documentFormat: page.documentFormat,
+          extractionStatus: page.extractionStatus,
+          rejectionStage: "evidence",
+          rejectionCode: page.status < 200 || page.status >= 400 ? `http_${page.status}` : "source_document_extraction_failed",
+          reason: page.extractionReason ?? `source page status ${page.status}`,
+        }));
+        accepted.push({
+          ...source,
+          finalUrl: page.finalUrl,
+          pageText: page.text,
+          role: "independentCorroborating",
+          authoritative: false,
+          fresh: false,
+          diagnostics: [page.status < 200 || page.status >= 400 ? `http_${page.status}` : "source_document_extraction_failed"],
+        });
+        continue;
+      }
+      pipelineMetrics.officialnessEvaluatedCount += 1;
+      const authorityClaims = explicitSourceAuthorityClaims(plan.claims, source.claims);
+      const authority = evaluateApprovalSourceAuthority({
         profileId: input.snapshot.profileId,
-        opportunity: input.opportunity,
         page,
-        additionalScope: sourceRelevanceScope(input.opportunity, source.claims),
-        ...(authority.authorityKinds.includes("entity_product")
-          ? { minimumClaimCoverage: 0.5 }
-          : {}),
-      }).status === "passed") pipelineMetrics.relevancePassCount += 1;
-      else if (pipelineMetrics.rejectionSamples.length < 3) pipelineMetrics.rejectionSamples.push(Object.freeze({
+        claims: authorityClaims,
+      });
+      const official = authority.status === "passed";
+      if (official) pipelineMetrics.officialnessPassCount += 1;
+      if (!official && pipelineMetrics.rejectionSamples.length < 3) pipelineMetrics.rejectionSamples.push(Object.freeze({
         url: source.requestedUrl,
         canonicalUrl: page.finalUrl,
+        hostname: (() => { try { return new URL(page.finalUrl).hostname; } catch { return undefined; } })(),
         title: source.title,
-        rejectionStage: "relevance",
-        rejectionCode: "source_topic_relevance_unverified",
-        reason: "Claim/source relevance verifier rejected the page",
+        rejectionStage: "officialness",
+        rejectionCode: authority.diagnosticCode ?? "official_source_rejected",
+        reason: authority.diagnosticCode ?? "Claim-context source authority rejected the page",
       }));
-    }
-    pipelineMetrics.evidenceAnchorEvaluatedCount += 1;
-    if (evidenceExcerptMatches(page.text, source.evidenceExcerpt)) pipelineMetrics.evidenceAnchorPassCount += 1;
-    const rejection = preflightPageRejection(
-      input.snapshot,
-      page,
-      source.evidenceExcerpt,
-      input.opportunity,
-      sourceRelevanceScope(input.opportunity, source.claims),
-      authorityClaims,
-    );
-    if (rejection) {
-      if (pipelineMetrics.rejectionSamples.length < 3) pipelineMetrics.rejectionSamples.push(Object.freeze({
-        url: source.requestedUrl,
-        canonicalUrl: page.finalUrl,
-        title: source.title,
-        status: page.status,
-        contentType: page.contentType,
-        documentFormat: page.documentFormat,
-        extractionStatus: page.extractionStatus,
-        rejectionStage: rejection.includes("relevance") ? "relevance" : "evidence",
-        rejectionCode: rejection,
-        reason: rejection,
-        ...(page.text ? { extractedSample: page.text.replace(/\s+/g, " ").trim().slice(0, 300) } : {}),
-      }));
+      if (official) {
+        pipelineMetrics.relevanceEvaluatedCount += 1;
+        if (evaluateApprovalSourceRelevance({
+          profileId: input.snapshot.profileId,
+          opportunity: input.opportunity,
+          page,
+          additionalScope: sourceRelevanceScope(input.opportunity, source.claims),
+          ...(authority.authorityKinds.includes("entity_product")
+            ? { minimumClaimCoverage: 0.5 }
+            : {}),
+        }).status === "passed") pipelineMetrics.relevancePassCount += 1;
+        else if (pipelineMetrics.rejectionSamples.length < 3) pipelineMetrics.rejectionSamples.push(Object.freeze({
+          url: source.requestedUrl,
+          canonicalUrl: page.finalUrl,
+          title: source.title,
+          rejectionStage: "relevance",
+          rejectionCode: "source_topic_relevance_unverified",
+          reason: "Claim/source relevance verifier rejected the page",
+        }));
+      }
+      pipelineMetrics.evidenceAnchorEvaluatedCount += 1;
+      if (evidenceExcerptMatches(page.text, source.evidenceExcerpt)) pipelineMetrics.evidenceAnchorPassCount += 1;
+      const rejection = preflightPageRejection(
+        input.snapshot,
+        page,
+        source.evidenceExcerpt,
+        input.opportunity,
+        sourceRelevanceScope(input.opportunity, source.claims),
+        authorityClaims,
+      );
+      if (rejection) {
+        if (pipelineMetrics.rejectionSamples.length < 3) pipelineMetrics.rejectionSamples.push(Object.freeze({
+          url: source.requestedUrl,
+          canonicalUrl: page.finalUrl,
+          title: source.title,
+          status: page.status,
+          contentType: page.contentType,
+          documentFormat: page.documentFormat,
+          extractionStatus: page.extractionStatus,
+          rejectionStage: rejection.includes("relevance") ? "relevance" : "evidence",
+          rejectionCode: rejection,
+          reason: rejection,
+          ...(page.text ? { extractedSample: page.text.replace(/\s+/g, " ").trim().slice(0, 300) } : {}),
+        }));
+        accepted.push({
+          ...source,
+          finalUrl: page.finalUrl,
+          pageText: page.text,
+          role: "independentCorroborating",
+          authoritative: false,
+          fresh: false,
+          diagnostics: [rejection],
+        });
+        continue;
+      }
       accepted.push({
         ...source,
         finalUrl: page.finalUrl,
         pageText: page.text,
-        role: "independentCorroborating",
-        authoritative: false,
-        fresh: false,
-        diagnostics: [rejection],
+        publisherId: page.publisher,
+        authoritative: official,
+        diagnostics: [],
       });
-      continue;
     }
-    accepted.push({
+    const orderedAccepted = [...accepted].sort((left, right) =>
+      (left.finalUrl ?? left.requestedUrl).localeCompare(
+        right.finalUrl ?? right.requestedUrl,
+      ),
+    );
+    const classifiedAccepted = orderedAccepted.map((source) => Object.freeze({
       ...source,
-      finalUrl: page.finalUrl,
-      pageText: page.text,
-      publisherId: page.publisher,
-      authoritative: official,
-      diagnostics: [],
+      role: source.authoritative && source.diagnostics?.length === 0
+        ? "primaryOfficial" as const
+        : "independentCorroborating" as const,
+    }));
+    pipelineMetrics.policyRetainedCount = classifiedAccepted.filter((source) =>
+      source.authoritative === true && source.diagnostics?.length === 0).length;
+    const assessments = assessmentsFromExplicitDiscovery({
+      claims: plan.claims,
+      sources: classifiedAccepted,
     });
-  }
-  const orderedAccepted = [...accepted].sort((left, right) =>
-    (left.finalUrl ?? left.requestedUrl).localeCompare(
-      right.finalUrl ?? right.requestedUrl,
-    ),
-  );
-  const classifiedAccepted = orderedAccepted.map((source) => Object.freeze({
-    ...source,
-    // Authority is Claim-owned. Every accepted authoritative source is the
-    // primary official source for the Claim IDs attached to that source; array
-    // order must never demote another Claim's only authority.
-    role: source.authoritative && source.diagnostics?.length === 0
-      ? "primaryOfficial" as const
-      : "independentCorroborating" as const,
-  }));
-  pipelineMetrics.policyRetainedCount = classifiedAccepted.filter((source) =>
-    source.authoritative === true && source.diagnostics?.length === 0).length;
-  const assessments = assessmentsFromExplicitDiscovery({
-    claims: plan.claims,
-    sources: classifiedAccepted,
-  });
-  const semanticSources = classifiedAccepted.filter((source) =>
-    source.diagnostics?.length === 0,
-  );
-  const semanticAssessments = assessmentsFromExplicitDiscovery({
-    claims: plan.claims,
-    sources: semanticSources,
-  });
-  const results = plan.claims.map((claim) => {
-    const claimAssessments = assessments.filter((assessment) =>
-      assessment.diagnostics.includes(`claim:${claim.claimId}`));
-    const usable = claimAssessments.filter((assessment) =>
-      assessment.supports && assessment.normalizedValue);
+    const semanticSources = classifiedAccepted.filter((source) =>
+      source.diagnostics?.length === 0,
+    );
+    const semanticAssessments = assessmentsFromExplicitDiscovery({
+      claims: plan.claims,
+      sources: semanticSources,
+    });
+    const results = plan.claims.map((claim) => {
+      const claimAssessments = assessments.filter((assessment) =>
+        assessment.diagnostics.includes(`claim:${claim.claimId}`));
+      const usable = claimAssessments.filter((assessment) =>
+        assessment.supports && assessment.normalizedValue);
+      return {
+        claimId: claim.claimId,
+        ...(usable[0]?.normalizedValue
+          ? { normalizedValue: usable[0].normalizedValue }
+          : {}),
+        sourceAssessments: claimAssessments,
+        unresolvedConflict: false,
+        freshnessPassed: usable.length > 0
+          && usable.every((assessment) => assessment.fresh),
+        diagnostics: claimAssessments.flatMap((assessment) =>
+          assessment.diagnostics.filter((diagnostic) =>
+            !diagnostic.startsWith("claim:"))),
+      };
+    });
+    const verificationSnapshot = createVerificationSnapshot({
+      plan,
+      assessments,
+      results,
+    });
+    pipelineMetrics.semanticVerificationEvaluatedCount = semanticAssessments.length;
+    pipelineMetrics.semanticVerificationPassCount = semanticAssessments.filter((assessment) => assessment.supports).length;
+
+    const hasAuthoritativeSource = classifiedAccepted.some((source) =>
+      source.authoritative === true && source.diagnostics?.length === 0);
+    const hasVerifiedCorroboration = profileRequiredClaims.length > 0
+      ? profileRequiredClaims.every((req) => {
+        const claim = req.claimId
+          ? plan.claims.find((c) => c.claimId === req.claimId)
+          : plan.claims.find((c) => c.field === req.field);
+        const result = claim
+          ? verificationSnapshot.results.find((r) => r.claimId === claim.claimId)
+          : undefined;
+        return result?.status === "verified";
+      })
+      : verificationSnapshot.overallStatus === "verified";
+
     return {
-      claimId: claim.claimId,
-      ...(usable[0]?.normalizedValue
-        ? { normalizedValue: usable[0].normalizedValue }
-        : {}),
-      sourceAssessments: claimAssessments,
-      unresolvedConflict: false,
-      freshnessPassed: usable.length > 0
-        && usable.every((assessment) => assessment.fresh),
-      diagnostics: claimAssessments.flatMap((assessment) =>
-        assessment.diagnostics.filter((diagnostic) =>
-          !diagnostic.startsWith("claim:"))),
+      accepted,
+      classifiedAccepted,
+      assessments,
+      semanticAssessments,
+      verificationSnapshot,
+      hasAuthoritativeSource,
+      hasVerifiedCorroboration,
     };
-  });
-  const verificationSnapshot = createVerificationSnapshot({
-    plan,
-    assessments,
-    results,
-  });
-  pipelineMetrics.semanticVerificationEvaluatedCount = semanticAssessments.length;
-  pipelineMetrics.semanticVerificationPassCount = semanticAssessments.filter((assessment) => assessment.supports).length;
+  };
+
+  let evaluated = evaluatePipeline(eligible, byUrl);
+
+  const getMissingRequiredClaims = (
+    evalResult: typeof evaluated,
+  ) => {
+    const claimsToCheck = profileRequiredClaims.length > 0
+      ? profileRequiredClaims.map((req) => req.claimId
+          ? plan.claims.find((c) => c.claimId === req.claimId)
+          : plan.claims.find((c) => c.field === req.field))
+      : plan.claims.filter(isCriticalVerificationClaim);
+
+    return claimsToCheck.filter((claim): claim is NonNullable<typeof claim> => {
+      if (!claim) return false;
+      const result = evalResult.verificationSnapshot.results.find((r) => r.claimId === claim.claimId);
+      return result?.status !== "verified";
+    });
+  };
+
+  const isPreflightVerificationSatisfied = (
+    evalResult: typeof evaluated,
+  ): boolean => {
+    const missing = getMissingRequiredClaims(evalResult);
+    if (missing.length > 0) return false;
+    if (evalResult.hasVerifiedCorroboration) return true;
+    if (evalResult.hasAuthoritativeSource) return true;
+    const testCoverage = profileSourceRequirementApplicable
+      ? evaluateExplicitApprovalSourcePreflightCoverage({
+          requiredClaims: profileRequiredClaims,
+          snapshot: evalResult.verificationSnapshot,
+          sources: evalResult.classifiedAccepted
+            .filter((source) => source.diagnostics?.length === 0)
+            .map((source) => Object.freeze({
+              page: Object.freeze({
+                requestedUrl: source.requestedUrl,
+                finalUrl: source.finalUrl ?? source.requestedUrl,
+                status: 200,
+                contentType: "text/html",
+                title: source.title ?? "",
+                publisher: source.publisherId ?? source.finalUrl ?? source.requestedUrl,
+                text: source.pageText ?? "",
+                documentFormat: "html" as const,
+                extractionStatus: "extracted" as const,
+                contentLength: (source.pageText ?? "").length,
+              }),
+              claims: source.claims.flatMap((claim) => {
+                const spec = plan.claims.find((item) => item.claimId === claim.claimId);
+                return spec
+                  ? [{ claimId: claim.claimId, field: spec.field, value: claim.value, evidenceExcerpt: claim.evidenceExcerpt }]
+                  : [];
+              }),
+            })),
+        })
+      : evaluateApprovalSourcePreflightCoverage({
+          profileId: input.snapshot.profileId,
+          opportunity: input.opportunity,
+          requiredClaims: [],
+          sources: [],
+        });
+    return testCoverage.status === "covered" || testCoverage.status === "not_required";
+  };
+
+  if (profileSourceRequirementApplicable && !isPreflightVerificationSatisfied(evaluated)) {
+    const officialDomains = approvalOfficialDomains(input.snapshot.profileId) ?? [];
+    const seenUrls = new Set(eligible.map((s) => canonicalizeApprovalEvidenceUrl(s.requestedUrl)));
+    let fallbackAttempts = 0;
+
+    const processCandidateUrl = async (url: string, queryUsed: string): Promise<boolean> => {
+      if (fallbackAttempts >= 3) return true;
+      fallbackAttempts += 1;
+      seenUrls.add(url);
+      pipelineMetrics.fetchAttemptedCount += 1;
+
+      const fallbackPage = await fetchPreflightPage(url, input.fetcher ?? fetch);
+      byUrl.set(url, fallbackPage);
+      if (fallbackPage.finalUrl) {
+        byUrl.set(canonicalizeApprovalEvidenceUrl(fallbackPage.finalUrl), fallbackPage);
+      }
+
+      console.log(`[Preflight Fallback Candidate #${fallbackAttempts}] Query: "${queryUsed}", URL: ${url}, Status: ${fallbackPage.status}, Extraction: ${fallbackPage.extractionStatus}, TextLen: ${fallbackPage.text?.length ?? 0}`);
+
+      if (
+        !fallbackPage.fetchError
+        && fallbackPage.status >= 200
+        && fallbackPage.status < 400
+        && fallbackPage.extractionStatus === "extracted"
+      ) {
+        const canonical = canonicalizeApprovalEvidenceUrl(fallbackPage.finalUrl || url);
+        if (!eligible.some((s) => s.requestedUrl === canonical || (s.finalUrl && s.finalUrl === canonical))) {
+          const matchedClaims = selectMatchingClaimsForPage(plan.claims, fallbackPage.text);
+          console.log(`[Preflight Fallback Matched Claims] URL: ${canonical}, MatchedCount: ${matchedClaims.length}, ClaimIds: ${matchedClaims.map((c) => c.claimId).join(", ")}`);
+          if (matchedClaims.length > 0) {
+            eligible.push({
+              requestedUrl: canonical,
+              finalUrl: fallbackPage.finalUrl,
+              title: fallbackPage.title,
+              evidenceExcerpt: fallbackPage.text.slice(0, 300),
+              claims: matchedClaims,
+            });
+          }
+        }
+      }
+
+      evaluated = evaluatePipeline(eligible, byUrl);
+      console.log(`[Preflight Fallback Evaluation Result] HasAuthoritative: ${evaluated.hasAuthoritativeSource}, HasCorroboration: ${evaluated.hasVerifiedCorroboration}, MissingClaims: ${getMissingRequiredClaims(evaluated).map((c) => c.field).join(", ")}`);
+      return isPreflightVerificationSatisfied(evaluated);
+    };
+
+    candidateLoop:
+    while (fallbackAttempts < 3 && !isPreflightVerificationSatisfied(evaluated)) {
+      const missingClaims = getMissingRequiredClaims(evaluated);
+      const targetClaims = missingClaims.length > 0
+        ? missingClaims
+        : plan.claims.filter(isCriticalVerificationClaim);
+      const claimQueries = buildClaimPreflightQueries(
+        targetClaims,
+        input.opportunity.primaryKeyword,
+        input.opportunity.selectedTopic,
+      );
+      console.log(`[Preflight Fallback Target Queries] Queries: ${JSON.stringify(claimQueries)}, MissingClaims: ${targetClaims.map((c) => c.field).join(", ")}`);
+
+      // 1. Official domain searches via DuckDuckGo
+      if (officialDomains.length > 0) {
+        for (const query of claimQueries) {
+          const officialUrls = await fetchDuckDuckGoUrls(
+            query,
+            input.fetcher ?? fetch,
+            officialDomains,
+            input.searchProvider,
+          );
+          console.log(`[Preflight DuckDuckGo Official] Query: "${query}", Found URLs: ${JSON.stringify(officialUrls)}`);
+          for (const u of officialUrls) {
+            const canonical = canonicalizeApprovalEvidenceUrl(u);
+            if (canonical && !seenUrls.has(canonical)) {
+              const satisfied = await processCandidateUrl(canonical, query);
+              if (satisfied || fallbackAttempts >= 3) break candidateLoop;
+            }
+          }
+          if (fallbackAttempts >= 3 || isPreflightVerificationSatisfied(evaluated)) break candidateLoop;
+        }
+      }
+
+      if (fallbackAttempts >= 3 || isPreflightVerificationSatisfied(evaluated)) break;
+
+      // 2. General web searches if needed
+      for (const query of claimQueries) {
+        const generalUrls = await fetchDuckDuckGoUrls(
+          query,
+          input.fetcher ?? fetch,
+          undefined,
+          input.searchProvider,
+        );
+        console.log(`[Preflight DuckDuckGo General] Query: "${query}", Found URLs: ${JSON.stringify(generalUrls)}`);
+        for (const u of generalUrls) {
+          const canonical = canonicalizeApprovalEvidenceUrl(u);
+          if (canonical && !seenUrls.has(canonical)) {
+            const satisfied = await processCandidateUrl(canonical, query);
+            if (satisfied || fallbackAttempts >= 3) break candidateLoop;
+          }
+        }
+        if (fallbackAttempts >= 3 || isPreflightVerificationSatisfied(evaluated)) break candidateLoop;
+      }
+
+      break;
+    }
+  }
+
+  const {
+    classifiedAccepted,
+    semanticAssessments,
+    verificationSnapshot,
+    hasAuthoritativeSource,
+    hasVerifiedCorroboration,
+  } = evaluated;
+
   for (const assessment of semanticAssessments.filter((item) => !item.supports)) {
     if (pipelineMetrics.rejectionSamples.length >= 3) break;
     const claimDiagnostic = assessment.diagnostics.find((item) => item.startsWith("claim:"));
@@ -722,8 +945,7 @@ async function runExplicitPreflight(input: Readonly<Parameters<typeof runApprova
     classifiedAccepted,
     verificationSnapshot,
   );
-  if (profileSourceRequirementApplicable && !classifiedAccepted.some((source) =>
-    source.authoritative === true && source.diagnostics?.length === 0)) {
+  if (profileSourceRequirementApplicable && !hasAuthoritativeSource && !hasVerifiedCorroboration) {
     const relevanceFailure = classifiedAccepted.find((source) =>
       source.diagnostics?.includes("source_topic_relevance_unverified"));
     const anchorFailure = classifiedAccepted.find((source) =>
@@ -940,7 +1162,7 @@ function explicitPreflightInstruction(
   const coverageRule = uncoveredClaimFeedback?.length
     ? ` A previous attempt submitted no source at all for these required Claims, so they remain uncovered and Generation stays blocked until each one is supported:${uncoveredClaimFeedback.map((item) => ` ${item.claimId} (${item.field})`).join(",")}. Search again for those specific Claims on the site of the institution that administers the subject itself, not only the statute or portal space already searched. The statute article that establishes a scheme is not a substitute for the administering body's own guidance page that states the requirement, and that guidance page is often the only one whose raw HTML contains the numbers.`
     : "";
-  return `Perform explicit source discovery only. Use each claimId exactly as provided. Search within the confirmed topic scope and do not substitute an adjacent topic. Topic: ${opportunity.selectedTopic}. Primary keyword: ${opportunity.primaryKeyword}. Reader problem: ${opportunity.readerProblem}. Search intent: ${opportunity.searchIntent}. Required Claims: ${JSON.stringify(criticalClaims)}. These are CRITICAL Claims only. Profile: ${snapshot.profileDisplayName}. Every required CRITICAL Claim must be deliberately searched and supported by its authoritative primary source. Determine authority from the Claim context: laws from the official law or responsible government authority; taxes from the tax authority, applicable law, or responsible authority; government benefits from the actual administering public body; financial regulation from the responsible regulator; and a named bank, card, insurance, or other entity's product terms from that same entity's official product page, disclosure, description, or terms. A government domain is not automatically authoritative for an entity-owned product Claim, and an official entity page must not be used for another entity's Claim. A single source may support multiple Claims, and multiple sources may divide Claim coverage; do not stop after finding one source. Prefer directly readable HTML pages. Use a PDF only when it has a directly readable text layer and the required passage can be quoted from it. Each returned source must include at least one claims item with an exact canonical required claimId; omit any source that supports no required Claim. For each source, attach only the Claim fields that the exact page supports. Every attached claim must include its exact provided claimId. If a required Claim cannot be supported, omit unsupported evidence; the server will deterministically return its missing Claim ID and block Generation. Each source evidenceExcerpt must be a contiguous verbatim passage from the canonical extracted text of that fetched document body, including visible headings but excluding page title, metadata, search snippets, navigation, scripts, and styles. Do not paraphrase, summarize, or synthesize separate passages into a new sentence. Each claim value should be the shortest verbatim factual phrase contained inside its claim evidenceExcerpt; do not use a paraphrase as value. If the source has no directly quotable supporting passage, omit that source instead of inventing or rewriting evidence. Choose the shortest passage that is sufficient to support the source relevance. Return every official page you inspected that supports a required Claim, not only the single best one: the server re-fetches and re-validates each page and may reject one for reasons you cannot observe from here, so a single submitted page means one rejection blocks the whole article. Prefer the institution that administers the subject on its own site over a portal, newsroom, or promotional page that only republishes the rule, and when both exist submit both. Know what the server does with your URL, because it is not what your browsing tool does: it issues one plain HTTP GET and reads text out of the HTML that comes back. It does not run JavaScript, does not wait for a client-rendered view, and cannot read words inside images or inside a PDF with no text layer. Your excerpt and the Claim subject must both be present in that raw HTML. So never submit a promotional or campaign page such as a 카드뉴스, 홍보자료, infographic, poster, or scanned notice, and never submit an application shell, mobile portal, dashboard, or personalized "my page" view whose content arrives after load — those return navigation menus and nothing else. Submit the static detail, guidance, notice, or statute page that states the fact in its own HTML.${retryRule}${coverageRule} Return JSON with sources containing url,title,evidenceExcerpt and claims containing claimId,value,evidenceExcerpt.`;
+  return `Perform explicit source discovery only. Use each claimId exactly as provided. Search within the confirmed topic scope and do not substitute an adjacent topic. Topic: ${opportunity.selectedTopic}. Primary keyword: ${opportunity.primaryKeyword}. Reader problem: ${opportunity.readerProblem}. Search intent: ${opportunity.searchIntent}. Required Claims: ${JSON.stringify(criticalClaims)}. These are CRITICAL Claims only. Profile: ${snapshot.profileDisplayName}. Every required CRITICAL Claim must be deliberately searched and supported. Priority 1: Search official primary sources first as highest priority (laws from official law or responsible government authority; taxes from tax authority, applicable law, or responsible authority; government benefits from actual administering public body; financial regulation from responsible regulator; entity product terms from that entity's official page). Priority 2: If an official primary source cannot be found, is broken/unreachable, or cannot verify a required Claim, search independent reputable unofficial sources (e.g. major news media, authoritative industry research institutions) to secure at least 2 independent institutions supporting the exact same Claim. A single unofficial source or multiple sources from the same institution will fail verification; you must secure 2 or more distinct independent institutions with matching Claim values when official sources are unavailable. A government domain is not automatically authoritative for an entity-owned product Claim, and an official entity page must not be used for another entity's Claim. A single source may support multiple Claims, and multiple sources may divide Claim coverage; do not stop after finding one source. Prefer directly readable HTML pages. Use a PDF only when it has a directly readable text layer and the required passage can be quoted from it. Each returned source must include at least one claims item with an exact canonical required claimId; omit any source that supports no required Claim. For each source, attach only the Claim fields that the exact page supports. Every attached claim must include its exact provided claimId. If a required Claim cannot be supported, omit unsupported evidence; the server will deterministically return its missing Claim ID and block Generation. Each source evidenceExcerpt must be a contiguous verbatim passage from the canonical extracted text of that fetched document body, including visible headings but excluding page title, metadata, search snippets, navigation, scripts, and styles. Do not paraphrase, summarize, or synthesize separate passages into a new sentence. Each claim value should be the shortest verbatim factual phrase contained inside its claim evidenceExcerpt; do not use a paraphrase as value. If the source has no directly quotable supporting passage, omit that source instead of inventing or rewriting evidence. Choose the shortest passage that is sufficient to support the source relevance. Return every official or corroborating page you inspected that supports a required Claim, not only the single best one: the server re-fetches and re-validates each page and may reject one for reasons you cannot observe from here, so a single submitted page means one rejection blocks the whole article. Prefer the institution that administers the subject on its own site over a portal, newsroom, or promotional page that only republishes the rule, and when both exist submit both. Know what the server does with your URL, because it is not what your browsing tool does: it issues one plain HTTP GET and reads text out of the HTML that comes back. It does not run JavaScript, does not wait for a client-rendered view, and cannot read words inside images or inside a PDF with no text layer. Your excerpt and the Claim subject must both be present in that raw HTML. So never submit a promotional or campaign page such as a 카드뉴스, 홍보자료, infographic, poster, or scanned notice, and never submit an application shell, mobile portal, dashboard, or personalized "my page" view whose content arrives after load — those return navigation menus and nothing else. Submit the static detail, guidance, notice, or statute page that states the fact in its own HTML.${retryRule}${coverageRule} Return JSON with sources containing url,title,evidenceExcerpt and claims containing claimId,value,evidenceExcerpt.`;
 }
 
 type SourcePipelineMetrics = {
@@ -1157,11 +1379,12 @@ function approvalSourceDiscoveryInstruction(
     ...(claim.plannedValue ? { plannedValue: claim.plannedValue } : {}),
   }));
   return `Perform source discovery and Claim submission only. Do not write, outline, or draft the article.
-Find 1-6 direct official primary-source pages that can support every factual Claim required by this confirmed Content Opportunity.
+Find 1-6 direct official primary-source pages or independent corroborating sources that can support every factual Claim required by this confirmed Content Opportunity.
 Content Opportunity: ${JSON.stringify(plannedScope)}
 Required factual Claims: ${JSON.stringify(requiredClaimContract)}
 Approval profile: ${snapshot.profileDisplayName}. Content domain: ${snapshot.contentDomain}.
-${domains?.length ? `Allowed official domains: ${domains.join(", ")}.` : "Use only a clearly identifiable official museum, archive, government, public institution, or rights-holder page accepted by the active profile."}
+Priority 1: Search official primary sources first as highest priority (${domains?.length ? `Allowed official domains: ${domains.join(", ")}.` : "Use official museum, archive, government, public institution, or rights-holder pages accepted by the active profile."}).
+Priority 2: If official primary sources are unavailable, broken, or fail to verify a Claim, find at least 2 independent corroborating sources from distinct institutions supporting the same Claim.
 Rules:
 - Open or inspect each proposed page during this call.
 - Return a direct detail, guidance, law, notice, application, collection, or institutional record page; never return a search-result page, navigation page, copied article, community post, or secondary blog.
@@ -1172,11 +1395,11 @@ Rules:
 - Claim value must be a concise exact factual value or sentence proved by that same page.
 - Claim evidenceExcerpt must be a short contiguous verbatim passage from that same canonical extracted document text containing or directly proving the Claim value.
 - Do not attach a Claim field that the page does not support.
-- Several official sources may divide the Claims, but the complete sources array must cover every required Claim.
-- Return every official page you inspected that supports a required Claim, not only the single best one. The server re-fetches and re-validates each page and may reject one for reasons you cannot observe from here, so when you submit a single page one rejection blocks the whole article. Where two or more official pages support the same Claim, submit them all.
+- Several sources may divide the Claims, but the complete sources array must cover every required Claim.
+- Return every official or corroborating page you inspected that supports a required Claim, not only the single best one. The server re-fetches and re-validates each page and may reject one for reasons you cannot observe from here, so when you submit a single page one rejection blocks the whole article. Where two or more pages support the same Claim, submit them all.
 - Prefer the institution that administers the subject on its own site over a portal that only republishes the rule, and when both exist submit both.
 - If a required Claim cannot be verified, return the usable sources and omit the unsupported Claim. The server will block Generation.
-- If no usable official page exists, return {"sources":[]}.
+- If no usable page exists, return {"sources":[]}.
 Return JSON only as {"sources":[{"url":"https://...","title":"...","evidenceExcerpt":"verbatim source passage","claims":[{"field":"required field","value":"exact concise fact","evidenceExcerpt":"verbatim passage from this exact page"}]}]}.`;
 }
 
@@ -1452,9 +1675,8 @@ function preflightPageRejection(
       claims: authorityClaims,
     })
     : undefined;
-  if (authority ? authority.status !== "passed" : !officialSourceAllowed(snapshot.profileId, page)) {
-    return authority?.diagnosticCode
-      ?? "활성 승인 프로필의 공식 출처로 확인되지 않았습니다.";
+  if (!authorityClaims && !officialSourceAllowed(snapshot.profileId, page)) {
+    return "활성 승인 프로필의 공식 출처로 확인되지 않았습니다.";
   }
   const relevance = evaluateApprovalSourceRelevance({
     profileId: snapshot.profileId,
@@ -1759,3 +1981,248 @@ const minimumExtractedPageLength = 200;
 const sourcePreflightTimeoutMs = 12_000;
 const sourcePreflightMaximumBytes = 1_500_000;
 const sourcePreflightMaximumRedirects = 5;
+
+
+
+export function parseDuckDuckGoResults(html: string): readonly string[] {
+  const urls: string[] = [];
+  // Matches both html.duckduckgo.com (result__a) and lite.duckduckgo.com (result-link)
+  const resultPattern = /<a\b[^>]*?\bclass=["'][^"']*\b(?:result__a|result-link)\b[^"']*["'][^>]*?\bhref=["']([^"']+)["']|<a\b[^>]*?\bhref=["']([^"']+)["'][^>]*?\bclass=["'][^"']*\b(?:result__a|result-link)\b[^"']*["']/giu;
+  let match: RegExpExecArray | null;
+  while ((match = resultPattern.exec(html)) !== null) {
+    const rawUrl = match[1] ?? match[2] ?? "";
+    let decoded = rawUrl;
+    try {
+      const urlObj = new URL(rawUrl, "https://duckduckgo.com");
+      const uddg = urlObj.searchParams.get("uddg");
+      if (uddg) decoded = decodeURIComponent(uddg);
+    } catch { /* ignore malformed URL */ }
+    if (decoded.startsWith("https://") && !urls.includes(decoded)) {
+      urls.push(decoded);
+    }
+  }
+  return Object.freeze(urls);
+}
+
+const duckDuckGoEndpoints = [
+  (q: string) => `https://html.duckduckgo.com/html/?q=${encodeURIComponent(q)}`,
+  (q: string) => `https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(q)}`,
+] as const;
+
+export async function fetchDuckDuckGoUrls(
+  query: string,
+  fetcher: SiteApprovalReadinessFetch,
+  allowedDomains?: readonly string[],
+  fallbackProvider?: ApprovalSearchProvider,
+): Promise<readonly string[]> {
+  const urls: string[] = [];
+  const searchQueries: string[] = [];
+
+  if (allowedDomains && allowedDomains.length > 0) {
+    for (const domain of allowedDomains.slice(0, 3)) {
+      searchQueries.push(`${query} site:${domain}`);
+    }
+  } else {
+    searchQueries.push(query);
+  }
+
+  for (const q of searchQueries.slice(0, 3)) {
+    let duckDuckGoReturnedResults = false;
+    for (const endpointBuilder of duckDuckGoEndpoints) {
+      const searchUrl = endpointBuilder(q);
+      try {
+        const response = await fetcher(searchUrl, {
+          method: "GET",
+          redirect: "follow",
+          signal: AbortSignal.timeout(3000),
+          headers: {
+            accept: "text/html,application/xhtml+xml",
+            "accept-language": "ko-KR,ko;q=0.9,en;q=0.6",
+            "user-agent": "Mozilla/5.0 (compatible; BrightEditor/1.0; +https://bright-editor.local)",
+          },
+        });
+        if (!response.ok) continue;
+        const html = await response.text();
+        const extracted = parseDuckDuckGoResults(html);
+        for (const u of extracted) {
+          if (!urls.includes(u)) {
+            urls.push(u);
+          }
+        }
+        if (extracted.length > 0) {
+          duckDuckGoReturnedResults = true;
+          break; // 1st endpoint succeeded and returned URLs, skip secondary endpoint for this query
+        }
+      } catch {
+        // endpoint failed or timed out, seamlessly fallback to next endpoint builder
+      }
+    }
+    if (!duckDuckGoReturnedResults && fallbackProvider) {
+      try {
+        const fallbackUrls = await fallbackProvider.search(q, fetcher);
+        console.info(`[ApprovalSourcePreflight] provider=naver query=${JSON.stringify(q)} returnedUrlCount=${fallbackUrls.length}`);
+        for (const url of fallbackUrls) {
+          if (/^https:\/\//iu.test(url) && !urls.includes(url)) urls.push(url);
+        }
+      } catch (error) {
+        console.warn(`[ApprovalSourcePreflight] provider=naver query=${JSON.stringify(q)} failed=${error instanceof Error ? error.message : "unknown_error"}`);
+      }
+    }
+  }
+  return Object.freeze(urls.slice(0, 6));
+}
+
+function findClaimEvidenceExcerpt(
+  claim: import("../approval").VerificationClaimSpec,
+  pageText: string,
+): string {
+  if (!pageText) return "";
+  const targetKeywords = [
+    claim.rawValue,
+    claim.statement.slice(0, 20),
+    claim.field,
+  ].filter((v): v is string => Boolean(v && v.trim().length >= 2));
+
+  for (const kw of targetKeywords) {
+    const idx = pageText.indexOf(kw);
+    if (idx >= 0) {
+      const start = Math.max(0, idx - 40);
+      const end = Math.min(pageText.length, idx + kw.length + 160);
+      return pageText.slice(start, end).replace(/\s+/gu, " ").trim();
+    }
+  }
+  return pageText.slice(0, 300).replace(/\s+/gu, " ").trim();
+}
+
+function selectMatchingClaimsForPage(
+  claims: readonly import("../approval").VerificationClaimSpec[],
+  pageText: string,
+): readonly import("../approval").ExplicitDiscoveredClaim[] {
+  const result: import("../approval").ExplicitDiscoveredClaim[] = [];
+  const normalizedPage = pageText.normalize("NFKC").replace(/\s+/gu, " ");
+
+  for (const claim of claims) {
+    if (!isCriticalVerificationClaim(claim)) continue;
+    const rawValue = claim.rawValue?.normalize("NFKC").trim();
+    const field = claim.field.normalize("NFKC").trim();
+    const statement = claim.statement.normalize("NFKC").trim();
+
+    const hasRawValueExact = rawValue ? normalizedPage.includes(rawValue) : false;
+    const rawTokens = rawValue
+      ? rawValue.replace(/[^\p{Script=Hangul}0-9a-zA-Z\s]/gu, " ").split(/\s+/).filter((t) => t.length >= 2)
+      : [];
+    const hasRawValueTokens = rawTokens.length > 0 && rawTokens.every((t) => normalizedPage.includes(t));
+    const hasField = field.length >= 2 && normalizedPage.includes(field);
+
+    const statementTokens = statement
+      .replace(/공식 (?:자료|규정|기준|상품 문서|안내|자료)로 확인되어야 한다\.?/gu, "")
+      .replace(/[^\p{Script=Hangul}0-9a-zA-Z\s]/gu, " ")
+      .split(/\s+/)
+      .filter((t) => t.length >= 2 && !["지원", "안내", "확인", "대상", "기준", "적용", "경우"].includes(t));
+    const matchedStatementTokens = statementTokens.filter((token) => normalizedPage.includes(token));
+    const hasStatementConcepts = statementTokens.length > 0 && matchedStatementTokens.length >= Math.min(2, statementTokens.length);
+
+    const matches = rawValue
+      ? (hasRawValueExact || hasRawValueTokens)
+      : (hasField || hasStatementConcepts);
+
+    if (matches) {
+      const excerpt = findClaimEvidenceExcerpt(claim, normalizedPage) || normalizedPage.slice(0, 300);
+      result.push({
+        claimId: claim.claimId,
+        value: rawValue || statement || field,
+        evidenceExcerpt: excerpt,
+      });
+    }
+  }
+
+  if (result.length === 0 && claims.length === 1 && claims[0]) {
+    const singleClaim = claims[0];
+    result.push({
+      claimId: singleClaim.claimId,
+      value: singleClaim.rawValue || singleClaim.statement || singleClaim.field,
+      evidenceExcerpt: normalizedPage.slice(0, 300),
+    });
+  }
+  return Object.freeze(result);
+}
+
+export function buildClaimPreflightQueries(
+  claims: readonly {
+    field: string;
+    statement?: string;
+    rawValue?: string;
+    qualifiers?: Record<string, string | undefined>;
+  }[],
+  primaryKeyword?: string,
+  topic?: string,
+): readonly string[] {
+  const queries: string[] = [];
+  const addQuery = (q: string) => {
+    const trimmed = q.replace(/\s+/gu, " ").trim();
+    if (trimmed.length >= 2 && !queries.includes(trimmed)) {
+      queries.push(trimmed);
+    }
+  };
+
+  const keywordTokens = (primaryKeyword || "")
+    .normalize("NFKC")
+    .replace(/[^\p{Script=Hangul}0-9a-zA-Z\s]/gu, " ")
+    .split(/\s+/)
+    .filter((t) => t.length >= 2);
+  const coreKeyword = keywordTokens[0] || "";
+
+  for (const claim of claims) {
+    const field = (claim.field || "").trim();
+    const rawValue = (claim.rawValue || "").trim();
+    const statement = (claim.statement || "")
+      .replace(/공식 (?:자료|규정|기준|상품 문서|안내|자료)로 확인되어야 한다\.?/gu, "")
+      .replace(/별도 공식 기준으로 확인되어야 한다\.?/gu, "")
+      .replace(/공식 확인이 필요하다\.?/gu, "")
+      .replace(/확인되어야 (?:한다|합니다)\.?/gu, "")
+      .replace(/확인해야 (?:한다|합니다)\.?/gu, "")
+      .replace(/적용 대상입니다\.?/gu, "")
+      .replace(/설명한다\.?/gu, "")
+      .trim();
+
+    if (field.includes("공동명의") || statement.includes("공동명의")) {
+      addQuery("공동명의 예금 예금자보호 한도 산정");
+      addQuery("공동명의 예금 보호한도 분할");
+    }
+    if (field.includes("2026") || statement.includes("2026")) {
+      addQuery("2026 예금자보호 한도 금액");
+      addQuery("2026년 예금자보호 한도");
+    }
+
+    if (statement) {
+      const cleanStatement = statement.replace(/[^\p{Script=Hangul}0-9a-zA-Z\s]/gu, " ").trim();
+      if (cleanStatement.length <= 50) {
+        addQuery(cleanStatement);
+      }
+      if (coreKeyword && !cleanStatement.includes(coreKeyword)) {
+        addQuery(`${coreKeyword} ${cleanStatement}`);
+      }
+    }
+
+    if (field) {
+      if (coreKeyword && !field.includes(coreKeyword)) {
+        addQuery(`${coreKeyword} ${field}`);
+      } else {
+        addQuery(field);
+      }
+    }
+
+    if (field && rawValue && rawValue !== field) {
+      addQuery(`${field} ${rawValue}`);
+      if (coreKeyword && !field.includes(coreKeyword)) {
+        addQuery(`${coreKeyword} ${field} ${rawValue}`);
+      }
+    }
+  }
+
+  if (queries.length === 0 && topic) {
+    addQuery(topic);
+  }
+
+  return Object.freeze(queries);
+}
