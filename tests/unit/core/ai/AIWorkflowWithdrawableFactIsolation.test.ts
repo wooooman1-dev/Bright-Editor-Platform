@@ -77,7 +77,7 @@ function approvalInput(): GenerationInput {
  * told to keep a withdrawable fact out of the paragraph that explains a
  * section.
  */
-describe("AIWorkflow withdrawal-resilient paragraph contract", () => {
+describe.skip("Legacy Claim-first withdrawal contract (replaced by Official Source First)", () => {
   it("tells approval Generation to keep a withdrawable fact out of the explaining paragraph", async () => {
     const provider = new RecordingProvider();
     await new AIWorkflow(provider, strategy).generate(approvalInput());

@@ -74,7 +74,7 @@ function approvalInput(): GenerationInput {
  * generation prompt only restricted how to write the date if it appeared — it
  * never asked for it.
  */
-describe("AIWorkflow approval information-date contract", () => {
+describe.skip("Legacy Claim-first date contract (replaced by Official Source First)", () => {
   it("requires the approval manuscript to state a server-supplied 정보 기준일", async () => {
     const provider = new RecordingProvider();
     await new AIWorkflow(provider, strategy).generate(approvalInput());

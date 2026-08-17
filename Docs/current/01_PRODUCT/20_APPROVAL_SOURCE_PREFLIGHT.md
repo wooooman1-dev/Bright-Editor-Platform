@@ -46,9 +46,14 @@ but they must pass all of the following independently:
 1. Claim subject/entity and observed source owner match;
 2. HTTPS;
 3. an owner-bound official domain or formal first-party official document;
-4. Claim relevance;
-5. exact `evidenceExcerptMatches()` anchoring;
-6. semantic, temporal, and complete CRITICAL Claim Coverage verification.
+4. HTTP 2xx and successful non-empty extraction.
+
+For an authoritative source, these source-readiness checks are sufficient for
+every explicitly linked Claim. Evidence anchoring, semantic support,
+normalized-value comparison, freshness, temporal checks, and corroboration are
+diagnostics only and cannot reject that Claim. A non-authoritative source still
+requires Claim relevance, exact `evidenceExcerptMatches()` anchoring, semantic,
+temporal, freshness, and complete CRITICAL Claim Coverage verification.
 
 Authority and relevance are separate decisions. A first-party page from another
 entity fails source-owner authority. A first-party page from the correct entity
@@ -65,10 +70,12 @@ trust route alone; a non-official source requires independent corroboration of
 the same material Claim. Information dates and reader-visible review dates are
 optional diagnostics, not approval blockers.
 
-A URL alone is not sufficient. The server must independently confirm that the
-fetched page materially supports the cited content. Fine-grained general prose
-Claims are not all mandatory blockers; unsupported or conflicting high-risk
-Claims remain blocking diagnostics.
+A URL alone is not sufficient. The server must independently confirm authority,
+successful HTTP fetch, and non-empty extraction. Those are the complete
+acceptance conditions for a linked Claim from an authoritative source. A
+non-authoritative source must materially support the cited content.
+Unsupported or conflicting high-risk Claims remain blocking diagnostics for
+non-authoritative sources.
 
 This policy prevents the system from spending a full Generation call on a manuscript whose factual basis is incomplete, inaccessible, fabricated, mismatched, or outside the active official-source profile.
 
@@ -154,10 +161,10 @@ Confirmed Content Opportunity
 → direct page fetch
 → redirect final URL recording
 → supported text extraction
-→ source-level evidence excerpt match
-→ Claim field/value/evidenceExcerpt verification
-→ normalized date/amount/ratio/duration/unit comparison
-→ temporal/freshness policy
+→ source-level evidence excerpt match for non-authoritative sources
+→ Claim field/value/evidenceExcerpt verification for non-authoritative sources
+→ normalized date/amount/ratio/duration/unit comparison for non-authoritative sources
+→ temporal/freshness policy for non-authoritative sources
 → complete Claim Coverage Gate
 → VerificationSnapshot
 → Generation Verification Gate
@@ -223,15 +230,17 @@ A source may enter the Generation bundle only when all checks pass:
 3. Every redirect target remains a safe public HTTPS destination.
 4. The final direct page responds successfully.
 5. Bright Studio can extract supported text from the response within the bounded size limit.
-6. The fetched page materially matches the cited manuscript Claim.
-7. An accepted official/first-party source uses the single-source trust route.
-8. A non-official or secondary source has independent corroboration for the
+6. An authoritative source is linked to the Claim and has successful non-empty
+   extraction; no further Claim-fact test is applied to that source.
+7. A non-authoritative fetched page materially matches the cited manuscript Claim.
+8. An accepted official/first-party source uses the single-source trust route.
+9. A non-official or secondary source has independent corroboration for the
    same material Claim.
-9. The proposed source-level evidence excerpt, when present, exists in the
+10. The proposed source-level evidence excerpt, when present, exists in the
    extracted page text.
-10. High-risk Claim values and qualifiers pass server verification against the
+11. High-risk Claim values and qualifiers pass server verification against the
     fetched final page.
-11. Missing information dates or reader-visible review dates remain diagnostics
+12. Missing information dates or reader-visible review dates remain diagnostics
     unless a separate high-risk policy explicitly requires them.
 
 Search-result pages, navigation pages, inaccessible pages, unsupported binary

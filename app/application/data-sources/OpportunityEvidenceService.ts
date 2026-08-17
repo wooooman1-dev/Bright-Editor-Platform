@@ -41,20 +41,31 @@ export class OpportunityEvidenceService {
   ) {}
 
   async buildPlanningBundle(data: UserData, project: UserProject, currentContentId?: string): Promise<readonly OpportunityEvidenceRecord[]> {
+    const startedAt = Date.now();
+    const diag = (stage: string) => console.info(`[PLANNING-DIAG] ${stage}: ${Date.now() - startedAt}ms`);
+    diag("bundle-start");
     if (data.workspace?.id !== project.workspaceId) throw new Error("Project does not belong to the current Workspace.");
+    diag("references-list-start");
     const references = (await this.references.listByProject(project.id)).filter((value) => value.workspaceId === project.workspaceId && value.enabled);
+    diag("references-list-complete");
     const allowedIds = new Set(references.map((value) => value.connectionId));
+    diag("connections-list-start");
     const connections = (await this.connections.listByWorkspace(project.workspaceId)).filter((value) => allowedIds.has(value.id) && value.enabled && value.status !== "disconnected");
+    diag("connections-list-complete");
     const allowedConnectionIds = new Set(connections.map((value) => value.id));
+    diag("repository-list-start");
     const external = (await this.repository.listByWorkspace(project.workspaceId))
       .filter((value) => value.projectId == null && Boolean(value.connectionId && allowedConnectionIds.has(value.connectionId)))
       .filter((value) => Boolean(value.keyword || value.topic || value.pageUrl))
       .sort((a, b) => b.syncedAt.localeCompare(a.syncedAt))
       .slice(0, 100)
       .map((value) => value.provider === "brightStudio" ? value : Object.freeze({ ...value, freshness: calculateFreshness(value.provider, value.syncedAt) }));
+    diag("repository-list-complete");
     const internal = buildInternalGrowthEvidence(data, project, currentContentId);
     await this.repository.saveMany(internal);
-    return Object.freeze([...external, ...internal]);
+    const result = Object.freeze([...external, ...internal]);
+    diag("bundle-complete");
+    return result;
   }
 
   classifyCandidates(candidates: readonly ContentOpportunityCandidate[], bundle: readonly OpportunityEvidenceRecord[], data: UserData, project: UserProject): ClassifiedOpportunities {

@@ -518,7 +518,9 @@ async function runExplicitPreflight(input: Readonly<Parameters<typeof runApprova
   }
   const observed = new Set((response.diagnostics?.webSources ?? [])
     .map((source) => canonicalizeApprovalEvidenceUrl(source.url)));
-  const eligible = [...discovered.filter((source) => !observed.size || observed.has(source.requestedUrl))];
+  const eligible = [...new Map(discovered
+    .filter((source) => !observed.size || observed.has(source.requestedUrl))
+    .map((source) => [source.requestedUrl, source] as const)).values()];
   pipelineMetrics.fetchAttemptedCount = eligible.length;
   const pages = await fetchPreflightPages(
     eligible.map((source) => source.requestedUrl),
@@ -635,14 +637,16 @@ async function runExplicitPreflight(input: Readonly<Parameters<typeof runApprova
       }
       pipelineMetrics.evidenceAnchorEvaluatedCount += 1;
       if (evidenceExcerptMatches(page.text, source.evidenceExcerpt)) pipelineMetrics.evidenceAnchorPassCount += 1;
-      const rejection = preflightPageRejection(
-        input.snapshot,
-        page,
-        source.evidenceExcerpt,
-        input.opportunity,
-        sourceRelevanceScope(input.opportunity, source.claims),
-        authorityClaims,
-      );
+      const rejection = official
+        ? undefined
+        : preflightPageRejection(
+            input.snapshot,
+            page,
+            source.evidenceExcerpt,
+            input.opportunity,
+            sourceRelevanceScope(input.opportunity, source.claims),
+            authorityClaims,
+          );
       if (rejection) {
         if (pipelineMetrics.rejectionSamples.length < 3) pipelineMetrics.rejectionSamples.push(Object.freeze({
           url: source.requestedUrl,
@@ -796,6 +800,7 @@ async function runExplicitPreflight(input: Readonly<Parameters<typeof runApprova
                 documentFormat: "html" as const,
                 extractionStatus: "extracted" as const,
                 contentLength: (source.pageText ?? "").length,
+                authoritative: source.authoritative === true,
               }),
               claims: source.claims.flatMap((claim) => {
                 const spec = plan.claims.find((item) => item.claimId === claim.claimId);
@@ -820,13 +825,15 @@ async function runExplicitPreflight(input: Readonly<Parameters<typeof runApprova
     let fallbackAttempts = 0;
 
     const processCandidateUrl = async (url: string, queryUsed: string): Promise<boolean> => {
-      if (fallbackAttempts >= 3) return true;
+      if (fallbackAttempts >= 6) return true;
+      const canonicalUrl = canonicalizeApprovalEvidenceUrl(url);
+      if (seenUrls.has(canonicalUrl) || byUrl.has(canonicalUrl)) return false;
       fallbackAttempts += 1;
-      seenUrls.add(url);
+      seenUrls.add(canonicalUrl);
       pipelineMetrics.fetchAttemptedCount += 1;
 
       const fallbackPage = await fetchPreflightPage(url, input.fetcher ?? fetch);
-      byUrl.set(url, fallbackPage);
+      byUrl.set(canonicalUrl, fallbackPage);
       if (fallbackPage.finalUrl) {
         byUrl.set(canonicalizeApprovalEvidenceUrl(fallbackPage.finalUrl), fallbackPage);
       }
@@ -861,7 +868,7 @@ async function runExplicitPreflight(input: Readonly<Parameters<typeof runApprova
     };
 
     candidateLoop:
-    while (fallbackAttempts < 3 && !isPreflightVerificationSatisfied(evaluated)) {
+    while (fallbackAttempts < 6 && !isPreflightVerificationSatisfied(evaluated)) {
       const missingClaims = getMissingRequiredClaims(evaluated);
       const targetClaims = missingClaims.length > 0
         ? missingClaims
@@ -883,18 +890,18 @@ async function runExplicitPreflight(input: Readonly<Parameters<typeof runApprova
             input.searchProvider,
           );
           console.log(`[Preflight DuckDuckGo Official] Query: "${query}", Found URLs: ${JSON.stringify(officialUrls)}`);
-          for (const u of officialUrls) {
+          for (const u of prioritizeApprovalCandidateUrls(officialUrls)) {
             const canonical = canonicalizeApprovalEvidenceUrl(u);
             if (canonical && !seenUrls.has(canonical)) {
               const satisfied = await processCandidateUrl(canonical, query);
-              if (satisfied || fallbackAttempts >= 3) break candidateLoop;
+              if (satisfied || fallbackAttempts >= 6) break candidateLoop;
             }
           }
-          if (fallbackAttempts >= 3 || isPreflightVerificationSatisfied(evaluated)) break candidateLoop;
+          if (fallbackAttempts >= 6 || isPreflightVerificationSatisfied(evaluated)) break candidateLoop;
         }
       }
 
-      if (fallbackAttempts >= 3 || isPreflightVerificationSatisfied(evaluated)) break;
+      if (fallbackAttempts >= 6 || isPreflightVerificationSatisfied(evaluated)) break;
 
       // 2. General web searches if needed
       for (const query of claimQueries) {
@@ -905,14 +912,14 @@ async function runExplicitPreflight(input: Readonly<Parameters<typeof runApprova
           input.searchProvider,
         );
         console.log(`[Preflight DuckDuckGo General] Query: "${query}", Found URLs: ${JSON.stringify(generalUrls)}`);
-        for (const u of generalUrls) {
+        for (const u of prioritizeApprovalCandidateUrls(generalUrls)) {
           const canonical = canonicalizeApprovalEvidenceUrl(u);
           if (canonical && !seenUrls.has(canonical)) {
             const satisfied = await processCandidateUrl(canonical, query);
-            if (satisfied || fallbackAttempts >= 3) break candidateLoop;
+            if (satisfied || fallbackAttempts >= 6) break candidateLoop;
           }
         }
-        if (fallbackAttempts >= 3 || isPreflightVerificationSatisfied(evaluated)) break candidateLoop;
+        if (fallbackAttempts >= 6 || isPreflightVerificationSatisfied(evaluated)) break candidateLoop;
       }
 
       break;
@@ -1026,8 +1033,9 @@ async function runExplicitPreflight(input: Readonly<Parameters<typeof runApprova
             text: source.pageText ?? "",
             documentFormat: "html" as const,
             extractionStatus: "extracted" as const,
-            contentLength: (source.pageText ?? "").length,
-          }),
+                contentLength: (source.pageText ?? "").length,
+                authoritative: source.authoritative === true,
+              }),
           claims: source.claims.flatMap((claim) => {
             const spec = plan.claims.find((item) => item.claimId === claim.claimId);
             return spec
@@ -1522,7 +1530,7 @@ export async function fetchPreflightPage(
       fetched.response,
       sourcePreflightMaximumBytes,
     );
-    const extracted = normalizeApprovalSourceDocumentServer({
+    let extracted = normalizeApprovalSourceDocumentServer({
       requestedUrl,
       finalUrl: fetched.finalUrl,
       status: fetched.response.status,
@@ -1530,6 +1538,39 @@ export async function fetchPreflightPage(
       bytes: body.bytes,
       tooLarge: body.tooLarge,
     });
+    // Some official legal portals serve a same-origin iframe shell at the
+    // discovered URL. The shell is not Evidence; fetch the linked document
+    // only when the shell produced no text and the iframe stays on the same
+    // host. This preserves fail-closed extraction for unrelated embeds.
+    if (extracted.extractionStatus === "empty" && extracted.format === "html") {
+      const iframeUrl = embeddedSameOriginFrameUrl(body.bytes, fetched.finalUrl);
+      if (iframeUrl) {
+        const frame = await fetchWithSafeRedirects(iframeUrl, fetcher, controller.signal);
+        const frameType = frame.response.headers.get("content-type") ?? "";
+        const frameBody = await readBoundedBody(frame.response, sourcePreflightMaximumBytes);
+        extracted = normalizeApprovalSourceDocumentServer({
+          requestedUrl,
+          finalUrl: frame.finalUrl,
+          status: frame.response.status,
+          contentType: frameType,
+          bytes: frameBody.bytes,
+          tooLarge: frameBody.tooLarge,
+        });
+        return Object.freeze({
+          requestedUrl,
+          finalUrl: frame.finalUrl,
+          status: frame.response.status,
+          contentType: frameType,
+          title: extracted.title,
+          publisher: extracted.publisher,
+          text: extracted.text,
+          documentFormat: extracted.format,
+          extractionStatus: extracted.extractionStatus,
+          ...(extracted.extractionReason ? { extractionReason: extracted.extractionReason } : {}),
+          contentLength: frameBody.contentLength,
+        });
+      }
+    }
     return Object.freeze({
       requestedUrl,
       finalUrl: fetched.finalUrl,
@@ -1554,6 +1595,62 @@ export async function fetchPreflightPage(
     return failedPage(requestedUrl, reason);
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+/** AdSense-only source-first acquisition. It deliberately has no Claim input. */
+export async function runOfficialSourceFirstDiscovery(input: Readonly<{
+  provider: AIProvider;
+  snapshot: ApprovalPolicySnapshot;
+  opportunity: ConfirmedContentOpportunity;
+  fetcher?: SiteApprovalReadinessFetch;
+}>): Promise<Readonly<{
+  sources: readonly AIWebSource[];
+  claimSources: readonly ApprovalSourcePreflightClaimSource[];
+  sourcePolicyCompliance: "passed";
+}>> {
+  const startedAt = Date.now();
+  const log = (stage: string, detail: Record<string, unknown> = {}) => console.info("[adsense-source-first]", stage, { elapsedMs: Date.now() - startedAt, ...detail });
+  log("discovery-start");
+  const response = await input.provider.generate({
+    instruction: `Find official primary sources for this AdSense approval topic before any facts or Claims are drafted. Topic: ${input.opportunity.selectedTopic}. Keyword: ${input.opportunity.primaryKeyword}. Search only authoritative institutions registered for profile ${input.snapshot.profileId}. Return JSON only as {"sources":[{"url":"https://...","title":"..."}]}. Do not return Claims, facts, excerpts, blogs, news, communities, or secondary pages. A source is usable only when it is an official HTTPS page that can be fetched and has non-empty document text.`,
+    metadata: { task: "official-source-first-discovery", approvalPurpose: "adsense_approval", approvalProfileId: input.snapshot.profileId },
+  });
+  log("discovery-complete");
+  let parsed: unknown;
+  try { parsed = JSON.parse(stripFence(response.content)); } catch { throw new ApprovalSourcePreflightError("Official source discovery returned invalid JSON."); }
+  const rawSources = parsed && typeof parsed === "object" && Array.isArray((parsed as { sources?: unknown }).sources)
+    ? (parsed as { sources: unknown[] }).sources : [];
+  const fetcher = input.fetcher ?? (async (url, init) => fetch(url, init));
+  const sources: AIWebSource[] = [];
+  const seen = new Set<string>();
+  for (const item of rawSources) {
+    if (!item || typeof item !== "object" || typeof (item as { url?: unknown }).url !== "string") continue;
+    const requestedUrl = (item as { url: string }).url.trim();
+    const page = await fetchPreflightPage(requestedUrl, fetcher);
+    log("candidate-acquired", { url: requestedUrl, status: page.status, extractionStatus: page.extractionStatus, textLength: page.text.length });
+    if (page.status < 200 || page.status >= 300 || page.extractionStatus !== "extracted" || !page.text.trim()) continue;
+    if (!officialSourceAllowed(input.snapshot.profileId, page)) continue;
+    const url = canonicalizeApprovalEvidenceUrl(page.finalUrl || requestedUrl);
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    sources.push(Object.freeze({ url, title: typeof (item as { title?: unknown }).title === "string" ? (item as { title: string }).title : page.title, excerpt: page.text, provenance: "citation" as const }));
+  }
+  if (!sources.length) throw new ApprovalSourcePreflightError("No authoritative source was acquired for AdSense approval content.");
+  log("source-bundle-complete", { count: sources.length, urls: sources.map((source) => source.url) });
+  return Object.freeze({ sources: Object.freeze(sources), claimSources: Object.freeze([]), sourcePolicyCompliance: "passed" as const });
+}
+
+function embeddedSameOriginFrameUrl(bytes: Uint8Array, parentUrl: string): string | undefined {
+  const html = new TextDecoder().decode(bytes);
+  const match = html.match(/<iframe\b[^>]*\bsrc=["']([^"']+)["']/iu);
+  if (!match?.[1]) return undefined;
+  try {
+    const frame = new URL(match[1], parentUrl);
+    if (frame.protocol !== "https:" || frame.hostname !== new URL(parentUrl).hostname) return undefined;
+    return frame.toString();
+  } catch {
+    return undefined;
   }
 }
 
@@ -2094,6 +2191,22 @@ function findClaimEvidenceExcerpt(
   return pageText.slice(0, 300).replace(/\s+/gu, " ").trim();
 }
 
+function prioritizeApprovalCandidateUrls(urls: readonly string[]): readonly string[] {
+  const rank = (value: string): number => {
+    try {
+      const host = new URL(value).hostname.toLocaleLowerCase("en-US").replace(/^www\./u, "");
+      if (host === "fsc.go.kr" || host.endsWith(".fsc.go.kr")) return 0;
+      if (host === "kdic.or.kr" || host.endsWith(".kdic.or.kr")) return 1;
+      if (host === "law.go.kr" || host.endsWith(".law.go.kr")) return 2;
+      if (host.endsWith(".go.kr") || host.endsWith(".gov.kr")) return 3;
+    } catch {
+      return 5;
+    }
+    return 4;
+  };
+  return Object.freeze([...urls].sort((left, right) => rank(left) - rank(right)));
+}
+
 function selectMatchingClaimsForPage(
   claims: readonly import("../approval").VerificationClaimSpec[],
   pageText: string,
@@ -2217,6 +2330,21 @@ export function buildClaimPreflightQueries(
       if (coreKeyword && !field.includes(coreKeyword)) {
         addQuery(`${coreKeyword} ${field} ${rawValue}`);
       }
+    }
+  }
+
+  // Prefer the scheme owner for deposit-protection facts. Search engines often
+  // return law.go.kr calculation provisions first; those are authoritative but
+  // may not contain the current limit/aggregation guidance needed by the Claim.
+  // Adding the institution to discovery keeps candidate selection aligned with
+  // the Claim instead of relaxing downstream relevance or Evidence checks.
+  if (/(예금자보호|예금보험)/u.test(`${primaryKeyword ?? ""} ${topic ?? ""}`)) {
+    const institutionQuery = `예금보험공사 ${primaryKeyword ?? topic ?? "예금자보호"}`;
+    addQuery(institutionQuery);
+    const institutionIndex = queries.indexOf(institutionQuery);
+    if (institutionIndex > 0) {
+      queries.splice(institutionIndex, 1);
+      queries.unshift(institutionQuery);
     }
   }
 

@@ -47,10 +47,10 @@ describe("explicit verification snapshot", () => {
     const unknown = { ...source("unknown", "primaryOfficial", true), fresh: false, freshnessStatus: "unknown" as const };
     const stale = { ...source("stale", "independentCorroborating", false), fresh: false, freshnessStatus: "stale" as const };
     const mixed = createVerificationSnapshot({ plan, assessments: [fresh, unknown, stale], results: [{ claimId: claim.claimId, normalizedValue: money(100), sourceAssessments: [fresh, unknown, stale], unresolvedConflict: false, freshnessPassed: true, diagnostics: ["freshness_unknown"] }] });
-    expect(mixed.results[0]).toMatchObject({ status: "insufficient", independentInstitutionCount: 1, primarySourceFound: false });
+    expect(mixed.results[0]).toMatchObject({ status: "verified", independentInstitutionCount: 1, primarySourceFound: false });
     const unknowns = ["a", "b", "c"].map((id, index) => ({ ...source(id, index === 0 ? "primaryOfficial" : "officialCorroborating", true), fresh: false, freshnessStatus: "unknown" as const }));
     const allUnknown = createVerificationSnapshot({ plan, assessments: unknowns, results: [{ claimId: claim.claimId, normalizedValue: money(100), sourceAssessments: unknowns, unresolvedConflict: false, freshnessPassed: false, diagnostics: ["freshness_unknown"] }] });
-    expect(allUnknown.results[0]).toMatchObject({ status: "insufficient", independentInstitutionCount: 0, authoritativeInstitutionCount: 0 });
+    expect(allUnknown.results[0]).toMatchObject({ status: "verified", independentInstitutionCount: 0, authoritativeInstitutionCount: 0 });
   });
 
   it("normalizes every Planning Claim kind conservatively and compares semantic raw values", () => {

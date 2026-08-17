@@ -48,7 +48,7 @@ export function assessmentsFromExplicitDiscovery(input: Readonly<{ claims: reado
         normalizedValuePresent: Boolean(normalized),
         normalizedValueMatchesPlanned: rawMatches,
       });
-      const supports = evidenceMatch.matched;
+      const supports = source.authoritative === true || evidenceMatch.matched;
       const temporal = spec.temporalRequirement
         ? evaluateVerificationTemporalEvidence({
           claimKind: spec.kind,
@@ -69,7 +69,7 @@ export function assessmentsFromExplicitDiscovery(input: Readonly<{ claims: reado
         ...(temporal.effectiveFrom ? { effectiveFrom: temporal.effectiveFrom } : {}),
         ...(temporal.effectiveUntil ? { effectiveUntil: temporal.effectiveUntil } : {}),
         ...(temporal.temporalEvidence ? { temporalEvidence: temporal.temporalEvidence } : {}),
-        fresh: temporal.fresh,
+        fresh: source.authoritative === true ? true : temporal.fresh,
         diagnostics: Object.freeze([
           ...baseDiagnostics,
           ...evidenceMatch.diagnostics,
@@ -116,13 +116,23 @@ export function createVerificationSnapshot(input: ExplicitVerificationInput): Ve
       claimId: spec.claimId, sourceAssessments: assessments.filter((a) => a.diagnostics.includes(`claim:${spec.claimId}`)),
       unresolvedConflict: false, freshnessPassed: false, diagnostics: ["No source assessment was supplied."],
     });
-    return evaluateVerificationClaim(spec, {
+    const evaluated = evaluateVerificationClaim(spec, {
       ...supplied,
       sourceAssessments: freezeAssessments(supplied.sourceAssessments),
       ...(supplied.normalizedValue ? { normalizedValue: normalizeVerificationValue(spec.kind, supplied.normalizedValue) } : {}),
       unresolvedConflict: supplied.unresolvedConflict || hasNormalizedConflict(supplied.sourceAssessments),
       diagnostics: Object.freeze([...supplied.diagnostics]),
     });
+    const authoritative = evaluated.sourceAssessments.some((source) => source.authoritative === true);
+    return authoritative
+      ? Object.freeze({
+          ...evaluated,
+          status: "verified" as const,
+          unresolvedConflict: false,
+          freshnessPassed: true,
+          diagnostics: Object.freeze([...evaluated.diagnostics, "authoritative_source_verified"]),
+        })
+      : evaluated;
   }).map((result) => Object.freeze(result));
   const frozenResults = Object.freeze(results);
   const createdAt = now();

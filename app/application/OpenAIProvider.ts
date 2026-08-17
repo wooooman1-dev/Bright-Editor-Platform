@@ -372,6 +372,9 @@ export function aiProviderStageForTask(task: string | undefined): AIProviderStag
 
 function editorialOutputPolicy(metadata?: Readonly<Record<string, string>>) {
   if (metadata?.task === "content-planning" && metadata.explicitVerificationPlanning === "1") return { maxOutputTokens: 12_000, verbosity: "medium" as const, format: explicitPlanningOutputFormat };
+  if (metadata?.task === "official-source-first-discovery") {
+    return { maxOutputTokens: 6_000, verbosity: "low" as const, format: officialSourceFirstDiscoveryFormat };
+  }
   if (metadata?.task === "approval-source-preflight") {
     return {
       maxOutputTokens: 12_000,
@@ -393,6 +396,32 @@ function editorialOutputPolicy(metadata?: Readonly<Record<string, string>>) {
   if (/tistory|blog|article|long-form|guide|아티클|장문/i.test(`${metadata?.platform ?? ""} ${metadata?.contentType ?? ""}`)) return { maxOutputTokens: 12_000, verbosity: "medium" as const, format: editorialDocumentFormat };
   return undefined;
 }
+
+export const officialSourceFirstDiscoveryFormat = {
+  type: "json_schema",
+  name: "official_source_first_discovery",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    required: ["sources"],
+    properties: {
+      sources: {
+        type: "array",
+        maxItems: 6,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["url", "title"],
+          properties: {
+            url: { type: "string", maxLength: 2048 },
+            title: { type: "string", maxLength: 240 },
+          },
+        },
+      },
+    },
+  },
+} as const;
 
 export const approvalSourcePreflightFormat = {
   type: "json_schema",

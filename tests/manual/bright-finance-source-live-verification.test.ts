@@ -17,6 +17,8 @@ const request = process.env.BRIGHT_FINANCE_SOURCE_REQUEST?.trim()
 type GenerationResponse = Readonly<{
   data?: UserData;
   error?: string;
+  code?: string;
+  approvalSourcePreflightDiagnostic?: Readonly<Record<string, unknown>>;
   aiReviewError?: string;
   callCounts?: Readonly<{ generation: number; review: number }>;
   quality?: UserData["contents"][number]["quality"];
@@ -204,6 +206,7 @@ describe.runIf(enabled)("Bright Finance live Source Preflight verification", () 
       verifiedClaimIds: verification?.verifiedClaimIds,
       sources: sourceSummary,
       publishingAttempted: false,
+      approvalSourcePreflightDiagnostic: generated.payload.approvalSourcePreflightDiagnostic,
     })}`);
 
     expect(generated.status, generated.payload.error ?? generated.payload.aiReviewError).toBe(200);

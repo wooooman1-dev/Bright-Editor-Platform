@@ -72,8 +72,17 @@ export function evaluateApprovalSourceRelevance(input: Readonly<{
   const subjectTokens = meaningfulTokens(input.opportunity.primaryKeyword)
     .filter((token) => /[가-힣]/u.test(token));
   const subjectRequired = subjectTokens.length > 0 && /[가-힣]/u.test(pageText);
+  const subjectMatches = subjectTokens.filter((token) => tokenMatchesPage(token, pageTokens, pageText));
+  const claimSubjectMatches = claimScopeTokens
+    .filter((token) => /\p{Script=Hangul}/u.test(token))
+    .filter((token) => tokenMatchesPage(token, pageTokens, pageText));
+  // Official legal pages may express the Claim without repeating the
+  // editorial keyword verbatim. Require two Claim vocabulary matches for
+  // that bridge; generic topic words alone remain insufficient.
+  const claimSubjectPresent = new Set(claimSubjectMatches).size >= 2;
   const subjectPresent = !subjectRequired
-    || subjectTokens.some((token) => tokenMatchesPage(token, pageTokens, pageText));
+    || subjectMatches.length > 0
+    || claimSubjectPresent;
   const relevant = subjectPresent && (input.minimumClaimCoverage !== undefined
     ? claimCoveragePassed
     : topicMatches.length > 0 || (claimMatches.length > 0 && claimTopicOverlap));

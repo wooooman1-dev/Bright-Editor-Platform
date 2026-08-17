@@ -209,11 +209,13 @@ describe("Verification Generation bundle", () => {
       "https://primary.example/claim",
       "https://official-a.example/claim",
       "https://official-b.example/claim",
+      "https://stale.example/claim",
     ]);
     expect(bundle.claimSources.map((source) => source.url)).toEqual([
       "https://primary.example/claim",
       "https://official-a.example/claim",
       "https://official-b.example/claim",
+      "https://stale.example/claim",
     ]);
     expect(bundle.verificationClaims).toHaveLength(1);
     expect(bundle.verificationClaims[0]).toMatchObject({
@@ -228,6 +230,7 @@ describe("Verification Generation bundle", () => {
       "primary",
       "official-a",
       "official-b",
+      "stale",
     ]);
   });
 
@@ -333,6 +336,7 @@ describe("Verification Generation bundle", () => {
       ],
     });
     expect(bundle.verificationClaims[0]?.sources.map((source) => source.sourceId)).toEqual([
+      "primary",
       "official-a",
       "official-b",
     ]);

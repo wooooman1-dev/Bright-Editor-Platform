@@ -89,6 +89,9 @@ export class ContentPlanningStrategy {
     enabledPlatforms?: readonly WorkspacePlatform[],
     context: ContentPlanningContext = { projectId: "planning-project", selectionMode: "userSpecified" },
   ): Promise<ContentPlanningResult> {
+    const startedAt = Date.now();
+    const diag = (stage: string) => console.info(`[PLANNING-DIAG] ${stage}: ${Date.now() - startedAt}ms`);
+    diag("analyze-start");
     const request = naturalLanguageRequest.trim();
     if (!request) throw new Error("What would you like to create?");
     const ownedBrandTerms = planningOwnedBrandTerms(context);
@@ -102,6 +105,7 @@ export class ContentPlanningStrategy {
       ? "Approval evidence policy is risk-based. Do not require sources for every approval-profile article. Return verificationClaims only for Claims that genuinely need external verification. Before returning, audit coreQuestions, warningsOrExceptions, expectedCoverage, requiredContentElements, and the content plan for factual premises about how an external system, institution, product, process, or rule works; every such premise must appear as an atomic VERIFY or CRITICAL Claim. Classify ordinary advice/checklists such as comparing receipts, checking large transactions first, grouping subscriptions, or contacting support as NONE by leaving them out. Use risk=verify for verifiable general facts that can be removed or generalized if unsupported. Use risk=critical and required=true only for money amounts, dates, eligibility, legal rules, tax rates, actual rates, official conditions, or similar facts that cannot safely remain without Evidence. If no VERIFY or CRITICAL Claim is needed, return an empty verificationClaims array; that explicit empty array is a valid completed N/A state. An empty array is a finding about the topic, not a way to make the article easier: a topic that produces one only because the article intends to state nothing checkable is the wrong topic. The article must inform the reader, not send them away to read their own documents, so requiredContentElements must name information the article itself states — how a rule or process actually works, what distinguishes one situation from another, what determines an outcome — and not only records the reader should go and look up. If the only honest plan for a topic is a list of things for the reader to check by themselves, choose a different topic."
       : "";
     const diversityInstruction = editorialDiversityInstruction(context.projectContext);
+    diag("provider-generate-start");
     const response = await this.provider.generate({
       instruction: `Analyze this content request as an editorial strategist. Do not write the final content. ${modeInstruction}
 Request: ${request}
@@ -119,7 +123,9 @@ Only the supplied server Evidence is factual. Do not invent monthly volume, CPC,
   Build each candidate as a coherent information contract before returning it. The primaryKeyword must be the concise phrase a reader would actually search, including a task modifier such as 방법, 비교, 기준, 조건, 계산, 신청, or 설정 when that modifier is essential to the search intent. The selectedTopic should naturally contain the primaryKeyword phrase when that reads well; otherwise it must preserve all of the keyword's core concepts without switching to an adjacent search task. Opportunity alignment measures how much of the primaryKeyword the selectedTopic carries and blocks the article below 60 percent, so do not drop the keyword's task modifier from the topic to make it read differently. Title shape is varied when the article is written, not by loosening the topic. searchIntent must state the concrete question or task the reader wants resolved, not only a classification label such as informational, transactional, commercial, or navigational. readerProblem must describe the reader's decision or action obstacle. Make coreQuestions directly answerable, make requiredContentElements concrete enough to judge as missing/mentioned/sufficient, and keep expectedCoverage items mutually distinct. decisionCriteria, examplesNeeded, warningsOrExceptions, and actionableNextSteps must each add a non-duplicative editorial role. Required elements identify information the reader needs, not merely words that should appear. Topic, keyword, intent, coverage, and supporting keywords in each candidate must describe one search task. comparisonNeeds, tableNeeds, and checklistNeeds are judgments about this one topic, not defaults: set each true only when the topic itself supplies the material for it. Set tableNeeds true only when the article will hold at least three rows of comparable data sharing the same columns; a table is scored by how many data rows it carries, so a table declared without data to fill it lowers the article's information score instead of raising it. Set checklistNeeds true whenever the reader has to confirm several separate conditions, documents or records before acting, which is usual for eligibility, application and preparation topics; do not set it false merely because actionableNextSteps also exists. Returning the same combination of these three flags on every candidate means they were copied rather than judged; candidates whose topics differ should differ here.`,
       metadata: { task: "content-planning", ...(explicitVerificationPlanningEnabled ? { explicitVerificationPlanning: "1" } : {}) },
     });
+    diag("provider-generate-complete");
     let plan: ContentPlanningResult;
+    diag("parse-start");
     try {
       plan = parsePlanningResult(response.content, { ...context, ownedBrandTerms, sourceRequest: request, explicitVerificationPlanningEnabled });
     } catch (error) {
@@ -130,6 +136,7 @@ Only the supplied server Evidence is factual. Do not invent monthly volume, CPC,
         diagnostic: response.diagnostics,
       });
     }
+    diag("parse-complete");
     return enabledPlatforms ? filterPlanningPlatforms(plan, enabledPlatforms) : plan;
   }
 }

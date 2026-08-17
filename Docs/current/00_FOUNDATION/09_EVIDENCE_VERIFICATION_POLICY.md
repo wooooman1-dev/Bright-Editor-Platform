@@ -7,7 +7,12 @@
 
 ## 1. Official institution sources
 
-An official institution source is sufficient for verification when the source has been confirmed as an official source for the Claim.
+An official institution source is sufficient for verification when the source has been confirmed as authoritative for the Claim, its HTTP response is 2xx, and its document body is successfully extracted and non-empty.
+
+Once those source-readiness conditions pass, every explicitly linked Claim is
+verified without re-running evidence-anchor, semantic, normalized-value,
+freshness, temporal, or corroboration checks. Those checks remain diagnostics
+only for the authoritative route.
 
 Official institution sources do **not** require corroboration search.
 
@@ -84,7 +89,9 @@ Therefore:
 
 ## 5. Value consensus rules
 
-Consensus is evaluated only after source identity, Claim semantics, freshness, and evidence-excerpt checks have passed.
+Consensus is evaluated only for non-official sources after source identity,
+Claim semantics, freshness, and evidence-excerpt checks have passed. It is not
+used to re-open an authoritative Claim.
 
 ### 5.1 One vote per institution
 

@@ -572,8 +572,10 @@ function applyContentPolicy(document: ContentDocument, content: UserData["conten
 
 async function persistPlanningResult(data: UserData, input: Record<string, unknown> | undefined, plan: import("../../user-flow/user-data").ContentPlanningResult): Promise<UserData> {
   if (typeof input?.contentId !== "string" || typeof input.operationId !== "string") return data;
+  const startedAt = Date.now();
+  console.info(`[PLANNING-DIAG] persist-start: ${Date.now() - startedAt}ms`);
   const completedAt = new Date().toISOString();
-  return studioStore.update<UserData>(collection, stateId, (current) => completeContentPlanning(current ?? data, {
+  const result = await studioStore.update<UserData>(collection, stateId, (current) => completeContentPlanning(current ?? data, {
     workspaceId: required(input.workspaceId),
     projectId: required(input.projectId),
     contentId: required(input.contentId),
@@ -581,6 +583,8 @@ async function persistPlanningResult(data: UserData, input: Record<string, unkno
     plan,
     now: completedAt,
   }));
+  console.info(`[PLANNING-DIAG] persist-complete: ${Date.now() - startedAt}ms`);
+  return result;
 }
 
 async function executePlanning(input: Record<string, unknown> | undefined, manual: boolean): Promise<PlanningExecutionResult> {

@@ -126,7 +126,7 @@ describe("Bright Finance explicit verification matrix", () => {
       sources: [{ requestedUrl: "https://www.gov.kr/money-basis-fixture", role: "primaryOfficial", authoritative: true, pageText: evidenceExcerpt, evidenceExcerpt, observedAt: OBSERVED_AT, claims: [{ claimId: monthly.claimId, value: "연 500,000원", evidenceExcerpt }] }],
       now: () => OBSERVED_AT,
     });
-    expect(assessment?.supports).toBe(false);
+    expect(assessment?.supports).toBe(true);
     expect(assessment?.diagnostics).toContain("claim_value_shape_mismatch");
   });
 });

@@ -113,6 +113,17 @@ function applyGeneratedClaimVerificationIntegrity(
 ): QualityReport {
   const plan = context.opportunity?.verificationPlan;
   const criticalPlan = plan?.claims.some(isCriticalVerificationClaim) ? plan : undefined;
+  // Official Source First has a source bundle and approvalEvidence, but does
+  // not create the Claim-first generatedClaimVerification snapshot. Keep the
+  // Claim-first integrity contract for legacy generation only.
+  const approvalEvidence = document.metadata?.approvalEvidence;
+  const isOfficialSourceFirst = Boolean(
+    !document.metadata?.generatedClaimVerification
+    && approvalEvidence?.sourcePolicyCompliance === "passed"
+    && approvalEvidence.sources.length > 0
+    && approvalEvidence.coverageStatus === undefined,
+  );
+  if (isOfficialSourceFirst) return report;
   if (!criticalPlan && !document.metadata?.generatedFactualClaimInventory) return report;
 
   const integrity = evaluateGeneratedClaimVerificationIntegrity({

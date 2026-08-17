@@ -37,6 +37,7 @@ export type ApprovalSourcePage = Readonly<{
   extractionStatus?: ApprovalSourceExtractionStatus;
   extractionReason?: string;
   contentLength?: number;
+  authoritative?: boolean;
 }>;
 
 export type ApprovalEvidenceVerificationResult = Readonly<{

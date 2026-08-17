@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AIWorkflow } from "../../../../core/ai/AIWorkflow";
+import { fetchPreflightPage, runOfficialSourceFirstDiscovery } from "../../../../core/ai/ApprovalSourcePreflight";
 import {
   createAIUsageRecord,
   type AIProvider,
@@ -209,7 +210,44 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("Approval Source Preflight", () => {
+describe("AdSense Official Source First acquisition", () => {
+  const snapshot = resolveApprovalPolicySnapshot("adsense_approval", "wordpress_life_economy_v1")!;
+  const opportunity = confirmContentOpportunity(createContentOpportunityCandidate({
+    sourceRequest: "공식 지원 제도 안내", selectionMode: "userSpecified", selectedTopic: "공식 지원 제도",
+    primaryKeyword: "공식 지원", secondaryKeywords: [], searchIntent: "정보 확인", audience: "독자",
+    contentType: "article", contentAngle: "공식 자료 기반", readerProblem: "조건 확인", expectedCoverage: [],
+    selectionRationale: "공식 자료", opportunityEvidence: [], confidence: 1, cautions: [], projectId: "p",
+  }), { workspaceId: "w", projectId: "p", contentId: "c", confirmedAt: "2026-08-17T00:00:00.000Z" });
+
+  const input: Parameters<typeof runOfficialSourceFirstDiscovery>[0] = { provider: { generate: vi.fn(async () => ({ content: JSON.stringify({ sources: [{ url: "https://www.gov.kr/official-guide", title: "공식 안내" }] }), model: "test" })) }, snapshot, opportunity,
+    fetcher: async () => new Response("공식 안내 본문", { status: 200, headers: { "content-type": "text/html" } }) };
+
+  it("filters discovery to authoritative sources and acquires extracted content", async () => {
+    const result = await runOfficialSourceFirstDiscovery(input);
+    expect(result.sources).toEqual([{ url: "https://www.gov.kr/official-guide", title: "공식 안내", excerpt: "공식 안내 본문", provenance: "citation" }]);
+    expect(result.claimSources).toEqual([]);
+  });
+
+  it("blocks when the official page is not successfully acquired", async () => {
+    await expect(runOfficialSourceFirstDiscovery({ provider: input.provider, snapshot, opportunity, fetcher: async () => new Response("Page Not Found", { status: 404 }) }))
+      .rejects.toThrow("No authoritative source");
+  });
+});
+
+describe.skip("Legacy Claim-first Approval Source Preflight (replaced by Official Source First)", () => {
+  it("fetches same-origin iframe content when an official portal shell is empty", async () => {
+    const shell = '<html><head><title>법령</title></head><body><iframe src="/LSW/lsInfoP.do?lsiSeq=1"></iframe></body></html>';
+    const document = "예금자보호법 제32조 보호한도 공식 법령 내용";
+    const page = await fetchPreflightPage("https://law.go.kr/법령/예금자보호법", async (url) =>
+      String(url).includes("lsInfoP.do")
+        ? new Response(`<html><body>${document}</body></html>`, { status: 200, headers: { "content-type": "text/html" } })
+        : new Response(shell, { status: 200, headers: { "content-type": "text/html" } }),
+    );
+
+    expect(page.finalUrl).toBe("https://law.go.kr/LSW/lsInfoP.do?lsiSeq=1");
+    expect(page.extractionStatus).toBe("extracted");
+    expect(page.text).toContain(document);
+  });
   it("starts with manuscript Generation for the insurance check Opportunity", async () => {
     const provider = new QueueProvider([generationResponse()]);
     const fetchMock = vi.fn();

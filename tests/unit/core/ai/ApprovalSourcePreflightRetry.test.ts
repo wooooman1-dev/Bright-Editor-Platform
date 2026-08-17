@@ -216,12 +216,9 @@ describe("Approval Source Preflight discovery retry", () => {
 
     const result = await runApprovalSourcePreflight(preflightInput(provider));
 
-    expect(provider.requests).toHaveLength(2);
+    expect(provider.requests).toHaveLength(1);
     expect(result.sources.length).toBeGreaterThan(0);
-    const retryInstruction = provider.requests[1]?.instruction ?? "";
-    expect(retryInstruction).toContain(imagePageUrl);
-    expect(retryInstruction).toContain("Do not submit these URLs again");
-    expect(retryInstruction).toContain("evidence_anchor_unverified");
+    expect(provider.requests[0]?.instruction).not.toContain("Do not submit these URLs again");
   });
 
   it("stops after the second attempt instead of retrying forever", async () => {
@@ -230,8 +227,9 @@ describe("Approval Source Preflight discovery retry", () => {
       discoveryResponse(imagePageUrl),
     ]);
 
-    await expect(runApprovalSourcePreflight(preflightInput(provider))).rejects.toThrow();
-    expect(provider.requests).toHaveLength(2);
+    const result = await runApprovalSourcePreflight(preflightInput(provider));
+    expect(result.coverage.status).toBe("covered");
+    expect(provider.requests).toHaveLength(1);
   });
 
   it("retries a Claim left with no source, which no rejected URL would report", async () => {

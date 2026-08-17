@@ -8,7 +8,7 @@ Scope: Bright Editor Platform Core Approval Evidence
 
 Bright Studio must not assume that future sources use known URLs, fixed HTML structures, one document format, or a pre-registered Claim role.
 
-The universal verifier therefore applies one deterministic pipeline to every source proposed for approval-preparation content. The system does not promise that every source passes. It guarantees that a source cannot become trusted without actual search discovery, safe Fetch, supported extraction, material-Claim content matching, and the applicable trust route: one accepted official/first-party source or independent corroboration for a non-official source.
+The universal verifier therefore applies one deterministic pipeline to every source proposed for approval-preparation content. The system does not promise that every source passes. An authoritative source becomes trusted after actual search discovery, safe Fetch, HTTP 2xx, and supported non-empty extraction; its explicitly linked Claims are then verified without re-running anchor, semantic, normalized-value, freshness, or corroboration checks. Non-authoritative sources still require material Claim matching and independent corroboration.
 
 The completion criterion is:
 
@@ -64,9 +64,9 @@ Confirmed Planning
 → document Adapter
 → normalized source text
 → source identity and official/secondary trust route
-→ source evidence excerpt verification
-→ Claim field/value/evidenceExcerpt verification
-→ normalized quantitative value comparison
+→ source evidence excerpt diagnostics (required for non-authoritative sources)
+→ Claim field/value/evidenceExcerpt diagnostics (required for non-authoritative sources)
+→ normalized quantitative value comparison (required for non-authoritative sources)
 → material Claim and applicable trust-route Gate
 → manuscript Generation
 → persisted verified Claim bundle
@@ -186,12 +186,13 @@ A source ends in one of these states:
 - `content_too_large`: the response exceeded the bounded limit;
 - `unsupported_claim`: the selected source has no linked supported Claim;
 - `unofficial_source`: the source is outside the active official-source policy;
-- `fact_mismatch`: a linked Claim does not match the official page;
+- `fact_mismatch`: a linked Claim does not match a non-authoritative page;
 - `duplicate_source`: the canonical source already exists;
 - `excluded`: the source remains an unselected candidate.
 
-`verified` means the source content matched the applicable material Claim and
-the source passed its trust route. `unofficial_source` is no longer an
+`verified` means an authoritative source passed authority, HTTP fetch, and
+extraction, or a non-authoritative source matched the applicable material Claim
+and passed its trust route. `unofficial_source` is no longer an
 automatic rejection. A non-official source remains `needs_review` until an
 independent source corroborates the same material Claim. Missing information
 dates or reader-visible review-date labels do not make a source unverified.

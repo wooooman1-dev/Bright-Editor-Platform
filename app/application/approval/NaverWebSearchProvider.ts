@@ -17,20 +17,21 @@ export class NaverWebSearchProvider implements ApprovalSearchProvider {
   ) {}
 
   async search(query: string, fetcher: SiteApprovalReadinessFetch): Promise<readonly string[]> {
-    const connection = (await this.connections.listByWorkspace(this.workspaceId))
-      .find((value) => value.provider === "naverSearchTrend" && value.enabled !== false && value.status !== "disconnected" && value.secretReference);
-    if (!connection) {
+    const connections = (await this.connections.listByWorkspace(this.workspaceId))
+      .filter((value) => value.provider === "naverSearchTrend" && value.enabled !== false && value.status !== "disconnected" && value.secretReference);
+    if (connections.length === 0) {
       console.info(`[ApprovalSourcePreflight] provider=naver query=${JSON.stringify(query)} returnedUrlCount=0 reason=credential_unavailable`);
       return Object.freeze([]);
     }
 
-    const credentials = parseSecret(await connectionSecret(this.secrets, connection));
-    if (!credentials.clientId || !credentials.clientSecret) {
-      console.info(`[ApprovalSourcePreflight] provider=naver query=${JSON.stringify(query)} returnedUrlCount=0 reason=credential_incomplete`);
-      return Object.freeze([]);
-    }
+    for (const connection of connections) {
+      const credentials = parseSecret(await connectionSecret(this.secrets, connection));
+      if (!credentials.clientId || !credentials.clientSecret) {
+        console.info(`[ApprovalSourcePreflight] provider=naver query=${JSON.stringify(query)} connection=${connection.id} skipped=credential_incomplete`);
+        continue;
+      }
 
-    try {
+      try {
       const response = await fetcher(
         `https://openapi.naver.com/v1/search/webkr.json?query=${encodeURIComponent(query)}&display=10`,
         {
@@ -45,8 +46,8 @@ export class NaverWebSearchProvider implements ApprovalSearchProvider {
         },
       );
       if (!response.ok) {
-        console.warn(`[ApprovalSourcePreflight] provider=naver query=${JSON.stringify(query)} failed=http_${response.status}`);
-        return Object.freeze([]);
+        console.warn(`[ApprovalSourcePreflight] provider=naver query=${JSON.stringify(query)} connection=${connection.id} failed=http_${response.status}`);
+        continue;
       }
       const body = await response.json() as { items?: readonly { link?: unknown }[] };
       const urls = [...new Set((body.items ?? [])
@@ -54,9 +55,12 @@ export class NaverWebSearchProvider implements ApprovalSearchProvider {
         .filter((url) => /^https:\/\//iu.test(url)))];
       console.info(`[ApprovalSourcePreflight] provider=naver query=${JSON.stringify(query)} returnedUrlCount=${urls.length}`);
       return Object.freeze(urls);
-    } catch (error) {
-      console.warn(`[ApprovalSourcePreflight] provider=naver query=${JSON.stringify(query)} failed=${error instanceof Error ? error.message : "unknown_error"}`);
-      return Object.freeze([]);
+      } catch (error) {
+        console.warn(`[ApprovalSourcePreflight] provider=naver query=${JSON.stringify(query)} connection=${connection.id} failed=${error instanceof Error ? error.message : "unknown_error"}`);
+      }
     }
+
+    console.info(`[ApprovalSourcePreflight] provider=naver query=${JSON.stringify(query)} returnedUrlCount=0 reason=all_connections_failed`);
+    return Object.freeze([]);
   }
 }

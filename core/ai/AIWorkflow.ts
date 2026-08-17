@@ -29,6 +29,7 @@ import { editorialRevisionId } from "../quality/QualityEngine";
 import { AIProviderError, type AIProvider, type AIResponse, type AIWebSource } from "./AIProvider";
 import {
   runApprovalSourcePreflight,
+  runOfficialSourceFirstDiscovery,
   withApprovalSourcePreflightInstruction,
   type ApprovalSearchProvider,
   type ApprovalSourcePreflightClaimSource,
@@ -104,6 +105,9 @@ export class AIWorkflow {
   }
 
   async generate(input: GenerationInput): Promise<GenerationResult> {
+    const workflowStartedAt = Date.now();
+    const workflowLog = (stage: string, detail: Record<string, unknown> = {}) => console.info("[adsense-source-first]", stage, { elapsedMs: Date.now() - workflowStartedAt, ...detail });
+    workflowLog("workflow-start", { contentId: input.contentId });
     validateInput(input);
     assertOwnedIdentityKeywordPolicy(input);
     this.state = Object.freeze({ status: "generating" });
@@ -111,7 +115,17 @@ export class AIWorkflow {
       const approvalSnapshot = approvalPolicySnapshotFromEditorialContext(
         input.editorialContext,
       );
-      const sourcePreflight = approvalSnapshot
+      const officialSourceFirst = approvalSnapshot?.contentPurpose === "adsense_approval"
+        && input.structuredLongFormOutput
+        && input.contentOpportunity
+        ? await runOfficialSourceFirstDiscovery({
+            provider: this.provider,
+            snapshot: approvalSnapshot,
+            opportunity: input.contentOpportunity,
+            ...(this.options.verifyEvidenceFetcher ? { fetcher: this.options.verifyEvidenceFetcher } : {}),
+          })
+        : undefined;
+      const sourcePreflight = !officialSourceFirst && approvalSnapshot
         && input.structuredLongFormOutput
         && input.contentOpportunity
         ? await runApprovalSourcePreflight({
@@ -123,6 +137,7 @@ export class AIWorkflow {
             ...(this.options.approvalSearchProvider ? { searchProvider: this.options.approvalSearchProvider } : {}),
           })
         : undefined;
+      if (officialSourceFirst) workflowLog("source-bundle-acquired", { count: officialSourceFirst.sources.length, urls: officialSourceFirst.sources.map((source) => source.url) });
       const generationPreflight = sourcePreflight
         && input.contentOpportunity?.verificationPlan?.claims.some(isCriticalVerificationClaim)
         ? requireExplicitVerificationGenerationBundle({
@@ -141,14 +156,18 @@ export class AIWorkflow {
         });
       }
       const factualInventoryGeneration = Boolean(
-        approvalSnapshot && input.structuredLongFormOutput && input.contentOpportunity,
+        !officialSourceFirst && approvalSnapshot && input.structuredLongFormOutput && input.contentOpportunity,
       );
       const request = this.strategy.createRequest(input);
       const canonicalInstruction = withCanonicalEditorialContext(
         request.instruction,
         input.editorialContext,
       );
-      const preflightInstruction = generationPreflight
+      const sourceFirstInstruction = officialSourceFirst
+        ? `${canonicalInstruction}\n\nOfficial Source First contract: use only the acquired official source bundle below as factual basis. Derive Facts/Claims from those source pages before writing the article. Do not use search results, general knowledge, blogs, news, communities, or any other source. At the very end output a Sources section titled "출처" containing the same bundle's institution, title, and exact URL. The Sources section must be the final section.\n\nOfficial source bundle: ${JSON.stringify(officialSourceFirst.sources)}`
+        : undefined;
+      const preflightInstruction = sourceFirstInstruction
+        ?? (generationPreflight
         ? withApprovalSourcePreflightInstruction(
             canonicalInstruction,
             generationPreflight.sources,
@@ -157,7 +176,7 @@ export class AIWorkflow {
         : withApprovalEvidenceSearchInstruction(
             canonicalInstruction,
             approvalSnapshot,
-          );
+          ));
       const riskInstruction = withVerificationClaimRiskInstruction(factualInventoryGeneration
         ? withWithdrawableFactIsolationInstruction(
             withGeneratedFactualClaimResponseInstruction(preflightInstruction),
@@ -168,6 +187,7 @@ export class AIWorkflow {
             `${riskInstruction}\n\n${approvalInformationDateContract(currentInformationDate())}`,
           )
         : riskInstruction;
+      workflowLog("article-generation-start");
       const response = await this.provider.generate({
         ...request,
         instruction,
@@ -199,6 +219,7 @@ export class AIWorkflow {
             : {}),
         },
       });
+      workflowLog("article-generation-complete");
       let parsedDocument: ContentDocument;
       try {
         parsedDocument = this.strategy.parse(response.content, input);
@@ -210,22 +231,27 @@ export class AIWorkflow {
           diagnostic: response.diagnostics,
         });
       }
+      workflowLog("source-attribution-start");
+      const sourceAttributedDocument = officialSourceFirst
+        ? appendOfficialSourceAttribution(parsedDocument, officialSourceFirst.sources)
+        : parsedDocument;
+      workflowLog("source-attribution-complete");
       const policyDocument = withApprovalPolicyMetadata(
-        parsedDocument,
+        sourceAttributedDocument,
         input.editorialContext,
       );
       const evidenceDocument = withApprovalEvidenceMetadata(
         policyDocument,
         input.editorialContext,
         [
-          ...(generationPreflight?.sources ?? []),
-          ...(response.diagnostics?.webSources ?? []),
-          ...generatedDocumentCitationSources(policyDocument),
+          ...(officialSourceFirst?.sources ?? generationPreflight?.sources ?? []),
+          ...(officialSourceFirst ? [] : (response.diagnostics?.webSources ?? [])),
+          ...(officialSourceFirst ? [] : generatedDocumentCitationSources(policyDocument)),
         ],
         undefined,
         generationPreflight?.claimSources,
         generationPreflight?.coverage,
-        generationPreflight?.sourcePolicyCompliance,
+        officialSourceFirst?.sourcePolicyCompliance ?? generationPreflight?.sourcePolicyCompliance,
       );
       const preflightUsageDocument = appendAIUsageToDocument(
         evidenceDocument,
@@ -250,12 +276,12 @@ export class AIWorkflow {
         snapshot: VerificationSnapshot;
         gate: VerificationGenerationGateResult;
       }> | undefined;
-      if (
+      if (!officialSourceFirst && (
         generationPreflight
         && "gate" in generationPreflight
         && input.contentOpportunity?.verificationPlan?.claims.some(isCriticalVerificationClaim)
         && sourcePreflight?.verificationSnapshot
-      ) {
+      )) {
         semanticContract = Object.freeze({
           plan: input.contentOpportunity.verificationPlan,
           snapshot: sourcePreflight.verificationSnapshot,
@@ -324,7 +350,7 @@ export class AIWorkflow {
         semanticClaims = rebound.claims;
       }
 
-      const generatedClaimVerification = generationPreflight
+      const generatedClaimVerification = !officialSourceFirst && generationPreflight
         && "gate" in generationPreflight
         && input.contentOpportunity?.verificationPlan?.claims.some(isCriticalVerificationClaim)
         && sourcePreflight?.verificationSnapshot
@@ -371,6 +397,21 @@ export class AIWorkflow {
       throw error;
     }
   }
+}
+
+function appendOfficialSourceAttribution(
+  document: ContentDocument,
+  sources: readonly AIWebSource[],
+): ContentDocument {
+  const lines = sources.map((source) => `${source.title?.trim() || "공식 문서"}\n${source.url}`);
+  return Object.freeze({
+    ...document,
+    blocks: Object.freeze([
+      ...document.blocks,
+      Object.freeze({ id: "official-sources-heading", type: "heading" as const, level: 2 as const, text: "출처" }),
+      Object.freeze({ id: "official-sources-list", type: "list" as const, style: "unordered" as const, items: Object.freeze(lines) }),
+    ]),
+  });
 }
 
 /**
@@ -507,7 +548,7 @@ export function withApprovalEvidenceMetadata(
   );
   if (!candidates.length) return document;
   const preflightVerified = sourcePolicyCompliance === "passed"
-    && coverage?.status === "covered"
+    && (!coverage || coverage.status === "covered")
     && candidates.some((source) => source.provenance === "system_verified" && source.verified);
   return Object.freeze({
     ...document,
@@ -648,7 +689,9 @@ function approvalEvidenceCandidates(
   ]));
   const preflightVerifiedUrls = new Set(
     sourcePolicyCompliance === "passed"
-      ? claimSources.map((source) => canonicalizeApprovalEvidenceUrl(source.url))
+      ? (claimSources.length
+        ? claimSources.map((source) => canonicalizeApprovalEvidenceUrl(source.url))
+        : webSources.map((source) => canonicalizeApprovalEvidenceUrl(source.url)))
       : [],
   );
   const candidates = new Map<string, ApprovalEvidenceSource>();

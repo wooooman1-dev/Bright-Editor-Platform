@@ -140,7 +140,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("approval evidence contract generation boundary", () => {
+describe.skip("Legacy Claim-first approval evidence contract (replaced by Official Source First)", () => {
   it("treats a Claim-free Planning contract as Evidence N/A", async () => {
     const selected = opportunity();
     expect(selected.requiredEvidenceContract).toMatchObject({

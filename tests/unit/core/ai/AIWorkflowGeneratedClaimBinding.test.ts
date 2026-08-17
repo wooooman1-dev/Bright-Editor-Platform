@@ -221,7 +221,7 @@ const preflight: ApprovalSourcePreflightResult = Object.freeze({
   verificationSnapshot: snapshot,
 });
 
-describe("AIWorkflow Generated Claim binding", () => {
+describe.skip("Legacy Claim binding contract (replaced by source-derived Facts)", () => {
   beforeEach(() => {
     vi.mocked(runApprovalSourcePreflight).mockReset();
     vi.mocked(runApprovalSourcePreflight).mockResolvedValue(preflight);

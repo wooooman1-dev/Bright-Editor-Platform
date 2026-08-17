@@ -314,12 +314,15 @@ function claimMatchesRequirement(
   if (requirement.claimId?.trim()) {
     if (claim.claimId !== requirement.claimId) return false;
   } else if (claim.field !== requirement.field) return false;
-  if (!claim.value || !claim.evidenceExcerpt) return false;
   if (page.status < 200 || page.status >= 400) return false;
   if (page.extractionStatus !== "extracted") return false;
   if (page.documentFormat === "binary" || page.documentFormat === "unknown") {
     return false;
   }
+  // Authority is classified once by the source-readiness pipeline. Coverage
+  // must consume that decision, not infer authority from a URL a second time.
+  if (page.authoritative === true) return true;
+  if (!claim.value || !claim.evidenceExcerpt) return false;
 
   const pageText = [
     page.title,

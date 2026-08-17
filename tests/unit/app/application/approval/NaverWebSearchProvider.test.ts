@@ -49,6 +49,20 @@ describe("NaverWebSearchProvider", () => {
     );
     await expect(provider.search("claim", fetcher(new Response("rate limited", { status: 429 })))).resolves.toEqual([]);
   });
+
+  it("tries the next active connection when an earlier credential is unusable", async () => {
+    const secondConnection = { ...connection, id: "naver-2", secretReference: "secret-2" };
+    const provider = new NaverWebSearchProvider(
+      "workspace-1",
+      { listByWorkspace: vi.fn(async () => [connection, secondConnection]) } as never,
+      { readSecret: vi.fn(async (reference: string) => reference === "secret-1"
+        ? JSON.stringify({})
+        : JSON.stringify({ clientId: "client-id", clientSecret: "client-secret" })) } as never,
+    );
+    await expect(provider.search("claim", fetcher(new Response(JSON.stringify({ items: [
+      { link: "https://official.example/source" },
+    ] }), { status: 200 })))).resolves.toEqual(["https://official.example/source"]);
+  });
 });
 
 describe("DuckDuckGo to Naver fallback", () => {
