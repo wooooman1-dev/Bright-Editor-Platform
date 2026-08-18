@@ -9,9 +9,9 @@ try {
   await page.getByRole("heading", { name: "Image Workspace Verification" }).waitFor();
   await page.getByText("준비됨", { exact: true }).waitFor();
 
-  await expectVisible(page.getByText("이미지 별도 제작용 프롬프트", { exact: true }), "standalone image prompt");
-  await expectVisible(page.getByText("이미지 목적", { exact: true }), "image purpose");
-  await expectVisible(page.getByText("ALT", { exact: true }), "ALT field");
+  await expectVisible(page.getByLabel("이미지 별도 제작용 프롬프트"), "standalone image prompt");
+  await expectVisible(page.getByLabel("이미지 목적"), "image purpose");
+  await expectVisible(page.getByLabel("ALT"), "ALT field");
   await expectVisible(page.getByRole("button", { name: "파일 불러오기" }), "file loading button");
   await expectVisible(page.getByRole("button", { name: "AI 생성하기" }), "AI generation button");
   await expectVisible(page.getByRole("button", { name: "프롬프트 복사" }), "prompt copy button");
@@ -45,7 +45,7 @@ try {
   await page.getByText("Project 이미지 재사용", { exact: true }).first().click();
   await page.getByRole("button", { name: "이 이미지 사용" }).first().waitFor({ timeout: 10_000 });
   await page.getByRole("button", { name: "이 이미지 사용" }).first().click();
-  await page.getByText("Project 이미지를 현재 블록에 재사용했습니다. 파일 복사본은 생성하지 않았습니다.", { exact: true }).waitFor({ timeout: 10_000 });
+  await page.getByText("Project 이미지를 현재 본문 블록에 재사용했습니다. 파일 복사본은 생성하지 않았습니다.", { exact: true }).waitFor({ timeout: 10_000 });
 
   const studioResponse = await page.request.get(`${baseUrl}/api/studio`);
   assert(studioResponse.ok(), `studio endpoint returned ${studioResponse.status()}`);
