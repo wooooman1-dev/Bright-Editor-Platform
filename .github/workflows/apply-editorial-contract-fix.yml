@@ -1,0 +1,37 @@
+name: apply-editorial-contract-fix
+
+on:
+  push:
+    branches:
+      - fix/editorial-contract-20260818
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, 'apply audited editorial contract fix') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/editorial-contract-20260818
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Apply reviewed patch
+        run: git apply --3way Docs/patches/2026-08-18-adsense-editorial-contract-fix.patch
+      - name: Validate patch
+        run: |
+          git diff --check
+          npm ci
+          npx tsc --noEmit
+      - name: Commit audited code changes
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add core/ai/AIWorkflow.ts core/content/ContentOpportunityAlignment.ts app/application/ContentPlanningStrategyBase.ts app/application/publishing/WordPressDraftReadiness.ts
+          git commit -m 'fix: apply audited official source editorial contracts'
+          git push origin HEAD:fix/editorial-contract-20260818
