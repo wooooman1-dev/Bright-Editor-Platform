@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { type AIProvider, type AIRequest, type AIResponse, type ContentGenerationStrategy, type GenerationInput } from "../../../../core/ai";
 import { AIWorkflow } from "../../../../core/ai/AIWorkflow";
-import { approvalPolicyPromptContext, resolveApprovalPolicySnapshot } from "../../../../core/approval";
+import { approvalPolicyPromptContext, resolveApprovalPolicySnapshot, type SiteApprovalReadinessFetch } from "../../../../core/approval";
 import { confirmContentOpportunity, createContentOpportunityCandidate, createContentOpportunityVerificationPlan, type ContentDocument } from "../../../../core/content";
 
 const evidenceUrl = "https://www.fss.or.kr/card/cancel";
@@ -111,7 +111,7 @@ function fetcher(): ReturnType<typeof vi.fn> {
 describe("AIWorkflow Official Source First lifecycle", () => {
   it("acquires the official source before the single article-generation call", async () => {
     const provider = new SourceFirstProvider([sourceDiscoveryResponse(), generationResponse()]);
-    const verifyEvidenceFetcher = fetcher();
+    const verifyEvidenceFetcher = fetcher() as unknown as SiteApprovalReadinessFetch;
 
     const result = await new AIWorkflow(provider, strategy(), { verifyEvidenceFetcher }).generate(input());
 
@@ -126,7 +126,7 @@ describe("AIWorkflow Official Source First lifecycle", () => {
 
   it("does not start article generation when Official Source First cannot acquire an authoritative source", async () => {
     const provider = new SourceFirstProvider([sourceDiscoveryResponse(), generationResponse()]);
-    const verifyEvidenceFetcher = vi.fn(async () => new Response("unavailable", { status: 503 }));
+    const verifyEvidenceFetcher = vi.fn(async () => new Response("unavailable", { status: 503 })) as unknown as SiteApprovalReadinessFetch;
 
     await expect(new AIWorkflow(provider, strategy(), { verifyEvidenceFetcher }).generate(input()))
       .rejects.toMatchObject({ code: "APPROVAL_SOURCE_NOT_READY" });
@@ -139,7 +139,7 @@ describe("AIWorkflow Official Source First lifecycle", () => {
       { ...sourceDiscoveryResponse(), content: "not-json" },
       generationResponse(),
     ]);
-    const verifyEvidenceFetcher = vi.fn();
+    const verifyEvidenceFetcher = vi.fn() as unknown as SiteApprovalReadinessFetch;
 
     await expect(new AIWorkflow(provider, strategy(), { verifyEvidenceFetcher }).generate(input()))
       .rejects.toMatchObject({ code: "APPROVAL_SOURCE_NOT_READY" });
