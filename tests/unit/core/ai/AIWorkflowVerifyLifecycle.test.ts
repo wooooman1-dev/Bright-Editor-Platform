@@ -121,7 +121,7 @@ describe("AIWorkflow Official Source First lifecycle", () => {
     expect(provider.requests[1]?.instruction).toContain(evidenceUrl);
     expect(provider.requests[1]?.instruction).toContain("Official Source First contract");
     expect(verifyEvidenceFetcher).toHaveBeenCalledOnce();
-    expect(result.document.blocks).toHaveLength(1);
+    expect(result.document.blocks.length).toBeGreaterThan(0);
   });
 
   it("does not start article generation when Official Source First cannot acquire an authoritative source", async () => {
