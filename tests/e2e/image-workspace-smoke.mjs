@@ -13,9 +13,14 @@ try {
   await expectVisible(page.getByText("이미지 목적", { exact: true }), "image purpose");
   await expectVisible(page.getByText("ALT", { exact: true }), "ALT field");
   await expectVisible(page.getByRole("button", { name: "파일 불러오기" }), "file loading button");
-  await expectVisible(page.getByRole("button", { name: "AI 생성하기" }), "AI generation button");
   await expectVisible(page.getByRole("button", { name: "프롬프트 복사" }), "prompt copy button");
   await expectVisible(page.getByText("Project 이미지 재사용", { exact: true }), "Project media reuse control");
+
+  const purpose = page.getByLabel("이미지 목적");
+  await purpose.selectOption("hero");
+  await expectVisible(page.getByRole("button", { name: "대표이미지 AI 생성" }), "hero AI generation button");
+  await purpose.selectOption("inline");
+  await expectVisible(page.getByText("본문 시각 자료는 표·체크리스트·요약·경고 컴포넌트, Project 이미지 재사용 또는 파일 업로드로 처리하여 AI 이미지 비용을 발생시키지 않습니다.", { exact: true }), "inline free-image policy");
 
   await page.getByText("요소 추가", { exact: true }).click();
   await page.getByRole("button", { name: "이미지 추가" }).click();
