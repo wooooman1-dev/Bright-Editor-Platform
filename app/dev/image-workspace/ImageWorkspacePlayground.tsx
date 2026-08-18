@@ -148,17 +148,10 @@ async function loadOrSeed(): Promise<Readonly<{ data: UserData; document: Conten
 
   const existing = result.data;
   const content = existing?.contents.find((item) => item.id === contentId && item.workspaceId === workspaceId && item.projectId === projectId);
-  if (content?.document && isCompatibleFixtureDocument(content.document)) {
-    return { data: existing as UserData, document: content.document };
-  }
+  if (existing && content?.document) return { data: existing, document: content.document };
 
   await save(seedData);
   return { data: seedData, document: seedDocument };
-}
-
-function isCompatibleFixtureDocument(document: ContentDocument): boolean {
-  const imageBlock = document.blocks.find((block) => block.id === imageBlockId && block.type === "image");
-  return imageBlock?.purpose === "inline" && typeof imageBlock.prompt === "string" && imageBlock.prompt.length > 0;
 }
 
 async function save(data: UserData): Promise<void> {
