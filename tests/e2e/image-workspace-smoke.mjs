@@ -9,9 +9,9 @@ try {
   await page.getByRole("heading", { name: "Image Workspace Verification" }).waitFor();
   await page.getByText("준비됨", { exact: true }).waitFor();
 
-  await expectVisible(page.getByText("이미지 별도 제작용 프롬프트", { exact: true }), "standalone image prompt");
-  await expectVisible(page.getByText("이미지 목적", { exact: true }), "image purpose");
-  await expectVisible(page.getByText("ALT", { exact: true }), "ALT field");
+  await expectVisible(page.getByLabel("이미지 별도 제작용 프롬프트"), "standalone image prompt");
+  await expectVisible(page.getByLabel("이미지 목적"), "image purpose");
+  await expectVisible(page.getByLabel("ALT"), "ALT field");
   await expectVisible(page.getByRole("button", { name: "파일 불러오기" }), "file loading button");
   await expectVisible(page.getByRole("button", { name: "프롬프트 복사" }), "prompt copy button");
   await expectVisible(page.getByText("Project 이미지 재사용", { exact: true }), "Project media reuse control");
