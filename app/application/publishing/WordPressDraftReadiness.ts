@@ -27,10 +27,9 @@ export function calculateWordPressDraftReadiness(input: Readonly<{ data: UserDat
   const qualityReady = standardQualityReady(content);
   const currentRevisionId = content.document ? editorialRevisionId(content.document) : undefined;
 
-  // Official Source First contract: Approval Evidence is advisory here, not a readiness gate.
-  // Keep integrity evaluations as diagnostics and approval-state reporting, but do not make
-  // Generated Claim Verification, claim-first source summary, or unofficial corroboration
-  // execution prerequisites for WordPress drafts.
+  // Official Source First contract: Approval Evidence presence itself is not a readiness gate.
+  // Generated Claim Verification is different: a current document with an explicit verification
+  // plan must pass its Claim integrity gate before a WordPress draft can be considered ready.
   const generatedClaimIntegrity = content.document
     ? evaluateGeneratedClaimVerificationIntegrity({
         document: content.document,
@@ -86,10 +85,8 @@ export function calculateWordPressDraftReadiness(input: Readonly<{ data: UserDat
     check("final_confirmation", input.finalConfirmation, "사용자의 최종 확인이 완료되었습니다.", "사용자의 최종 확인이 필요합니다."),
   ]);
 
-  // Approval Article Integrity and Generated Claim Verification are intentionally excluded from
-  // the executable readiness gate. They remain first-class diagnostic checks for approval/reporting.
   const ready = checks
-    .filter((item) => item.key !== "final_confirmation" && item.key !== "approval_article_integrity" && item.key !== "generated_claim_verification")
+    .filter((item) => item.key !== "final_confirmation" && item.key !== "approval_article_integrity")
     .every((item) => item.passed);
   return Object.freeze({ ready, executable: ready && input.finalConfirmation, checks, localImageCount, categorySelection, ...(input.featuredImageAssetId ? { featuredImageAssetId: input.featuredImageAssetId } : {}) });
 }
