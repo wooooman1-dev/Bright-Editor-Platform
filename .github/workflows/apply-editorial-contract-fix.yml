@@ -4,13 +4,16 @@ on:
   push:
     branches:
       - fix/editorial-contract-20260818
+  pull_request:
+    branches:
+      - feat/scheduled-publishing-and-diversity
 
 permissions:
   contents: write
 
 jobs:
   apply:
-    if: ${{ !contains(github.event.head_commit.message, 'apply audited editorial contract fix') }}
+    if: ${{ github.event_name == 'pull_request' || !contains(github.event.head_commit.message, 'apply audited editorial contract fix') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,6 +32,7 @@ jobs:
           npm ci
           npx tsc --noEmit
       - name: Commit audited code changes
+        if: ${{ github.event_name == 'pull_request' }}
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
