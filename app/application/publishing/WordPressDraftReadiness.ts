@@ -43,6 +43,16 @@ export function calculateWordPressDraftReadiness(input: Readonly<{ data: UserDat
           ? Object.freeze(["검증할 canonical 원고가 없습니다."])
           : Object.freeze([]),
       });
+  const generatedClaimFailureMessage = generatedClaimIntegrity.passed
+    ? content.opportunity?.verificationPlan
+      ? "현재 원고의 고위험 Claim 검증 상태를 확인했습니다."
+      : "현재 원고에는 explicit Verification Claim Gate가 필요하지 않습니다."
+    : generatedClaimIntegrity.reasons.join(" ")
+      || generatedClaimIntegrity.bindings
+        .filter((binding) => binding.reference.referenceType === "unverifiedDetected")
+        .map((binding) => `검증되지 않은 고위험 사실이 원고에 남아 있습니다: ${binding.matchedText}.`)
+        .join(" ")
+      || "현재 원고의 고위험 Claim 검증 상태를 확인해야 합니다.";
   const approvalIntegrity = content.document ? evaluateApprovalDraftIntegrity(content.document, false, resolveApprovalTemporalRequirement(content.opportunity) !== "not_required") : Object.freeze({ passed: false, reasons: Object.freeze(["기준 원고가 없습니다."]) });
   const policy = resolveWorkspaceSettings(data).publishing;
   const localImageCount = content.document?.blocks.filter((block) => block.type === "image" && /^\/api\/media\//i.test(block.source)).length ?? 0;
@@ -62,7 +72,7 @@ export function calculateWordPressDraftReadiness(input: Readonly<{ data: UserDat
     check("category_catalog", categoriesReady, categorySelection.valid && categorySelection.policyCompliant !== false ? `워드프레스 카테고리 ${categorySelection.categoryIds.length}개를 검증했습니다.` : "워드프레스 카테고리를 확인했습니다.", categoryMessage(categorySelection, input.categoryResult.hasMore)),
     check("planning_identity", identityContamination.length === 0, "기획 주제와 검색 키워드에 프로젝트명 또는 브랜드명이 검색어로 섞이지 않았습니다.", `기존 기획에 검색 주제가 아닌 프로젝트명 또는 브랜드명이 포함되어 있습니다: ${identityContamination.join(", ")}. 새 Content에서 Planning을 다시 실행해 주세요.`),
     check("quality_revision", qualityReady, "현재 문서 버전의 기본 품질 승인을 확인했습니다.", "현재 문서 버전이 기본 품질 승인을 통과해야 합니다."),
-    check("generated_claim_verification", generatedClaimIntegrity.passed, generatedClaimIntegrity.passed ? content.opportunity?.verificationPlan ? "현재 원고의 고위험 Claim 검증 상태를 확인했습니다." : "현재 원고에는 explicit Verification Claim Gate가 필요하지 않습니다." : generatedClaimIntegrity.reasons.join(" ") || "현재 원고의 고위험 Claim 검증 상태를 확인해야 합니다."),
+    check("generated_claim_verification", generatedClaimIntegrity.passed, generatedClaimFailureMessage, generatedClaimFailureMessage),
     check("approval_article_integrity", approvalIntegrity.passed, "현재 승인 준비 원고의 정책·중복 무결성을 확인했습니다.", approvalIntegrity.reasons.join(" ") || "현재 승인 준비 원고의 무결성을 확인해야 합니다."),
     check("review_first", policy.reviewFirst, "검토 후 저장 정책이 활성화되어 있습니다.", "검토 후 저장 정책이 활성화되어 있어야 합니다."),
     check("draft_only", policy.draftOnly, "임시글만 저장 정책이 활성화되어 있습니다.", "임시글만 저장 정책이 활성화되어 있어야 합니다."),
