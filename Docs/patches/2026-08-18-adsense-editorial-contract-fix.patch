@@ -103,12 +103,4 @@
 +      : officialSourceFirst
 +        ? "Official Source First의 공식 출처 Evidence로 현재 원고의 사실 근거를 확인했습니다."
 +        : "현재 원고에는 explicit Verification Claim Gate가 필요하지 않습니다."
-@@
-*** Update File: tests/unit/core/ai/OfficialSourceFirst.test.ts
-@@
-+  it("does not ask the model to own the reader-visible source section", async () => {
-+    // The source section is server-owned and appended exactly once after parsing.
-+    // This regression prevents AI output + server attribution from producing two sections.
-+    expect(true).toBe(true);
-+  });
 *** End Patch
