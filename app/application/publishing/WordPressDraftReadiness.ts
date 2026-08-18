@@ -46,12 +46,7 @@ export function calculateWordPressDraftReadiness(input: Readonly<{ data: UserDat
     ? content.opportunity?.verificationPlan
       ? "현재 원고의 고위험 Claim 검증 상태를 확인했습니다."
       : "현재 원고에는 explicit Verification Claim Gate가 필요하지 않습니다."
-    : generatedClaimIntegrity.reasons.join(" ")
-      || generatedClaimIntegrity.bindings
-        .filter((binding) => binding.reference.referenceType === "unverifiedDetected")
-        .map((binding) => `검증되지 않은 고위험 사실이 원고에 남아 있습니다: ${binding.matchedText}.`)
-        .join(" ")
-      || "현재 원고의 고위험 Claim 검증 상태를 확인해야 합니다.";
+    : generatedClaimIntegrity.reasons.join(" ") || "현재 원고의 고위험 Claim 검증 상태를 확인해야 합니다.";
   const approvalIntegrity = content.document ? evaluateApprovalDraftIntegrity(content.document, false, resolveApprovalTemporalRequirement(content.opportunity) !== "not_required") : Object.freeze({ passed: false, reasons: Object.freeze(["기준 원고가 없습니다."]) });
   const policy = resolveWorkspaceSettings(data).publishing;
   const localImageCount = content.document?.blocks.filter((block) => block.type === "image" && /^\/api\/media\//i.test(block.source)).length ?? 0;
