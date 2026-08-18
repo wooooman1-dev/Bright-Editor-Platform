@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { evaluateVerificationClaim, type VerificationClaimSpec, type VerificationSourceAssessment } from "../../../../core/approval";
+
 const spec: VerificationClaimSpec = { claimId: "c", field: "x", kind: "money", statement: "x", qualifiers: {}, required: true };
 const source = (group: string, role: VerificationSourceAssessment["role"], authoritative: boolean, value = 1): VerificationSourceAssessment => ({ sourceId: group, institutionGroupId: group, role, authoritative, supports: true, fresh: true, freshnessStatus: "fresh", normalizedValue: { kind: "money", value: { amount: value, currency: "KRW", basis: "total" } }, diagnostics: [] });
 const input = (sources: readonly VerificationSourceAssessment[], conflict = false) => ({ claimId: "c", normalizedValue: sources[0]?.normalizedValue, sourceAssessments: sources, unresolvedConflict: conflict, freshnessPassed: true, diagnostics: [] });
+
 describe("Verification policy", () => {
   it("verifies a high-risk Claim from one fresh authoritative primary source", () => expect(evaluateVerificationClaim(spec, input([source("a", "primaryOfficial", true)])).status).toBe("verified"));
-  it("does not replace Claim authority with a universal source-count quota", () => expect(evaluateVerificationClaim(spec, input([source("a", "primaryOfficial", true), source("b", "officialCorroborating", true), source("c", "independentCorroborating", false)])).status).toBe("verified"));
+  it("verifies a high-risk Claim from two independent non-official institutions", () => expect(evaluateVerificationClaim(spec, input([source("a", "independentCorroborating", false), source("b", "independentCorroborating", false)])).status).toBe("verified"));
+  it("blocks a high-risk Claim when only one non-official institution is available", () => expect(evaluateVerificationClaim(spec, input([source("a", "independentCorroborating", false)])).status).toBe("insufficient"));
+  it("does not replace official authority with a source-count quota", () => expect(evaluateVerificationClaim(spec, input([source("a", "primaryOfficial", true), source("b", "officialCorroborating", true), source("c", "independentCorroborating", false)])).status).toBe("verified"));
   it("rejects a non-authoritative source even when it is labelled primary", () => expect(evaluateVerificationClaim(spec, input([source("a", "primaryOfficial", false)])).status).toBe("insufficient"));
   it("does not combine a non-authoritative primary label with unrelated authoritative corroboration", () => expect(evaluateVerificationClaim(spec, input([source("a", "primaryOfficial", false), source("b", "officialCorroborating", true)])).status).toBe("insufficient"));
   it("requires an authoritative source to own the primary role", () => expect(evaluateVerificationClaim(spec, input([source("a", "officialCorroborating", true)])).status).toBe("insufficient"));
@@ -15,6 +19,33 @@ describe("Verification policy", () => {
     const result = evaluateVerificationClaim(spec, input([source("a", "primaryOfficial", true), source("a", "officialCorroborating", true), source("b", "independentCorroborating", false)]));
     expect(result.status).toBe("verified");
     expect(result.independentInstitutionCount).toBe(2);
+  });
+  it("selects the majority value from independent non-official institutions", () => {
+    const result = evaluateVerificationClaim(spec, input([
+      source("a", "independentCorroborating", false, 50_000),
+      source("b", "independentCorroborating", false, 70_000),
+      source("c", "independentCorroborating", false, 70_000),
+    ]));
+    expect(result.status).toBe("verified");
+    expect(result.normalizedValue).toEqual({ kind: "money", value: { amount: 70_000, currency: "KRW", basis: "total" } });
+    expect(result.diagnostics).toContain("corroboration_value_majority_selected");
+  });
+  it("does not treat a same-institution second URL as a second majority vote", () => {
+    const result = evaluateVerificationClaim(spec, input([
+      source("a", "independentCorroborating", false, 50_000),
+      source("a", "independentCorroborating", false, 50_000),
+      source("b", "independentCorroborating", false, 70_000),
+    ]));
+    expect(result.status).toBe("conflicted");
+    expect(result.status).not.toBe("verified");
+  });
+  it("keeps a tied non-official value conflict blocked", () => {
+    const result = evaluateVerificationClaim(spec, input([
+      source("a", "independentCorroborating", false, 50_000),
+      source("b", "independentCorroborating", false, 70_000),
+    ]));
+    expect(result.status).toBe("conflicted");
+    expect(result.diagnostics).toContain("corroboration_value_tie");
   });
   it("excludes unknown and stale assessments from verification counts without contaminating usable fresh authority", () => {
     const unknown = { ...source("unknown", "primaryOfficial", true), fresh: false, freshnessStatus: "unknown" as const };

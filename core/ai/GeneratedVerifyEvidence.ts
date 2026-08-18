@@ -1,6 +1,7 @@
 import {
   canonicalizeApprovalEvidenceUrl,
   evaluateApprovalSourceRelevance,
+  isCriticalVerificationClaim,
   officialSourceAllowed,
   type ApprovalPolicySnapshot,
   type GeneratedFactualClaimDecision,
@@ -28,6 +29,18 @@ export async function evaluateGeneratedFactualClaimDecisions(input: Readonly<{
   const plannedVerifyClaimIds = new Set(input.opportunity.verificationPlan?.claims
     .filter((claim) => claim.risk === "verify")
     .map((claim) => claim.claimId) ?? []);
+  /**
+   * Criticality belongs to the stored Verification Plan, never to the risk label
+   * the Generation response chose. A CRITICAL Claim that the response filed as
+   * VERIFY used to fall into this best-effort path and was then withdrawn for
+   * `verify_source_not_cited_by_generation`, because explicit Source Preflight
+   * verified it before Generation and its official URL is not a citation of the
+   * Generation call. That deleted a sentence the server had already verified and
+   * left the persisted VerificationSnapshot pointing at text no longer present.
+   */
+  const plannedCriticalClaimIds = new Set(input.opportunity.verificationPlan?.claims
+    .filter(isCriticalVerificationClaim)
+    .map((claim) => claim.claimId) ?? []);
   const responseSources = new Map(input.webSources.map((source) => [
     canonicalizeApprovalEvidenceUrl(source.url),
     source,
@@ -37,14 +50,19 @@ export async function evaluateGeneratedFactualClaimDecisions(input: Readonly<{
   const decisions: GeneratedFactualClaimDecision[] = [];
 
   for (const draft of input.drafts) {
-    if (draft.risk === "critical") {
-      const planningClaimId = draft.planningClaimId.trim() || draft.claimId.trim();
-      decisions.push(Object.freeze(verifiedCriticalClaimIds.has(planningClaimId)
-        ? { retained: true, evidenceStatus: "critical_verified" as const }
+    const linkedClaimId = draft.planningClaimId.trim() || draft.claimId.trim();
+    if (draft.risk === "critical" || plannedCriticalClaimIds.has(linkedClaimId)) {
+      decisions.push(Object.freeze(verifiedCriticalClaimIds.has(linkedClaimId)
+        ? {
+            retained: true,
+            evidenceStatus: "critical_verified" as const,
+            risk: "critical" as const,
+          }
         : {
             retained: false,
             evidenceStatus: "unsupported" as const,
             diagnosticCode: "unplanned_generated_critical",
+            risk: "critical" as const,
           }));
       continue;
     }

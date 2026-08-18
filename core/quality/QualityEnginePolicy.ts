@@ -1,15 +1,11 @@
 import {
-  evaluateApprovalPreparationText,
-  evaluateApprovalReadiness,
+  deriveApprovalReadinessReport,
   evaluateGeneratedClaimVerificationIntegrity,
   isCriticalVerificationClaim,
-  resolveApprovalEvidenceRequirement,
-  resolveApprovalTemporalRequirement,
   type ApprovalReadinessReport,
 } from "../approval";
 import {
   analyzeEditorialMarkupIntegrity,
-  canonicalDocumentText,
   type ContentDocument,
 } from "../content";
 import {
@@ -42,43 +38,46 @@ export class QualityEngine extends BaseQualityEngine {
   review(document: ContentDocument, context: QualityReviewContext = {}): ApprovalAwareQualityReport {
     const integrityReport = applyEditorialMarkupIntegrity(super.review(document, context), document);
     const report = applyGeneratedClaimVerificationIntegrity(integrityReport, document, context);
-    const snapshot = document.metadata?.approvalPolicy;
-    if (!snapshot) return report;
 
-    const evidence = document.metadata?.approvalEvidence;
-    const evidenceRequirement = resolveApprovalEvidenceRequirement(context.opportunity);
-    const temporalRequirement = resolveApprovalTemporalRequirement(context.opportunity);
-    const evidenceApplicable = evidenceRequirement !== "not_required";
-    const evidenceRequired = evidenceRequirement === "required";
-    const issues = evaluateApprovalPreparationText(
-      canonicalDocumentText(document),
-      snapshot,
-      {
-        sourceUrls: evidence?.sources
-          .filter((source) => source.provenance !== "search_candidate")
-          .map((source) => source.canonicalUrl ?? source.url),
-        reviewedAt: evidence?.reviewedAt,
-        coverageStatus: evidence?.coverageStatus ?? evidence?.status,
-        requiredFactFields: evidence?.requiredFactFields,
-        verifiedFactFields: evidence?.verifiedFactFields,
-        unverifiedFactFields: evidence?.unverifiedFactFields,
-        evidenceRequired,
-        timeSensitiveEvidenceRequired: temporalRequirement === "required",
-      },
-    );
-    const standardQualityApproved = isBaseStandardQualityApproved(report);
-    const approvalReadiness = evaluateApprovalReadiness(
+    /**
+     * The readiness aggregate is derived, not authored here. Quality Review has
+     * no site audit, no source fetch and no public-post catalog, so computing
+     * the five non-quality checks with its own copy of the rules could only
+     * re-report the stored snapshots — and, when it disagreed with the
+     * readiness service, silently overwrite that service's verdict.
+     */
+    const approvalReadiness = deriveApprovalReadinessReport({
       document,
-      issues,
-      standardQualityApproved,
-      evidenceApplicable,
-    );
+      ...(context.opportunity ? { opportunity: context.opportunity } : {}),
+      standardQualityApproved: isBaseStandardQualityApproved(report),
+      standardQualityBlockingReasons: standardQualityBlockingReasons(report),
+    });
+    if (!approvalReadiness) return report;
 
     return Object.freeze({
       ...report,
       approvalReadiness,
     });
   }
+}
+
+/**
+ * The Standard Quality tasks that are currently blocking approval.
+ *
+ * The approval-readiness card owns the "what do I do next?" answer for the
+ * manuscript-quality state, but the reasons live here. Measured on the
+ * 밝은재테크 corpus, 8 of 19 reviewed approval manuscripts were blocked and 5 of
+ * those 8 scored 100 on every scored dimension, so neither the score panel nor
+ * the readiness card named the actual blocker. One function so every caller
+ * derives the same list.
+ */
+export function standardQualityBlockingReasons(
+  report: Pick<QualityReport, "tasks"> | undefined,
+): readonly string[] {
+  return Object.freeze([...new Set((report?.tasks ?? [])
+    .filter((task) => task.status === "blocked")
+    .map((task) => task.message.trim())
+    .filter(Boolean))]);
 }
 
 /**
@@ -114,6 +113,17 @@ function applyGeneratedClaimVerificationIntegrity(
 ): QualityReport {
   const plan = context.opportunity?.verificationPlan;
   const criticalPlan = plan?.claims.some(isCriticalVerificationClaim) ? plan : undefined;
+  // Official Source First has a source bundle and approvalEvidence, but does
+  // not create the Claim-first generatedClaimVerification snapshot. Keep the
+  // Claim-first integrity contract for legacy generation only.
+  const approvalEvidence = document.metadata?.approvalEvidence;
+  const isOfficialSourceFirst = Boolean(
+    !document.metadata?.generatedClaimVerification
+    && approvalEvidence?.sourcePolicyCompliance === "passed"
+    && approvalEvidence.sources.length > 0
+    && approvalEvidence.coverageStatus === undefined,
+  );
+  if (isOfficialSourceFirst) return report;
   if (!criticalPlan && !document.metadata?.generatedFactualClaimInventory) return report;
 
   const integrity = evaluateGeneratedClaimVerificationIntegrity({

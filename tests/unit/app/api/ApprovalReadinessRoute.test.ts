@@ -87,6 +87,18 @@ describe("approval readiness route canonical connection selection", () => {
     expect(adapterSource).not.toContain("public.publish");
     expect(adapterSource).not.toContain("schedule.create");
   });
+
+  it("passes manual refresh through so stored snapshots are not reused", async () => {
+    mocks.data = userData("wordpress");
+
+    await POST(new Request("http://localhost/api/approval/readiness", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ workspaceId: "workspace-1", contentId: "content-1", forceRefresh: true }),
+    }));
+
+    expect(mocks.execute).toHaveBeenCalledWith(expect.objectContaining({ forceRefresh: true }));
+  });
 });
 
 function userData(platform: "tistory" | "wordpress"): UserData {

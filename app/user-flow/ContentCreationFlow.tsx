@@ -52,9 +52,10 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
   const contentIdentity = `${project.id}:${content?.id ?? draftContentId}`;
   const [request, setRequest] = useState(restoredWorkflow?.request ?? content?.naturalLanguageRequest ?? "");
   const [plan, setPlan] = useState<ContentPlanningResult | undefined>(content?.planning);
-  const [opportunityId, setOpportunityId] = useState(restoredWorkflow?.selectedOpportunityId ?? content?.planning?.opportunityCandidates?.[0]?.opportunityId ?? "");
+  const [opportunityId, setOpportunityId] = useState(content?.opportunity?.opportunityId ?? restoredWorkflow?.selectedOpportunityId ?? content?.planning?.opportunityCandidates?.[0]?.opportunityId ?? "");
   const [customKeyword, setCustomKeyword] = useState("");
   const [customKeywordSelected, setCustomKeywordSelected] = useState(false);
+  const [preservedOpportunityId, setPreservedOpportunityId] = useState<string | undefined>();
   const [connections, setConnections] = useState<readonly SafeConnection[]>([]);
   const [selected, setSelected] = useState<readonly string[]>(content?.selectedPublishingAccountIds ?? project.selectedPublishingAccountIds ?? []);
   const [notice, setNotice] = useState(restoredNotice(content));
@@ -77,6 +78,9 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
     ? undefined
     : opportunityCandidates.find((candidate) => candidate.opportunityId === opportunityId),
   [customKeywordSelected, opportunityCandidates, opportunityId]);
+  const generatedOpportunityId = content?.preservedFromContentId
+    ? data.contents.find((item) => item.id === content.preservedFromContentId)?.opportunity?.opportunityId ?? content.opportunity?.opportunityId
+    : content?.document ? content.opportunity?.opportunityId : preservedOpportunityId;
 
   useEffect(() => { latestDataRef.current = data; }, [data]);
 
@@ -89,7 +93,7 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
     planningSubmissionRef.current = false;
     setRequest(content?.planningWorkflow?.request ?? content?.naturalLanguageRequest ?? "");
     setPlan(content?.planning);
-    setOpportunityId(content?.planningWorkflow?.selectedOpportunityId ?? content?.planning?.opportunityCandidates?.[0]?.opportunityId ?? "");
+    setOpportunityId(content?.opportunity?.opportunityId ?? content?.planningWorkflow?.selectedOpportunityId ?? content?.planning?.opportunityCandidates?.[0]?.opportunityId ?? "");
     setCustomKeyword("");
     setCustomKeywordSelected(false);
     setSelected(content?.selectedPublishingAccountIds ?? project.selectedPublishingAccountIds ?? []);
@@ -109,7 +113,7 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
       activeOperationRef.current = workflow.operationId;
       setRequest(workflow.request);
       setPlan(content.planning);
-      setOpportunityId(workflow.selectedOpportunityId ?? content.planning?.opportunityCandidates?.[0]?.opportunityId ?? "");
+      setOpportunityId(content.opportunity?.opportunityId ?? workflow.selectedOpportunityId ?? content.planning?.opportunityCandidates?.[0]?.opportunityId ?? "");
       setSelected(content.selectedPublishingAccountIds ?? project.selectedPublishingAccountIds ?? []);
       setCustomKeyword("");
       setCustomKeywordSelected(false);
@@ -129,7 +133,33 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
     return () => window.clearTimeout(timer);
   }, [content?.planningWorkflow?.revision, content?.planningWorkflow?.status, onRefresh]);
 
+  /**
+   * True when this screen was opened at an article that was already finished.
+   *
+   * The hand-off below exists to carry the user into the editor the moment a
+   * generation this screen is watching completes, including one that was still
+   * running when the page reloaded. It must not fire for someone who came back
+   * here deliberately to look at the stored candidates of a finished article —
+   * doing so bounced them straight into the editor, which reads as the button
+   * doing nothing at all.
+   */
+  const openedAtFinishedArticleRef = useRef<boolean | undefined>(undefined);
+
+  // Decided from the first Content this screen actually receives, not from the
+  // first render: on a cold page load the Content arrives after mount, so
+  // reading it at mount would record "not finished" for every article and hand
+  // the user straight back to the editor on refresh. This effect is declared
+  // before the hand-off so it settles the answer in the same commit.
   useEffect(() => {
+    if (openedAtFinishedArticleRef.current === undefined && content) {
+      openedAtFinishedArticleRef.current = content.planningWorkflow?.status === "generated" && Boolean(content.document);
+    }
+  }, [content]);
+
+  useEffect(() => {
+    // `undefined` means no Content has arrived yet, so nothing was observed to
+    // hand off; only a screen opened at an unfinished article advances.
+    if (openedAtFinishedArticleRef.current !== false) return;
     if (content?.planningWorkflow?.status === "generated" && content.document) onOpenEditor(content.id);
   }, [content?.document, content?.id, content?.planningWorkflow?.status, onOpenEditor]);
 
@@ -247,8 +277,12 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
     }
   };
 
-  const confirm = async (generate: boolean, confirmedPlan = plan, confirmedRequest = request, selectedOpportunity = confirmedOpportunity) => {
+  const confirm = async (generate: boolean, confirmedPlan = plan, confirmedRequest = request, selectedOpportunity = confirmedOpportunity, target: "existing" | "new" = "existing") => {
     if (!confirmedPlan || !selectedOpportunity || dirtyRequest) return;
+    // Reaching this screen from the editor is now possible, so the Content may
+    // already hold a manuscript that confirming would replace.
+    if (target === "existing" && content?.document && !window.confirm("이미 만들어진 원고가 있습니다. 이 기획으로 다시 만들면 기존 원고를 대체합니다. 계속할까요?")) return;
+    const targetContentId = target === "new" ? createId("content") : contentId;
     const readyAccountIds = selected.filter((id) => connected.some((connection) => connection.id === id));
     const generationOperationId = createId("generation-operation");
     let generationStarted = false;
@@ -256,12 +290,13 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
     setNotice("원고 생성 전에 콘텐츠 기록을 저장하고 있습니다.");
     let next = applyProjectPublishingTargets(latestDataRef.current, project.id, readyAccountIds, connected, now());
     next = createContentFromPlan(next, {
-      id: contentId,
+      id: targetContentId,
       projectId: project.id,
       naturalLanguageRequest: confirmedRequest,
       plan: confirmedPlan,
       opportunity: selectedOpportunity,
       selectedPublishingAccountIds: readyAccountIds,
+      ...(target === "new" ? { sourceContentId: contentId } : {}),
       now: now(),
     });
     latestDataRef.current = next;
@@ -276,7 +311,7 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
             action: "prepare",
             workspaceId: project.workspaceId,
             projectId: project.id,
-            contentId,
+            contentId: targetContentId,
             ...(tistoryAccountIds.length === 1 ? { connectionId: tistoryAccountIds[0] } : {}),
           }),
         });
@@ -288,7 +323,7 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
           onRestore(next);
         }
       }
-      const persistedAccountIds = next.contents.find((item) => item.id === contentId)?.selectedPublishingAccountIds ?? readyAccountIds;
+      const persistedAccountIds = next.contents.find((item) => item.id === targetContentId)?.selectedPublishingAccountIds ?? readyAccountIds;
       for (const connectionId of persistedAccountIds) {
         const targetResponse = await fetch("/api/connections", {
           method: "POST",
@@ -302,24 +337,29 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
       }
       next = applyProjectPublishingTargets(next, project.id, persistedAccountIds, connected, now());
       next = createContentFromPlan(next, {
-        id: contentId,
+        id: targetContentId,
         projectId: project.id,
         naturalLanguageRequest: confirmedRequest,
         plan: confirmedPlan,
         opportunity: selectedOpportunity,
         selectedPublishingAccountIds: persistedAccountIds,
+        ...(target === "new" ? { sourceContentId: contentId } : {}),
         now: now(),
       });
       latestDataRef.current = next;
       await onPersist(next);
+      if (target === "new") {
+        setPreservedOpportunityId(content?.opportunity?.opportunityId);
+        onRestore(next);
+      }
       if (!generate) {
-        onOpenEditor(contentId);
+        onOpenEditor(targetContentId);
         return;
       }
       next = startContentGeneration(next, {
         workspaceId: project.workspaceId,
         projectId: project.id,
-        contentId,
+        contentId: targetContentId,
         operationId: generationOperationId,
         now: now(),
       });
@@ -334,7 +374,7 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
         body: JSON.stringify({
           action: "generate",
           input: {
-            contentId,
+            contentId: targetContentId,
             contentType: selectedOpportunity.contentType,
             opportunityId: selectedOpportunity.opportunityId,
             opportunityVersion: selectedOpportunity.version,
@@ -364,7 +404,7 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
       if (!generatedDocumentReady(result)) {
         if (result.qualityTargetBlocked || result.reachedTarget === false || result.quality?.approved === false) {
           setNotice(`${result.error ?? "원고가 자동 품질 승인 기준에 도달하지 못했습니다."} 편집기에서 수정한 뒤 다시 검토할 수 있습니다.`);
-          if (generatedDocumentEditable(result)) onOpenEditor(contentId);
+          if (generatedDocumentEditable(result)) onOpenEditor(targetContentId);
           return;
         }
         throw new GenerationCompletionError(
@@ -376,10 +416,10 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
       }
       if (!response.ok || !result.document) throw new Error(result.error ?? "Generation failed.");
       if (result.data) {
-        onOpenEditor(contentId);
+        onOpenEditor(targetContentId);
       } else {
         next = await completeConfirmedGeneration(next, {
-          contentId,
+          contentId: targetContentId,
           generated: { document: result.document, quality: result.quality },
           now: now(),
         }, { persist: onPersist, openEditor: onOpenEditor });
@@ -404,7 +444,7 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
           now: now(),
         });
       }
-      next = updateContent(next, contentId, {
+      next = updateContent(next, targetContentId, {
         status: configurationRequired ? "configuration_required" : "draft",
         generationError: message(error),
         updatedAt: now(),
@@ -417,7 +457,7 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
         recoveryNotice = `복구 데이터 저장에도 실패했습니다: ${message(persistenceError)}`;
       }
       setNotice(`${message(error)} ${recoveryNotice}`);
-      if (!plan) onOpenEditor(contentId);
+      if (!plan) onOpenEditor(targetContentId);
     } finally {
       setOperation("idle");
     }
@@ -528,7 +568,7 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
 
       {plan ? (
         <section aria-busy={operation === "regenerating"} className={`mt-6 rounded-[24px] border border-black/6 bg-white p-6 transition-opacity ${operation === "regenerating" ? "opacity-60" : ""}`}>
-          <PrimaryKeywordConfirmation customKeyword={customKeyword} customKeywordSelected={customKeywordSelected} disabled={working || dirtyRequest} onCustomKeywordChange={setCustomKeyword} onReanalyzeCustom={() => { const constrainedRequest = `${request}\n사용자 지정 주제와 대표 키워드: ${customKeyword.trim()}. 이 주제와 같은 검색 의도 안에서 완전한 콘텐츠 기회를 구성해 줘.`; setRequest(constrainedRequest); void analyze(false, true, constrainedRequest, "userSpecified"); }} onSelectCandidate={(candidate: ContentOpportunityCandidate) => { void selectOpportunity(candidate); }} onSelectCustom={() => setCustomKeywordSelected(true)} opportunityCandidates={opportunityCandidates} plan={plan} request={request} selectedOpportunityId={opportunityId} />
+          <PrimaryKeywordConfirmation customKeyword={customKeyword} customKeywordSelected={customKeywordSelected} disabled={working || dirtyRequest} generatedOpportunityId={generatedOpportunityId} onCustomKeywordChange={setCustomKeyword} onReanalyzeCustom={() => { const constrainedRequest = `${request}\n사용자 지정 주제와 대표 키워드: ${customKeyword.trim()}. 이 주제와 같은 검색 의도 안에서 완전한 콘텐츠 기회를 구성해 줘.`; setRequest(constrainedRequest); void analyze(false, true, constrainedRequest, "userSpecified"); }} onSelectCandidate={(candidate: ContentOpportunityCandidate) => { void selectOpportunity(candidate); }} onSelectCustom={() => setCustomKeywordSelected(true)} opportunityCandidates={opportunityCandidates} plan={plan} request={request} selectedOpportunityId={opportunityId} />
 
           <details className="mt-3 rounded-xl border border-black/6 p-4">
             <summary className="cursor-pointer text-sm font-semibold">발행 계정 선택 (선택)</summary>
@@ -547,6 +587,7 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
           <div className="mt-6 flex flex-wrap gap-2">
             <button className="rounded-xl border px-4 py-2.5 text-sm font-semibold disabled:opacity-50" disabled={working} onClick={() => void analyze(false, true)} type="button">{operation === "regenerating" ? "추천 생성 중…" : dirtyRequest ? "변경 내용으로 추천 다시 생성" : "추천 다시 생성"}</button>
             <button className="rounded-xl border px-4 py-2.5 text-sm font-semibold disabled:opacity-50" disabled={working || dirtyRequest || !confirmedOpportunity} onClick={() => void confirm(false)} type="button">이 기획으로 직접 작성</button>
+            {content?.document ? <button className="rounded-xl border border-blue-200 px-4 py-2.5 text-sm font-semibold text-blue-800 disabled:opacity-50" disabled={working || dirtyRequest || !confirmedOpportunity} onClick={() => void confirm(true, plan, request, confirmedOpportunity, "new")} type="button">기존 원고를 보존하고 새 Content로 생성</button> : null}
             <button className="rounded-xl bg-[#ff6b6b] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50" disabled={working || dirtyRequest || !confirmedOpportunity} onClick={() => void confirm(true)} type="button">{operation === "generating" ? "원고 생성 중…" : "이 기획으로 원고 만들기"}</button>
           </div>
         </section>

@@ -4,7 +4,7 @@ import { contentDocumentAIContext, detectEditorialReviewRegression, EditorialQua
 import { EditorialGenerationStrategy } from "../../../../app/application/EditorialGenerationStrategy";
 import type { AIProvider, AIRequest } from "../../../../core/ai";
 import { applyGeneratedFactualClaimInventory, resolveApprovalPolicySnapshot, type GeneratedFactualClaimInventoryDraft } from "../../../../core/approval";
-import { determineContentPlanQualityTarget, type ContentDocument, type ContentPlanQualityTarget } from "../../../../core/content";
+import { analyzeLongFormDocument, determineContentPlanQualityTarget, type ContentDocument, type ContentPlanQualityTarget } from "../../../../core/content";
 
 type TestQualityReport = {
   overallScore: number;
@@ -245,6 +245,72 @@ describe("EditorialQualityPipeline", () => {
     expect(instruction).toContain("do not add decorative card-like sections");
   });
 
+  /**
+   * content-msrfq4gt-fc8ub1 was blocked on two CONTENT_SECTION_PROSE_INSUFFICIENT
+   * sections after the factual inventory deleted the paragraphs that explained
+   * them. The final call is the pipeline's only repair opportunity, and the
+   * diagnostics it received forwarded CONTENT_INCOMPLETE_SECTION only, so the
+   * one thing blocking the article never reached the editor.
+   */
+  it("tells the final call which sections fall below the prose floor and by how much", async () => {
+    const target = determineContentPlanQualityTarget({
+      contentType: "article",
+      readerProblem: "조회 금액이 확정인지 판단하기 어렵다",
+      requiredContentElements: ["판단 기준"],
+    });
+    const heading = "국민연금 예상연금액과 실제 지급 판단은 같은 질문이 아닙니다";
+    const initial: ContentDocument = {
+      id: "content-prose-shortfall",
+      title: "국민연금 예상수령액 조회 방법",
+      blocks: [
+        { id: "intro", type: "paragraph", text: "조회 화면의 금액과 실제 지급 판단은 서로 다른 질문에 답합니다. 두 질문을 나누어 확인해야 합니다." },
+        { id: "h-1", type: "heading", level: 2, text: heading },
+        { id: "p-1", type: "paragraph", text: "예상연금액은 조회 시점의 기록과 산정 전제를 바탕으로 계획을 가늠하게 하는 값입니다. 아래 표는 그 차이를 정리한 것입니다." },
+        {
+          id: "p-2",
+          type: "table",
+          headers: ["구분", "조회 화면", "지급 판단"],
+          rows: [
+            ["주된 목적", "노후 계획 점검", "개별 수급 확인"],
+            ["기준 자료", "조회 시점 기록", "수급 시점 기록"],
+            ["독자가 할 일", "금액과 가정을 기록", "공식 상담으로 확인"],
+            ["해석 원칙", "변화 가능성 전제", "현행 기준과 함께 판단"],
+          ],
+        },
+        { id: "conclusion", type: "paragraph", text: "조회 결과는 계획을 점검하는 기준으로 쓰고 최종 판단은 공식 기록으로 확인합니다." },
+      ],
+      metadata: {
+        buttonCount: 0, createdAt: "2026-08-13T00:00:00.000Z", generator: "test", imageCount: 0, language: "ko",
+        readingTime: 1, source: "test", updatedAt: "2026-08-13T00:00:00.000Z", version: 1, videoCount: 0, wordCount: 20,
+        metaDescription: "국민연금 예상수령액 조회 결과를 해석하는 기준을 안내합니다.",
+        qualityTarget: target,
+        longFormStructure: {
+          introductionBlockIds: ["intro"],
+          sections: [{ headingBlockId: "h-1", paragraphBlockIds: ["p-1", "p-2"], sectionType: "comparison" }],
+          conclusionBlockIds: ["conclusion"],
+        },
+      },
+    };
+    let instruction = "";
+    const generate = vi.fn(async (request: AIRequest) => { instruction = request.instruction; return { content: JSON.stringify(rawDocument("검토 원고")), model: "review" }; });
+    const qualityEngine = { review: vi.fn(() => report(96, true)) };
+
+    await new EditorialQualityPipeline({ generate } as AIProvider, undefined, qualityEngine as never).run({
+      document: initial,
+      finalReviewInstruction: () => "final",
+      parseInput: parseInput(),
+      qualityContext: {},
+    });
+
+    expect(instruction).toContain("sectionProseShortfalls");
+    expect(instruction).toContain(`"heading":"${heading}"`);
+    expect(instruction).toContain('"minimumNarrativeCharacters":400');
+    expect(instruction).toContain("Structural repair is a mandatory final-edit contract");
+    expect(instruction).toContain("CONTENT_SECTION_PROSE_INSUFFICIENT");
+    expect(instruction).toContain("Do not close the gap with a new number, date, amount, rate, statute, eligibility rule");
+    expect(instruction).toContain("do not add list items or table rows, which are not counted");
+  });
+
   it("preserves current sectionType ownership while using candidate block bindings", async () => {
     const parsed = new EditorialGenerationStrategy().parse(JSON.stringify(rawDocument()), parseInput());
     const currentStructure = parsed.metadata!.longFormStructure!;
@@ -346,6 +412,124 @@ describe("EditorialQualityPipeline", () => {
     expect(result.attemptHistory[0]?.rejectionReason).toBeUndefined();
   });
 
+  /**
+   * content-mssph0q6-ftn4h7 was planned with two comparisonNeeds, generated six
+   * sections without one comparison among them, and stayed blocked on
+   * CONTENT_DECLARED_COMPARISON_MISSING through the final call that is
+   * explicitly told to repair it. Every scored dimension read 100, so the score
+   * vector was identical either way and the acceptance rule fell through to
+   * preferring the shorter manuscript — which is always the one that never
+   * wrote the comparison.
+   */
+  it("accepts a final candidate that clears a blocking structural violation even though it is longer", async () => {
+    const target = comparisonTarget();
+    const current = comparisonDocument("초기 원고", false, target);
+    expect(analyzeLongFormDocument(current, target).violations.map((item) => item.code))
+      .toEqual(["CONTENT_DECLARED_COMPARISON_MISSING"]);
+    const generate = vi.fn(async () => ({
+      content: JSON.stringify(structuredComparisonArticle("검토 원고", true)),
+      model: "review",
+    }));
+    const qualityEngine = { review: vi.fn(() => report(100, false)) };
+
+    const result = await new EditorialQualityPipeline({ generate } as AIProvider, undefined, qualityEngine as never).run({
+      document: current,
+      finalReviewInstruction: () => "final",
+      parseInput: parseInput(),
+      qualityContext: {},
+    });
+
+    expect(result.attemptHistory[0]?.rejectionReason).toBeUndefined();
+    expect(result.document.title).toBe("검토 원고");
+    expect(result.document.metadata?.longFormStructure?.sections.map((section) => section.sectionType))
+      .toContain("comparison");
+    expect(analyzeLongFormDocument(result.document, target).violations).toEqual([]);
+  });
+
+  it("still refuses a longer candidate that clears nothing", async () => {
+    const target = comparisonTarget();
+    const current = comparisonDocument("초기 원고", true, target);
+    expect(analyzeLongFormDocument(current, target).violations).toEqual([]);
+    const padded = structuredComparisonArticle("검토 원고", true);
+    padded.sections[0]!.paragraphs.push("같은 내용을 다른 문장으로 한 번 더 늘려 적은 문단입니다.");
+    const generate = vi.fn(async () => ({ content: JSON.stringify(padded), model: "review" }));
+    const qualityEngine = { review: vi.fn(() => report(100, false)) };
+
+    const result = await new EditorialQualityPipeline({ generate } as AIProvider, undefined, qualityEngine as never).run({
+      document: current,
+      finalReviewInstruction: () => "final",
+      parseInput: parseInput(),
+      qualityContext: {},
+    });
+
+    expect(result.document.title).toBe("초기 원고");
+  });
+
+  /**
+   * The approval policy requires the information date in the body, and
+   * content-mssph0q6-ftn4h7 reached the final call without one. The final call
+   * is the last chance to add it, so it is told to — but only for approval
+   * preparation, and only when the line is actually missing.
+   */
+  it("asks the final call to add a missing approval information date", async () => {
+    const target = comparisonTarget();
+    const approvalPolicy = resolveApprovalPolicySnapshot("adsense_approval", "wordpress_life_economy_v1")!;
+    const base = comparisonDocument("초기 원고", true, target);
+    const withoutDate: ContentDocument = { ...base, metadata: { ...base.metadata!, approvalPolicy } };
+    let instruction = "";
+    const generate = vi.fn(async (request: AIRequest) => {
+      instruction = request.instruction;
+      return { content: JSON.stringify(structuredComparisonArticle("검토 원고", true)), model: "review" };
+    });
+    const qualityEngine = { review: vi.fn(() => report(100, false)) };
+    await new EditorialQualityPipeline({ generate } as AIProvider, undefined, qualityEngine as never).run({
+      document: withoutDate,
+      finalReviewInstruction: () => "final",
+      parseInput: parseInput(),
+      qualityContext: {},
+    });
+
+    expect(instruction).toContain("Information-date contract (mandatory for approval preparation)");
+    expect(instruction).toContain("The current manuscript does not carry this line");
+  });
+
+  it("does not repeat the information-date contract for a manuscript that already carries it", async () => {
+    const target = comparisonTarget();
+    const approvalPolicy = resolveApprovalPolicySnapshot("adsense_approval", "wordpress_life_economy_v1")!;
+    const base = comparisonDocument("초기 원고", true, target);
+    const dated: ContentDocument = {
+      ...base,
+      blocks: [...base.blocks, { id: "information-date", type: "paragraph", text: "정보 기준일: 2026-08-14" }],
+      metadata: { ...base.metadata!, approvalPolicy },
+    };
+    let approvalInstruction = "";
+    const generate = vi.fn(async (request: AIRequest) => {
+      approvalInstruction = request.instruction;
+      return { content: JSON.stringify(structuredComparisonArticle("검토 원고", true)), model: "review" };
+    });
+    const qualityEngine = { review: vi.fn(() => report(100, false)) };
+    await new EditorialQualityPipeline({ generate } as AIProvider, undefined, qualityEngine as never).run({
+      document: dated,
+      finalReviewInstruction: () => "final",
+      parseInput: parseInput(),
+      qualityContext: {},
+    });
+    expect(approvalInstruction).not.toContain("Information-date contract");
+
+    let standardInstruction = "";
+    const standardGenerate = vi.fn(async (request: AIRequest) => {
+      standardInstruction = request.instruction;
+      return { content: JSON.stringify(structuredComparisonArticle("검토 원고", true)), model: "review" };
+    });
+    await new EditorialQualityPipeline({ generate: standardGenerate } as AIProvider, undefined, qualityEngine as never).run({
+      document: base,
+      finalReviewInstruction: () => "final",
+      parseInput: parseInput(),
+      qualityContext: {},
+    });
+    expect(standardInstruction).not.toContain("Information-date contract");
+  });
+
   it("rejects a Review that removes a required content element", () => {
     const target = determineContentPlanQualityTarget({ contentType: "standard article", readerProblem: "판단 기준 부족" });
     const before = targetedDocument(target, 900, true);
@@ -360,6 +544,67 @@ describe("EditorialQualityPipeline", () => {
     expect(detectEditorialReviewRegression(before, after)).toBeUndefined();
   });
 });
+
+function comparisonTarget(): ContentPlanQualityTarget {
+  return determineContentPlanQualityTarget({
+    contentType: "article",
+    readerProblem: "국세환급금 조회 결과를 어떻게 읽어야 하는지 판단하기 어렵다",
+    requiredContentElements: ["판단 기준"],
+    comparisonNeeds: ["국세환급금 조회와 지방세 환급 조회의 범위 비교"],
+  });
+}
+
+function structuredComparisonArticle(title: string, withComparison: boolean) {
+  const sections = [
+    {
+      heading: "국세환급금 조회 대상을 먼저 구분합니다",
+      sectionType: "explanation" as const,
+      paragraphs: [
+        "국세환급금은 이미 납부한 세금 가운데 돌려받을 몫이 확정된 금액을 가리킵니다. 어떤 세목에서 발생했는지에 따라 확인해야 할 화면이 달라집니다. 그래서 조회를 시작하기 전에 대상 세목을 먼저 정리해 두는 편이 빠릅니다. 정리한 내용을 메모해 두면 이후 확인 과정에서 근거로 쓸 수 있습니다.",
+      ],
+    },
+    {
+      heading: "공식 경로에서 조회하는 순서를 정리합니다",
+      sectionType: "explanation" as const,
+      paragraphs: [
+        "조회는 공식 서비스에 접속해 본인 인증을 마친 뒤 환급금 항목을 여는 흐름으로 이어집니다. 인증 수단은 상황에 맞게 고르되 이름과 등록번호가 일치해야 결과가 나옵니다. 결과 화면이 비어 있다면 대상이 아니거나 처리 단계가 남아 있다는 뜻입니다. 이때는 화면을 닫지 말고 표시된 안내 문구를 함께 읽어야 합니다.",
+      ],
+    },
+    {
+      heading: "결과 화면을 읽는 판단 기준을 세웁니다",
+      sectionType: "explanation" as const,
+      paragraphs: [
+        "화면에 표시되는 상태 값은 지급이 확정된 경우와 확인이 더 필요한 경우로 나뉩니다. 상태 값이 무엇을 뜻하는지 알아야 다음에 할 행동이 정해집니다. 확정 상태라면 지급 계좌와 예정일을 확인하는 것으로 충분합니다. 확인이 남은 상태라면 요청된 서류나 절차를 먼저 마쳐야 합니다.",
+      ],
+    },
+  ];
+  const comparison = {
+    heading: "국세 환급 조회와 지방세 환급 조회는 무엇이 다른가",
+    sectionType: "comparison" as const,
+    paragraphs: [
+      "두 조회의 가장 큰 차이는 다루는 세목과 담당 기관이 다르다는 점입니다. 국세 쪽은 소득세와 부가가치세처럼 국가가 걷는 세금을 비교 대상으로 삼습니다. 반면 지방세 쪽은 지방자치단체가 걷는 세금을 대상으로 하므로 조회 화면 자체가 따로 있습니다. 비교해 보면 한쪽에서 결과가 없다고 해서 다른 쪽에도 없는 것은 아니라는 결론이 나옵니다. 그래서 돌려받을 돈이 있는지 확인할 때는 두 경로를 모두 열어 두는 선택이 안전합니다.",
+    ],
+  };
+  return {
+    title,
+    metaDescription: "국세환급금 조회 결과를 읽는 기준과 확인 순서를 정리해 다음 행동을 정할 수 있게 안내합니다.",
+    introduction: [
+      "돌려받을 세금이 있는지 확인하려면 조회 결과가 무엇을 말하는지부터 읽어야 합니다. 화면에 뜬 금액과 실제 수령 여부는 같은 질문이 아니기 때문입니다.",
+    ],
+    sections: withComparison ? [...sections, comparison] : sections,
+    conclusion: [
+      "조회 결과는 상태 값과 함께 읽고 남은 절차가 있는지 확인한 뒤 다음 행동을 정하면 됩니다. 확인이 끝나지 않은 항목은 공식 안내에 따라 마무리하는 것이 마지막 판단 기준입니다.",
+    ],
+  };
+}
+
+function comparisonDocument(title: string, withComparison: boolean, target: ContentPlanQualityTarget): ContentDocument {
+  const parsed = new EditorialGenerationStrategy().parse(
+    JSON.stringify(structuredComparisonArticle(title, withComparison)),
+    parseInput(),
+  );
+  return { ...parsed, metadata: { ...parsed.metadata!, qualityTarget: target } };
+}
 
 function targetedDocument(target: ContentPlanQualityTarget, sectionLength: number, includeApplication: boolean): ContentDocument {
   const types = target.contentDepth === "quick" ? ["checklist", "steps", "warning"] as const : ["explanation", "case_example", "warning", "summary"] as const;

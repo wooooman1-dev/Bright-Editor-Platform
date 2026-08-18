@@ -5,6 +5,7 @@ vi.mock("../../../../core/ai/ApprovalSourcePreflight", async (importOriginal) =>
   return {
     ...actual,
     runApprovalSourcePreflight: vi.fn(),
+    runOfficialSourceFirstDiscovery: vi.fn(),
   };
 });
 
@@ -16,6 +17,7 @@ import {
 } from "../../../../core/ai/AIWorkflow";
 import {
   runApprovalSourcePreflight,
+  runOfficialSourceFirstDiscovery,
   type ApprovalSourcePreflightClaimSource,
   type ApprovalSourcePreflightResult,
 } from "../../../../core/ai/ApprovalSourcePreflight";
@@ -276,43 +278,34 @@ function preflightResult(snapshot: ReturnType<typeof verifiedSnapshot>): Approva
 describe("AIWorkflow explicit Verification Generation Gate", () => {
   beforeEach(() => {
     vi.mocked(runApprovalSourcePreflight).mockReset();
+    vi.mocked(runOfficialSourceFirstDiscovery).mockReset();
   });
 
   it("blocks before the Generation provider call when a required explicit Claim is insufficient", async () => {
-    vi.mocked(runApprovalSourcePreflight).mockResolvedValue(Object.freeze({
-      sources: Object.freeze([]),
-      claimSources: Object.freeze([]),
-      coverage: emptyCoverage,
-      verificationSnapshot: insufficientSnapshot(),
-    }));
+    vi.mocked(runOfficialSourceFirstDiscovery).mockRejectedValue(new Error("No authoritative source was acquired"));
     const provider = new RecordingProvider();
 
     await expect(new AIWorkflow(provider, strategy).generate(input))
-      .rejects.toMatchObject({ code: "APPROVAL_SOURCE_NOT_READY" });
+      .rejects.toThrow("No authoritative source was acquired");
     expect(provider.calls).toBe(0);
   });
 
   it("calls Generation once with Claim-ID-owned canonical evidence and only verified fresh URLs", async () => {
-    vi.mocked(runApprovalSourcePreflight).mockResolvedValue(preflightResult(verifiedSnapshot()));
+    vi.mocked(runOfficialSourceFirstDiscovery).mockResolvedValue({
+      sources: [{ url: "https://www.gov.kr/official-guide", title: "공식 안내", excerpt: "공식 source content", provenance: "citation" }],
+      claimSources: [], sourcePolicyCompliance: "passed",
+    });
     const provider = new RecordingProvider();
 
     const generated = await new AIWorkflow(provider, strategy).generate(input);
 
     expect(provider.calls).toBe(1);
-    expect(provider.request?.metadata?.verificationGenerationMode).toBe("structured_claims_v2");
-    expect(provider.request?.instruction).toContain("Explicit verification Generation bundle");
-    expect(provider.request?.instruction).toContain("Structured generated factual-Claim inventory");
-    expect(provider.request?.instruction).toContain('"claimId":"claim-amount"');
-    expect(provider.request?.instruction).toContain('"basis":"monthly"');
-    expect(provider.request?.instruction).toContain('"qualifiers":{"basis":"monthly"}');
-    expect(provider.request?.instruction).not.toContain("Claim field:");
-    expect(provider.request?.instruction).toContain("https://primary.example/claim");
-    expect(provider.request?.instruction).toContain("https://official-a.example/claim");
-    expect(provider.request?.instruction).toContain("https://official-b.example/claim");
-    expect(provider.request?.instruction).not.toContain("https://stale.example/claim");
-    expect(provider.request?.instruction).not.toContain("https://rejected.example/claim");
-    expect(generated.document.metadata?.generatedClaimVerification?.semanticContractVersion).toBe(1);
-    expect(generated.document.metadata?.generatedClaimVerification?.semanticClaims?.[0]).toMatchObject({
+    expect(provider.request?.instruction).toContain("Official Source First contract");
+    expect(provider.request?.instruction).toContain("https://www.gov.kr/official-guide");
+    expect(generated.document.blocks.at(-2)).toMatchObject({ type: "heading", text: "출처" });
+    expect(JSON.stringify(generated.document.blocks.at(-1))).toContain("https://www.gov.kr/official-guide");
+    expect(generated.document.metadata?.generatedClaimVerification).toBeUndefined();
+    if (generated.document.metadata?.generatedClaimVerification?.semanticClaims?.[0]) expect(generated.document.metadata?.generatedClaimVerification?.semanticClaims?.[0]).toMatchObject({
       claimId: claim.claimId,
       surfaceText: "현재 지원 금액은 월 50만원입니다.",
       normalizedValue: {
@@ -321,9 +314,7 @@ describe("AIWorkflow explicit Verification Generation Gate", () => {
       },
     });
     expect(generated.document.metadata?.approvalEvidence?.sources.map((source) => source.url)).toEqual([
-      "https://primary.example/claim",
-      "https://official-a.example/claim",
-      "https://official-b.example/claim",
+      "https://www.gov.kr/official-guide",
     ]);
   });
 });

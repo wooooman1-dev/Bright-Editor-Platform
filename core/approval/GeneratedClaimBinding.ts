@@ -206,7 +206,7 @@ function claimTextTokens(
   };
   add(claim.rawValue);
 
-  if (normalizedValue?.kind === "money") {
+  if (normalizedValue?.kind === "money" && "amount" in normalizedValue.value) {
     const { amount, currency } = normalizedValue.value;
     const suffix = currency.toUpperCase() === "KRW" ? "원" : ` ${currency.toUpperCase()}`;
     add(`${amount}${suffix}`);
@@ -297,6 +297,91 @@ type DetectedScalar = Readonly<{
   end: number;
 }>;
 
+/**
+ * A quoted phrase that the same sentence goes on to reject is an example of
+ * wording the reader should avoid, not a fact the article asserts. An article
+ * was blocked for `'2년 근무'라고 한 줄로 적는 대신 …`, where 2년 is the reader's
+ * hypothetical note rather than any claim about the programme.
+ *
+ * Both signals are required: the quote must be grammatically *mentioned*
+ * (라고·라는·처럼) and the sentence must then reject it (대신·말고·아니라). A figure
+ * the article actually states, including one quoted from a source and asserted,
+ * matches neither and is still detected.
+ *
+ * Two further limits were added after measuring what this exemption actually
+ * let through. It is the only exemption in this detector, and every attempt to
+ * widen it to unquoted illustrations leaked statutory periods, so it is held as
+ * narrow as the one case it was written for:
+ *
+ * 1. Only `duration` is exempt. `‘50만원 지급’이라고 적는 대신 …`,
+ *    `‘연 3.5%’라고 … 대신 …` and a quoted 제N조 or review date were all being
+ *    exempted, which is precisely the unsupported-figure class the approval
+ *    policy never relaxes. Amounts, ratios, dates and statute articles are now
+ *    detected inside a rejected quote too.
+ * 2. A period carrying a threshold or span quantifier is a rule, not a note.
+ *    `‘14일 이내 신고’라고만 적는 대신 …` was exempted even though 14일 이내 is the
+ *    주민등록법 deadline. The quantifier check only ever cancels an exemption, so
+ *    a missing token leaves the strict result rather than opening a hole.
+ */
+const mentionedQuotePattern =
+  /[‘“'"「『]([^’”'"」』]{1,40})[’”'"」』]\s*(?:이?라고|이?라는|처럼|식으로)/gu;
+const rejectedExampleTail = /(?:대신|말고|아니라|보다는)/u;
+const rejectedExampleTailWindow = 60;
+const periodRuleQuantifier =
+  /\d+(?:\.\d+)?\s*(?:개월|일|주|년)\s*(?:이내|이상|이하|미만|초과|안에|내에|까지|동안|만에|마다|주기|이후|이전|간)|(?:최대|최소|최장|최단|최고|최저|평균|매월|매년|매주|매일)\s*\d+(?:\.\d+)?\s*(?:개월|일|주|년)/u;
+
+function rejectedExampleSpans(
+  value: string,
+): readonly Readonly<{ start: number; end: number }>[] {
+  const spans: Array<Readonly<{ start: number; end: number }>> = [];
+  for (const match of value.matchAll(mentionedQuotePattern)) {
+    if (typeof match.index !== "number") continue;
+    const end = match.index + match[0].length;
+    if (!rejectedExampleTail.test(value.slice(end, end + rejectedExampleTailWindow))) continue;
+    if (periodRuleQuantifier.test(match[1] ?? "")) continue;
+    spans.push(Object.freeze({ start: match.index, end }));
+  }
+  return Object.freeze(spans);
+}
+
+/**
+ * A recency window the article asks the reader to look back over.
+ *
+ * `최근 1년 동안 발생한 소득을 유형별로 적습니다` is an instruction about the
+ * reader's own records. No institution publishes "최근 1년", so no source can
+ * ever satisfy it, and demanding one produced a block with no way out: the
+ * withdrawal sweep does not match a bare period, so nothing in the pipeline
+ * could remove what this gate required, and regenerating reproduced the same
+ * block in the same place. Two finished articles scoring 100 sat blocked on
+ * `1년` and `2년` for that reason.
+ *
+ * The exemption is deliberately narrow. It needs the explicit `최근`/`지난`
+ * lead-in, so a period predicated of something — `계약 기간은 24개월`,
+ * `주거 지원 기간은 24개월` — is untouched. And a threshold cancels it, because
+ * `최근 6개월 이내에 폐업한 사업자` is an eligibility rule that an institution
+ * does publish, not a window the reader chooses.
+ *
+ * D-039 Phase 1 replaces this with the shared `FactualSurfaceTaxonomy`, which
+ * decides the same question by asking whether the period has an attributed
+ * subject instead of matching a lead-in word.
+ */
+const recencyWindowPattern = /(?:최근|지난)\s*\d+(?:\.\d+)?\s*(?:개월|일|주|년)/gu;
+const thresholdQuantifier = /^\s*(?:이내|이상|이하|미만|초과|안에|내에|까지)/u;
+const thresholdLookaheadWindow = 8;
+
+function recencyWindowSpans(
+  value: string,
+): readonly Readonly<{ start: number; end: number }>[] {
+  const spans: Array<Readonly<{ start: number; end: number }>> = [];
+  for (const match of value.matchAll(recencyWindowPattern)) {
+    if (typeof match.index !== "number") continue;
+    const end = match.index + match[0].length;
+    if (thresholdQuantifier.test(value.slice(end, end + thresholdLookaheadWindow))) continue;
+    spans.push(Object.freeze({ start: match.index, end }));
+  }
+  return Object.freeze(spans);
+}
+
 function detectHighRiskScalarTokens(value: string): readonly DetectedScalar[] {
   const detected: DetectedScalar[] = [];
   collectMatches(detected, value, /\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*(?:조원|억원|만원|원)/gu, "money");
@@ -308,7 +393,12 @@ function detectHighRiskScalarTokens(value: string): readonly DetectedScalar[] {
     if (occupiedByDate.some((date) => item.start >= date.start && item.end <= date.end)) continue;
     detected.push(Object.freeze({ ...item, kind: "duration" as const }));
   }
-  return Object.freeze(detected.sort((a, b) => a.start - b.start || a.end - b.end));
+  const exemptSpans = [...rejectedExampleSpans(value), ...recencyWindowSpans(value)];
+  return Object.freeze(detected
+    .filter((item) => item.kind !== "duration"
+      || !exemptSpans.some((span) =>
+        item.start >= span.start && item.end <= span.end))
+    .sort((a, b) => a.start - b.start || a.end - b.end));
 }
 
 function collectMatches(

@@ -17,6 +17,22 @@ const homeHtml = `<!doctype html><html lang="ko"><head>
   <main>${"정부지원, 세금, 주거와 생활금융 제도를 공식 확인처와 함께 설명합니다. ".repeat(12)}</main>
 </body></html>`;
 
+const trustPageHtml = (title: string) => `<!doctype html><html lang="ko"><head>
+  <title>${title}</title>
+  <meta name="robots" content="index, follow, max-image-preview:large">
+</head><body><main>${"이 페이지는 사이트 운영 정보를 안내합니다. ".repeat(6)}</main></body></html>`;
+
+const trustPageUrls = [
+  ["https://example.com/privacy-policy", "개인정보처리방침"],
+  ["https://example.com/about", "사이트 소개"],
+  ["https://example.com/contact", "문의하기"],
+] as const;
+
+function trustPageResponse(url: string): Response | undefined {
+  const match = trustPageUrls.find(([target]) => target === url);
+  return match ? htmlResponse(trustPageHtml(match[1])) : undefined;
+}
+
 describe("WordPressSiteReadinessAudit", () => {
   it("detects HTTPS, robots, sitemap, trust pages, navigation, archive, and viewport without any write request", async () => {
     const fetcher = vi.fn(async (input: string | URL, init?: RequestInit) => {
@@ -29,6 +45,8 @@ describe("WordPressSiteReadinessAudit", () => {
       if (url === "https://example.com/wp-sitemap.xml") {
         return textResponse("<?xml version=\"1.0\"?><sitemapindex></sitemapindex>", "application/xml");
       }
+      const trustPage = trustPageResponse(url);
+      if (trustPage) return trustPage;
       return new Response("not found", { status: 404 });
     });
 
@@ -51,10 +69,87 @@ describe("WordPressSiteReadinessAudit", () => {
       expect.objectContaining({ key: "navigation", passed: true }),
       expect.objectContaining({ key: "category_archive", passed: true }),
       expect.objectContaining({ key: "mobile_viewport", passed: true }),
+      expect.objectContaining({ key: "trust_page_indexable", passed: true }),
     ]));
-    expect(fetcher).toHaveBeenCalledTimes(3);
+    // 홈, robots.txt, 사이트맵, 그리고 신뢰 페이지 3개를 실제로 열어 본다.
+    expect(fetcher).toHaveBeenCalledTimes(6);
     expect(fetcher.mock.calls.every((call) => call[1]?.method === "GET")).toBe(true);
     expect(fetcher.mock.calls.some((call) => /wp-admin|wp-login/i.test(String(call[0])))).toBe(false);
+  });
+
+  /**
+   * 2026-08-14 실측: 이 감사가 15건 전부 통과라고 보고한 날, Search Console 은
+   * `/about/` 과 `/disclaimer/` 가 NOINDEX 로 제외됐다고 보고했다. 홈페이지에
+   * 링크가 있다는 사실과 그 페이지가 색인될 수 있다는 사실은 다르다.
+   */
+  it("fails when a trust page the home page links to is excluded by a robots meta tag", async () => {
+    const fetcher = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url === "https://example.com/") return htmlResponse(homeHtml);
+      if (url === "https://example.com/robots.txt") return textResponse("Sitemap: https://example.com/wp-sitemap.xml", "text/plain");
+      if (url === "https://example.com/wp-sitemap.xml") return textResponse("<?xml version=\"1.0\"?><urlset></urlset>", "application/xml");
+      if (url === "https://example.com/about") {
+        return htmlResponse('<!doctype html><html><head><title>사이트 소개</title><meta name="robots" content="noindex, follow"></head><body>소개</body></html>');
+      }
+      return trustPageResponse(url) ?? new Response("not found", { status: 404 });
+    });
+
+    const result = await auditWordPressSiteReadiness({
+      siteUrl: "https://example.com", checkedAt, expectedTerms: ["생활경제"], fetcher,
+    });
+
+    const check = result.checks.find((item) => item.key === "trust_page_indexable");
+    expect(check?.passed).toBe(false);
+    expect(check?.message).toContain("사이트 소개");
+    expect(check?.message).toContain("robots 메타태그");
+    // D-039: 차단에는 사용자가 실제로 할 수 있는 다음 행동이 붙어야 한다.
+    expect(check?.action).toContain("https://example.com/about");
+    expect(result.status).not.toBe("passed");
+    // 링크 존재 검사는 그대로 통과한다 — 두 검사는 서로 다른 사실을 말한다.
+    expect(result.checks).toContainEqual(expect.objectContaining({ key: "about", passed: true }));
+  });
+
+  it("fails when a trust page is excluded by an X-Robots-Tag header with no noindex in the markup", async () => {
+    const fetcher = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url === "https://example.com/") return htmlResponse(homeHtml);
+      if (url === "https://example.com/robots.txt") return textResponse("Sitemap: https://example.com/wp-sitemap.xml", "text/plain");
+      if (url === "https://example.com/wp-sitemap.xml") return textResponse("<?xml version=\"1.0\"?><urlset></urlset>", "application/xml");
+      if (url === "https://example.com/privacy-policy") {
+        return new Response(trustPageHtml("개인정보처리방침"), {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8", "x-robots-tag": "googlebot: noindex" },
+        });
+      }
+      return trustPageResponse(url) ?? new Response("not found", { status: 404 });
+    });
+
+    const result = await auditWordPressSiteReadiness({
+      siteUrl: "https://example.com", checkedAt, expectedTerms: ["생활경제"], fetcher,
+    });
+
+    const check = result.checks.find((item) => item.key === "trust_page_indexable");
+    expect(check?.passed).toBe(false);
+    expect(check?.message).toContain("X-Robots-Tag");
+  });
+
+  it("fails when a linked trust page does not open", async () => {
+    const fetcher = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url === "https://example.com/") return htmlResponse(homeHtml);
+      if (url === "https://example.com/robots.txt") return textResponse("Sitemap: https://example.com/wp-sitemap.xml", "text/plain");
+      if (url === "https://example.com/wp-sitemap.xml") return textResponse("<?xml version=\"1.0\"?><urlset></urlset>", "application/xml");
+      if (url === "https://example.com/contact") return new Response("not found", { status: 404 });
+      return trustPageResponse(url) ?? new Response("not found", { status: 404 });
+    });
+
+    const result = await auditWordPressSiteReadiness({
+      siteUrl: "https://example.com", checkedAt, expectedTerms: ["생활경제"], fetcher,
+    });
+
+    const check = result.checks.find((item) => item.key === "trust_page_indexable");
+    expect(check?.passed).toBe(false);
+    expect(check?.message).toContain("문의");
   });
 
   it("does not generate user-controlled manual or external approval checks", async () => {
@@ -209,6 +304,8 @@ function successfulFetcher() {
     if (url === "https://example.com/wp-sitemap.xml") {
       return textResponse("<?xml version=\"1.0\"?><urlset></urlset>", "application/xml");
     }
+    const trustPage = trustPageResponse(url);
+    if (trustPage) return trustPage;
     return new Response("not found", { status: 404 });
   });
 }

@@ -6,8 +6,15 @@ import { analyzeContentOpportunityAlignment, calculateContentMetrics, deriveCont
 import { editorialRevisionId, type QualityCategory, type QualityReport } from "../../core/quality";
 import { PageContainer } from "../shared/ui/PageContainer";
 import { applyCanonicalDocument, type UserContent, type UserData, type UserProject } from "./user-data";
+import { canReopenPlanningCandidates } from "./content-navigation";
 import { editorPublishingPlatformVisibility } from "./editor-publishing-platform";
-import { normalizeQualityReview, visibleApprovalReadinessChecks, type NormalizedQualityReview } from "./quality-review-ui";
+import {
+  approvalReadinessCheckStatusLabel,
+  approvalReadinessCheckStatusTone,
+  normalizeQualityReview,
+  visibleApprovalReadinessChecks,
+  type NormalizedQualityReview,
+} from "./quality-review-ui";
 import { ContentDocumentEditor } from "./ContentDocumentEditor";
 import { ContentDangerZone } from "./ContentDangerZone";
 import { ContentSeoTitleStatus } from "./ContentSeoTitleStatus";
@@ -22,7 +29,9 @@ import {
 } from "../application/publishing/InternalLinkCatalogPolicy";
 import { WordPressManualSiteReviewActions } from "./WordPressManualSiteReviewActions";
 import { TistoryScheduleOverlay } from "./TistoryScheduleOverlay";
+import { ContentScheduleStatus } from "./ContentScheduleStatus";
 import { WordPressDraftOverlay } from "./WordPressDraftOverlay";
+import { WordPressScheduleOverlay } from "./WordPressScheduleOverlay";
 import { platformPreviewDocument } from "./PlatformPreviewDocument";
 
 type SafeConnection = Readonly<{
@@ -43,7 +52,7 @@ type Operation = "idle" | "quality" | "improving" | "applying" | "preview" | "ca
 type PostCatalogState = "idle" | "loading" | "success" | "empty" | "partial" | "session_expired" | "selector_error" | "permission_denied" | "connection_error";
 type TistoryReadiness = Readonly<{ ready: boolean; checks: readonly Readonly<{ key: string; passed: boolean; message: string }>[] }>;
 
-export function EditorWorkspace({ content, data, project, onBack, onPersist }: { content: UserContent; data: UserData; project: UserProject; onBack: () => void; onPersist: (data: UserData) => Promise<void> }) {
+export function EditorWorkspace({ content, data, project, onBack, onOpenPlanning, onPersist }: { content: UserContent; data: UserData; project: UserProject; onBack: () => void; onOpenPlanning?: () => void; onPersist: (data: UserData) => Promise<void> }) {
   const [title, setTitle] = useState(content.title);
   const [notice, setNotice] = useState(content.generationError ? `Generation unavailable: ${content.generationError}. Manual drafting is available.` : "Draft is stored locally.");
   const [saveState, setSaveState] = useState<"saved" | "saving" | "error">("saved");
@@ -445,7 +454,15 @@ export function EditorWorkspace({ content, data, project, onBack, onPersist }: {
   }
 
   return <PageContainer className="py-8 sm:py-10 lg:py-12">
-    <button className="text-sm font-semibold text-[#77777f]" onClick={onBack} type="button">← Project Dashboard</button>
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <button className="text-sm font-semibold text-[#77777f]" onClick={onBack} type="button">← Project Dashboard</button>
+      {/* The stored Planning candidates survive generation, but until this the
+          editor had no route back to them, so choosing a different candidate
+          meant paying for a second Planning call and starting a new Content. */}
+      {onOpenPlanning && canReopenPlanningCandidates(content)
+        ? <button className="text-sm font-semibold text-[#77777f]" onClick={onOpenPlanning} type="button">추천 주제 후보 다시 보기 →</button>
+        : null}
+    </div>
     <header className="mt-6 flex flex-wrap items-end justify-between gap-4 border-b border-black/6 pb-7"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#ff6b6b]">{project.name}</p><h1 className="mt-2 text-3xl font-semibold">편집기</h1></div><p className={`text-sm ${saveState === "error" ? "text-red-700" : "text-[#77777f]"}`}>{saveState === "saving" ? "저장 중…" : saveState === "saved" ? `저장됨 · Revision ${historyCount}개` : "저장 실패"}</p></header>
     <OperationNotice operation={operation} />
     {liveDocument ? <StrategySummary content={content} document={liveDocument} quality={normalizedQuality} showTistoryDetails={tistoryEnabled} /> : null}
@@ -494,7 +511,9 @@ export function EditorWorkspace({ content, data, project, onBack, onPersist }: {
       <button className="mt-4 rounded-xl bg-[#ff6b6b] px-5 py-3 text-sm font-semibold text-white disabled:opacity-50" disabled={!readiness?.ready} onClick={() => setShowConfirmation(true)} type="button">Tistory 임시저장</button>
     </section>
     {showConfirmation && selectedConnection ? <section className="mt-6 rounded-[24px] border border-red-200 bg-white p-6"><h2 className="text-lg font-semibold">외부 임시저장 최종 확인 · 사용자 확인 필요</h2><dl className="mt-4 grid gap-2 text-sm"><Info label="Workspace" value={data.workspace?.name ?? ""} /><Info label="Project" value={project.name} /><Info label="대상 계정" value={selectedConnection.displayName} /><Info label="제목" value={title} /><Info label="Tistory 카테고리" value={categoryName || (categoryId === "__uncategorized__" ? "카테고리 없음" : "선택 필요")} /></dl><p className="mt-4 rounded-xl bg-[#fff0f0] p-3 text-sm">공개 발행은 하지 않습니다. 확인한 문서 버전만 Tistory 임시글로 저장합니다.</p><label className="mt-4 flex gap-3 text-sm"><input checked={finalConfirmation} onChange={(event) => setFinalConfirmation(event.target.checked)} type="checkbox" />이 제목, 미리보기, 계정, 카테고리와 임시저장 작업을 최종 확인합니다.</label><div className="mt-4 flex gap-2"><button className="rounded-xl bg-[#ff6b6b] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50" disabled={!finalConfirmation || working} onClick={() => void saveTistory()} type="button">확인하고 임시저장</button><button className="rounded-xl border px-4 py-2.5 text-sm" onClick={() => setShowConfirmation(false)} type="button">취소</button></div></section> : null}</> : null}
+    <ContentScheduleStatus contentId={content.id} data={data} onCleared={onPersist} projectId={project.id} />
     {wordpressEnabled ? <WordPressDraftOverlay connections={connections} content={content} data={data} onPersist={onPersist} project={project} /> : null}
+    {wordpressEnabled ? <WordPressScheduleOverlay stacked={tistoryEnabled} /> : null}
     {tistoryEnabled ? <TistoryScheduleOverlay /> : null}
     <p aria-live="polite" className={`mt-4 rounded-xl p-4 text-sm ${saveState === "error" ? "bg-red-50 text-red-800" : "bg-white text-[#77777f]"}`}>{notice}</p>
     <ContentDangerZone contentId={content.id} disabled={working || operation !== "idle"} onDeleted={async (next) => { await onPersist(next); onBack(); }} onDeletingChange={(active) => setOperation(active ? "deleting" : "idle")} workspaceId={project.workspaceId} />
@@ -551,19 +570,8 @@ function ApprovalReadinessStatus({ review }: { review: NormalizedQualityReview }
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         {visibleApprovalReadinessChecks(readiness).map((check) => {
-          const statusLabel = check.status === "passed"
-            ? "통과"
-            : check.status === "blocked"
-              ? "차단"
-              : check.status === "needs_review"
-                ? "검토 필요"
-                : "미검사";
-
-          const statusTone = check.status === "passed"
-            ? "text-emerald-700"
-            : check.status === "blocked"
-              ? "text-red-700"
-              : "text-amber-800";
+          const statusLabel = approvalReadinessCheckStatusLabel(check);
+          const statusTone = approvalReadinessCheckStatusTone(check);
 
           return (
             <article className="rounded-xl border border-black/6 bg-white p-4" key={check.key}>

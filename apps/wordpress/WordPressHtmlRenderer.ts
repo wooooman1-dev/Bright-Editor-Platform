@@ -60,6 +60,9 @@ function renderBlock(block: ContentDocument["blocks"][number], document: Content
   }
   if (block.type === "video") return `<p><a href="${attribute(block.source)}">${escapeHtml(block.source)}</a></p>`;
   const target = block.target === "_blank" ? ' target="_blank" rel="noopener noreferrer"' : "";
+  if (block.purpose === "internal_link" && block.targetUrl) {
+    return `<aside class="bright-internal-link" style="box-sizing:border-box;max-width:100%;margin:28px 0;padding:18px 20px;border:1px solid #cfe0ff;border-radius:14px;background:#f3f7ff"><strong style="display:block;margin-bottom:8px;color:#234b8f;font-size:15px">함께 읽으면 좋은 글</strong><a href="${attribute(block.targetUrl)}"${target} style="color:#1456c0;font-weight:700;text-decoration:underline;text-underline-offset:3px;line-height:1.65">${escapeHtml(block.label)} →</a></aside>`;
+  }
   return `<div class="wp-block-button"><a class="wp-block-button__link" href="${attribute(block.targetUrl)}"${target}>${escapeHtml(block.label)}</a></div>`;
 }
 
@@ -109,17 +112,30 @@ function renderTable(block: TableBlock): string {
   const labelStyle = presentation.firstColumnRole === "label" ? `;width:1%;min-width:${presentation.firstColumnMinimumWidth}px;white-space:nowrap;word-break:keep-all;overflow-wrap:normal` : "";
   const headers = block.headers.map((cell, index) => `<th scope="col" style="${headerStyle}${index === 0 ? labelStyle : ""}">${escapeHtml(cell)}</th>`).join("");
   const rows = block.rows.map((row) => `<tr>${row.map((cell, index) => `<td style="${cellStyle}${index === 0 ? labelStyle : ""}">${escapeHtml(cell)}</td>`).join("")}</tr>`).join("");
-  return `<figure class="wp-block-table" style="max-width:100%;margin:28px 0;overflow-x:auto;-webkit-overflow-scrolling:touch">${caption}<table style="width:100%;border-collapse:collapse;border-spacing:0;min-width:${tableMinimumWidth(block)}px;font-size:16px;line-height:1.6"><thead><tr>${headers}</tr></thead><tbody>${rows}</tbody></table></figure>`;
+  /**
+   * 표는 칸 안에서 줄어들어야 한다 — 넘치면 안 된다.
+   *
+   * 이 렌더러는 원래 figure 에 overflow-x:auto 를, table 에 min-width 를 함께
+   * 실어 보냈다. 넓은 표는 가로 스크롤로 읽게 하려던 설계다. 그런데 워드프레스는
+   * 게시물 본문의 inline style 을 허용 목록으로 걸러서, overflow-x 와
+   * -webkit-overflow-scrolling 을 지우고 min-width 는 남긴다.
+   *
+   * 2026-08-14 발행분 실측 (brightjaetech.kr):
+   *   보낸 것  style="max-width:100%;margin:28px 0;overflow-x:auto;-webkit-overflow-scrolling:touch"
+   *   남은 것  style="max-width:100%;margin:28px 0"
+   *   표       min-width:960px 유지 → 960px 표가 720px 본문 칸을 뚫고 나감
+   *
+   * 스크롤 컨테이너가 사라지는 곳에서 min-width 는 안전장치가 아니라 넘침의
+   * 원인이다. 그래서 워드프레스에서는 min-width 를 싣지 않는다. figure 의
+   * overflow-x 는 그대로 두는데, 지워지면 무해하고 지우지 않는 환경에서는
+   * 여전히 도움이 되기 때문이다.
+   */
+  return `<figure class="wp-block-table" style="max-width:100%;margin:28px 0;overflow-x:auto;-webkit-overflow-scrolling:touch">${caption}<table style="width:100%;border-collapse:collapse;border-spacing:0;table-layout:auto;font-size:16px;line-height:1.6"><thead><tr>${headers}</tr></thead><tbody>${rows}</tbody></table></figure>`;
 }
 
 function renderList(block: ListBlock): string {
   const tag = block.style === "ordered" ? "ol" : "ul";
   return `<${tag}>${block.items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</${tag}>`;
-}
-
-function tableMinimumWidth(block: TableBlock): number {
-  const longestCell = Math.max(0, ...block.headers.map((cell) => cell.length), ...block.rows.flat().map((cell) => cell.length));
-  return Math.min(960, Math.max(480, block.headers.length * 180, longestCell > 40 ? 720 : 0));
 }
 
 function escapeHtml(value: string) { return value.replace(/[&<>]/g, (value) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[value]!); }

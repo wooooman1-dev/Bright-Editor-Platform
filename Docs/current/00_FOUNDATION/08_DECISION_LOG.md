@@ -704,7 +704,17 @@ Bright Studio는 콘텐츠의 최소·선호·최대 글자 수를 Planning 목�
 
 신규 Planning의 `contentDepth`는 `standard`, `deep`, `comparison`만 사용한다. `standard`는 핵심 문제의 직접 해결, `deep`은 복잡한 관계·여러 판단 기준·사례·예외·주의사항·다음 행동, `comparison`은 비교 기준·차이·장단점·상황별 선택 조건을 의미한다. 이 분류는 글자 수 유형이 아니다. 기존 `quick`과 길이 목표가 저장된 데이터는 읽기 호환을 유지하되 `quick`은 standard 정보 정책으로 해석하며 신규 결과로 만들지 않는다.
 
-Planning은 검색 의도, 독자 문제, 핵심 질문, 필수 정보 요소, 판단 기준, 필요한 예시, 주의사항과 예외, 실행 가능한 다음 행동, 비교·표·체크리스트 필요성 및 범위 경계를 하나의 호출에서 정의한다. Generation은 이 정보 계약을 충분히 설명한 뒤 종료하고, 같은 품질이면 더 간결한 결과를 선호하며, 분량 확보를 위한 반복·장황함·임의 URL을 만들지 않는다.
+Planning은 검색 의도, 독자 문제, 핵심 질문, 필수 정보 요소, 판단 기준, 필요한 예시, 주의사항과 예외, 실행 가능한 다음 행동, 비교·표·체크리스트 필요성 및 범위 경계를 하나의 호출에서 정의한다. Generation은 이 정보 계약을 충분히 설명한 뒤 종료하고, 분량 확보를 위한 반복·장황함·임의 URL을 만들지 않는다.
+
+### 2026-08-11 개정: 간결성 선호 문구 제거, 권장 분량 도입
+
+이 결정의 "같은 품질이면 더 간결한 결과를 선호하며" 항목을 제거한다. 원래 취지는 **짧다는 이유로 실패시키지 않는다**는 것이었으나, 구현은 Generation 지시에 `Prefer the shorter result when quality is equal`을 넣어 **적극적으로 짧게 쓰도록 지시**하고 있었다. 취지와 반대 방향의 과잉 구현이다.
+
+밝은재테크 Project 실측이 근거다. 발행된 글의 순수 산문 분량이 870자에서 2,304자까지 2.6배로 널뛰었고 어떤 것도 이를 통제하지 않았다. 2026-08-11 생성분은 1,455자에 4행짜리 표 두 개로, 섹션 완결 판정은 전부 통과했다. `informationElementCount`가 표 한 개를 섹션 최소치만큼 쳐 주기 때문에 표가 설명을 대체할 수 있었다.
+
+대신 Generation 지시에 **권장 분량 4,500~6,000자**(공백·표·목록 제외)를 둔다. 이는 게이트가 아니다. 미달을 이유로 차단하지 않고 품질 점수에도 반영하지 않으며, 계약이 실제로 소진되었다면 미달이 실패가 아님을 지시문에 함께 적는다. 최소·선호·최대 글자 수를 Gate 또는 승인 조건으로 쓰지 않는다는 이 결정의 핵심은 그대로 유지된다.
+
+같은 날, 표나 목록을 담은 섹션은 산문으로도 그 섹션을 설명해야 한다는 규칙을 추가했다(`CONTENT_SECTION_PROSE_INSUFFICIENT`). 이는 글 전체 분량이 아니라 한 섹션이 구조물로 설명을 대신하는 것을 막는 규칙이다.
 
 Quality Engine은 필수 정보 요소를 `missing`, `mentioned`, `sufficient`로 구분하고 `sufficient`만 충족으로 인정한다. 검색 의도, 독자 문제 해결, 섹션 역할 완결성, 정보 밀도, 정확성과 안전성, 판단 기준, 예시, 예외, 다음 행동, 반복과 장황함을 평가한다. 짧다는 이유만으로 실패시키지 않으며 길어도 필수 정보가 부족하거나 반복되면 실패한다. Generation 1회와 Quality Review 1회, standard 승인만 ready인 정책은 유지한다.
 
@@ -852,6 +862,138 @@ Source Authority는 고정 정부 도메인 여부와 동일한 개념으로 판
 특정 은행·카드사·보험사 또는 그 밖의 사업자가 소유한 상품의 금리, 중도해지, 상품조건, 수수료, 보험조건 Claim은 해당 Claim subject와 동일한 source owner의 HTTPS 공식 홈페이지, 상품공시, 상품설명서 또는 약관을 authoritative primary source로 인정할 수 있다. 특정 사업자 이름이나 도메인을 Core에 하드코딩하지 않고 공통 entity/source-owner matching 정책을 사용한다.
 
 Source Authority와 Claim relevance는 독립 Gate로 유지한다. 다른 사업자의 공식 페이지는 owner mismatch로 거부하고, 올바른 사업자의 공식 페이지라도 Claim과 무관하면 relevance로 거부한다. 모든 채택 Evidence는 기존 exact excerpt anchor, semantic·temporal verification과 CRITICAL Claim 100% Coverage를 통과해야 한다. NONE은 Evidence N/A, VERIFY는 실패 시 전체 Generation을 차단하지 않고 같은 Generation Prompt에서 해당 구체 Claim을 제거하거나 일반화하며, CRITICAL에만 mandatory Source Preflight와 Generation Gate를 적용한다. Generation 1회와 Quality Review 1회 정책은 변경하지 않는다.
+
+---
+
+# D-040 Approval Source Trust and Corroboration
+
+Status: Accepted
+
+Approval source readiness does not require a government, institutional, or
+other official domain, and it does not require an information-as-of date or a
+reader-visible final-review date. The required source is the URL that the AI
+actually used when preparing the manuscript.
+
+The source verifier must still fetch the URL and confirm that the page content
+is relevant to the manuscript's material factual claims. A URL or a matching
+keyword alone is not sufficient.
+
+- An accessible source whose content materially supports the claim may be
+  trusted alone when the source is an accepted official/first-party source.
+- A non-official or secondary source may be trusted only when an independent
+  second source supports the same material claim.
+- `citation`, page access, content match, corroboration, and `system_verified`
+  remain separate states.
+- Missing information dates and reader-visible review-date labels are
+  informational diagnostics, not approval-policy blockers.
+- General prose Claims do not all become mandatory blockers. Material factual
+  Claims remain subject to content-match checks; high-risk unsupported or
+  conflicting Claims may still block quality or approval policy.
+
+This decision replaces the assumption that every approval source must pass an
+official-domain allowlist and that every required Claim must have an official
+source. The source URL, source-content match, and applicable corroboration
+route are the trust conditions.
+
+---
+
+# D-041 Generated Citation URL Preservation
+
+Status: Accepted
+
+When an AI-generated manuscript contains a source URL in its body or metadata,
+that URL is an Evidence candidate even when the provider's web-search
+diagnostics omit it. The candidate remains an ordinary `citation` until the
+shared Fetch and Claim-content matcher verifies it. This prevents an unrelated
+diagnostic result from replacing the source the manuscript actually used.
+
+The workflow must merge three source inputs before Evidence verification:
+generation preflight sources, provider citation diagnostics, and URLs extracted
+from the generated document. URL presence alone never bypasses Fetch,
+content-match, or applicable corroboration rules.
+
+---
+
+# D-042 AdSense Approval Content Public Scheduling
+
+Status: Accepted
+
+An `adsense_approval` WordPress Content may use `future` scheduled publishing
+when the Workspace explicitly enables `wordpressSchedulePublicPublish`, the
+current Revision passes the complete Quality, Approval Readiness, permission,
+and platform checks, and the user confirms that specific schedule. The global
+`publicPublish` setting remains disabled; immediate public publishing is not
+enabled by this decision.
+
+This is a scheduled-public exception after review, not an approval guarantee.
+Tistory and other platforms remain governed by their own platform-specific
+scheduled publishing contracts.
+
+---
+
+# D-043 Information Date Placement and Source Guidance Separation
+
+Status: Accepted
+
+For newly generated `adsense_approval` manuscripts, the AI-generated
+`정보 기준일: YYYY-MM-DD` line must not appear under the title, in the
+introduction, or inside ordinary article prose. It belongs once in a distinct
+final section named `정보 기준과 다시 확인할 곳`, after the conclusion.
+
+The reader-facing sentence that names an official service or page for
+re-checking is guidance, not source content. It must be a separate paragraph
+from factual or legal explanation. Verified source links and system-owned
+review dates remain separate system projections.
+
+This applies to new Generation and Quality Review results. Existing saved Drafts
+are not rewritten by this decision.
+
+---
+
+# D-044 Preserve Existing Manuscripts When Generating a New Content
+
+Status: Accepted
+
+When a Content already has a manuscript, the existing regeneration action keeps
+its current replacement behavior and requires explicit confirmation. The
+creation flow also exposes a separate action that creates a new Content ID from
+the confirmed planning opportunity. That action must preserve the original
+Content and route persistence, platform preparation, generation, recovery, and
+editor navigation through the new Content ID.
+
+The new Content path is a Content-level copy of the confirmed planning context,
+not a document copy. The existing manuscript, review state, and generation
+history remain attached to the original Content; generation starts a fresh
+manuscript on the new Content.
+
+---
+
+# D-038 WordPress Scheduled Publishing
+
+Status: Accepted
+
+이 결정은 `D-036 WordPress Draft Publishing MVP`의 제외 항목 중 `Scheduled Publishing`만 해제한다. `D-036`의 나머지 제외 항목인 Existing Post Update, Existing Post Delete, 자동 Plugin 설치·수정, Theme 수정, 여러 플랫폼 동시 실행, 자동 Retry는 그대로 유지한다. `D-034`가 Tistory 전용으로 승인한 예약 계약을 WordPress로 확장하되 Tistory 구현을 복제하지 않는다.
+
+WordPress는 Tistory와 달리 공식 REST API가 예약을 지원하므로 브라우저 자동화 Worker를 사용하지 않는다. `POST /wp-json/wp/v2/posts`에 `status`와 `date_gmt`를 전달하는 방식만 사용한다.
+
+예약 상태는 두 가지를 지원한다.
+
+- `draft` 예약: 글을 초안으로 유지하고 예약 시각만 플랫폼에 기록한다. 실제 공개는 사용자가 별도로 승인해야 한다. Review First · Draft Only 정책과 충돌하지 않으므로 기본값이다.
+- `future` 예약: `status=future`와 `date_gmt`로 등록하여 지정 시각에 자동 공개된다. 공개 발행에 해당하므로 기본 Disabled이다.
+
+`future` 예약은 Workspace Setting `wordpressSchedulePublicPublish`가 명시적으로 Enabled일 때만 실행할 수 있다. 이 설정의 기본값은 `false`이며, Workspace의 `publicPublish` 불변식은 변경하지 않는다. 즉시 공개 발행은 계속 금지한다. `adsense_approval` Content도 현재 Revision의 품질·승인준비·권한 검사를 통과한 경우에 한해 이 예약 공개 경로를 사용할 수 있다.
+
+예약 안전 정책은 `D-034`와 동일하게 적용한다.
+
+- `schedule.create` Permission 필수, 예약마다 사용자 명시 최종 확인 필수
+- 활성 예약의 중복 생성 금지
+- 예약 후 Revision, Account 또는 Category 변경 금지
+- 성공한 예약의 자동 재시도 금지
+- 로컬 Scheduler가 공개 시각까지 대기하거나 자체적으로 공개 작업을 실행하지 않음
+
+`POST /posts` 응답만으로 완료 처리하지 않는다. 생성된 External Post ID를 다시 조회하여 `D-036`의 Draft 검증 항목에 더해 요청한 `status`와 `date_gmt`가 실제로 적용되었는지 검증한다. 검증하지 못한 예약은 `scheduled_unverified`로 보존하고 자동 재시도하지 않는다.
+
+AdSense 승인 준비 단계의 Content에도 `future` 예약을 적용할 수 있다. 단, `wordpressSchedulePublicPublish` 명시적 허용, 현재 Revision의 전체 예약 준비 검사 통과, 예약별 사용자 최종 확인을 모두 요구한다. 승인 준비 통과 자체가 AdSense 승인을 보장하지는 않는다.
 
 ---
 

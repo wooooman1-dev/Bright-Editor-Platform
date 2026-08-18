@@ -17,6 +17,8 @@ const request = process.env.BRIGHT_FINANCE_SOURCE_REQUEST?.trim()
 type GenerationResponse = Readonly<{
   data?: UserData;
   error?: string;
+  code?: string;
+  approvalSourcePreflightDiagnostic?: Readonly<Record<string, unknown>>;
   aiReviewError?: string;
   callCounts?: Readonly<{ generation: number; review: number }>;
   quality?: UserData["contents"][number]["quality"];
@@ -24,7 +26,7 @@ type GenerationResponse = Readonly<{
 }>;
 
 describe.runIf(enabled)("Bright Finance live Source Preflight verification", () => {
-  it("uses a fresh explicit Verification Plan and optionally verifies one Generation + one Quality Review", async () => {
+  it("uses a fresh planning opportunity and verifies one Generation + one Quality Review", async () => {
     const initial = await getStudioData();
     const matchingProjects = initial.projects.filter((project) =>
       project.name.trim() === projectName,
@@ -87,28 +89,22 @@ describe.runIf(enabled)("Bright Finance live Source Preflight verification", () 
     const plan = persistedContent?.planning ?? planned.payload.plan;
     const opportunity = plan.opportunityCandidates?.[0];
     if (!opportunity) throw new Error("Planning did not return a Content Opportunity.");
-    if (opportunity.verificationPlan?.mode !== "explicit") {
-      throw new Error("Bright Finance approval Planning did not persist an explicit Verification Plan.");
-    }
-    if (!opportunity.verificationPlan.claims.length) {
-      throw new Error("The live factual request did not produce any Verification Claims.");
-    }
 
     console.log(`BRIGHT_FINANCE_SOURCE_PLANNING ${JSON.stringify({
       contentId,
       projectId: project.id,
       selectedTopic: opportunity.selectedTopic,
       primaryKeyword: opportunity.primaryKeyword,
-      verificationMode: opportunity.verificationPlan.mode,
-      claimCount: opportunity.verificationPlan.claims.length,
-      claims: opportunity.verificationPlan.claims.map((claim) => ({
+      verificationMode: opportunity.verificationPlan?.mode,
+      claimCount: opportunity.verificationPlan?.claims.length ?? 0,
+      claims: opportunity.verificationPlan?.claims.map((claim) => ({
         claimId: claim.claimId,
         field: claim.field,
         kind: claim.kind,
         statement: claim.statement,
         required: claim.required,
         temporalRequirement: claim.temporalRequirement,
-      })),
+      })) ?? [],
       generationEnabled,
     })}`);
 
@@ -175,21 +171,17 @@ describe.runIf(enabled)("Bright Finance live Source Preflight verification", () 
 
     const latest = generated.payload.data ?? await getStudioData();
     const stored = latest.contents.find((item) => item.id === contentId);
-    const verification = stored?.document?.metadata?.generatedClaimVerification;
-    const sourceSummary = verification?.verificationSnapshot.results.flatMap((result) =>
-      result.sourceAssessments.map((source) => ({
-        claimId: result.claimId,
-        status: result.status,
-        sourceId: source.sourceId,
-        canonicalUrl: source.canonicalUrl,
-        institutionGroupId: source.institutionGroupId,
-        role: source.role,
-        supports: source.supports,
-        authoritative: source.authoritative,
-        fresh: source.fresh,
-        freshnessStatus: source.freshnessStatus,
-      })),
-    ) ?? [];
+    const approvalEvidence = stored?.document?.metadata?.approvalEvidence;
+    const sourceSummary = approvalEvidence?.sources.map((source) => ({
+      sourceId: source.sourceId,
+      canonicalUrl: source.canonicalUrl ?? source.url,
+      title: source.title,
+      publisher: source.publisher,
+      provenance: source.provenance,
+      verified: source.verified,
+      verificationStatus: source.verificationStatus,
+      factsCount: source.facts.length,
+    })) ?? [];
 
     console.log(`BRIGHT_FINANCE_SOURCE_GENERATION ${JSON.stringify({
       contentId,
@@ -199,23 +191,23 @@ describe.runIf(enabled)("Bright Finance live Source Preflight verification", () 
       callCounts: generated.payload.callCounts,
       reachedTarget: generated.payload.reachedTarget,
       quality: generated.payload.quality,
-      verificationOverallStatus: verification?.verificationSnapshot.overallStatus,
-      unverifiedDetectedCount: verification?.unverifiedDetectedCount,
-      verifiedClaimIds: verification?.verifiedClaimIds,
-      sources: sourceSummary,
+      approvalEvidence: {
+        status: approvalEvidence?.status,
+        coverageStatus: approvalEvidence?.coverageStatus,
+        sourceCount: sourceSummary.length,
+        sources: sourceSummary,
+      },
       publishingAttempted: false,
+      approvalSourcePreflightDiagnostic: generated.payload.approvalSourcePreflightDiagnostic,
     })}`);
 
     expect(generated.status, generated.payload.error ?? generated.payload.aiReviewError).toBe(200);
     expect(generated.payload.callCounts).toEqual({ generation: 1, review: 1 });
     expect(stored?.document).toBeDefined();
-    expect(verification?.verificationSnapshot.verificationMode).toBe("explicit");
-    expect(verification?.verificationSnapshot.overallStatus).toBe("verified");
-    expect(verification?.unverifiedDetectedCount).toBe(0);
-    expect(sourceSummary.length).toBeGreaterThan(0);
-    expect(sourceSummary.every((source) =>
-      !source.canonicalUrl || source.canonicalUrl.startsWith("https://")),
-    ).toBe(true);
+    expect(approvalEvidence?.sources.length ?? 0).toBeGreaterThan(0);
+    expect(approvalEvidence?.sources.every((source) =>
+      (source.canonicalUrl ?? source.url).startsWith("https://")
+    )).toBe(true);
   }, 1_000_000);
 });
 

@@ -166,10 +166,34 @@ function normalizeApprovalReadinessCheck(value: unknown): ApprovalReadinessCheck
   })];
 }
 
+/**
+ * Every readiness check is shown, including the ones that do not apply.
+ *
+ * A non-applicable Evidence check used to be dropped here, so the Evidence card
+ * disappeared from the panel entirely — measured on the 밝은재테크 corpus that
+ * was 8 of 16 approval manuscripts, including manuscripts whose stored factual
+ * inventory shows sentences were withdrawn because their source anchor failed.
+ * AGENTS.md ch.14 lists Evidence Verification as one of the four shared approval
+ * states and requires it to be represented separately, so it is rendered with
+ * its own "not applicable" label instead of being hidden.
+ */
 export function visibleApprovalReadinessChecks(
   report: ApprovalReadinessReport,
 ): readonly ApprovalReadinessCheck[] {
-  return Object.freeze(report.checks.filter((check) => check.applicable !== false));
+  return report.checks;
+}
+
+export function approvalReadinessCheckStatusLabel(check: ApprovalReadinessCheck): string {
+  if (check.applicable === false) return "필수 검증 대상 아님";
+  if (check.status === "passed") return "통과";
+  if (check.status === "blocked") return "차단";
+  return check.status === "needs_review" ? "검토 필요" : "미검사";
+}
+
+export function approvalReadinessCheckStatusTone(check: ApprovalReadinessCheck): string {
+  if (check.applicable === false) return "text-[#66666f]";
+  if (check.status === "passed") return "text-emerald-700";
+  return check.status === "blocked" ? "text-red-700" : "text-amber-800";
 }
 
 function normalizeReasons(category: QualityCategory, value: unknown, evidence: readonly unknown[]): string[] {

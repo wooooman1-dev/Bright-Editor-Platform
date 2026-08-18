@@ -137,6 +137,39 @@ function review(document: ContentDocument) {
 }
 
 describe("Generated Claim verification Quality linkage", () => {
+  it("does not require a Claim Snapshot for an Official Source First evidence bundle", () => {
+    const document = baseDocument("?꾩옱 吏??湲덉븸? 50留뚯썝?낅땲??");
+    const sourceFirstDocument = Object.freeze({
+      ...document,
+      metadata: Object.freeze({
+        ...document.metadata!,
+        approvalEvidence: Object.freeze({
+          version: "1.0" as const,
+          status: "verified" as const,
+          sourcePolicyCompliance: "passed" as const,
+          sources: Object.freeze([Object.freeze({
+            sourceId: "official-source",
+            url: "https://www.gov.kr/official-guide",
+            originalUrl: "https://www.gov.kr/official-guide",
+            canonicalUrl: "https://www.gov.kr/official-guide",
+            title: "怨듭떇 ?덈궡",
+            publisher: "gov.kr",
+            sourceType: "official_institution" as const,
+            retrievedAt: "2026-08-17T00:00:00.000Z",
+            verified: true,
+            provenance: "system_verified" as const,
+            facts: Object.freeze([]),
+            cited: true,
+            selected: true,
+          })]),
+        }),
+      }),
+    });
+    const quality = review(sourceFirstDocument);
+
+    expect(quality.findings.some((finding) => finding.message.includes("寃利?Claim Snapshot"))).toBe(false);
+  });
+
   it("does not add a verification block when the current manuscript matches the verified Claim", () => {
     const quality = review(verifiedDocument());
 

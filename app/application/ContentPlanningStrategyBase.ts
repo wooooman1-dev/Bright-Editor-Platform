@@ -18,6 +18,7 @@ import type { VerificationClaimKind, VerificationClaimRisk, VerificationClaimSpe
 import { verificationClaimId } from "../../core/approval";
 import { createContentOpportunityVerificationPlan } from "../../core/content";
 import { isExplicitVerificationPlanningEnabled } from "./ExplicitVerificationPlanningPolicy";
+import { editorialDiversityPolicyFromContext } from "./approval/ApprovalContentPolicy";
 export type { PlanningVerificationClaimDraft } from "./PlanningContracts";
 import { planningVerificationClaimMaximum } from "./PlanningContracts";
 
@@ -88,6 +89,9 @@ export class ContentPlanningStrategy {
     enabledPlatforms?: readonly WorkspacePlatform[],
     context: ContentPlanningContext = { projectId: "planning-project", selectionMode: "userSpecified" },
   ): Promise<ContentPlanningResult> {
+    const startedAt = Date.now();
+    const diag = (stage: string) => console.info(`[PLANNING-DIAG] ${stage}: ${Date.now() - startedAt}ms`);
+    diag("analyze-start");
     const request = naturalLanguageRequest.trim();
     if (!request) throw new Error("What would you like to create?");
     const ownedBrandTerms = planningOwnedBrandTerms(context);
@@ -98,13 +102,16 @@ export class ContentPlanningStrategy {
     const approvalSourceRequirementInstruction = explicitVerificationPlanningEnabled
       && typeof context.projectContext === "string"
       && context.projectContext.includes("Content purpose: adsense_approval")
-      ? "Approval evidence policy is risk-based. Do not require sources for every approval-profile article. Return verificationClaims only for Claims that genuinely need external verification. Before returning, audit coreQuestions, warningsOrExceptions, expectedCoverage, requiredContentElements, and the content plan for factual premises about how an external system, institution, product, process, or rule works; every such premise must appear as an atomic VERIFY or CRITICAL Claim. Classify ordinary advice/checklists such as comparing receipts, checking large transactions first, grouping subscriptions, or contacting support as NONE by leaving them out. Use risk=verify for verifiable general facts that can be removed or generalized if unsupported. Use risk=critical and required=true only for money amounts, dates, eligibility, legal rules, tax rates, actual rates, official conditions, or similar facts that cannot safely remain without Evidence. If no VERIFY or CRITICAL Claim is needed, return an empty verificationClaims array; that explicit empty array is a valid completed N/A state."
+      ? "Approval evidence policy is risk-based. Do not require sources for every approval-profile article. Return verificationClaims only for Claims that genuinely need external verification. Before returning, audit coreQuestions, warningsOrExceptions, expectedCoverage, requiredContentElements, and the content plan for factual premises about how an external system, institution, product, process, or rule works; every such premise must appear as an atomic VERIFY or CRITICAL Claim. Classify ordinary advice/checklists such as comparing receipts, checking large transactions first, grouping subscriptions, or contacting support as NONE by leaving them out. Use risk=verify for verifiable general facts that can be removed or generalized if unsupported. Use risk=critical and required=true only for money amounts, dates, eligibility, legal rules, tax rates, actual rates, official conditions, or similar facts that cannot safely remain without Evidence. If no VERIFY or CRITICAL Claim is needed, return an empty verificationClaims array; that explicit empty array is a valid completed N/A state. An empty array is a finding about the topic, not a way to make the article easier: a topic that produces one only because the article intends to state nothing checkable is the wrong topic. The article must inform the reader, not send them away to read their own documents, so requiredContentElements must name information the article itself states — how a rule or process actually works, what distinguishes one situation from another, what determines an outcome — and not only records the reader should go and look up. If the only honest plan for a topic is a list of things for the reader to check by themselves, choose a different topic."
       : "";
+    const diversityInstruction = editorialDiversityInstruction(context.projectContext);
+    diag("provider-generate-start");
     const response = await this.provider.generate({
       instruction: `Analyze this content request as an editorial strategist. Do not write the final content. ${modeInstruction}
 Request: ${request}
 ${explicitVerificationPlanningEnabled ? "Verification claims rule: expectedCoverage is editorial scope only. verificationClaims contains only concrete externally verifiable facts that need Evidence management. Each verificationClaims item must set atomicity to single_assertion and represent exactly one independently verifiable factual proposition. If the article needs separate facts such as definition, operator, scope, identity verification, and payout procedure, emit separate Claims with separate fields/statements; never combine them into one list-like statement. This is a structured contract rule, not a punctuation-based string-splitting rule. Use risk=verify and required=false for verifiable general facts that are useful but can be removed or generalized if not verified. Use risk=critical and required=true for money, dates, eligibility, legal rules, tax rates, actual rates, official conditions, and other high-risk factual claims. Do not emit NONE claims; ordinary advice, checklists, generic steps, and editorial guidance belong only in coverage arrays. For approval-policy planning, an empty verificationClaims array is valid when no Evidence-managed Claim is needed. Exclude editorial instructions, section titles, search intent, strategy, and abstract facts; do not duplicate between arrays; never include claimId, fingerprint, status, normalizedValue, or source data. Every verification Claim must include temporalRequirement: use mode=current only for time-sensitive currently applicable values; mode=asOf with date YYYY-MM-DD for a value explicitly tied to one reference date; mode=period with start/end YYYY-MM-DD for an explicit historical/reference period; mode=notRequired when time validity is irrelevant; use mode=unknown when the temporal meaning cannot be safely classified. Never invent dates to satisfy this field." : ""}
 ${approvalSourceRequirementInstruction}
+${diversityInstruction}
 Project strategy: ${context.projectContext ?? "Use only the request and supplied project context."}
 Project-owned labels that are identity, not default search keywords: ${JSON.stringify(ownedBrandTerms)}. Do not use these labels as the complete selectedTopic or primaryKeyword, and do not prefix selectedTopic or primaryKeyword with them unless the user's request explicitly makes that label the search subject. Keep third-party product, institution, and service names when they are genuinely part of the search task.
 Existing content to avoid duplicating: ${(context.existingContent ?? []).join(" | ") || "none supplied"}
@@ -113,10 +120,12 @@ Enabled publishing platforms: ${enabledPlatforms ? (enabledPlatforms.join(", ") 
 Only the supplied server Evidence is factual. Do not invent monthly volume, CPC, competition scores, rankings, provider names, or popularity. NAVER/Trends ratios are relative, Search Console impressions are site impressions, GA4 is engagement, and AdSense scope must not be narrowed. Opportunity Evidence will be attached and classified by the server after your response; do not create Evidence IDs.
   Topic-selection policy: prefer a specific reader problem that the article can actually resolve. Do not choose a topic merely because search volume, trend, scarcity, or low competition appears attractive. Prefer claims that can be defended with the existing VERIFY/CRITICAL policy; describe conditional facts with their scope and exceptions instead of presenting one universal answer. Show additional value over Existing content in contentAngle, expectedCoverage, decisionCriteria, warningsOrExceptions, or actionableNextSteps. Project strategy defines the reusable domain and exclusions; do not hardcode a platform, site, or example topic.
   Return JSON only with top-level interpretedIntent, domain, targetAudience, contentGoal, recommendedPlatforms, suggestedTitleAngles, contentCluster, recommendationReason, confidence, estimateDisclosure, and opportunityCandidates. Each opportunity candidate must be one atomic plan containing selectedTopic, primaryKeyword, secondaryKeywords, searchIntent, audience, contentType, contentAngle, readerProblem, expectedCoverage, coreQuestions, requiredContentElements, decisionCriteria, examplesNeeded, warningsOrExceptions, actionableNextSteps, comparisonNeeds, tableNeeds, checklistNeeds, scopeBoundaries, topicComplexity, contentDepth, selectionRationale, opportunityEvidence [{source,summary}], confidence, and cautions. contentDepth must be standard, deep, or comparison; never return quick. Do not return any prose-length or section-length targets.
-  Build each candidate as a coherent information contract before returning it. The primaryKeyword must be the concise phrase a reader would actually search, including a task modifier such as 방법, 비교, 기준, 조건, 계산, 신청, or 설정 when that modifier is essential to the search intent. The selectedTopic should naturally contain the primaryKeyword phrase when that reads well; otherwise it must preserve all of the keyword's core concepts without switching to an adjacent search task. searchIntent must state the concrete question or task the reader wants resolved, not only a classification label such as informational, transactional, commercial, or navigational. readerProblem must describe the reader's decision or action obstacle. Make coreQuestions directly answerable, make requiredContentElements concrete enough to judge as missing/mentioned/sufficient, and keep expectedCoverage items mutually distinct. decisionCriteria, examplesNeeded, warningsOrExceptions, and actionableNextSteps must each add a non-duplicative editorial role. Required elements identify information the reader needs, not merely words that should appear. Topic, keyword, intent, coverage, and supporting keywords in each candidate must describe one search task.`,
+  Build each candidate as a coherent information contract before returning it. The primaryKeyword must be the concise phrase a reader would actually search, including a task modifier such as 방법, 비교, 기준, 조건, 계산, 신청, or 설정 when that modifier is essential to the search intent. The selectedTopic should naturally contain the primaryKeyword phrase when that reads well; otherwise it must preserve all of the keyword's core concepts without switching to an adjacent search task. Opportunity alignment measures how much of the primaryKeyword the selectedTopic carries and blocks the article below 60 percent, so do not drop the keyword's task modifier from the topic to make it read differently. Title shape is varied when the article is written, not by loosening the topic. searchIntent must state the concrete question or task the reader wants resolved, not only a classification label such as informational, transactional, commercial, or navigational. readerProblem must describe the reader's decision or action obstacle. Make coreQuestions directly answerable, make requiredContentElements concrete enough to judge as missing/mentioned/sufficient, and keep expectedCoverage items mutually distinct. decisionCriteria, examplesNeeded, warningsOrExceptions, and actionableNextSteps must each add a non-duplicative editorial role. Required elements identify information the reader needs, not merely words that should appear. Topic, keyword, intent, coverage, and supporting keywords in each candidate must describe one search task. comparisonNeeds, tableNeeds, and checklistNeeds are judgments about this one topic, not defaults: set each true only when the topic itself supplies the material for it. Set tableNeeds true only when the article will hold at least three rows of comparable data sharing the same columns; a table is scored by how many data rows it carries, so a table declared without data to fill it lowers the article's information score instead of raising it. Set checklistNeeds true whenever the reader has to confirm several separate conditions, documents or records before acting, which is usual for eligibility, application and preparation topics; do not set it false merely because actionableNextSteps also exists. Returning the same combination of these three flags on every candidate means they were copied rather than judged; candidates whose topics differ should differ here.`,
       metadata: { task: "content-planning", ...(explicitVerificationPlanningEnabled ? { explicitVerificationPlanning: "1" } : {}) },
     });
+    diag("provider-generate-complete");
     let plan: ContentPlanningResult;
+    diag("parse-start");
     try {
       plan = parsePlanningResult(response.content, { ...context, ownedBrandTerms, sourceRequest: request, explicitVerificationPlanningEnabled });
     } catch (error) {
@@ -127,6 +136,7 @@ Only the supplied server Evidence is factual. Do not invent monthly volume, CPC,
         diagnostic: response.diagnostics,
       });
     }
+    diag("parse-complete");
     return enabledPlatforms ? filterPlanningPlatforms(plan, enabledPlatforms) : plan;
   }
 }
@@ -335,15 +345,32 @@ function createPlanningVerificationPlan(raw: unknown) {
   return createContentOpportunityVerificationPlan(claims);
 }
 
+/**
+ * The kind floor is authoritative, not a fallback. It used to apply only when
+ * the model omitted `risk`, so a model that answered `verify` on an
+ * `eligibility` Claim silently opted the whole article out of Evidence: with no
+ * critical Claim, `runApprovalSourcePreflight` returns `not_required` with zero
+ * sources, generation writes with nothing to cite, and the critical statements
+ * it invents anyway are deleted as `unreported_generated_critical`. A 청약통장
+ * article planned four eligibility Claims that way and published with no 출처
+ * section at all.
+ *
+ * The planning prompt already names eligibility, legal, money, dates and
+ * durations as the critical set, so this enforces the instruction rather than
+ * adding a rule. A model may still raise a `general` Claim to critical; it may
+ * no longer lower a kind that is critical by nature.
+ */
 function parsePlanningClaimRisk(
   raw: unknown,
   required: boolean,
   kind: VerificationClaimKind,
   index: number,
 ): VerificationClaimRisk {
-  if (raw === "none" || raw === "verify" || raw === "critical") return raw;
-  if (raw !== undefined) throw new Error(`Invalid verification claim risk at index ${index}.`);
-  return required || criticalVerificationKinds.has(kind) ? "critical" : "verify";
+  if (raw !== undefined && raw !== "none" && raw !== "verify" && raw !== "critical") {
+    throw new Error(`Invalid verification claim risk at index ${index}.`);
+  }
+  if (required || criticalVerificationKinds.has(kind) || raw === "critical") return "critical";
+  return raw === "none" ? "none" : "verify";
 }
 
 function parsePlanningTemporalRequirement(raw: unknown, index: number): VerificationTemporalRequirement {
@@ -425,6 +452,40 @@ export function normalizePlanningPrimaryKeyword(
   const modifier = topicTokens[keywordTokens.length];
   if (!modifier || !SEARCH_TASK_SUFFIXES.has(modifier) || SEARCH_TASK_SUFFIXES.has(keywordTokens[keywordTokens.length - 1] ?? "")) return keyword;
   return `${keyword} ${modifier}`;
+}
+
+/**
+ * The diversity policy travels inside the editorial context JSON, where it sat
+ * below the prompt's own instruction to put a task modifier in every
+ * primaryKeyword and mirror that keyword in selectedTopic. Every candidate came
+ * back shaped `<주제> 방법: <설명절>` even while the policy named that exact shape
+ * as the one to avoid. Restating it here gives it the same rank as the
+ * instruction it has to overcome.
+ */
+function editorialDiversityInstruction(projectContext: string | undefined): string {
+  const policy = editorialDiversityPolicyFromContext(projectContext);
+  if (!policy) return "";
+  const recent = (policy.recentArticles ?? []).flatMap((article) => {
+    const title = article.title?.trim();
+    if (!title) return [];
+    const headings = (article.headings ?? []).filter(Boolean).join(" / ");
+    const opening = article.openingSentence?.trim();
+    return [[
+      `제목: ${title}`,
+      headings ? `소제목: ${headings}` : "",
+      opening ? `도입부: ${opening}` : "",
+    ].filter(Boolean).join(" | ")];
+  });
+  const formats = (policy.formatOptions ?? [])
+    .map((option) => `${option.name}(${option.id}): ${option.skeleton} — ${option.fitsWhen}`);
+  return [
+    "Editorial diversity contract (this outranks any wording convention below; it never outranks factual accuracy or the approval policy):",
+    policy.rule,
+    recent.length ? `이 사이트가 최근 발행한 글:\n${recent.join("\n")}` : "",
+    "위 제목들의 문형을 selectedTopic, suggestedTitleAngles, contentAngle에서 되풀이하지 말 것. 후보 여러 개를 반환할 때는 후보끼리도 제목 문형이 서로 달라야 한다.",
+    formats.length ? `${policy.formatRule ?? ""}\n${formats.join("\n")}` : "",
+    (policy.introStyles ?? []).length ? `도입부 화법 예시: ${(policy.introStyles ?? []).join(" / ")}` : "",
+  ].filter(Boolean).join("\n");
 }
 
 function planningOwnedBrandTerms(context: Pick<ContentPlanningContext, "ownedBrandTerms" | "projectContext">): readonly string[] {

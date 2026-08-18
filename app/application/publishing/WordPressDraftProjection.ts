@@ -71,14 +71,23 @@ export function legacyWordPressContentRevisionId(document: ContentDocument): str
   }))}`;
 }
 
+export type WordPressScheduleExecutionIdentity = Readonly<{
+  scheduledAt: string;
+  timezone: string;
+  postStatus: "draft" | "future";
+}>;
+
 export function wordpressDraftExecutionRevisionId(
   content: UserContent & Readonly<{ document: ContentDocument }>,
   connectionId: string,
   slug?: string,
+  schedule?: WordPressScheduleExecutionIdentity,
 ): string {
   const preparation = content.publishingPreparation?.wordpress?.publishingAccountId === connectionId
     ? content.publishingPreparation.wordpress
     : undefined;
+  // The schedule key is omitted entirely when absent so existing non-scheduled
+  // execution revisions keep their original hash.
   const source = JSON.stringify({
     contentRevisionId: contentRevisionId(content.document),
     focusKeyphrase: (content.primaryKeyword ?? content.opportunity?.primaryKeyword ?? "").trim(),
@@ -90,6 +99,15 @@ export function wordpressDraftExecutionRevisionId(
       preparation?.featuredImageAssetId,
     ),
     slug: slug?.trim() ?? "",
+    ...(schedule
+      ? {
+        schedule: {
+          scheduledAt: schedule.scheduledAt.trim(),
+          timezone: schedule.timezone.trim(),
+          postStatus: schedule.postStatus,
+        },
+      }
+      : {}),
   });
   return `wordpress-draft-${executionHash(source)}`;
 }

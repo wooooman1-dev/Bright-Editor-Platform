@@ -11,7 +11,7 @@ describe("EditorialGenerationStrategy information sufficiency target", () => {
     expect(request.instruction).toContain("Decision criteria");
     expect(request.instruction).toContain("Reader problem");
     expect(request.instruction).toContain("same response-writing process");
-    expect(request.instruction).toContain("Never expand content only to make it longer");
+    expect(request.instruction).toContain("never reach it by padding");
     expect(request.instruction).toContain("coverage map");
     expect(request.instruction).toContain("exactly one primary H2");
     expect(request.instruction).toContain("do not repeat the same caution or next action in every H2");
@@ -19,6 +19,15 @@ describe("EditorialGenerationStrategy information sufficiency target", () => {
     expect(request.instruction).toContain("a table is reserved for genuine multi-column comparison or lookup");
     expect(request.instruction).toContain("sectionType is semantic presentation intent, not a quota");
     expect(request.instruction).not.toMatch(/\b(?:2000|3500|5500|5,500)\b/);
+  });
+
+  it("states the measured prose floor and the comparison obligation the gates enforce", () => {
+    const request = new EditorialGenerationStrategy().createRequest(input("quick"));
+    expect(request.instruction).toContain("at least 400 characters of running prose excluding whitespace");
+    expect(request.instruction).toContain("at least 250 when its sectionType is checklist, steps, or faq");
+    expect(request.instruction).toContain("adding another bullet never satisfies it");
+    expect(request.instruction).toContain("at least one H2 must carry sectionType=comparison");
+    expect(request.instruction).toContain("a promised comparison that no section performs is rejected");
   });
 
   it("uses the deep health target and section roles", () => {
@@ -157,8 +166,8 @@ function response(depth: Depth): string {
   const quick = depth === "quick";
   const sections = quick
     ? [
-      section("준비 체크리스트", "checklist", "전원을 끄는 이유와 작업 안전에 미치는 영향을 확인합니다.\n- 전원을 끕니다.\n- 케이블을 분리합니다.\n- 마른 천을 준비합니다.\n- 통풍구를 확인합니다. " + sentence("가", 430)),
-      section("노트북 청소 순서", "steps", "실행 방법은 안전 확인 뒤 순서대로 진행하는 것입니다.\n1. 겉면을 닦습니다.\n2. 키보드를 정리합니다.\n3. 통풍구를 확인합니다. " + sentence("나", 500)),
+      section("준비 체크리스트", "checklist", "전원을 끄는 이유와 작업 안전에 미치는 영향을 확인합니다.\n- 전원을 끕니다.\n- 케이블을 분리합니다.\n- 마른 천을 준비합니다.\n- 통풍구를 확인합니다.\n" + sentence("가", 430)),
+      section("노트북 청소 순서", "steps", "실행 방법은 안전 확인 뒤 순서대로 진행하는 것입니다.\n1. 겉면을 닦습니다.\n2. 키보드를 정리합니다.\n3. 통풍구를 확인합니다.\n" + sentence("나", 500)),
       section("피해야 할 행동과 주의점", "warning", "액체를 직접 뿌리면 위험합니다. 강한 압력을 피해야 합니다. 이상이 보이면 사용을 멈추고 확인합니다. " + "다".repeat(420)),
     ]
     : [

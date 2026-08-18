@@ -316,6 +316,28 @@ describe("Approval Source Preflight universal Claim coverage", () => {
     expect(result.status).toBe("incomplete");
   });
 
+  it("trusts the quoted legal provision without a second planned-number comparison", () => {
+    const result = evaluate({
+      requiredClaims: [{
+        field: "legalPeriod",
+        plannedValue: "6 months before expiry",
+      }],
+      sources: [{
+        page: page({
+          requestedUrl: "https://law.go.kr/lsLinkCommonInfo.do?lsJoLnkSeq=1021710303",
+          text: "The official provision states that the request may be made within the statutory period.",
+        }),
+        claims: [claim(
+          "legalPeriod",
+          "the request may be made within the statutory period",
+          "The official provision states that the request may be made within the statutory period.",
+        )],
+      }],
+    });
+
+    expect(result.status).toBe("covered");
+  });
+
   it("normalizes equivalent Korean-won amounts and rejects another amount", () => {
     const accepted = evaluate({
       requiredClaims: [{ field: "amount", plannedValue: "1억원" }],

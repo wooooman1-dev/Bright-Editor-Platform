@@ -1,8 +1,10 @@
 import {
   approvalPolicySnapshotFromEditorialContext,
+  calculationDisclosureContract,
   canonicalizeApprovalEvidenceUrl,
   applyGeneratedFactualClaimInventory,
   createGeneratedClaimVerificationRecord,
+  evaluateStoredGeneratedFactualClaims,
   validateGeneratedFactualClaimDrafts,
   type ApprovalEvidenceFact,
   type ApprovalEvidenceSource,
@@ -10,12 +12,15 @@ import {
   type GeneratedClaimBinding,
   type GeneratedFactualClaim,
   type SiteApprovalReadinessFetch,
+  type VerificationGenerationGateResult,
+  type VerificationGenerationPlan,
   type VerificationSnapshot,
 } from "../approval";
 import type { ApprovalSourcePreflightCoverageResult } from "../approval/ApprovalSourcePreflightCoverage";
 import {
   findUnrequestedOwnedIdentityOccurrences,
   findUnrequestedOwnedIdentityPrefixes,
+  longFormNarrativeFloors,
   serializeStructuredList,
   type ConfirmedContentOpportunity,
   type ContentDocument,
@@ -24,7 +29,9 @@ import { editorialRevisionId } from "../quality/QualityEngine";
 import { AIProviderError, type AIProvider, type AIResponse, type AIWebSource } from "./AIProvider";
 import {
   runApprovalSourcePreflight,
+  runOfficialSourceFirstDiscovery,
   withApprovalSourcePreflightInstruction,
+  type ApprovalSearchProvider,
   type ApprovalSourcePreflightClaimSource,
 } from "./ApprovalSourcePreflight";
 import { appendAIUsageToDocument } from "./AIUsageCost";
@@ -87,7 +94,10 @@ export class AIWorkflow {
   constructor(
     private readonly provider: AIProvider,
     private readonly strategy: ContentGenerationStrategy,
-    private readonly options: Readonly<{ verifyEvidenceFetcher?: SiteApprovalReadinessFetch }> = {},
+    private readonly options: Readonly<{
+      verifyEvidenceFetcher?: SiteApprovalReadinessFetch;
+      approvalSearchProvider?: ApprovalSearchProvider;
+    }> = {},
   ) {}
 
   getState(): AIWorkflowState {
@@ -95,6 +105,9 @@ export class AIWorkflow {
   }
 
   async generate(input: GenerationInput): Promise<GenerationResult> {
+    const workflowStartedAt = Date.now();
+    const workflowLog = (stage: string, detail: Record<string, unknown> = {}) => console.info("[adsense-source-first]", stage, { elapsedMs: Date.now() - workflowStartedAt, ...detail });
+    workflowLog("workflow-start", { contentId: input.contentId });
     validateInput(input);
     assertOwnedIdentityKeywordPolicy(input);
     this.state = Object.freeze({ status: "generating" });
@@ -102,7 +115,17 @@ export class AIWorkflow {
       const approvalSnapshot = approvalPolicySnapshotFromEditorialContext(
         input.editorialContext,
       );
-      const sourcePreflight = approvalSnapshot
+      const officialSourceFirst = approvalSnapshot?.contentPurpose === "adsense_approval"
+        && input.structuredLongFormOutput
+        && input.contentOpportunity
+        ? await runOfficialSourceFirstDiscovery({
+            provider: this.provider,
+            snapshot: approvalSnapshot,
+            opportunity: input.contentOpportunity,
+            ...(this.options.verifyEvidenceFetcher ? { fetcher: this.options.verifyEvidenceFetcher } : {}),
+          })
+        : undefined;
+      const sourcePreflight = !officialSourceFirst && approvalSnapshot
         && input.structuredLongFormOutput
         && input.contentOpportunity
         ? await runApprovalSourcePreflight({
@@ -111,8 +134,10 @@ export class AIWorkflow {
             opportunity: input.contentOpportunity,
             platform: input.platform,
             contentType: input.contentType,
+            ...(this.options.approvalSearchProvider ? { searchProvider: this.options.approvalSearchProvider } : {}),
           })
         : undefined;
+      if (officialSourceFirst) workflowLog("source-bundle-acquired", { count: officialSourceFirst.sources.length, urls: officialSourceFirst.sources.map((source) => source.url) });
       const generationPreflight = sourcePreflight
         && input.contentOpportunity?.verificationPlan?.claims.some(isCriticalVerificationClaim)
         ? requireExplicitVerificationGenerationBundle({
@@ -131,14 +156,18 @@ export class AIWorkflow {
         });
       }
       const factualInventoryGeneration = Boolean(
-        approvalSnapshot && input.structuredLongFormOutput && input.contentOpportunity,
+        !officialSourceFirst && approvalSnapshot && input.structuredLongFormOutput && input.contentOpportunity,
       );
       const request = this.strategy.createRequest(input);
       const canonicalInstruction = withCanonicalEditorialContext(
         request.instruction,
         input.editorialContext,
       );
-      const preflightInstruction = generationPreflight
+      const sourceFirstInstruction = officialSourceFirst
+        ? `${canonicalInstruction}\n\nOfficial Source First contract: use only the acquired official source bundle below as factual basis. Derive Facts/Claims from those source pages before writing the article. Do not use search results, general knowledge, blogs, news, communities, or any other source. At the very end output a Sources section titled "출처" containing the same bundle's institution, title, and exact URL. The Sources section must be the final section.\n\nOfficial source bundle: ${JSON.stringify(officialSourceFirst.sources)}`
+        : undefined;
+      const preflightInstruction = sourceFirstInstruction
+        ?? (generationPreflight
         ? withApprovalSourcePreflightInstruction(
             canonicalInstruction,
             generationPreflight.sources,
@@ -147,10 +176,18 @@ export class AIWorkflow {
         : withApprovalEvidenceSearchInstruction(
             canonicalInstruction,
             approvalSnapshot,
-          );
-      const instruction = withVerificationClaimRiskInstruction(factualInventoryGeneration
-        ? withGeneratedFactualClaimResponseInstruction(preflightInstruction)
+          ));
+      const riskInstruction = withVerificationClaimRiskInstruction(factualInventoryGeneration
+        ? withWithdrawableFactIsolationInstruction(
+            withGeneratedFactualClaimResponseInstruction(preflightInstruction),
+          )
         : preflightInstruction, input.contentOpportunity);
+      const instruction = approvalSnapshot
+        ? withCalculationExampleDisclosureContract(
+            `${riskInstruction}\n\n${approvalInformationDateContract(currentInformationDate())}`,
+          )
+        : riskInstruction;
+      workflowLog("article-generation-start");
       const response = await this.provider.generate({
         ...request,
         instruction,
@@ -182,6 +219,7 @@ export class AIWorkflow {
             : {}),
         },
       });
+      workflowLog("article-generation-complete");
       let parsedDocument: ContentDocument;
       try {
         parsedDocument = this.strategy.parse(response.content, input);
@@ -193,18 +231,27 @@ export class AIWorkflow {
           diagnostic: response.diagnostics,
         });
       }
+      workflowLog("source-attribution-start");
+      const sourceAttributedDocument = officialSourceFirst
+        ? appendOfficialSourceAttribution(parsedDocument, officialSourceFirst.sources)
+        : parsedDocument;
+      workflowLog("source-attribution-complete");
       const policyDocument = withApprovalPolicyMetadata(
-        parsedDocument,
+        sourceAttributedDocument,
         input.editorialContext,
       );
       const evidenceDocument = withApprovalEvidenceMetadata(
         policyDocument,
         input.editorialContext,
-        generationPreflight?.sources ?? response.diagnostics?.webSources ?? [],
+        [
+          ...(officialSourceFirst?.sources ?? generationPreflight?.sources ?? []),
+          ...(officialSourceFirst ? [] : (response.diagnostics?.webSources ?? [])),
+          ...(officialSourceFirst ? [] : generatedDocumentCitationSources(policyDocument)),
+        ],
         undefined,
         generationPreflight?.claimSources,
         generationPreflight?.coverage,
-        generationPreflight?.sourcePolicyCompliance,
+        officialSourceFirst?.sourcePolicyCompliance ?? generationPreflight?.sourcePolicyCompliance,
       );
       const preflightUsageDocument = appendAIUsageToDocument(
         evidenceDocument,
@@ -224,12 +271,22 @@ export class AIWorkflow {
       }
 
       let semanticClaims: readonly GeneratedFactualClaim[] | undefined;
-      if (
+      let semanticContract: Readonly<{
+        plan: VerificationGenerationPlan;
+        snapshot: VerificationSnapshot;
+        gate: VerificationGenerationGateResult;
+      }> | undefined;
+      if (!officialSourceFirst && (
         generationPreflight
         && "gate" in generationPreflight
         && input.contentOpportunity?.verificationPlan?.claims.some(isCriticalVerificationClaim)
         && sourcePreflight?.verificationSnapshot
-      ) {
+      )) {
+        semanticContract = Object.freeze({
+          plan: input.contentOpportunity.verificationPlan,
+          snapshot: sourcePreflight.verificationSnapshot,
+          gate: generationPreflight.gate,
+        });
         const semanticValidation = validateGeneratedFactualClaimDrafts({
           document: generatedDocument,
           plan: input.contentOpportunity.verificationPlan,
@@ -263,10 +320,37 @@ export class AIWorkflow {
               ...(this.options.verifyEvidenceFetcher ? { fetcher: this.options.verifyEvidenceFetcher } : {}),
             }),
             fallbackTitle: input.contentOpportunity.selectedTopic,
+            ...(semanticClaims
+              ? { protectedSurfaceTexts: semanticClaims.map((claim) => claim.surfaceText) }
+              : {}),
           }).document
         : generatedDocument;
 
-      const generatedClaimVerification = generationPreflight
+      /**
+       * The factual inventory is the last stage that edits the canonical
+       * document, so the semantic Claim projection computed above describes the
+       * pre-inventory manuscript. Persisting it unchanged let one revision carry
+       * two Claim structures that disagreed about whether a Claim survived, and
+       * left stale block locations behind when the inventory dropped a block.
+       * Rebinding against the final document is what keeps them one answer.
+       */
+      if (semanticClaims && semanticContract && inventoryApplied !== generatedDocument) {
+        const rebound = evaluateStoredGeneratedFactualClaims({
+          document: inventoryApplied,
+          plan: semanticContract.plan,
+          snapshot: semanticContract.snapshot,
+          gate: semanticContract.gate,
+          claims: semanticClaims,
+        });
+        if (!rebound.passed) {
+          throw new Error(
+            `Generated factual Claim semantic verification failed after the factual inventory was applied. ${rebound.reasons.join(" ")}`,
+          );
+        }
+        semanticClaims = rebound.claims;
+      }
+
+      const generatedClaimVerification = !officialSourceFirst && generationPreflight
         && "gate" in generationPreflight
         && input.contentOpportunity?.verificationPlan?.claims.some(isCriticalVerificationClaim)
         && sourcePreflight?.verificationSnapshot
@@ -313,6 +397,90 @@ export class AIWorkflow {
       throw error;
     }
   }
+}
+
+function appendOfficialSourceAttribution(
+  document: ContentDocument,
+  sources: readonly AIWebSource[],
+): ContentDocument {
+  const lines = sources.map((source) => `${source.title?.trim() || "공식 문서"}\n${source.url}`);
+  return Object.freeze({
+    ...document,
+    blocks: Object.freeze([
+      ...document.blocks,
+      Object.freeze({ id: "official-sources-heading", type: "heading" as const, level: 2 as const, text: "출처" }),
+      Object.freeze({ id: "official-sources-list", type: "list" as const, style: "unordered" as const, items: Object.freeze(lines) }),
+    ]),
+  });
+}
+
+/**
+ * The factual inventory is the last stage that edits the canonical manuscript,
+ * and it withdraws an unverified factual surface by deleting the whole
+ * paragraph that carries it. Measured on content-msrfq4gt-fc8ub1: the writer
+ * cleared every prose floor as generated (411, 497, 499, 414, 416 and 498
+ * characters), the sweep then deleted four paragraphs whose only fault was a
+ * 정보 기준일 date or a 법령 reference the inventory had not reported, and two
+ * sections dropped to 221 and 345 against floors of 250 and 400. One of the
+ * deleted paragraphs was the prose that explained the comparison table.
+ *
+ * The writer cannot make the server verify a fact, but it decides which
+ * sentence sits in which paragraph. Keeping a withdrawable fact out of the
+ * paragraph that explains a section is what makes a withdrawal cost the article
+ * the fact instead of the explanation.
+ *
+ * This applies only where the factual inventory runs — approval preparation —
+ * so revenue content keeps writing facts wherever they read best.
+ */
+function withWithdrawableFactIsolationInstruction(instruction: string): string {
+  return `${instruction}\n\nWithdrawal-resilient paragraph contract (mandatory): the server checks every factual surface and deletes the entire paragraph carrying a factual surface it cannot verify, so write so that a deletion costs the article the fact and never the explanation. Keep each externally verifiable fact — an amount, a rate or percentage, a date such as 정보 기준일 or 최종 검토일, a statute or article reference, an eligibility, application, or contract condition — in its own short paragraph that states that fact with its source context and nothing else. Never place such a sentence in the same paragraph as the prose that explains a section's table or list, its reasoning, or the reader's next action. Every H2 must still fulfil its role and reach its running-prose minimum — ${longFormNarrativeFloors.standard} characters excluding whitespace, or ${longFormNarrativeFloors.listShaped} when its sectionType is ${longFormNarrativeFloors.listShapedSectionTypes.join(", ")} — counting only the paragraphs that carry no verifiable fact, because a section whose explanation is welded to a withdrawable fact loses both at once. Report every factual surface you write in the factual Claim inventory: an unreported factual sentence is deleted from the manuscript without replacement.`;
+}
+
+/**
+ * The approval content policy requires the manuscript body to state its own
+ * information date and an official re-check path
+ * (`14_ADSENSE_APPROVAL_CONTENT_POLICY.md` §5), and the server reads that line
+ * back: Evidence selection harvests `정보 기준일` into the Evidence pack, and the
+ * approval policy gate blocks a manuscript that has neither the line nor a
+ * recorded Evidence review date.
+ *
+ * content-mssph0q6-ftn4h7 was blocked on PROFILE_REVIEW_DATE_MISSING with no
+ * such line anywhere in its 38 blocks, because nothing in the generation prompt
+ * asked for one — the only mention of the date was a restriction on how to
+ * write it if it happened to appear.
+ *
+ * The date comes from the server rather than from the model, so this asks for
+ * publication metadata and never for an invented fact. The colon form is the
+ * one the undisclosed-fact sweep recognises as publication metadata, so writing
+ * it cannot cost the paragraph that carries it.
+ *
+ * Approval preparation only: revenue content has no information-date contract.
+ */
+export function approvalInformationDateContract(informationDate: string): string {
+  return `Information-date contract (mandatory for approval preparation): place a distinct final section after the article's conclusion, using the heading "정보 기준과 다시 확인할 곳". In that section, state this article's own information date exactly once, as its own short paragraph, in the exact form "정보 기준일: ${informationDate}". Do not place this date under the title, in the introduction, in an ordinary explanatory paragraph, or inside a source-content paragraph. The server supplies this date, so do not guess another one and do not drop the colon. In a separate paragraph in the same final section, name the official service or page a reader uses to re-check the changeable information, using only a service or page present in the supplied Evidence, without writing a URL. This paragraph is reader guidance, not source content: do not present it as a legal or factual Claim and do not blend it into the article's explanation. Do not build an unstructured source list; verified source links are rendered separately by the system. Never write 출처 확인일 or 최종 검토일 and never combine either role with 정보 기준일: Bright Studio records those system-owned dates itself after Evidence verification. Do not report the 정보 기준일 line as a factual Claim; it is publication metadata about this article, not an external fact.`;
+}
+
+/**
+ * Ask for the whole disclosure, because half of one earns nothing.
+ *
+ * An article that computes an example carries figures no institution
+ * publishes, so its source is the assumptions printed beside it. The
+ * classifier grants that exemption only when the section says all three
+ * things, and a live generation stopped after the second: `대출원금 1억원, 연
+ * 4.8%, 3년, 매월 납부라는 동일한 가정을 둔 계산 예시입니다`. Every amount in
+ * its comparison table was then recorded as an unsourced external claim —
+ * eleven of them — for want of a clause saying the figures do not stand for a
+ * real charge.
+ *
+ * The clauses come from `calculationDisclosureContract`, which the classifier
+ * enforces, so the instruction cannot drift away from what actually exempts.
+ */
+export function withCalculationExampleDisclosureContract(instruction: string): string {
+  return `${instruction}\n\nCalculation-example contract (mandatory for approval preparation): when a section presents figures you computed from assumptions rather than figures an institution publishes — a comparison table of payment amounts, a worked total, an illustrative balance — that same section must carry one prose sentence stating all three of: ${calculationDisclosureContract.clauses.join("; ")}. Naming the assumptions alone is not enough and neither is the word 예시. Write it as prose in the section that holds the figures, not as a footnote elsewhere, because the exemption is scoped to the section. Model sentence: "${calculationDisclosureContract.example}" Do not attach this disclosure to figures that came from a verified Claim value; those are published facts and this contract does not apply to them.`;
+}
+
+function currentInformationDate(): string {
+  return new Date().toISOString().slice(0, 10);
 }
 
 function withVerificationClaimRiskInstruction(
@@ -376,15 +544,20 @@ export function withApprovalEvidenceMetadata(
     snapshot,
     retrievedAt,
     claimSources,
+    sourcePolicyCompliance,
   );
   if (!candidates.length) return document;
+  const preflightVerified = sourcePolicyCompliance === "passed"
+    && (!coverage || coverage.status === "covered")
+    && candidates.some((source) => source.provenance === "system_verified" && source.verified);
   return Object.freeze({
     ...document,
     metadata: Object.freeze({
       ...document.metadata,
       approvalEvidence: Object.freeze({
         version: "1.0" as const,
-        status: "needs_review" as const,
+        status: preflightVerified ? "verified" as const : "needs_review" as const,
+        ...(preflightVerified ? { reviewedAt: retrievedAt } : {}),
         ...(coverage ? {
           coverageStatus: coverage.status === "covered"
             ? "verified" as const
@@ -480,24 +653,58 @@ function generatedEditorialValues(
   ].filter(Boolean));
 }
 
+/**
+ * Preserve URLs that the model actually printed in the generated document.
+ * Provider web-search diagnostics are not guaranteed to include every URL the
+ * model selected in its prose, so relying on diagnostics alone can associate a
+ * document with an unrelated search result. These candidates remain ordinary
+ * citations and are verified by the shared Evidence Fetch/Claim matcher.
+ */
+export function generatedDocumentCitationSources(
+  document: ContentDocument,
+): readonly AIWebSource[] {
+  const urls = new Set<string>();
+  for (const value of generatedEditorialValues(document)) {
+    for (const match of value.matchAll(/https:\/\/[^\s<>'"\])}]+/gi)) {
+      const url = match[0].replace(/[.,;:!?]+$/g, "");
+      if (url) urls.add(url);
+    }
+  }
+  return Object.freeze([...urls].map((url) => Object.freeze({
+    url,
+    provenance: "citation" as const,
+  })));
+}
+
 function approvalEvidenceCandidates(
   webSources: readonly AIWebSource[],
   snapshot: ApprovalPolicySnapshot,
   retrievedAt: string,
   claimSources: readonly ApprovalSourcePreflightClaimSource[],
+  sourcePolicyCompliance?: "passed" | "failed" | "not_required",
 ): readonly ApprovalEvidenceSource[] {
   const claimsByUrl = new Map(claimSources.map((source) => [
     canonicalizeApprovalEvidenceUrl(source.url),
     source.claims,
   ]));
+  const preflightVerifiedUrls = new Set(
+    sourcePolicyCompliance === "passed"
+      ? (claimSources.length
+        ? claimSources.map((source) => canonicalizeApprovalEvidenceUrl(source.url))
+        : webSources.map((source) => canonicalizeApprovalEvidenceUrl(source.url)))
+      : [],
+  );
   const candidates = new Map<string, ApprovalEvidenceSource>();
   for (const source of webSources) {
     const url = canonicalizeApprovalEvidenceUrl(source.url);
     if (!url.startsWith("https://") || candidates.has(url)) continue;
     const publisher = sourcePublisher(url);
-    const provenance = source.provenance === "citation"
+    const preflightVerified = preflightVerifiedUrls.has(url);
+    const provenance = preflightVerified
+      ? "system_verified" as const
+      : source.provenance === "citation"
       ? "citation"
-      : "search_candidate";
+      : "search_candidate" as const;
     const verifiedClaims = claimsByUrl.get(url) ?? [];
     const claimFacts: readonly ApprovalEvidenceFact[] = Object.freeze(
       verifiedClaims.map((claim) => Object.freeze({
@@ -517,7 +724,7 @@ function approvalEvidenceCandidates(
         ? "official_archive"
         : "official_institution",
       retrievedAt,
-      verified: false,
+      verified: preflightVerified,
       provenance,
       ...(source.excerpt ? { citationExcerpt: source.excerpt } : {}),
       facts: claimFacts.length
@@ -530,8 +737,16 @@ function approvalEvidenceCandidates(
                 })]
               : [],
           ),
-      cited: provenance === "citation",
-      selected: provenance === "citation",
+      ...(preflightVerified ? {
+        official: true,
+        verificationStatus: "verified" as const,
+        accessVerificationStatus: "verified" as const,
+        officialDomainVerificationStatus: "verified" as const,
+        claimVerificationStatus: "verified" as const,
+        checkedAt: retrievedAt,
+      } : {}),
+      cited: source.provenance === "citation",
+      selected: preflightVerified || provenance === "citation",
     }));
   }
   return Object.freeze([...candidates.values()]);

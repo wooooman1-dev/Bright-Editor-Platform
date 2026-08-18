@@ -77,6 +77,31 @@ describe("Content Opportunity heading coverage", () => {
     expect(alignment.review.headingCoverage.evidence.find((item) => item.startsWith("계획 범위의 H2/H3 섹션 연결:")))
       .toMatch(/: [0-5]\/6$/);
   });
+  it("ignores an unanchored H3 when all H2 headings are anchored", () => {
+    const base = article([
+      ["鍮꾩긽湲덉? ?대뼡 吏異쒖쓣 ?鍮꾪븯???덉씤媛", "?덇퀬 ?녿뒗 ?뚮뱷 怨듬갚怨?湲닿툒 ?앺솢 吏異쒖? 鍮꾩긽湲덉쑝濡??鍮꾪빀?덈떎."],
+      ["?앺솢鍮?鍮꾩긽湲덉쓽 理쒖냼 ?좎?鍮?", "?꾩닔?앺솢鍮? 怨좎젙吏異? 蹂?숈?異쒖쓣 理쒓렐 吏異??댁뿭?먯꽌 ?섎닏?덈떎."],
+      ["鍮꾩긽湲?紐⑺몴?≪쓣 議곗젙?섎뒗 媛쒖씤 ?곹솴", "?뚮뱷??洹쒖튃?? 遺??梨낆엫, 遺梨??곹솚 遺?? 媛源뚯슫 ?덉젙 吏異쒖쓣 議곗젙?⑸땲??"],
+      ["理쒖냼 紐⑺몴? ?뺤옣 紐⑺몴濡?鍮꾩긽湲?", "癒쇱? ?뺣낫??理쒖냼 援ш컙???뺥빀?덈떎."],
+      ["鍮꾩긽湲??듭옣 愿由ъ? 紐⑹쟻?먭툑 遺꾨━", "鍮꾩긽湲? 紐⑹쟻?먭툑, ?ъ옄?먭툑, ???앺솢鍮? 怨꾩쥖瑜?援щ텇?⑸땲??"],
+      ["紐⑺몴?≪쓣 ?곷┰ 怨꾪쉷?쇰줈 諛붽씀???ㅽ뻾", "紐⑺몴?≪쓣 ?뺥븳 ???붾퀎 ?곷┰ 湲덉븸怨??ㅼ쓬 ?ъ젏寃 ?쒖젏??湲곕줉?⑸땲??"],
+    ]);
+    const sourceDocument = {
+      ...base,
+      blocks: [...base.blocks, { id: "unanchored-h3", level: 3 as const, text: "일반적인 보조 설명", type: "heading" as const }, { id: "h3-body", text: "보조 설명 본문", type: "paragraph" as const }],
+    };
+    const anchoredDocument = article(Array.from({ length: 6 }, () => [
+      opportunity.primaryKeyword,
+      `${opportunity.expectedCoverage.join(". ")}. ${opportunity.expectedCoverage.join(". ")}.`,
+    ] as const));
+    const document = {
+      ...anchoredDocument,
+      blocks: [...anchoredDocument.blocks, { id: "unanchored-h3", level: 3 as const, text: "보조 설명", type: "heading" as const }],
+    };
+    const alignment = analyzeContentOpportunityAlignment(document, opportunity);
+
+    expect(alignment.review.headingCoverage.pass).toBe(true);
+  });
 });
 
 function article(sections: readonly (readonly [string, string])[]): ContentDocument {

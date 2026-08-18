@@ -113,7 +113,7 @@ function productionOpportunity(): Readonly<{
     [],
     baseData(),
     baseData().projects[0]!,
-  )[0]!;
+  ).candidates[0]!;
   expect(classifiedCandidate.requiredEvidenceContract?.contractId).toBe(contractId);
 
   const classifiedPlan = Object.freeze({

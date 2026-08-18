@@ -88,6 +88,9 @@ function dateRolePreparationIssues(
   snapshot: ApprovalPolicySnapshot,
   evidence: ApprovalPreparationEvidenceContext,
 ): readonly ApprovalPreparationIssue[] {
+  // D-040: information dates and reader-visible review dates are optional
+  // diagnostics, not approval-policy blockers.
+  return Object.freeze([]);
   if (snapshot.profileId !== "wordpress_life_economy_v1") return Object.freeze([]);
   const normalized = text.replace(/\s+/g, " ").trim();
   const issues: ApprovalPreparationIssue[] = [];

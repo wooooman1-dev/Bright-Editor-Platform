@@ -263,7 +263,7 @@ function analyzeOpportunityOutlineCoverage(
   coreTerms: readonly string[],
 ): Readonly<{ pass: boolean; score: number; evidence: readonly string[] }> {
   const headings = document.blocks.flatMap((block) =>
-    block.type === "heading" && (block.level === 2 || block.level === 3) ? [block.text] : []);
+    block.type === "heading" && block.level === 2 ? [block.text] : []);
   const sections = contentSections(document).filter((section) => Boolean(section.heading.trim()));
   const anchorTerms = [...new Set([
     ...coreTerms,

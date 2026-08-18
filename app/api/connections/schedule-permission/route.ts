@@ -16,8 +16,12 @@ export async function POST(request: Request) {
 
     const connection = await connectionRepository.findById(connectionId);
     if (!connection || connection.workspaceId !== workspaceId) throw new Error("Connection was not found.");
-    if (connection.platform !== "tistory") throw new Error("Schedule permission is currently available only for Tistory.");
-    if (connection.status !== "connected") throw new Error("Reconnect the Tistory account before changing schedule permission.");
+    if (connection.platform !== "tistory" && connection.platform !== "wordpress") {
+      throw new Error("Schedule permission is available only for Tistory and WordPress.");
+    }
+    if (connection.status !== "connected") {
+      throw new Error(`Reconnect the ${connection.platform === "wordpress" ? "WordPress" : "Tistory"} account before changing schedule permission.`);
+    }
 
     const permissions = new Set<AutomationPermission>(connection.automationPermissions ?? safeDraftPermissions);
     if (body.enabled) permissions.add("schedule.create");

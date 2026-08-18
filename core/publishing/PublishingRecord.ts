@@ -21,6 +21,24 @@ export type PublishingVerificationCheckRecord = Readonly<{
   passed: boolean;
 }>;
 
+/**
+ * Workflows that own an external WordPress post execution. `schedule.create`
+ * shares the whole draft pipeline and differs only in the requested post state
+ * and the permission it authorizes against. See D-038.
+ *
+ * `draft.update` rewrites the Post a previous execution already created rather
+ * than adding another one. It shares the pipeline and the `draft.create`
+ * permission; it is a separate workflow only so the Idempotency Key and the
+ * record say which of the two actually happened.
+ */
+export const publishingExecutionWorkflows = Object.freeze([
+  "draft.create",
+  "draft.update",
+  "schedule.create",
+] as const);
+
+export type PublishingExecutionWorkflow = (typeof publishingExecutionWorkflows)[number];
+
 export type PublishingExecutionRecord = Readonly<{
   schemaVersion: 1;
   id: string;
@@ -32,8 +50,12 @@ export type PublishingExecutionRecord = Readonly<{
   executionRevisionId?: string;
   platformConnectionId: string;
   platform: "wordpress";
-  workflow: "draft.create";
+  workflow: PublishingExecutionWorkflow;
   status: PublishingExecutionStatus;
+  /** Present only for `schedule.create`. Offset-bearing ISO instant. */
+  scheduledAt?: string;
+  scheduledTimezone?: string;
+  scheduledPostStatus?: "draft" | "future";
   stage: string;
   externalPostId?: string;
   verified: boolean;
@@ -67,9 +89,12 @@ export type DraftCreateIdempotencyIdentity = Readonly<{
   contentRevisionId: string;
   executionRevisionId?: string;
   platformConnectionId: string;
+  /** Defaults to `draft.create` so pre-D-038 keys stay byte-identical. */
+  workflow?: PublishingExecutionWorkflow;
 }>;
 
 export function createDraftCreateIdempotencyKey(input: DraftCreateIdempotencyIdentity): string {
+  const workflow = input.workflow ?? "draft.create";
   if (!input.executionRevisionId?.trim()) {
     const fields = [
       input.workspaceId,
@@ -77,7 +102,7 @@ export function createDraftCreateIdempotencyKey(input: DraftCreateIdempotencyIde
       input.contentId,
       input.contentRevisionId,
       input.platformConnectionId,
-      "draft.create",
+      workflow,
     ];
     return `publishing:v1:${fields.map((value) => encodeURIComponent(value.trim())).join("|")}`;
   }
@@ -89,7 +114,7 @@ export function createDraftCreateIdempotencyKey(input: DraftCreateIdempotencyIde
     input.contentRevisionId,
     input.executionRevisionId,
     input.platformConnectionId,
-    "draft.create",
+    workflow,
   ];
   return `publishing:v2:${fields.map((value) => encodeURIComponent(value.trim())).join("|")}`;
 }
@@ -108,7 +133,7 @@ export function isPublishingExecutionRecord(value: unknown): value is Publishing
     && (candidate.executionRevisionId === undefined || typeof candidate.executionRevisionId === "string")
     && typeof candidate.platformConnectionId === "string"
     && candidate.platform === "wordpress"
-    && candidate.workflow === "draft.create"
+    && publishingExecutionWorkflows.includes(candidate.workflow as PublishingExecutionWorkflow)
     && publishingExecutionStatuses.includes(candidate.status as PublishingExecutionStatus)
     && typeof candidate.stage === "string"
     && typeof candidate.verified === "boolean"

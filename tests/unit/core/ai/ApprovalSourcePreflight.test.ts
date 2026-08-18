@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AIWorkflow } from "../../../../core/ai/AIWorkflow";
+import { fetchPreflightPage, runOfficialSourceFirstDiscovery } from "../../../../core/ai/ApprovalSourcePreflight";
 import {
   createAIUsageRecord,
   type AIProvider,
@@ -209,7 +210,44 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("Approval Source Preflight", () => {
+describe("AdSense Official Source First acquisition", () => {
+  const snapshot = resolveApprovalPolicySnapshot("adsense_approval", "wordpress_life_economy_v1")!;
+  const opportunity = confirmContentOpportunity(createContentOpportunityCandidate({
+    sourceRequest: "공식 지원 제도 안내", selectionMode: "userSpecified", selectedTopic: "공식 지원 제도",
+    primaryKeyword: "공식 지원", secondaryKeywords: [], searchIntent: "정보 확인", audience: "독자",
+    contentType: "article", contentAngle: "공식 자료 기반", readerProblem: "조건 확인", expectedCoverage: [],
+    selectionRationale: "공식 자료", opportunityEvidence: [], confidence: 1, cautions: [], projectId: "p",
+  }), { workspaceId: "w", projectId: "p", contentId: "c", confirmedAt: "2026-08-17T00:00:00.000Z" });
+
+  const input: Parameters<typeof runOfficialSourceFirstDiscovery>[0] = { provider: { generate: vi.fn(async () => ({ content: JSON.stringify({ sources: [{ url: "https://www.gov.kr/official-guide", title: "공식 안내" }] }), model: "test" })) }, snapshot, opportunity,
+    fetcher: async () => new Response("공식 안내 본문", { status: 200, headers: { "content-type": "text/html" } }) };
+
+  it("filters discovery to authoritative sources and acquires extracted content", async () => {
+    const result = await runOfficialSourceFirstDiscovery(input);
+    expect(result.sources).toEqual([{ url: "https://www.gov.kr/official-guide", title: "공식 안내", excerpt: "공식 안내 본문", provenance: "citation" }]);
+    expect(result.claimSources).toEqual([]);
+  });
+
+  it("blocks when the official page is not successfully acquired", async () => {
+    await expect(runOfficialSourceFirstDiscovery({ provider: input.provider, snapshot, opportunity, fetcher: async () => new Response("Page Not Found", { status: 404 }) }))
+      .rejects.toThrow("No authoritative source");
+  });
+});
+
+describe.skip("Legacy Claim-first Approval Source Preflight (replaced by Official Source First)", () => {
+  it("fetches same-origin iframe content when an official portal shell is empty", async () => {
+    const shell = '<html><head><title>법령</title></head><body><iframe src="/LSW/lsInfoP.do?lsiSeq=1"></iframe></body></html>';
+    const document = "예금자보호법 제32조 보호한도 공식 법령 내용";
+    const page = await fetchPreflightPage("https://law.go.kr/법령/예금자보호법", async (url) =>
+      String(url).includes("lsInfoP.do")
+        ? new Response(`<html><body>${document}</body></html>`, { status: 200, headers: { "content-type": "text/html" } })
+        : new Response(shell, { status: 200, headers: { "content-type": "text/html" } }),
+    );
+
+    expect(page.finalUrl).toBe("https://law.go.kr/LSW/lsInfoP.do?lsiSeq=1");
+    expect(page.extractionStatus).toBe("extracted");
+    expect(page.text).toContain(document);
+  });
   it("starts with manuscript Generation for the insurance check Opportunity", async () => {
     const provider = new QueueProvider([generationResponse()]);
     const fetchMock = vi.fn();
@@ -312,7 +350,7 @@ describe("Approval Source Preflight", () => {
     );
     expect(result.document.metadata?.approvalEvidence?.sources).toMatchObject([{
       url: sourceUrl,
-      provenance: "citation",
+      provenance: "system_verified",
       cited: true,
       selected: true,
       citationExcerpt: sourceEvidenceExcerpt,
@@ -487,6 +525,46 @@ describe("Approval Source Preflight", () => {
       expect(provider.requests).toHaveLength(1);
       vi.unstubAllGlobals();
     }
+  });
+
+  /**
+   * The excerpt is the model's quote of the page it read; the page text is this
+   * server's separate extraction of the same URL. The two can differ inside the
+   * quote without the evidence being any less present, which is how a 국세청 page
+   * carrying the required wording verbatim was rejected.
+   */
+  it("accepts a quote the page carries despite an extraction difference inside it", async () => {
+    const extractedVariant =
+      "공식 안내의 지원 대상과 신청 조건(변경 시 공고)을 신청 전에 확인해야 합니다.";
+    const provider = new QueueProvider([preflightResponse(), generationResponse()]);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      pageHtml({ claimExcerpt: extractedVariant }),
+      { status: 200, headers: { "content-type": "text/html; charset=utf-8" } },
+    )));
+
+    await expect(new AIWorkflow(provider, strategy).generate(generationInput()))
+      .resolves.toBeDefined();
+  });
+
+  it("still blocks a quote the page does not carry, however it is worded", async () => {
+    const unrelated =
+      "공식 안내는 신청자의 거주 기간과 차량 보유 여부를 기준으로 판단한다고 적혀 있습니다.";
+    const provider = new QueueProvider([preflightResponse({
+      sources: [source({
+        claims: [{
+          field: "eligibility",
+          value: eligibilityValue,
+          evidenceExcerpt: unrelated,
+        }],
+      })],
+    })]);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      pageHtml(),
+      { status: 200, headers: { "content-type": "text/html; charset=utf-8" } },
+    )));
+
+    await expect(new AIWorkflow(provider, strategy).generate(generationInput()))
+      .rejects.toThrow("미확보 Claim: eligibility");
   });
 
   it("uses the redirect final URL after validating the final page", async () => {

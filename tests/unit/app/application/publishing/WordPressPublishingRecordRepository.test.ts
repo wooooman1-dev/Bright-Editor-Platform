@@ -52,6 +52,32 @@ describe("persistent WordPress Publishing records", () => {
     expect(saved.externalPostId).toBe("501");
   });
 
+  it("replaces a stale terminal record only when the stored record still matches the expected previous state", async () => {
+    const store = new InMemoryPersistenceStore();
+    const repository = new PersistentWordPressPublishingRecordRepository(store);
+    const verified = {
+      ...record(),
+      status: "verified" as const,
+      stage: "complete",
+      externalPostId: "501",
+      verified: true,
+      updatedAt: "2026-07-29T00:02:00.000Z",
+    };
+    await store.set<UserData>("application", "user-data", data([verified]));
+    const fresh = { ...record(), updatedAt: "2026-07-30T00:00:00.000Z" };
+
+    const staleMismatch = await repository.replaceStale(
+      { ...verified, updatedAt: "2026-07-29T00:01:00.000Z" },
+      fresh,
+    );
+    expect(staleMismatch).toMatchObject({ claimed: false, record: { status: "verified", externalPostId: "501" } });
+    expect(await repository.findByIdempotencyKey(fresh.idempotencyKey)).toMatchObject({ status: "verified" });
+
+    const replaced = await repository.replaceStale(verified, fresh);
+    expect(replaced).toMatchObject({ claimed: true, record: { status: "preparing" } });
+    expect(await repository.findByIdempotencyKey(fresh.idempotencyKey)).toEqual(fresh);
+  });
+
   it("serializes two concurrent claims for the same Idempotency Key", async () => {
     const driver = new MemorySnapshotDriver();
     const store = new SnapshotPersistenceStore(driver);

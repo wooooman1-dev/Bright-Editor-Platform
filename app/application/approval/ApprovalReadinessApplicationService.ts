@@ -14,16 +14,25 @@ import {
   ApprovalReadinessApplicationService as BaseApprovalReadinessApplicationService,
   type ApprovalReadinessExecutionResult,
 } from "./ApprovalReadinessApplicationServiceBase";
+import { corroborateApprovalReadinessResult } from "./CorroborationApprovalService";
 
 export * from "./ApprovalReadinessApplicationServiceBase";
 
 export class ApprovalReadinessApplicationService extends BaseApprovalReadinessApplicationService {
+  private readonly corroborationFetcher: NonNullable<ConstructorParameters<typeof BaseApprovalReadinessApplicationService>[0]>;
+
+  constructor(...args: ConstructorParameters<typeof BaseApprovalReadinessApplicationService>) {
+    super(...args);
+    this.corroborationFetcher = args[0] ?? fetch;
+  }
+
   override async execute(input: Parameters<BaseApprovalReadinessApplicationService["execute"]>[0]): Promise<ApprovalReadinessExecutionResult> {
     const content = input.data.contents.find((item) => item.id === input.contentId);
     const source = content?.document;
     let effectiveInput = input;
+    let approvalProfileId: ApprovalPolicyProfileId | undefined;
     if (content && source) {
-      const approvalProfileId = (content as UserContent & {
+      approvalProfileId = (content as UserContent & {
         approvalProfileId?: ApprovalPolicyProfileId;
       }).approvalProfileId;
       let document = normalizeApprovalDateOwnership(source);
@@ -32,16 +41,48 @@ export class ApprovalReadinessApplicationService extends BaseApprovalReadinessAp
       }
       if (document !== source) effectiveInput = { ...input, data: withNormalizedDocument(input.data, content, document) };
     }
-    const result = await super.execute(effectiveInput);
+
+    const effectiveContent = effectiveInput.data.contents.find((item) => item.id === input.contentId);
+    const cachedExecution = effectiveContent?.document?.metadata?.approvalReadinessExecution;
+    const cachedIdentity = effectiveContent
+      ? approvalReadinessExecutionIdentity(effectiveContent, input.connection?.id)
+      : undefined;
+    const reusedInspection = input.forceRefresh !== true
+      && cachedExecution?.version === approvalReadinessInspectionVersion
+      && cachedIdentity !== undefined
+      && cachedExecution.key === cachedIdentity.key;
+
+    let result = await super.execute(effectiveInput);
+    if (!result.inspectionPerformed) return result;
+
+    // Corroboration is an explicit repair pass for a newly inspected result.
+    // A matching cached inspection must remain idempotent: refreshing the page
+    // must not silently trigger new DuckDuckGo fetches or change a persisted
+    // needs-review verdict. A user-requested force refresh deliberately opts
+    // back into the inspection and its repair pass.
+    const resultContent = result.data.contents.find((item) => item.id === input.contentId);
+    if (resultContent && approvalProfileId && !reusedInspection) {
+      const checkedAt = result.document.metadata?.approvalReadinessExecution?.checkedAt ?? new Date().toISOString();
+      result = await corroborateApprovalReadinessResult(
+        result,
+        resultContent,
+        approvalProfileId,
+        this.corroborationFetcher,
+        checkedAt,
+      );
+    }
+
     return withCurrentInspectionIdentity(result, input.connection?.id);
   }
 }
 
 function withNormalizedDocument(data: UserData, content: UserContent, document: ContentDocument): UserData {
   const normalizedAt = new Date().toISOString();
-  const revisionId = editorialRevisionId(document);
   const quality = content.quality
-    ? Object.freeze({ ...content.quality, reviewedRevisionId: revisionId })
+    ? Object.freeze({
+      ...content.quality,
+      ...(content.quality.approved ? { reviewedRevisionId: editorialRevisionId(document) } : {}),
+    })
     : undefined;
   const nextContent: UserContent = {
     ...content,

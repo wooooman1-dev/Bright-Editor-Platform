@@ -1,0 +1,106 @@
+*** Begin Patch
+*** Update File: core/ai/AIWorkflow.ts
+@@
+-Official Source First contract: use only the acquired official source bundle below as factual basis. Derive Facts/Claims from those source pages before writing the article. Do not use search results, general knowledge, blogs, news, communities, or any other source. At the very end output a Sources section titled "출처" containing the same bundle's institution, title, and exact URL. The Sources section must be the final section.
++Official Source First contract: use only the acquired official source bundle below as factual basis. Derive Facts/Claims from those source pages before writing the article. Do not use search results, general knowledge, blogs, news, communities, or any other source. Do not create or modify a reader-visible "출처" section; the server owns and appends the single verified source section after generation.
+@@
+ function appendOfficialSourceAttribution(
+   document: ContentDocument,
+   sources: readonly AIWebSource[],
+ ): ContentDocument {
+   const lines = sources.map((source) => `${source.title?.trim() || "공식 문서"}\n${source.url}`);
++  const cleanedBlocks = stripReaderVisibleSourceSections(document.blocks);
+   return Object.freeze({
+     ...document,
+     blocks: Object.freeze([
+-      ...document.blocks,
++      ...cleanedBlocks,
+       Object.freeze({ id: "official-sources-heading", type: "heading" as const, level: 2 as const, text: "출처" }),
+       Object.freeze({ id: "official-sources-list", type: "list" as const, style: "unordered" as const, items: Object.freeze(lines) }),
+     ]),
+   });
+ }
++
++function stripReaderVisibleSourceSections(
++  blocks: ContentDocument["blocks"],
++): readonly ContentDocument["blocks"][number][] {
++  const result: ContentDocument["blocks"][number][] = [];
++  let sourceLevel: number | undefined;
++  for (const block of blocks) {
++    if (block.type === "heading") {
++      const heading = block.text.trim().replace(/\s+/g, " ");
++      if (heading === "출처") {
++        sourceLevel = block.level;
++        continue;
++      }
++      if (sourceLevel !== undefined && block.level <= sourceLevel) sourceLevel = undefined;
++    }
++    if (sourceLevel !== undefined) continue;
++    result.push(block);
++  }
++  return Object.freeze(result);
++}
+*** Update File: core/content/ContentOpportunityAlignment.ts
+@@
+-  const headings = document.blocks.flatMap((block) =>
+-    block.type === "heading" && (block.level === 2 || block.level === 3) ? [block.text] : []);
++  const headings = document.blocks.flatMap((block) =>
++    block.type === "heading"
++      && (block.level === 2 || block.level === 3)
++      && !isSystemEditorialHeading(block.text)
++      ? [block.text]
++      : []);
+@@
+ function headingContainsAnyTerm(heading: string, terms: readonly string[]): boolean {
+   const normalizedHeading = normalize(heading);
+   return terms.some((term) => normalizedHeading.includes(normalize(term)));
+ }
++
++function isSystemEditorialHeading(value: string): boolean {
++  const heading = normalize(value).replace(/\s+/g, " ").trim();
++  return heading === normalize("출처")
++    || heading === normalize("정보 기준과 다시 확인할 곳");
++}
+*** Update File: app/application/ContentPlanningStrategyBase.ts
+@@
+-  Build each candidate as a coherent information contract before returning it. The primaryKeyword must be the concise phrase a reader would actually search, including a task modifier such as 방법, 비교, 기준, 조건, 계산, 신청, or 설정 when that modifier is essential to the search intent.
++  Build each candidate as a coherent information contract before returning it. When returning multiple candidates, candidate-level format/contentType choices must be materially different when the topic supports that difference; do not return the same contentType/format for two candidates merely by changing the title. Each candidate must have a distinct editorial shape (for example procedure, eligibility, criteria comparison, correction, calculation) when the active format options provide distinct shapes. Do not force a shape that the topic cannot support. The primaryKeyword must be the concise phrase a reader would actually search, including a task modifier such as 방법, 비교, 기준, 조건, 계산, 신청, or 설정 when that modifier is essential to the search intent.
+*** Update File: app/application/publishing/WordPressDraftReadiness.ts
+@@
+-  // Official Source First contract: Approval Evidence presence itself is not a readiness gate.
+-  // Generated Claim Verification is different: a current document with an explicit verification
+-  // plan must pass its Claim integrity gate before a WordPress draft can be considered ready.
++  // Official Source First owns factual verification through the selected official Evidence bundle.
++  // Generated Claim Verification is a separate generation contract and must not become a
++  // publishing blocker for Official Source First documents that intentionally do not persist
++  // a Generated Claim Snapshot.
++  const officialSourceFirst = Boolean(
++    content.document?.metadata?.approvalEvidence?.sources.some((source) =>
++      source.provenance === "system_verified" && source.official === true && source.verified === true,
++    ),
++  );
++  const generatedClaimGateRequired = Boolean(content.opportunity?.verificationPlan) && !officialSourceFirst;
+   const generatedClaimIntegrity = content.document
+     ? evaluateGeneratedClaimVerificationIntegrity({
+         document: content.document,
+-        plan: content.opportunity?.verificationPlan,
++        plan: generatedClaimGateRequired ? content.opportunity?.verificationPlan : undefined,
+         currentRevisionId,
+       })
+     : Object.freeze({
+-        passed: !content.opportunity?.verificationPlan,
+-        reasons: content.opportunity?.verificationPlan
++        passed: !generatedClaimGateRequired,
++        reasons: generatedClaimGateRequired
+           ? Object.freeze(["검증할 canonical 원고가 없습니다."])
+           : Object.freeze([]),
+       });
+   const generatedClaimFailureMessage = generatedClaimIntegrity.passed
+-    ? content.opportunity?.verificationPlan
++    ? generatedClaimGateRequired
+       ? "현재 원고의 고위험 Claim 검증 상태를 확인했습니다."
+-      : "현재 원고에는 explicit Verification Claim Gate가 필요하지 않습니다."
++      : officialSourceFirst
++        ? "Official Source First의 공식 출처 Evidence로 현재 원고의 사실 근거를 확인했습니다."
++        : "현재 원고에는 explicit Verification Claim Gate가 필요하지 않습니다."
+*** End Patch

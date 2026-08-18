@@ -85,7 +85,7 @@ describe("OpenAI approval web search", () => {
     ]);
   });
 
-  it("uses a small structured web-search call for approval source preflight", async () => {
+  it("does not attach web search to approval source preflight", async () => {
     const fetchMock = vi.fn(async (...args: [RequestInfo | URL, RequestInit?]) => {
       void args;
       return {
@@ -95,7 +95,7 @@ describe("OpenAI approval web search", () => {
           model: "gpt-5-test",
           status: "completed",
           output_text: "{\"sources\":[]}",
-          output: [{ type: "web_search_call", action: { sources: [] } }],
+          output: [],
           usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
         }),
       } as Response;
@@ -114,9 +114,10 @@ describe("OpenAI approval web search", () => {
 
     const request = fetchMock.mock.calls[0]?.[1];
     const body = JSON.parse(new TextDecoder().decode(request?.body as Uint8Array)) as Record<string, unknown>;
+    expect(body).not.toHaveProperty("tools");
+    expect(body).not.toHaveProperty("include");
     expect(body).toMatchObject({
-      max_output_tokens: 4_000,
-      tools: [{ type: "web_search", search_context_size: "high" }],
+      max_output_tokens: 12_000,
       text: { format: { name: "approval_source_preflight", strict: true }, verbosity: "low" },
     });
   });

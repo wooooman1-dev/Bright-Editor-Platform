@@ -5,7 +5,9 @@ export type VerificationClaimKind = "money" | "ratio" | "date" | "dateRange" | "
 export type VerificationClaimStatus = "planned" | "verified" | "insufficient" | "conflicted" | "stale";
 export type VerificationOverallStatus = "not_required" | "planned" | "verified" | "insufficient" | "conflicted" | "stale";
 export type VerificationSourceRole = "primaryOfficial" | "officialCorroborating" | "independentCorroborating";
-export type NormalizedMoney = Readonly<{ amount: number; currency: string; comparator?: "eq" | "lt" | "lte" | "gt" | "gte" | "range"; basis: "oneTime" | "daily" | "monthly" | "annual" | "total" | "perPerson" | "perHousehold"; taxIncluded?: boolean }>;
+export type NormalizedMoney =
+  | Readonly<{ amount: number; currency: string; comparator?: "eq" | "lt" | "lte" | "gt" | "gte" | "range"; basis: "oneTime" | "daily" | "monthly" | "annual" | "total" | "perPerson" | "perHousehold"; taxIncluded?: boolean }>
+  | Readonly<{ semantic: "feeApplicability"; applicability: "mayApply"; basis: "oneTime" | "daily" | "monthly" | "annual" | "total" | "perPerson" | "perHousehold" }>;
 export type NormalizedRatio = Readonly<{ value: number; representation: "percent" | "fraction" | "percentagePoint"; comparator?: "eq" | "lt" | "lte" | "gt" | "gte" | "range"; meaning: "rate" | "share" | "change" }>;
 export type NormalizedDate = Readonly<{ value: string; precision: "day" | "month" | "year"; role: "announced" | "effective" | "applicationStart" | "applicationEnd" | "reference" }>;
 export type NormalizedDateRange = Readonly<{ start: string; end: string; inclusive: boolean; timezone?: string; locale?: string }>;

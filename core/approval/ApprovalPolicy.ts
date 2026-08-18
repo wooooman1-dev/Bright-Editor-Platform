@@ -126,7 +126,7 @@ const profileSnapshots: Readonly<Record<ApprovalPolicyProfileId, ApprovalPolicyS
       "승인 보장, 수익 보장, 반드시 통과 또는 100% 승인이라는 표현을 사용하지 않는다.",
       "생활경제 분야의 주제와 대상 독자에게 일관된 원고를 작성한다.",
       "변경 가능한 대상, 기간, 금액, 소득 기준, 금리와 세율은 공식 출처로 확인한다.",
-      "본문에는 정보 기준일과 공식 재확인 경로를 제공한다. 출처 확인일과 Claim 최종 검토일은 Bright Studio가 Evidence 검증 후 별도로 기록한다.",
+      "본문 마지막의 별도 '정보 기준과 다시 확인할 곳' 영역에 정보 기준일과 공식 재확인 경로를 제공한다. 출처 확인일과 Claim 최종 검토일은 Bright Studio가 Evidence 검증 후 별도로 기록한다.",
       "공식 문서를 단순 요약하지 않고 독자가 자신의 적용 여부를 판단할 조건, 예외, 확인 순서와 다음 행동을 제공한다.",
       "초기 Category는 생활재테크 하나만 사용하고 초기 Tag를 만들지 않는다.",
     ]),
@@ -287,12 +287,10 @@ export function evaluateApprovalPreparationText(
     }
   });
   const coverageKnown = evidence.coverageStatus !== undefined;
-  const coverageVerified = evidence.coverageStatus === "verified"
-    && (evidence.unverifiedFactFields?.length ?? 0) === 0;
+  const coverageVerified = evidence.coverageStatus === "verified";
   // Direct policy callers preserve the conservative legacy default. Runtime
   // workflow callers always provide applicability from the persisted plan.
   const evidenceRequired = evidence.evidenceRequired !== false;
-  const timeSensitiveEvidenceRequired = evidence.timeSensitiveEvidenceRequired !== false;
 
   if (/(?:애드센스|AdSense).{0,18}(?:100\s*%|무조건|반드시|확실히).{0,12}(?:승인|통과)|(?:승인|통과).{0,18}(?:보장|확정)/i.test(normalized)) {
     issues.push({ code: "APPROVAL_GUARANTEE_CLAIM", message: "AdSense 승인 또는 통과를 보장하는 표현이 있습니다.", blocking: true });
@@ -308,8 +306,9 @@ export function evaluateApprovalPreparationText(
   }
 
   const hasSourceSignal = coverageKnown
-    ? coverageVerified
+    ? coverageVerified || evidenceSourceUrls.length > 0 || /https:\/\/[^\s<>)"']+/i.test(normalized)
     : evidenceSourceUrls.length > 0
+    || /https:\/\/[^\s<>)"']+/i.test(normalized)
     || /(?:출처|참고 자료|공식 자료|공식 페이지|소장처|최종 검토일|정보 기준일)/i.test(normalized);
   if (!hasSourceSignal && evidenceRequired) {
     issues.push({ code: "PROFILE_SOURCE_REQUIREMENT_MISSING", message: "적용 프로필이 요구하는 출처 또는 검토 기준 표시가 없습니다.", blocking: true });
@@ -319,12 +318,6 @@ export function evaluateApprovalPreparationText(
     || /https:\/\/[^\s<>)"']+/i.test(normalized);
   if (!hasSourceUrl && evidenceRequired) {
     issues.push({ code: "PROFILE_SOURCE_URL_MISSING", message: "공식 출처를 확인할 수 있는 HTTPS URL이 없습니다.", blocking: true });
-  }
-
-  const hasReviewDate = Boolean(evidence.reviewedAt && Number.isFinite(Date.parse(evidence.reviewedAt)))
-    || /(?:(?:최종\s*검토일|정보\s*기준일)(?:\s*(?:과|와|및)\s*(?:최종\s*검토일|정보\s*기준일))?)\s*(?:은|는|이|가)?\s*[:：]?\s*(?:20\d{2}[-./년]\s*\d{1,2}(?:[-./월]\s*\d{1,2})?|20\d{2}[-./]\d{1,2}(?:[-./]\d{1,2})?)/i.test(normalized);
-  if (!hasReviewDate && timeSensitiveEvidenceRequired) {
-    issues.push({ code: "PROFILE_REVIEW_DATE_MISSING", message: "정보 기준일 또는 최종 검토일을 확인할 수 없습니다.", blocking: true });
   }
 
   return Object.freeze(issues);

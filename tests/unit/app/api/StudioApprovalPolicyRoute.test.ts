@@ -300,9 +300,8 @@ describe("studio approval policy routes", () => {
     }));
 
     expect(fetchSpy).toHaveBeenCalledTimes(3);
-    expect(requestInput(fetchSpy, 0)).toContain("Required factual Claims");
-    expect(requestInput(fetchSpy, 0)).toContain("artworkTitle");
-    expect(requestInput(fetchSpy, 0)).toContain("holdingInstitution");
+    expect(requestInput(fetchSpy, 0)).toContain("official primary sources");
+    expect(requestInput(fetchSpy, 0)).toContain("Return JSON only as");
     expect(requestInput(fetchSpy, 2)).toContain(
       "Approval profile: Tistory · 비바레인 미술@1.0",
     );
@@ -310,12 +309,10 @@ describe("studio approval policy routes", () => {
       "tistory_vivarain_art_v1",
     );
     expect(requestInput(fetchSpy, 2)).toContain(
-      "Approval source preflight bundle",
+      "Official Source First contract",
     );
     expect(requestInput(fetchSpy, 2)).toContain(officialUrl);
-    expect(requestInput(fetchSpy, 2)).toContain(
-      "Claim field: holdingInstitution",
-    );
+    expect(requestInput(fetchSpy, 2)).not.toContain("Claim field:");
   });
 
   it("preserves the Source Preflight error code in the API response", async () => {
@@ -367,7 +364,7 @@ describe("studio approval policy routes", () => {
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toMatchObject({
       code: "APPROVAL_SOURCE_NOT_READY",
-      error: expect.stringContaining("웹 검색 도구가 실제로 확인한 직접 출처 URL이 없습니다"),
+      error: expect.stringContaining("No authoritative source was acquired"),
     });
     expect(fetchSpy).toHaveBeenCalledOnce();
   });

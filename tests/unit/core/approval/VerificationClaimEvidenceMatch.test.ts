@@ -48,7 +48,7 @@ describe("VerificationClaimEvidenceMatch", () => {
     expect(result.diagnostics).toContain("claim_value_not_found");
   });
 
-  it("keeps scalar values exact even when topic words overlap", () => {
+  it("allows a scalar Claim to proceed when the source contains a different numeric literal so corroboration can resolve the value", () => {
     const amountClaim: VerificationClaimSpec = {
       claimId: "claim-amount",
       field: "지원 금액",
@@ -68,8 +68,8 @@ describe("VerificationClaimEvidenceMatch", () => {
       pageText: excerpt,
       normalizedValueMatchesPlanned: false,
     })).toMatchObject({
-      matched: false,
-      diagnostics: expect.arrayContaining(["claim_raw_value_mismatch"]),
+      matched: true,
+      diagnostics: ["claim_raw_value_mismatch"],
     });
   });
 

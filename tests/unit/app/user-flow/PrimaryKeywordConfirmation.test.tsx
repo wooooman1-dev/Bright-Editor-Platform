@@ -56,6 +56,30 @@ describe("primary keyword confirmation UI", () => {
     expect(html).toContain("건강 관리에 관심 있는 일반 성인");
   });
 
+  it("marks the candidate the existing manuscript was generated from", () => {
+    const html = renderToStaticMarkup(<PrimaryKeywordConfirmation customKeyword="" customKeywordSelected={false} disabled={false} generatedOpportunityId={opportunities[1].opportunityId} onCustomKeywordChange={vi.fn()} onReanalyzeCustom={vi.fn()} onSelectCandidate={vi.fn()} onSelectCustom={vi.fn()} opportunityCandidates={opportunities} plan={plan} request="장 건강 관리 글을 만들어줘" selectedOpportunityId={opportunities[1].opportunityId} />);
+
+    expect(html).toContain("이 후보로 원고 생성됨");
+    // Only the candidate that produced the article carries the badge.
+    expect(html.split("이 후보로 원고 생성됨")).toHaveLength(2);
+  });
+
+  it("says a proposed topic was dropped and why, instead of quietly showing a shorter list", () => {
+    const html = renderToStaticMarkup(<PrimaryKeywordConfirmation customKeyword="" customKeywordSelected={false} disabled={false} onCustomKeywordChange={vi.fn()} onReanalyzeCustom={vi.fn()} onSelectCandidate={vi.fn()} onSelectCustom={vi.fn()} opportunityCandidates={opportunities} plan={{ ...plan, excludedOpportunities: [{ selectedTopic: "혈당 관리", primaryKeyword: "혈당 관리 방법", reason: "이미 공개된 콘텐츠와 주제가 중복됩니다." }] }} request="장 건강 관리 글을 만들어줘" selectedOpportunityId={opportunities[0].opportunityId} />);
+
+    expect(html).toContain("이번 분석에서 제외된 주제 1개");
+    expect(html).toContain("혈당 관리");
+    expect(html).toContain("이미 공개된 콘텐츠와 주제가 중복됩니다.");
+    expect(html).toContain("2개 · 제외 1개");
+  });
+
+  it("shows no exclusion notice when every proposed topic survived", () => {
+    const html = renderToStaticMarkup(<PrimaryKeywordConfirmation customKeyword="" customKeywordSelected={false} disabled={false} onCustomKeywordChange={vi.fn()} onReanalyzeCustom={vi.fn()} onSelectCandidate={vi.fn()} onSelectCustom={vi.fn()} opportunityCandidates={opportunities} plan={plan} request="장 건강 관리 글을 만들어줘" selectedOpportunityId={opportunities[0].opportunityId} />);
+
+    expect(html).not.toContain("제외된 주제");
+    expect(html).not.toContain("이 후보로 원고 생성됨");
+  });
+
   it("does not call confirmation callbacks merely by rendering the planning result", () => {
     const onSelectCandidate = vi.fn();
     const onSelectCustom = vi.fn();

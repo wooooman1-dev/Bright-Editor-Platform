@@ -21,7 +21,7 @@ import {
   normalizeContentPlanQualityTarget,
   type ContentPlanQualityTarget,
 } from "../../core/content";
-import { openAIGenerationModel } from "./OpenAIModelPolicy";
+import { openAIGenerationModel, openAISourcePreflightModel } from "./OpenAIModelPolicy";
 import { explicitPlanningOutputFormat } from "./PlanningContracts";
 
 export class AIConfigurationError extends Error {
@@ -43,10 +43,13 @@ export class OpenAIProvider implements AIProvider {
     if (!isHeaderSafeApiKey(this.apiKey)) {
       throw new AIConfigurationError("OPENAI_API_KEY must contain only printable ASCII characters without whitespace.");
     }
+    const model = request.metadata?.task === "approval-source-preflight"
+      ? openAISourcePreflightModel()
+      : this.model;
     const editorialOutput = editorialOutputPolicy(request.metadata);
     const webSearch = approvalWebSearchPolicy(request.metadata);
     const requestBody = new TextEncoder().encode(JSON.stringify({
-      model: this.model,
+      model,
       input: request.instruction,
       ...(webSearch ? {
         tools: [webSearch],
@@ -96,14 +99,14 @@ export class OpenAIProvider implements AIProvider {
     }
     const content = responseBody.output_text ?? responseBody.output?.flatMap((item) => item.content ?? []).map((item) => item.text ?? "").join("");
     const webSources = extractWebSources(responseBody.output ?? []);
-    const model = responseBody.model ?? this.model;
+    const responseModel = responseBody.model ?? model;
     const usage = responseBody.usage;
     const webSearchCalls = responseBody.tool_usage?.web_search?.num_requests
       ?? (responseBody.output ?? []).filter((item) => item.type === "web_search_call").length;
     const aiUsage = createAIUsageRecord({
       stage: aiUsageStageForTask(request.metadata?.task),
       task: request.metadata?.task ?? "unspecified",
-      model,
+      model: responseModel,
       ...(responseBody.id ? { responseId: responseBody.id } : {}),
       recordedAt: new Date().toISOString(),
       inputTokens: usage?.input_tokens,
@@ -136,7 +139,7 @@ export class OpenAIProvider implements AIProvider {
     });
     console.info("[openai-response]", {
       ...diagnostics,
-      model,
+      model: responseModel,
       webSourceCount: webSources.length,
     });
     const stage = aiProviderStageForTask(request.metadata?.task);
@@ -155,7 +158,7 @@ export class OpenAIProvider implements AIProvider {
       });
     }
     assertOpenAIResponseOwnedIdentityPolicy(request.instruction, content);
-    return Object.freeze({ content, model, diagnostics });
+    return Object.freeze({ content, model: responseModel, diagnostics });
   }
 }
 
@@ -289,10 +292,9 @@ function objectValue(value: unknown): Record<string, unknown> | undefined {
 function approvalWebSearchPolicy(metadata?: Readonly<Record<string, string>>) {
   if (metadata?.approvalPurpose !== "adsense_approval") return undefined;
   const task = metadata.task;
-  const preflight = task === "approval-source-preflight";
   const legacyInlineSearch = task === "content-generation"
     && metadata.approvalEvidenceMode !== "preflight_verified";
-  if (!preflight && !legacyInlineSearch) return undefined;
+  if (!legacyInlineSearch) return undefined;
   const domains = approvalOfficialDomains(metadata.approvalProfileId as ApprovalPolicyProfileId);
   return {
     type: "web_search" as const,
@@ -370,9 +372,12 @@ export function aiProviderStageForTask(task: string | undefined): AIProviderStag
 
 function editorialOutputPolicy(metadata?: Readonly<Record<string, string>>) {
   if (metadata?.task === "content-planning" && metadata.explicitVerificationPlanning === "1") return { maxOutputTokens: 12_000, verbosity: "medium" as const, format: explicitPlanningOutputFormat };
+  if (metadata?.task === "official-source-first-discovery") {
+    return { maxOutputTokens: 6_000, verbosity: "low" as const, format: officialSourceFirstDiscoveryFormat };
+  }
   if (metadata?.task === "approval-source-preflight") {
     return {
-      maxOutputTokens: 4_000,
+      maxOutputTokens: 12_000,
       verbosity: "low" as const,
       format: metadata.verificationMode === "explicit" ? explicitApprovalSourcePreflightFormat : approvalSourcePreflightFormat,
     };
@@ -391,6 +396,32 @@ function editorialOutputPolicy(metadata?: Readonly<Record<string, string>>) {
   if (/tistory|blog|article|long-form|guide|아티클|장문/i.test(`${metadata?.platform ?? ""} ${metadata?.contentType ?? ""}`)) return { maxOutputTokens: 12_000, verbosity: "medium" as const, format: editorialDocumentFormat };
   return undefined;
 }
+
+export const officialSourceFirstDiscoveryFormat = {
+  type: "json_schema",
+  name: "official_source_first_discovery",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    required: ["sources"],
+    properties: {
+      sources: {
+        type: "array",
+        maxItems: 6,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["url", "title"],
+          properties: {
+            url: { type: "string", maxLength: 2048 },
+            title: { type: "string", maxLength: 240 },
+          },
+        },
+      },
+    },
+  },
+} as const;
 
 export const approvalSourcePreflightFormat = {
   type: "json_schema",

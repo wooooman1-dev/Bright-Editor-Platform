@@ -14,6 +14,7 @@ import { contentDocumentAIContext, EditorialQualityPipeline } from "../../applic
 import { preserveCanonicalSeoMetadata } from "../../application/SeoMetadataPolicy";
 import { attachApprovalEvidenceContracts, ContentPlanningStrategy, createManualPlanningResult, ensureApprovalEvidenceContract, projectStrategyAIContext } from "../../application/ContentPlanningStrategy";
 import { approvalAwareInstruction, contentEditorialContext, preserveContentApprovalPolicy } from "../../application/approval/ApprovalRuntimePolicy";
+import { editorialContextWithoutDiversityPolicy } from "../../application/approval/ApprovalContentPolicy";
 import { TistoryPublishingAdapter } from "../../../apps/tistory/publishing/TistoryPublishingAdapter";
 import { WordPressHtmlRenderer } from "../../../apps/wordpress/WordPressHtmlRenderer";
 import { analyzeLongFormDocument, applyContentDepthPolicy, applyContentOpportunityPolicy, contentOpportunityKeywords, deriveContentTags, detectContentOpportunitySelectionMode, ensureSeoKeywordPlacement, LongFormValidationError, requiresLongFormValidation, restoreProtectedImageAssets, restoreVerifiedEditorialLinks, type ConfirmedContentOpportunity, type ContentDocument, type LongFormDiagnostic } from "../../../core/content";
@@ -25,6 +26,7 @@ import { PublicPostCatalogApplicationService } from "../../application/publishin
 import {
   applyInternalLinkCatalogResult,
   publishingCategoryIdentities,
+  withProjectDefaultPublishingCategories,
   publishingCategoryNames,
   rankPublishingPostCandidates,
   withInternalLinkCatalogMetadata,
@@ -34,6 +36,7 @@ import { isPublishingConnectionSelectedForContent } from "../../application/publ
 import { resolveConfirmedGenerationKeywords, resolveConfirmedGenerationOpportunity } from "../../application/ConfirmedGenerationPolicy";
 import { OpportunityEvidenceService } from "../../application/data-sources/OpportunityEvidenceService";
 import { dataSourceConnectionRepository, opportunityEvidenceRepository, projectDataSourceReferenceRepository } from "../../application/data-sources/data-source-runtime";
+import { NaverWebSearchProvider } from "../../application/approval/NaverWebSearchProvider";
 
 const collection = "application";
 const stateId = "user-data";
@@ -126,7 +129,9 @@ export async function POST(request: Request) {
         : resolvedOpportunity;
       const keywords = generationContract.keywords;
       const provider = new OpenAIProvider(undefined, openAIGenerationModel());
-      const workflow = new AIWorkflow(provider, new EditorialGenerationStrategy());
+      const workflow = new AIWorkflow(provider, new EditorialGenerationStrategy(), {
+        approvalSearchProvider: new NaverWebSearchProvider(owned.workspace!.id, dataSourceConnectionRepository),
+      });
       const generationStartedAt = new Date();
       const result = await workflow.generate({
         contentId,
@@ -567,8 +572,10 @@ function applyContentPolicy(document: ContentDocument, content: UserData["conten
 
 async function persistPlanningResult(data: UserData, input: Record<string, unknown> | undefined, plan: import("../../user-flow/user-data").ContentPlanningResult): Promise<UserData> {
   if (typeof input?.contentId !== "string" || typeof input.operationId !== "string") return data;
+  const startedAt = Date.now();
+  console.info(`[PLANNING-DIAG] persist-start: ${Date.now() - startedAt}ms`);
   const completedAt = new Date().toISOString();
-  return studioStore.update<UserData>(collection, stateId, (current) => completeContentPlanning(current ?? data, {
+  const result = await studioStore.update<UserData>(collection, stateId, (current) => completeContentPlanning(current ?? data, {
     workspaceId: required(input.workspaceId),
     projectId: required(input.projectId),
     contentId: required(input.contentId),
@@ -576,6 +583,8 @@ async function persistPlanningResult(data: UserData, input: Record<string, unkno
     plan,
     now: completedAt,
   }));
+  console.info(`[PLANNING-DIAG] persist-complete: ${Date.now() - startedAt}ms`);
+  return result;
 }
 
 async function executePlanning(input: Record<string, unknown> | undefined, manual: boolean): Promise<PlanningExecutionResult> {
@@ -645,12 +654,13 @@ async function performPlanning(data: UserData, project: UserData["projects"][num
   const contractedPlan = approvalSnapshot
     ? attachApprovalEvidenceContracts(rawPlan, approvalSnapshot)
     : rawPlan;
-  const classified = opportunityEvidenceService.classifyCandidates(contractedPlan.opportunityCandidates ?? [], evidenceBundle, data, project)
+  const classification = opportunityEvidenceService.classifyCandidates(contractedPlan.opportunityCandidates ?? [], evidenceBundle, data, project);
+  const classified = classification.candidates
     .map((candidate) => applyContentDepthPolicy(candidate, {
       domain: rawPlan.domain,
-      projectStrategy: projectContext,
+      projectStrategy: editorialContextWithoutDiversityPolicy(projectContext),
     }));
-  const plan = withClassifiedCandidates(contractedPlan, classified);
+  const plan = withClassifiedCandidates(contractedPlan, classified, classification.excluded);
   const saved = await persistPlanningResult(data, input, plan);
   return { plan, data: saved };
 }
@@ -714,7 +724,33 @@ function opportunityFailure(quality: ReturnType<QualityEngine["review"]>): strin
 async function ownedWorkspace(workspaceId: string) {
   const data = await studioStore.get<UserData>(collection, stateId);
   if (!data?.workspace || data.workspace.id !== workspaceId) throw new Error("Workspace was not found.");
-  return data;
+  return withProjectDefaultPublishingPreparation(data);
+}
+
+/**
+ * Resolves the Project's declared publishing category onto contents that have
+ * no preparation of their own, once per request and before anything reads it.
+ *
+ * Six places ask a content which category it publishes to, and two of them —
+ * the approval persistence store and the readiness execution identity — only
+ * ever receive a content, never a Project. Passing the Project to some callers
+ * and not others would make `internalLinkCatalogContextKey` disagree with
+ * itself and the catalog would look permanently stale. Filling the content in
+ * one place keeps every reader consistent without changing any signature.
+ *
+ * This is derived on load rather than stored. Contents that already carry a
+ * preparation, or whose account has no declared default, are returned as the
+ * same object, so nothing here registers as a change to persist.
+ */
+function withProjectDefaultPublishingPreparation(data: UserData): UserData {
+  const projects = new Map(data.projects.map((project) => [project.id, project]));
+  let changed = false;
+  const contents = data.contents.map((content) => {
+    const resolved = withProjectDefaultPublishingCategories(content, projects.get(content.projectId));
+    if (resolved !== content) changed = true;
+    return resolved;
+  });
+  return changed ? Object.freeze({ ...data, contents: Object.freeze(contents) }) : data;
 }
 function ownedProject(data: UserData, projectId: string) {
   const project = data.projects.find((item) => item.id === projectId && item.workspaceId === data.workspace!.id);
@@ -729,10 +765,10 @@ async function persistServerMutation(base: UserData, next: UserData): Promise<Us
 function message(error: unknown): string { return error instanceof Error ? error.message : "Request failed."; }
 function required(value: unknown): string { if (typeof value !== "string" || !value.trim()) throw new Error("Required generation input is missing."); return value.trim(); }
 
-function withClassifiedCandidates(plan: import("../../user-flow/user-data").ContentPlanningResult, candidates: readonly import("../../../core/content").ContentOpportunityCandidate[]): import("../../user-flow/user-data").ContentPlanningResult {
+function withClassifiedCandidates(plan: import("../../user-flow/user-data").ContentPlanningResult, candidates: readonly import("../../../core/content").ContentOpportunityCandidate[], excludedOpportunities: readonly import("../../application/data-sources/OpportunityEvidenceService").ExcludedOpportunity[] = []): import("../../user-flow/user-data").ContentPlanningResult {
   const first = candidates[0];
   if (!first) throw new Error("안전 기준과 Project 정책을 통과한 Content Opportunity가 없습니다. 직접 입력한 주제라면 검색 의도와 안전 문구를 확인해 주세요.");
-  return Object.freeze({ ...plan, opportunityCandidates: Object.freeze(candidates), qualityTarget: first.qualityTarget, recommendedPrimaryKeyword: first.primaryKeyword, keywordCandidates: Object.freeze(candidates.map((value) => value.primaryKeyword)), providerSearchIntent: first.providerSearchIntent, searchIntent: first.searchIntent, recommendedContentType: first.contentType, relatedKeywords: first.secondaryKeywords, targetAudience: first.audience, contentGoal: first.contentAngle, recommendationReason: first.selectionRationale, confidence: first.confidence });
+  return Object.freeze({ ...plan, opportunityCandidates: Object.freeze(candidates), excludedOpportunities: Object.freeze(excludedOpportunities), qualityTarget: first.qualityTarget, recommendedPrimaryKeyword: first.primaryKeyword, keywordCandidates: Object.freeze(candidates.map((value) => value.primaryKeyword)), providerSearchIntent: first.providerSearchIntent, searchIntent: first.searchIntent, recommendedContentType: first.contentType, relatedKeywords: first.secondaryKeywords, targetAudience: first.audience, contentGoal: first.contentAngle, recommendationReason: first.selectionRationale, confidence: first.confidence });
 }
 
 function collectOpportunities(input: unknown): readonly import("../../../core/content").ContentOpportunityCandidate[] {

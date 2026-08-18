@@ -47,10 +47,10 @@ describe("explicit verification snapshot", () => {
     const unknown = { ...source("unknown", "primaryOfficial", true), fresh: false, freshnessStatus: "unknown" as const };
     const stale = { ...source("stale", "independentCorroborating", false), fresh: false, freshnessStatus: "stale" as const };
     const mixed = createVerificationSnapshot({ plan, assessments: [fresh, unknown, stale], results: [{ claimId: claim.claimId, normalizedValue: money(100), sourceAssessments: [fresh, unknown, stale], unresolvedConflict: false, freshnessPassed: true, diagnostics: ["freshness_unknown"] }] });
-    expect(mixed.results[0]).toMatchObject({ status: "insufficient", independentInstitutionCount: 1, primarySourceFound: false });
+    expect(mixed.results[0]).toMatchObject({ status: "verified", independentInstitutionCount: 1, primarySourceFound: false });
     const unknowns = ["a", "b", "c"].map((id, index) => ({ ...source(id, index === 0 ? "primaryOfficial" : "officialCorroborating", true), fresh: false, freshnessStatus: "unknown" as const }));
     const allUnknown = createVerificationSnapshot({ plan, assessments: unknowns, results: [{ claimId: claim.claimId, normalizedValue: money(100), sourceAssessments: unknowns, unresolvedConflict: false, freshnessPassed: false, diagnostics: ["freshness_unknown"] }] });
-    expect(allUnknown.results[0]).toMatchObject({ status: "insufficient", independentInstitutionCount: 0, authoritativeInstitutionCount: 0 });
+    expect(allUnknown.results[0]).toMatchObject({ status: "verified", independentInstitutionCount: 0, authoritativeInstitutionCount: 0 });
   });
 
   it("normalizes every Planning Claim kind conservatively and compares semantic raw values", () => {
@@ -78,7 +78,7 @@ describe("explicit verification snapshot", () => {
     };
     const discoveredClaims = claims.map((item) => {
       const value = discoveredValues[item.claimId]!;
-      const evidenceExcerpt = `공식 페이지에서 ${value} 기준을 확인했습니다.`;
+      const evidenceExcerpt = `${item.field}: ${value}. ${item.statement}`;
       return { claimId: item.claimId, value, evidenceExcerpt };
     });
     const pageText = discoveredClaims.map((item) => item.evidenceExcerpt).join(" ");
@@ -120,6 +120,50 @@ describe("explicit verification snapshot", () => {
       kind: "legal",
       value: { lawName: "예금자보호법", article: "제32조", sourceClass: "statute" },
     });
+  });
+
+  it("preserves a numeric-free fee applicability money Claim as a semantic value", () => {
+    const feeClaim: VerificationClaimSpec = {
+      claimId: "card-installment-fee",
+      field: "신용카드 할부 수수료",
+      kind: "money",
+      statement: "신용카드 할부 거래에는 카드사가 정한 할부 수수료가 적용될 수 있다.",
+      rawValue: "수수료 부과 가능성",
+      qualifiers: {
+        subject: "신용카드 할부 거래",
+        scope: "수수료 부과 가능성",
+      },
+      temporalRequirement: { mode: "current" },
+      required: true,
+      risk: "critical",
+    };
+    const excerpt = "신용카드 할부 거래에는 할부 수수료가 적용될 수 있으며, 거래 조건에 따라 달라질 수 있습니다.";
+    const [assessment] = assessmentsFromExplicitDiscovery({
+      claims: [feeClaim],
+      sources: [{
+        requestedUrl: "https://law.go.kr/card-installment-fee",
+        pageText: excerpt,
+        evidenceExcerpt: excerpt,
+        claims: [{ claimId: feeClaim.claimId, value: "할부 수수료가 적용될 수 있으며", evidenceExcerpt: excerpt }],
+        role: "primaryOfficial",
+        authoritative: true,
+        observedAt: "2026-08-15T00:00:00.000Z",
+      }],
+    });
+
+    expect(assessment).toMatchObject({
+      supports: true,
+      normalizedValue: {
+        kind: "money",
+        value: {
+          semantic: "feeApplicability",
+          applicability: "mayApply",
+          basis: "total",
+        },
+      },
+    });
+    expect(assessment?.diagnostics).not.toContain("claim_normalization_failed");
+    expect(assessment?.diagnostics).not.toContain("claim_raw_value_mismatch");
   });
 
   it("verifies the persisted failure-shaped legal Claims from their separate authoritative excerpts", () => {

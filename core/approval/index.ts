@@ -1,5 +1,6 @@
 export * from "./ApprovalPolicy";
 export * from "./ApprovalReadiness";
+export * from "./ApprovalReadinessDerivation";
 export * from "./ApprovalEvidenceRequirement";
 export * from "./ApprovalDuplicatePolicy";
 export * from "./ApprovalSourceDocumentAdapter";
@@ -35,9 +36,11 @@ export {
 } from "./ApprovalSourcePreflightDiagnostic";
 export * from "./ApprovalRequiredEvidenceCandidates";
 export * from "./ApprovalOfficialSourcePolicy";
+export * from "./ApprovalEvidenceAnchor";
 export * from "./ApprovalSourceAuthority";
 export * from "./ApprovalDateOwnership";
 export * from "./SiteApprovalReadinessAdapter";
+export * from "./CorroborationSearch";
 export {
   approvalPolicyPromptContext,
   assertApprovalDraftIntegrity,
@@ -47,15 +50,17 @@ export {
 export * from "./VerificationClaim";
 export * from "./VerificationClaimEvidenceMatch";
 export * from "./VerificationClaimNormalizer";
+export * from "./VerificationClaimPolicy";
 export * from "./VerificationSourceIdentity";
 export * from "./VerificationClaimFingerprint";
-export * from "./VerificationClaimPolicy";
 export * from "./VerificationTemporalPolicy";
 export * from "./VerificationGenerationGate";
 export * from "./VerificationGenerationEvidence";
 export * from "./ExplicitVerificationPreflight";
 export * from "./GeneratedClaimBinding";
 export * from "./GeneratedFactualClaim";
+export * from "./GeneratedClaimVerificationIntegrity";
+export * from "./FactualSurfaceTaxonomy";
+export * from "./PublicPageIndexability";
 export * from "./GeneratedFactualClaimInventory";
 export * from "./QualityReviewFactualGuard";
-export * from "./GeneratedClaimVerificationIntegrity";

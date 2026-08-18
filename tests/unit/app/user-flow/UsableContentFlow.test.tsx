@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ContentCreationFlow } from "../../../../app/user-flow/ContentCreationFlow";
 import { EditorWorkspace } from "../../../../app/user-flow/EditorWorkspace";
-import { applyCanonicalDocument, createContentFromPlan, createProject, createWorkspace, emptyUserData, updateContent } from "../../../../app/user-flow/user-data";
+import { applyCanonicalDocument, createContentFromPlan, createProject, createWorkspace, emptyUserData, startContentGeneration, updateContent } from "../../../../app/user-flow/user-data";
 import { QualityEngine } from "../../../../core/quality";
 
 const workspace = createWorkspace(emptyUserData, "Studio", "w");
@@ -31,6 +31,23 @@ describe("usable Content flow UI", () => {
   it("does not duplicate a Content record when the same confirmed id retries", () => {
     const retried = createContentFromPlan(contentData, { id: "c", projectId: "p", naturalLanguageRequest: "request", plan, primaryKeyword: "keyword", selectedPublishingAccountIds: [], now: "later" });
     expect(retried.contents).toHaveLength(1);
+  });
+  it("preserves the existing manuscript when confirmation targets a new Content id", () => {
+    const document = { id: "c-document", title: "Original", blocks: [{ id: "p", type: "paragraph" as const, text: "Original manuscript" }] };
+    const withDocument = applyCanonicalDocument(contentData, "c", document, "generation", "now");
+    const copied = createContentFromPlan(withDocument, { id: "new-content", projectId: "p", naturalLanguageRequest: "request", plan, opportunity: withDocument.contents[0].opportunity, selectedPublishingAccountIds: [], sourceContentId: "c", now: "later" });
+    expect(copied.contents).toHaveLength(2);
+    expect(copied.contents.find((item) => item.id === "c")?.document).toEqual(document);
+    expect(copied.contents.find((item) => item.id === "new-content")?.document).toBeUndefined();
+    expect(copied.contents.find((item) => item.id === "new-content")?.preservedFromContentId).toBe("c");
+    expect(copied.contents.find((item) => item.id === "new-content")?.planningWorkflow?.status).toBe("opportunityConfirmed");
+    expect(copied.contents.find((item) => item.id === "c")?.title).toBe(withDocument.contents[0].title);
+    const reconfirmed = createContentFromPlan(withDocument, { id: "c", projectId: "p", naturalLanguageRequest: "request", plan, opportunity: withDocument.contents[0].opportunity, selectedPublishingAccountIds: [], now: "later-1" });
+    expect(reconfirmed.contents.find((item) => item.id === "c")?.title).toBe(document.title);
+    const generating = startContentGeneration(copied, { workspaceId: "w", projectId: "p", contentId: "new-content", operationId: "new-generation", now: "later-2" });
+    expect(generating.contents.find((item) => item.id === "new-content")?.planningWorkflow?.status).toBe("generating");
+    const html = renderToStaticMarkup(<ContentCreationFlow content={withDocument.contents[0]} data={withDocument} project={project} onBack={vi.fn()} onContentStarted={vi.fn()} onOpenEditor={vi.fn()} onPersist={vi.fn()} onRefresh={vi.fn(async () => withDocument)} onRestore={vi.fn()} />);
+    expect(html).toContain("기존 원고를 보존하고 새 Content로 생성");
   });
   it.each([
     ["legacy", { score: 100, seoReady: true, readabilityReady: true }],

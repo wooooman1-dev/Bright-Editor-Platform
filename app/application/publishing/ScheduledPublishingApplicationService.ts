@@ -4,8 +4,10 @@ import {
   assertValidScheduleTime,
   createScheduleRequestFingerprint,
   hasActiveScheduledPublication,
+  isRemovableScheduledPublication,
   isScheduledPublication,
   ScheduledPublicationError,
+  type ScheduledPostStatus,
   type ScheduledPublication,
   type ScheduledPublicationStatus,
   type ScheduledPublishingRecord,
@@ -32,6 +34,7 @@ export type ScheduleReservationInput = Readonly<{
   categoryId: string | null;
   categoryName: string | null;
   operationId: string;
+  postStatus?: ScheduledPostStatus;
   now?: string;
 }>;
 
@@ -114,6 +117,7 @@ export class ScheduledPublishingApplicationService {
         scheduledAt: identity.scheduledAt,
         timezone: identity.timezone,
         status: "registering",
+        ...(input.postStatus ? { postStatus: input.postStatus } : {}),
         categoryId: input.categoryId,
         categoryName: input.categoryName,
         requestFingerprint,
@@ -190,6 +194,31 @@ export class ScheduledPublishingApplicationService {
       return replaceSchedule(data, updated);
     });
     return requireUpdated(updated);
+  }
+
+  /**
+   * Clears finished schedule history for one Content. Active records are never
+   * removed, so a registration whose external result is still unconfirmed keeps
+   * its only pointer to the external post.
+   */
+  async removeTerminalSchedules(input: Readonly<{
+    workspaceId: string;
+    contentId: string;
+  }>): Promise<Readonly<{ removed: readonly ScheduledPublication[]; data: ScheduleAwareUserData }>> {
+    const contentId = required(input.contentId, "Content ID");
+    const removed: ScheduledPublication[] = [];
+    const data = await this.store.update<ScheduleAwareUserData>(USER_DATA_COLLECTION, USER_DATA_ID, (current) => {
+      const data = assertWorkspaceData(current, input.workspaceId);
+      const kept = (data.scheduledPublishing ?? []).filter((record) => {
+        if (!isRemovableScheduledPublication(record) || record.contentId !== contentId) return true;
+        removed.push(record);
+        return false;
+      });
+      return removed.length
+        ? Object.freeze({ ...data, scheduledPublishing: Object.freeze(kept) })
+        : data;
+    });
+    return Object.freeze({ removed: Object.freeze(removed), data });
   }
 
   async recoverInterruptedRegistrations(input: Readonly<{

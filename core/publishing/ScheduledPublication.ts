@@ -9,11 +9,38 @@ export const scheduledPublicationStatuses = [
 
 export type ScheduledPublicationStatus = (typeof scheduledPublicationStatuses)[number];
 
+/**
+ * External post state a schedule registers on the platform.
+ *
+ * `draft` keeps the post unpublished and only records the intended time, so it
+ * never conflicts with the Review First / Draft Only policy. `future` registers
+ * an automatic public release and is gated separately per D-038.
+ */
+export const scheduledPostStatuses = ["draft", "future"] as const;
+
+export type ScheduledPostStatus = (typeof scheduledPostStatuses)[number];
+
 export const activeScheduledPublicationStatuses: readonly ScheduledPublicationStatus[] = Object.freeze([
   "registering",
   "scheduled_verified",
   "scheduled_unverified",
 ]);
+
+/**
+ * Statuses that can no longer transition. Only these may be removed from the
+ * schedule history: an active record can still be the only pointer to an
+ * external post whose state has not been confirmed.
+ */
+export const terminalScheduledPublicationStatuses: readonly ScheduledPublicationStatus[] = Object.freeze([
+  "failed",
+  "cancelled",
+  "published",
+]);
+
+export function isRemovableScheduledPublication(record: unknown): record is ScheduledPublication {
+  return isScheduledPublication(record)
+    && terminalScheduledPublicationStatuses.includes(record.status);
+}
 
 export type ScheduledPublication = Readonly<{
   id: string;
@@ -26,6 +53,11 @@ export type ScheduledPublication = Readonly<{
   scheduledAt: string;
   timezone: string;
   status: ScheduledPublicationStatus;
+  /**
+   * Absent on records created before D-038. Read those as `draft` scheduling,
+   * which is what every pre-D-038 platform path registered.
+   */
+  postStatus?: ScheduledPostStatus;
   categoryId: string | null;
   categoryName: string | null;
   requestFingerprint: string;
@@ -84,6 +116,7 @@ export function isScheduledPublication(record: unknown): record is ScheduledPubl
     && typeof candidate.timezone === "string"
     && typeof candidate.status === "string"
     && scheduledPublicationStatuses.includes(candidate.status as ScheduledPublicationStatus)
+    && isOptionalPostStatus(candidate.postStatus)
     && isNullableString(candidate.categoryId)
     && isNullableString(candidate.categoryName)
     && typeof candidate.requestFingerprint === "string"
@@ -197,6 +230,14 @@ function isValidTimeZone(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+export function resolveScheduledPostStatus(record: ScheduledPublication): ScheduledPostStatus {
+  return record.postStatus ?? "draft";
+}
+
+function isOptionalPostStatus(value: unknown): value is ScheduledPostStatus | undefined {
+  return value === undefined || scheduledPostStatuses.includes(value as ScheduledPostStatus);
 }
 
 function isNullableString(value: unknown): value is string | null {

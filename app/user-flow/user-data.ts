@@ -23,6 +23,12 @@ export type WorkspacePublishingPolicy = Readonly<{
   publicPublish: false;
   sequentialDraftSave: boolean;
   qualityApprovalRequired: true;
+  /**
+   * Enables `future` WordPress scheduling, which releases a post publicly at the
+   * scheduled time. Absent or false means only `draft` scheduling is allowed.
+   * Immediate public publishing stays disabled either way. See D-038.
+   */
+  wordpressSchedulePublicPublish?: boolean;
 }>;
 export type WorkspaceSettings = Readonly<{
   enabledPlatforms: readonly WorkspacePlatform[];
@@ -93,6 +99,12 @@ export type ContentPlanningResult = Readonly<{
   estimateDisclosure: string;
   selectionMode?: ContentOpportunitySelectionMode;
   opportunityCandidates?: readonly ContentOpportunityCandidate[];
+  /**
+   * Topics the planner proposed that classification refused to offer. Kept so
+   * the confirmation screen can say a topic was dropped and why, instead of
+   * showing a shorter list than the run produced with no explanation.
+   */
+  excludedOpportunities?: readonly Readonly<{ selectedTopic: string; primaryKeyword: string; reason: string }>[];
   qualityTarget?: ContentPlanQualityTarget;
 }>;
 
@@ -159,6 +171,7 @@ export type UserContent = Readonly<{
   createdAt?: string;
   updatedAt: string;
   document?: ContentDocument;
+  preservedFromContentId?: string;
   quality?: QualityReport;
   platform?: string;
   publishedUrl?: string;
@@ -199,7 +212,12 @@ export type UserData = Readonly<{
   mediaMetadata?: readonly import("../../core/media").MediaAsset[];
   qualityReports?: readonly Readonly<{ contentId: string; report: QualityReport }> [];
   publishingRecords?: readonly UserPublishingRecord[];
-  scheduledPublishing?: readonly Readonly<{ contentId: string; platform: string; scheduledFor: string }> [];
+  /**
+   * Holds both the current ScheduledPublication records and the legacy shape
+   * written before the schedule contract existed. Readers must narrow before
+   * using anything beyond contentId.
+   */
+  scheduledPublishing?: readonly import("../../core/publishing").ScheduledPublishingRecord[];
 }>;
 
 export const userDataStorageKey = "bright-studio-user-data-v1";
@@ -468,12 +486,14 @@ export function completeContentGeneration(data: UserData, input: Readonly<{
 export function createContentFromPlan(data: UserData, input: Readonly<{
   id: string; projectId: string; naturalLanguageRequest: string; plan: ContentPlanningResult;
   opportunity?: ContentOpportunityCandidate; primaryKeyword?: string; selectedPublishingAccountIds: readonly string[]; now: string;
+  sourceContentId?: string;
 }>): UserData {
   const existing = data.contents.find((content) => content.id === input.id);
+  const source = input.sourceContentId ? data.contents.find((content) => content.id === input.sourceContentId) : undefined;
   const project = data.projects.find((item) => item.id === input.projectId);
   if (!project) throw new Error("프로젝트를 찾을 수 없습니다.");
   const request = normalizeRequiredName(input.naturalLanguageRequest);
-  const selectedOpportunity = input.opportunity ?? resolveLegacyOpportunity(input.plan, input.primaryKeyword, input.projectId, request);
+  const selectedOpportunity = input.opportunity ?? source?.opportunity ?? resolveLegacyOpportunity(input.plan, input.primaryKeyword, input.projectId, request);
   const opportunity = confirmContentOpportunity(selectedOpportunity, {
     workspaceId: project.workspaceId,
     projectId: project.id,
@@ -481,25 +501,37 @@ export function createContentFromPlan(data: UserData, input: Readonly<{
     confirmedAt: input.now,
   });
   if (!request) throw new Error("요청과 콘텐츠 기회를 확인해 주세요.");
+  const workflow = existing?.planningWorkflow ?? source?.planningWorkflow;
   const content: UserContent = {
     ...(existing ?? {}),
     id: input.id, workspaceId: project.workspaceId, projectId: project.id, ...(project.brandId ? { brandId: project.brandId } : {}),
     naturalLanguageRequest: request, interpretedIntent: input.plan.interpretedIntent, domain: input.plan.domain,
     planning: input.plan, opportunity,
-    planningWorkflow: existing?.planningWorkflow
-      ? nextPlanningWorkflow(existing.planningWorkflow, input.now, {
+    ...(input.sourceContentId ? { preservedFromContentId: input.sourceContentId } : {}),
+    planningWorkflow: workflow
+      ? nextPlanningWorkflow(workflow, input.now, {
         status: "opportunityConfirmed",
         selectedOpportunityId: opportunity.opportunityId,
         lastSuccessfulStep: "confirmation",
       })
-      : undefined,
+      : input.sourceContentId ? {
+        status: "opportunityConfirmed",
+        request,
+        selectionMode: input.plan.selectionMode ?? "automatic",
+        operationId: `content-confirmation-${input.id}`,
+        selectedOpportunityId: opportunity.opportunityId,
+        lastSuccessfulStep: "confirmation",
+        revision: 1,
+        createdAt: input.now,
+        updatedAt: input.now,
+      } : undefined,
     primaryKeyword: opportunity.primaryKeyword, relatedKeywords: opportunity.secondaryKeywords, searchIntent: opportunity.searchIntent,
     providerSearchIntent: opportunity.providerSearchIntent,
     targetAudience: opportunity.audience, contentGoal: opportunity.contentAngle, contentType: opportunity.contentType,
     qualityTarget: opportunity.qualityTarget,
     selectedPublishingAccountIds: [...new Set(input.selectedPublishingAccountIds)],
     ...(input.selectedPublishingAccountIds.length === 1 ? { publishingAccountId: input.selectedPublishingAccountIds[0], platform: resolveProjectStrategy(project).defaultPlatform } : {}),
-    title: opportunity.selectedTopic,
+    title: existing?.document?.title ?? opportunity.selectedTopic,
     body: existing?.body ?? "", status: "planning", creationMethod: "natural_language", createdAt: existing?.createdAt ?? input.now, updatedAt: input.now,
   };
   return { ...data, contents: existing ? data.contents.map((item) => item.id === existing.id ? content : item) : [...data.contents, content] };
@@ -655,10 +687,11 @@ export function parseStoredUserData(raw: string | null): UserData {
   if (!raw) return emptyUserData;
   try {
     const parsed = JSON.parse(raw) as Partial<UserData>;
+    const contents = Array.isArray(parsed.contents) ? parsed.contents.map((content) => content?.document?.title ? { ...content, title: content.document.title } : content) : [];
     return {
       workspace: parsed.workspace,
       brands: Array.isArray(parsed.brands) ? parsed.brands : [], projects: Array.isArray(parsed.projects) ? parsed.projects : [],
-      contents: Array.isArray(parsed.contents) ? parsed.contents : [], history: Array.isArray(parsed.history) ? parsed.history : [],
+      contents, history: Array.isArray(parsed.history) ? parsed.history : [],
       mediaMetadata: Array.isArray(parsed.mediaMetadata) ? parsed.mediaMetadata : [], qualityReports: Array.isArray(parsed.qualityReports) ? parsed.qualityReports : [],
       publishingRecords: Array.isArray(parsed.publishingRecords) ? parsed.publishingRecords : [], scheduledPublishing: Array.isArray(parsed.scheduledPublishing) ? parsed.scheduledPublishing : [],
     };
