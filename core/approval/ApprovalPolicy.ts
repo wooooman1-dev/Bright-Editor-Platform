@@ -292,13 +292,16 @@ export function evaluateApprovalPreparationText(
   // workflow callers always provide applicability from the persisted plan.
   const evidenceRequired = evidence.evidenceRequired !== false;
 
-  if (/(?:애드센스|AdSense).{0,18}(?:100\s*%|무조건|반드시|확실히).{0,12}(?:승인|통과)|(?:승인|통과).{0,18}(?:보장|확정)/i.test(normalized)) {
+  if (guaranteeClaim(normalized, /(?:애드센스|AdSense).{0,18}(?:100\s*%|무조건|반드시|확실히).{0,12}(?:승인|통과)|(?:승인|통과).{0,18}(?:보장|확정)/giu)) {
     issues.push({ code: "APPROVAL_GUARANTEE_CLAIM", message: "AdSense 승인 또는 통과를 보장하는 표현이 있습니다.", blocking: true });
   }
-  if (/(?:수익|검색량|상위\s*노출|순위|대출\s*승인|지원금\s*수령).{0,18}(?:100\s*%|무조건|보장|확정|반드시)/i.test(normalized)) {
+  if (guaranteeClaim(normalized, /(?:수익|검색량|상위\s*노출|순위|대출\s*승인|지원금\s*수령).{0,18}(?:100\s*%|무조건|보장|확정|반드시)/giu)) {
     issues.push({ code: "UNSUPPORTED_PERFORMANCE_CLAIM", message: "검증되지 않은 성과·수익·승인 보장 표현이 있습니다.", blocking: true });
   }
-  if (/(?:lorem ipsum|내용을 입력|여기에 .+ 입력|추가 예정|작성 예정|placeholder|todo|tbd)/i.test(normalized)) {
+  // `여기에 .+ 입력` 의 `.+` 에 상한이 없어 본문 전체를 삼켰다. 2026-08-19 실측:
+  // "여기에 있습니다"에서 시작해 한참 뒤 "입력 정보가"까지 한 덩어리로 매칭돼, 자리표시자가
+  // 하나도 없는 원고가 PLACEHOLDER_CONTENT 로 차단됐다. 두 낱말이 붙어 있을 때만 본다.
+  if (/(?:lorem ipsum|내용을\s*입력|여기에\s*\S{0,12}\s*입력|추가 예정|작성 예정|placeholder|todo|tbd)/iu.test(normalized)) {
     issues.push({ code: "PLACEHOLDER_CONTENT", message: "공개 원고에 placeholder 또는 작성 예정 문구가 남아 있습니다.", blocking: true });
   }
   if (/(?:제가|저는|나는|직접).{0,24}(?:미술관을 방문|작품을 보았|사용했|신청했|경험했|해봤)/i.test(normalized)) {
@@ -321,4 +324,23 @@ export function evaluateApprovalPreparationText(
   }
 
   return Object.freeze(issues);
+}
+
+/**
+ * 보장·확정 표현을 찾되, 그것을 부정하는 문장은 위반으로 보지 않는다.
+ *
+ * 정책이 막으려는 것은 "승인을 보장합니다" 같은 단정이다. 그런데 패턴이 어미를 보지
+ * 않아 정책이 오히려 권장하는 문장이 걸렸다. 2026-08-19 밝은재테크 실측:
+ * "신청 승인이나 실제 지급을 보장하지 않습니다"와 "곧바로 지원금 수령이 확정되는 것은
+ * 아닙니다"가 각각 승인 보장·성과 보장으로 판정됐다. 신중하게 쓴 원고일수록 더 걸린다.
+ */
+function guaranteeClaim(text: string, pattern: RegExp): boolean {
+  const negation = /^\s*(?:하지|되지|하는 것은|되는 것은|할 수는)?\s*(?:않|아니|아닙|못|없)/u;
+  for (const match of text.matchAll(pattern)) {
+    if (typeof match.index !== "number") continue;
+    const trailing = text.slice(match.index + match[0].length, match.index + match[0].length + 14);
+    if (negation.test(trailing)) continue;
+    return true;
+  }
+  return false;
 }

@@ -32,7 +32,7 @@ export type EditorialQualityPipelineResult = Readonly<{
 
 export function contentDocumentAIContext(document: ContentDocument): Readonly<Record<string, unknown>> {
   if (!document.metadata) return document;
-  const excluded = new Set(["qualityTarget", "generationDiagnostic", "reviewDiagnostic", "aiUsage", "generatedClaimVerification", "generatedFactualClaimInventory"]);
+  const excluded = new Set(["qualityTarget", "generationDiagnostic", "reviewDiagnostic", "aiUsage", "generatedClaimVerification", "generatedFactualClaimInventory", "qualityReviewAttempt", "approvalEvidence", "siteApprovalReadiness", "approvalDuplicateCheck", "approvalReadinessExecution"]);
   const metadataEntries = Object.fromEntries(
     Object.entries(document.metadata).filter(([key]) => !excluded.has(key)),
   );
@@ -76,6 +76,38 @@ export class EditorialQualityPipeline {
   }>): Promise<EditorialQualityPipelineResult> {
     const place = input.placeDocument ?? (async (document: ContentDocument) => document);
     const generationQuality = this.qualityEngine.review(input.document, input.qualityContext);
+    /**
+     * 규칙 검증이 이미 정식 승인이면 편집 AI를 부르지 않는다.
+     *
+     * 채택 조건은 생성본보다 나은 것인데, 생성본이 이미 만점이면 더 높은 값이 없어
+     * 검토본이 채택될 경로가 사실상 없다. 2026-08-19 실측: 최근 원고 22편 전부
+     * generationDiagnostic 과 reviewDiagnostic 이 같았다. 편당 약 $0.40씩,
+     * 합계 $8을 쓰고 결과를 버린 셈이다.
+     *
+     * 07_AI_ARCHITECTURE 의 원칙이기도 하다 — Rule-based validation before
+     * additional AI calls.
+     */
+    if (meetsStandardApprovalTarget(input.document, generationQuality) && blockingDeficit(input.document) === 0) {
+      const skipped = recordQualityReviewAttempt(input.document, {
+        calledAt: undefined,
+        outcome: "skipped",
+        reason: "rule_validation_already_standard_approved",
+      });
+      return Object.freeze({
+        automaticImprovementCount: 0,
+        attemptHistory: Object.freeze([Object.freeze({
+          accepted: false,
+          phase: "final_review" as const,
+          quality: generationQuality,
+          rejectionReason: "review_skipped_rule_validation_passed",
+        })]),
+        document: skipped,
+        finalReviewQuality: generationQuality,
+        quality: generationQuality,
+        qualityHistory: Object.freeze([generationQuality]),
+        reachedTarget: true,
+      });
+    }
     const finalResponse = await this.provider.generate({
       instruction: singlePassFinalReviewInstruction(
         input.finalReviewInstruction(input.document, generationQuality),
@@ -104,7 +136,13 @@ export class EditorialQualityPipeline {
     const best = accepted
       ? { document: finalCandidate.document, quality: finalReviewQuality }
       : { document: input.document, quality: generationQuality };
-    const document = appendAIUsageToDocument(best.document, finalResponse.diagnostics?.aiUsage);
+    const document = recordQualityReviewAttempt(
+      appendAIUsageToDocument(best.document, finalResponse.diagnostics?.aiUsage),
+      {
+        outcome: accepted ? "adopted" : "discarded",
+        reason: accepted ? undefined : finalCandidate.rejectionReason ?? "quality_not_improved",
+      },
+    );
 
     return Object.freeze({
       automaticImprovementCount: 0,
@@ -356,6 +394,29 @@ function blockingDeficit(document: ContentDocument): number {
     unverifiedFactFields: evidence?.unverifiedFactFields,
   }).filter((issue) => issue.blocking).length;
   return structural + policyIssues;
+}
+
+/**
+ * 편집 AI 호출의 결말을 원고에 남긴다.
+ *
+ * 파이프라인은 채택 여부와 사유를 만들어 반환했지만 아무도 저장하지 않았다. 그래서
+ * 22편이 버려지는 동안 데이터에 흔적이 없었고, 비용만 나가는 상태를 아무도 볼 수
+ * 없었다. 판정과 함께 이유를 남겨야 같은 일이 반복될 때 바로 드러난다.
+ */
+function recordQualityReviewAttempt(
+  document: ContentDocument,
+  attempt: Readonly<{ calledAt?: undefined; outcome: "adopted" | "discarded" | "skipped"; reason?: string }>,
+): ContentDocument {
+  return Object.freeze({
+    ...document,
+    metadata: Object.freeze({
+      ...(document.metadata ?? {}),
+      qualityReviewAttempt: Object.freeze({
+        outcome: attempt.outcome,
+        ...(attempt.reason ? { reason: attempt.reason } : {}),
+      }),
+    }),
+  }) as ContentDocument;
 }
 
 function betterThan(candidateDocument: ContentDocument, candidate: QualityReport, bestDocument: ContentDocument, best: QualityReport): boolean {

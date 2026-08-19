@@ -86,7 +86,7 @@ describe("EditorialQualityPipeline", () => {
       void request;
       return { content: JSON.stringify({ ...candidate, verificationClaimsUsed: [verifyDraft, criticalDraft] }), model: "review" };
     });
-    const qualityEngine = { review: vi.fn(() => report(96, true)) };
+    const qualityEngine = { review: vi.fn(() => report(92, false)) };
     const result = await new EditorialQualityPipeline({ generate } as AIProvider, undefined, qualityEngine as never).run({
       document: initial, finalReviewInstruction: () => "final", parseInput: parseInput(), qualityContext: {},
     });
@@ -214,7 +214,7 @@ describe("EditorialQualityPipeline", () => {
     const initial = new EditorialGenerationStrategy().parse(JSON.stringify(rawDocument()), parseInput());
     let instruction = "";
     const generate = vi.fn(async (request: AIRequest) => { instruction = request.instruction; return { content: JSON.stringify(rawDocument("승인 원고")), model: "review" }; });
-    const qualityEngine = { review: vi.fn(() => report(96, true)) };
+    const qualityEngine = { review: vi.fn(() => report(92, false)) };
     await new EditorialQualityPipeline({ generate } as AIProvider, undefined, qualityEngine as never).run({ document: initial, finalReviewInstruction: () => "base instruction", parseInput: parseInput(), qualityContext: {}, requiredInformation: ["실행 예시"] });
     expect(instruction).toContain("second and final AI call");
     expect(instruction).toContain("standard approval only");
@@ -293,7 +293,7 @@ describe("EditorialQualityPipeline", () => {
     };
     let instruction = "";
     const generate = vi.fn(async (request: AIRequest) => { instruction = request.instruction; return { content: JSON.stringify(rawDocument("검토 원고")), model: "review" }; });
-    const qualityEngine = { review: vi.fn(() => report(96, true)) };
+    const qualityEngine = { review: vi.fn(() => report(92, false)) };
 
     await new EditorialQualityPipeline({ generate } as AIProvider, undefined, qualityEngine as never).run({
       document: initial,
