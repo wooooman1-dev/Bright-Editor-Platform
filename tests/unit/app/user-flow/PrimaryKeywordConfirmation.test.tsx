@@ -133,7 +133,8 @@ describe("primary keyword confirmation UI", () => {
     expect(html).toContain("콘텐츠 깊이 · 비교·선택 가이드");
     expect(html).toContain("콘텐츠 유형 · 실행 방법");
     expect(html).toContain("주제 복잡도 · 보통");
-    expect(html).toContain("데이터 출처 · Bright Studio 내부 데이터, NAVER 검색 트렌드");
+    expect(html).toContain("선정 근거 데이터 · Bright Studio 내부 데이터, NAVER 검색 트렌드");
+    expect(html).toContain("공식 출처 ·");
     expect(html).toContain("최신성 · 최신 · 신뢰도 92%");
     expect(html).toContain("상승 추세만으로 절대적인 시장 규모를 확정할 수 없습니다.");
     expect(html).toContain("전용 콘텐츠 라이브러리 분석은 아직 구현되지 않아 현재 프로젝트 메타데이터와 확인된 공개 URL만 사용합니다.");

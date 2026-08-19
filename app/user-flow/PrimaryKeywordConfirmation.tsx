@@ -1,3 +1,4 @@
+import { isCriticalVerificationClaim } from "../../core/approval";
 import { opportunityEvidenceLabel, type ContentOpportunityCandidate } from "../../core/content";
 import type { ContentPlanningResult } from "./user-data";
 import {
@@ -12,6 +13,23 @@ import {
   providerLabel,
   topicComplexityLabel,
 } from "./opportunity-presentation";
+
+/**
+ * 이 후보로 원고를 만들면 본문 끝에 공식 출처가 붙는지 미리 알려 준다.
+ *
+ * 카드에는 선정 근거 데이터(NAVER 검색 트렌드·Search Console)가 "데이터 출처"라는
+ * 이름으로 이미 있어서, 그것이 본문 출처인 줄 읽혔다. 둘은 다른 계통이다. 시장
+ * 데이터는 이 주제를 왜 골랐는지의 근거이고, 공식 출처는 본문의 사실을 뒷받침하는
+ * 인용이다. 후자는 기획이 CRITICAL Claim 을 등록했을 때만 붙는다.
+ */
+function officialSourceOutlook(candidate: ContentOpportunityCandidate): string {
+  const claims = candidate.verificationPlan?.claims ?? [];
+  const critical = claims.filter(isCriticalVerificationClaim);
+  if (!critical.length) {
+    return "공식 출처 · 붙지 않음 — 이 주제에는 출처로 확인할 외부 사실이 없습니다";
+  }
+  return `공식 출처 · 붙음 (${critical.length}건: ${critical.map((claim) => claim.field).join(", ")})`;
+}
 
 export function PrimaryKeywordConfirmation({
   customKeyword,
@@ -77,8 +95,9 @@ export function PrimaryKeywordConfirmation({
                     </span>
                   ) : null}
                   <span className="mt-2 block text-xs text-[#77777f]">근거 · {[...new Set(evidence.map((item) => item.evidenceType ? evidenceTypeLabel(item.evidenceType) : opportunityEvidenceLabel(item.source)))].join(", ")}</span>
-                  <span className="mt-1 block text-xs text-[#77777f]">데이터 출처 · {[...new Set(evidence.map((item) => item.provider ? providerLabel(item.provider) : opportunityEvidenceLabel(item.source)))].join(", ") || "외부 데이터 없음"}</span>
-                  <span className="mt-1 block text-xs text-[#77777f]">데이터 기간 · {[...new Set(evidence.map((item) => item.periodStart || item.periodEnd ? `${item.periodStart ?? "?"}~${item.periodEnd ?? "?"}` : "내부 현재 상태"))].join(", ")}</span>
+                  <span className="mt-1 block text-xs text-[#77777f]">선정 근거 데이터 · {[...new Set(evidence.map((item) => item.provider ? providerLabel(item.provider) : opportunityEvidenceLabel(item.source)))].join(", ") || "외부 데이터 없음"}</span>
+                  <span className="mt-1 block text-xs text-[#77777f]">선정 근거 기간 · {[...new Set(evidence.map((item) => item.periodStart || item.periodEnd ? `${item.periodStart ?? "?"}~${item.periodEnd ?? "?"}` : "내부 현재 상태"))].join(", ")}</span>
+                  <span className="mt-1 block text-xs text-[#77777f]">{officialSourceOutlook(candidate)}</span>
                   <span className={`mt-1 block text-xs ${candidate.freshness === "stale" ? "font-semibold text-amber-800" : "text-[#77777f]"}`}>최신성 · {freshnessLabel(candidate.freshness)} · 신뢰도 {formatOpportunityConfidence(candidate.confidence)}</span>
                   <span className="mt-1 block text-xs leading-5 text-amber-800">제한사항 · {limitations.join(" ") || "없음"}</span>
                 </span>
