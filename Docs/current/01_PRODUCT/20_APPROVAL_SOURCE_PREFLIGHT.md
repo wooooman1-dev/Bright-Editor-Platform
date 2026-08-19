@@ -225,16 +225,14 @@ A source may enter the Generation bundle only when all checks pass:
 3. Every redirect target remains a safe public HTTPS destination.
 4. The final direct page responds successfully.
 5. Bright Studio can extract supported text from the response within the bounded size limit.
-6. The fetched page is reachable and its content match with the cited Claim is
-   recorded as a diagnostic.
-7. The source belongs to an accepted scope; that is the only trust route.
-8. A source outside the accepted scopes cannot become trusted Evidence.
-9. The proposed source-level evidence excerpt, when present, exists in the
-   extracted page text.
-10. High-risk Claim values and qualifiers pass server verification against the
-    fetched final page.
-11. Missing information dates or reader-visible review dates remain diagnostics
-    unless a separate high-risk policy explicitly requires them.
+6. The source belongs to an accepted scope. That, together with 1–5, is the
+   whole admission test.
+7. A source outside the accepted scopes cannot become Evidence by any route.
+8. Whether the page states the manuscript's values is not assessed. Semantic
+   support, excerpt anchoring, and Claim coverage are no longer computed, so
+   they neither pass nor block (`D-045`).
+9. Missing information dates or reader-visible review dates remain diagnostics
+   unless a separate high-risk policy explicitly requires them.
 
 Search-result pages, navigation pages, inaccessible pages, unsupported binary
 documents, empty pages, malformed documents, fabricated values, fabricated
@@ -243,7 +241,7 @@ community posts, aggregators, and press articles are outside the accepted
 scopes: approval-preparation search never surfaces them, and they cannot become
 trusted Evidence by any route.
 
-Several official sources may divide the required Claims. Generation starts only when their combined verified Coverage is complete.
+Several official sources may divide the required Claims. Generation starts once at least one in-scope source was reachable; a required Claim without an attached source is reported, not blocked.
 
 ## Failure Contract
 

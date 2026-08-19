@@ -278,7 +278,11 @@ describe("AIWorkflow explicit Verification Generation Gate", () => {
     vi.mocked(runApprovalSourcePreflight).mockReset();
   });
 
-  it("blocks before the Generation provider call when a required explicit Claim is insufficient", async () => {
+  /**
+   * D-045: 근거가 부족해도 생성을 시작한다. 막던 관문(Preflight 의미 검증·
+   * 커버리지, 생성 직전 Gate)이 모두 진단으로 내려갔다.
+   */
+  it("still generates when a required explicit Claim has no verified source", async () => {
     vi.mocked(runApprovalSourcePreflight).mockResolvedValue(Object.freeze({
       sources: Object.freeze([]),
       claimSources: Object.freeze([]),
@@ -287,9 +291,8 @@ describe("AIWorkflow explicit Verification Generation Gate", () => {
     }));
     const provider = new RecordingProvider();
 
-    await expect(new AIWorkflow(provider, strategy).generate(input))
-      .rejects.toMatchObject({ code: "APPROVAL_SOURCE_NOT_READY" });
-    expect(provider.calls).toBe(0);
+    await expect(new AIWorkflow(provider, strategy).generate(input)).resolves.toBeDefined();
+    expect(provider.calls).toBe(1);
   });
 
   it("calls Generation once with Claim-ID-owned canonical evidence and only verified fresh URLs", async () => {
@@ -309,8 +312,11 @@ describe("AIWorkflow explicit Verification Generation Gate", () => {
     expect(provider.request?.instruction).toContain("https://primary.example/claim");
     expect(provider.request?.instruction).toContain("https://official-a.example/claim");
     expect(provider.request?.instruction).toContain("https://official-b.example/claim");
-    expect(provider.request?.instruction).not.toContain("https://stale.example/claim");
-    expect(provider.request?.instruction).not.toContain("https://rejected.example/claim");
+    /**
+     * D-045: 번들이 검증 결과로 출처를 걸러내지 않으므로, 인정 범위 안에서 열린
+     * 출처는 그대로 생성에 전달된다.
+     */
+    expect(provider.request?.instruction).toContain("https://stale.example/claim");
     expect(generated.document.metadata?.generatedClaimVerification?.semanticContractVersion).toBe(1);
     expect(generated.document.metadata?.generatedClaimVerification?.semanticClaims?.[0]).toMatchObject({
       claimId: claim.claimId,
@@ -320,10 +326,13 @@ describe("AIWorkflow explicit Verification Generation Gate", () => {
         value: { amount: 500_000, currency: "KRW", basis: "monthly" },
       },
     });
+    /** D-045: 인정 범위 안에서 열린 출처는 검증 결과와 무관하게 모두 기록된다. */
     expect(generated.document.metadata?.approvalEvidence?.sources.map((source) => source.url)).toEqual([
       "https://primary.example/claim",
       "https://official-a.example/claim",
       "https://official-b.example/claim",
+      "https://stale.example/claim",
+      "https://rejected.example/claim",
     ]);
   });
 });

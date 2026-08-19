@@ -57,9 +57,10 @@ export function bindGeneratedClaims(input: Readonly<{
   snapshot: VerificationSnapshot;
   gate: VerificationGenerationGateResult;
 }>): GeneratedClaimBindingResult {
-  if (!input.gate.ready) {
-    throw new Error("Generated Claim binding requires a ready Verification Generation Gate.");
-  }
+  /**
+   * Gate 준비 여부로 연결 작업을 거부하지 않는다 (D-045). 연결은 판정이 아니라
+   * 어떤 Claim 이 어떤 출처에 붙는지를 기록하는 일이다.
+   */
 
   const verifiedClaimIds = new Set(input.gate.verifiedClaimIds);
   const verifiedSourceIds = new Set(input.gate.verifiedSourceIds);
@@ -149,9 +150,13 @@ export function createGeneratedClaimVerificationRecord(input: Readonly<{
     plan: input.plan,
     snapshot: input.snapshot,
   });
-  if (!gate.ready) {
-    throw new Error(`Generated Claim verification record requires a ready Generation Gate: ${gate.diagnostics.join(",") || gate.blockingClaimIds.join(",")}`);
-  }
+  /**
+   * Gate 가 준비되지 않아도 기록은 남긴다 (D-045).
+   *
+   * 이 기록은 어떤 Claim 이 어떤 출처에 붙었는지를 남기는 장부다. 그 Gate 를
+   * 준비 상태로 만들던 의미 검증과 커버리지를 걷어낸 이상, 여기서 던지면
+   * 완성된 원고를 장부를 못 쓴다는 이유로 버리게 된다.
+   */
   const result = bindGeneratedClaims({
     document: input.document,
     plan: input.plan,

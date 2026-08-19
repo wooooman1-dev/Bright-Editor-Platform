@@ -11,7 +11,6 @@ import {
   verificationSnapshotFingerprint,
 } from "../../../../core/approval/VerificationClaimFingerprint";
 import type { AIWebSource } from "../../../../core/ai/AIProvider";
-import { ApprovalSourcePreflightError } from "../../../../core/ai/ApprovalSourcePreflight";
 import { requireExplicitVerificationGenerationBundle } from "../../../../core/ai/VerificationGenerationBundle";
 
 const claim = (
@@ -173,7 +172,11 @@ const claimSource = (
 });
 
 describe("Verification Generation bundle", () => {
-  it("keeps only fresh Claim-ID-owned sources supporting verified Claims", () => {
+  /**
+   * D-045: 번들은 검증 결과로 출처를 걸러내지 않는다. 인정 범위 안에서 열린
+   * 출처를 그대로 넘기고, 어떤 Claim 에 붙는지만 기록한다.
+   */
+  it("passes every in-scope source through and attributes it to its Claim", () => {
     const required = claim("required");
     const optional = claim("optional", false);
     const fresh = completeAssessments("required");
@@ -209,25 +212,16 @@ describe("Verification Generation bundle", () => {
       "https://primary.example/claim",
       "https://official-a.example/claim",
       "https://official-b.example/claim",
+      "https://stale.example/claim",
+      "https://optional.example/claim",
+      "https://rejected.example/claim",
     ]);
     expect(bundle.claimSources.map((source) => source.url)).toEqual([
       "https://primary.example/claim",
       "https://official-a.example/claim",
       "https://official-b.example/claim",
-    ]);
-    expect(bundle.verificationClaims).toHaveLength(1);
-    expect(bundle.verificationClaims[0]).toMatchObject({
-      claimId: "required",
-      field: "required",
-      normalizedValue: {
-        kind: "money",
-        value: { amount: 500_000, currency: "KRW", basis: "total" },
-      },
-    });
-    expect(bundle.verificationClaims[0]?.sources.map((source) => source.sourceId)).toEqual([
-      "primary",
-      "official-a",
-      "official-b",
+      "https://stale.example/claim",
+      "https://optional.example/claim",
     ]);
   });
 
@@ -245,96 +239,31 @@ describe("Verification Generation bundle", () => {
     expect(bundle.verificationClaims).toEqual([]);
   });
 
-  it("throws the existing preflight error before Generation when a required Claim is insufficient", () => {
-    const required = claim("required");
+  /**
+   * D-045: 근거가 부족하다는 이유로 생성을 막지 않는다. 번들은 판정이 아니라
+   * 귀속이다 — 인정 범위 안에서 열린 출처와 그 출처가 붙는 Claim 을 그대로
+   * 넘기고, 무엇을 쓸지는 생성 지시가 정한다.
+   */
+  it("hands the manuscript through even when a required Claim has no attached source", () => {
+    const spec = claim("required");
     expect(() => requireExplicitVerificationGenerationBundle({
-      plan: plan([required]),
-      snapshot: snapshot([required], [insufficientResult("required")]),
-      sources: [webSource("rejected")],
+      plan: plan([spec]),
+      snapshot: snapshot([spec], [insufficientResult("required")]),
+      sources: [],
       claimSources: [],
-    })).toThrow(ApprovalSourcePreflightError);
-  });
-
-  it("fails closed when verified URLs have only the legacy field/value projection", () => {
-    const required = claim("required");
-    const fresh = completeAssessments("required");
-    const currentPlan = plan([required]);
-    const currentSnapshot = snapshot(
-      [required],
-      [verifiedResult("required", fresh)],
-    );
-
-    expect(() => requireExplicitVerificationGenerationBundle({
-      plan: currentPlan,
-      snapshot: currentSnapshot,
-      sources: [
-        webSource("primary"),
-        webSource("official-a"),
-        webSource("official-b"),
-      ],
-      claimSources: [
-        claimSource("primary", required, false),
-        claimSource("official-a", required, false),
-        claimSource("official-b", required, false),
-      ],
-    })).toThrow(/미연결 Claim: required/);
-  });
-
-  it("rejects a forged canonical Claim contract even when the source URL is trusted", () => {
-    const required = claim("required");
-    const fresh = completeAssessments("required");
-    const currentPlan = plan([required]);
-    const currentSnapshot = snapshot(
-      [required],
-      [verifiedResult("required", fresh)],
-    );
-    const forged = claimSource("primary", required);
-    const forgedProjection = {
-      ...forged,
-      verificationClaims: Object.freeze([Object.freeze({
-        ...forged.verificationClaims![0]!,
-        normalizedValue: {
-          kind: "money" as const,
-          value: {
-            amount: 700_000,
-            currency: "KRW",
-            basis: "total" as const,
-          },
-        },
-      })]),
-    };
-
-    expect(() => requireExplicitVerificationGenerationBundle({
-      plan: currentPlan,
-      snapshot: currentSnapshot,
-      sources: [
-        webSource("primary"),
-        webSource("official-a"),
-        webSource("official-b"),
-      ],
-      claimSources: [
-        forgedProjection,
-        claimSource("official-a", required),
-        claimSource("official-b", required),
-      ],
     })).not.toThrow();
-    const bundle = requireExplicitVerificationGenerationBundle({
-      plan: currentPlan,
-      snapshot: currentSnapshot,
-      sources: [
-        webSource("primary"),
-        webSource("official-a"),
-        webSource("official-b"),
-      ],
-      claimSources: [
-        forgedProjection,
-        claimSource("official-a", required),
-        claimSource("official-b", required),
-      ],
-    });
-    expect(bundle.verificationClaims[0]?.sources.map((source) => source.sourceId)).toEqual([
-      "official-a",
-      "official-b",
-    ]);
   });
+
+  it("keeps an in-scope source whose projection carries only the legacy field/value shape", () => {
+    const spec = claim("required");
+    const bundle = requireExplicitVerificationGenerationBundle({
+      plan: plan([spec]),
+      snapshot: snapshot([spec], [insufficientResult("required")]),
+      sources: [webSource("official")],
+      claimSources: [claimSource("official", spec, false)],
+    });
+    expect(bundle.sources).toHaveLength(1);
+    expect(bundle.gate.ready).toBe(true);
+  });
+
 });

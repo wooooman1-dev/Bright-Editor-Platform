@@ -266,11 +266,14 @@ export class AIWorkflow {
               isCriticalVerificationClaim(claim) && claim.claimId === draft.claimId,
             )),
         });
-        if (!semanticValidation.passed) {
-          throw new Error(
-            `Generated factual Claim semantic verification failed. ${semanticValidation.reasons.join(" ")}`,
-          );
-        }
+        /**
+         * 완성된 원고를 사후 판정으로 버리지 않는다 (D-045).
+         *
+         * 이 검사는 생성이 쓴 값이 Preflight 스냅샷의 값과 같은지 본다. 그
+         * 스냅샷을 `verified` 로 만들던 의미 검증과 커버리지를 걷어낸 이상
+         * 비교할 기준이 없고, 무엇보다 여기서 던지면 원고를 다 만든 뒤에
+         * 버리는 것이다 — 토큰은 이미 쓰였고 사용자는 빈손이 된다.
+         */
         semanticClaims = semanticValidation.claims;
       }
 
@@ -311,11 +314,7 @@ export class AIWorkflow {
           gate: semanticContract.gate,
           claims: semanticClaims,
         });
-        if (!rebound.passed) {
-          throw new Error(
-            `Generated factual Claim semantic verification failed after the factual inventory was applied. ${rebound.reasons.join(" ")}`,
-          );
-        }
+        // 같은 이유로 인벤토리 적용 뒤에도 던지지 않는다 (D-045).
         semanticClaims = rebound.claims;
       }
 

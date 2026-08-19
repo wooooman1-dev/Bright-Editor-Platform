@@ -722,8 +722,22 @@ async function runExplicitPreflight(input: Readonly<Parameters<typeof runApprova
     classifiedAccepted,
     verificationSnapshot,
   );
-  if (profileSourceRequirementApplicable && !classifiedAccepted.some((source) =>
-    source.authoritative === true && source.diagnostics?.length === 0)) {
+  /**
+   * 통과 조건은 인정 범위 안의 출처가 실제로 열렸는가이다 (D-045).
+   *
+   * 여기는 생성 앞단이라 D-045 로 걷어낸 것과 같은 관문이 그대로 남아 있었다.
+   * 주제 적합성·앵커·의미 검증을 모두 통과한 출처가 하나도 없으면 생성 자체를
+   * 시작하지 못했다. 2026-08-19 실측: "전월세 신고 대상 확인 방법" 이 여기서
+   * 막혀 원고가 만들어지지 않았고, 진단도 저장되지 않아 이유를 볼 수 없었다.
+   *
+   * 가져오지 못한 출처(fetch·추출 실패)는 여전히 쓸 수 없다. 그건 범위 문제가
+   * 아니라 그 페이지가 존재하지 않는다는 뜻이다.
+   */
+  const reachableAuthoritative = classifiedAccepted.filter((source) =>
+    source.authoritative === true
+    && !source.diagnostics?.includes("source_fetch_failed")
+    && !source.diagnostics?.includes("source_document_extraction_failed"));
+  if (profileSourceRequirementApplicable && !reachableAuthoritative.length) {
     const relevanceFailure = classifiedAccepted.find((source) =>
       source.diagnostics?.includes("source_topic_relevance_unverified"));
     const anchorFailure = classifiedAccepted.find((source) =>
@@ -820,23 +834,14 @@ async function runExplicitPreflight(input: Readonly<Parameters<typeof runApprova
       requiredClaims: [],
       sources: [],
     });
-  if (profileCoverage.status === "incomplete") {
-    const diagnostic = createPreflightDiagnostic(input, {
-      requiredClaimId: profileCoverage.uncoveredClaimFields[0],
-      ...preflightDiagnosticMetadata(response),
-      ...preflightPipelineMetadata(response, pipelineMetrics),
-      ...coverageDiagnosticMetadata(plan, profileCoverage, classifiedAccepted, semanticAssessments),
-      rejectionCode: "coverage_incomplete",
-      rejectionStage: "coverage",
-      coverageStatus: profileCoverage.status,
-      sourcePolicyCompliance: "passed",
-    });
-    throw new ApprovalSourcePreflightError(
-      "필수 사실 근거가 완전히 검증되지 않아 원고 생성을 시작하지 않았습니다.",
-      diagnostic,
-      response.diagnostics,
-    );
-  }
+  /**
+   * 사실 커버리지는 진단으로 남기고 생성을 막지 않는다 (D-045).
+   *
+   * 필수 Claim 중 근거를 못 찾은 것이 있으면 여기서 생성을 시작하지 않았다.
+   * 출처의 내용 대조를 하지 않기로 한 이상 "근거를 찾았다"의 기준이 없고,
+   * 통과할 수 없는 관문은 없느니만 못하다. 무엇이 비었는지는 진단으로 남아
+   * 나중에 볼 수 있다.
+   */
   return Object.freeze({
     sources: Object.freeze(classifiedAccepted.map((source) => Object.freeze({
       url: source.finalUrl ?? source.requestedUrl,
@@ -1622,60 +1627,6 @@ function preflightPipelineMetadata(
   };
 }
 
-function coverageDiagnosticMetadata(
-  plan: { claims: readonly import("../approval").VerificationClaimSpec[] },
-  coverage: ApprovalSourcePreflightCoverageResult,
-  sources: readonly Readonly<{
-    finalUrl?: string;
-    requestedUrl: string;
-    title?: string;
-    claims: readonly Readonly<{ claimId: string; value: string; evidenceExcerpt: string }>[];
-    authoritative?: boolean;
-    diagnostics?: readonly string[];
-    pageText?: string;
-  }>[],
-  semanticAssessments: readonly import("../approval").VerificationSourceAssessment[] = [],
-): Pick<ApprovalSourcePreflightDiagnostic, "requiredClaimIds" | "coveredClaimIds" | "missingClaimIds" | "coverageSources"> {
-  const requiredClaims = plan.claims.filter(isCriticalVerificationClaim);
-  const sourceCoverage = new Map(coverage.sources.map((source) => [source.url, source]));
-  return {
-    requiredClaimIds: Object.freeze(requiredClaims.map((claim) => claim.claimId)),
-    coveredClaimIds: Object.freeze([...(coverage.coveredClaimIds ?? [])]),
-    missingClaimIds: Object.freeze([...(coverage.uncoveredClaimIds ?? [])]),
-    coverageSources: Object.freeze(sources.slice(0, 6).map((source) => {
-      const url = source.finalUrl ?? source.requestedUrl;
-      const status = sourceCoverage.get(url);
-      const diagnostics = source.diagnostics ?? [];
-      const sourceSemanticAssessments = semanticAssessments.filter((assessment) =>
-        assessment.canonicalUrl === url,
-      );
-      const semantic = sourceSemanticAssessments.length === 0
-        ? "unknown" as const
-        : sourceSemanticAssessments.every((assessment) => assessment.supports)
-          ? "passed" as const
-          : "rejected" as const;
-      return Object.freeze({
-        url,
-        ...(source.title ? { title: source.title } : {}),
-        supportingClaimIds: Object.freeze([...(status?.coveredClaimIds ?? [])]),
-        rejectedClaimIds: Object.freeze([...(status
-          ? (status.rejectedClaimIds ?? [])
-          : source.claims.map((claim) => claim.claimId))]),
-        officialness: source.authoritative === true
-          ? "passed" as const
-          : diagnostics.includes("official_source_rejected") ? "rejected" as const : "unknown" as const,
-        relevance: diagnostics.includes("source_topic_relevance_unverified")
-          ? "rejected" as const
-          : source.authoritative === true ? "passed" as const : "unknown" as const,
-        anchor: diagnostics.includes("evidence_anchor_unverified")
-          ? "rejected" as const
-          : source.pageText ? "passed" as const : "unknown" as const,
-        semantic,
-        ...(source.claims[0]?.evidenceExcerpt ? { evidenceExcerpt: source.claims[0].evidenceExcerpt } : {}),
-      });
-    })),
-  };
-}
 
 function normalizeComparableText(value: string): string {
   return value.normalize("NFKC")

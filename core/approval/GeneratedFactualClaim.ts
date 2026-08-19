@@ -63,10 +63,11 @@ export function validateGeneratedFactualClaimDrafts(input: Readonly<{
   gate: VerificationGenerationGateResult;
   drafts: readonly GeneratedFactualClaimDraft[];
 }>): GeneratedFactualClaimValidationResult {
-  if (!input.gate.ready) {
-    return failed(["Structured Generated Claim validation requires a ready Verification Generation Gate."]);
-  }
-
+  /**
+   * Gate 준비 여부로 검증 자체를 포기하지 않는다 (D-045). 여기서 빈손으로
+   * 돌아가면 생성이 쓴 사실이 인벤토리에 하나도 기록되지 않고, 본문 끝 출처
+   * 목록을 만들 연결도 사라진다.
+   */
   const specs = new Map(input.plan.claims.map((claim) => [claim.claimId, claim]));
   const results = new Map(input.snapshot.results.map((result) => [result.claimId, result]));
   const verifiedClaimIds = new Set(input.gate.verifiedClaimIds);
@@ -359,10 +360,3 @@ function sortValue(value: unknown): unknown {
   return value;
 }
 
-function failed(reasons: readonly string[]): GeneratedFactualClaimValidationResult {
-  return Object.freeze({
-    passed: false,
-    reasons: Object.freeze([...new Set(reasons)]),
-    claims: Object.freeze([]),
-  });
-}

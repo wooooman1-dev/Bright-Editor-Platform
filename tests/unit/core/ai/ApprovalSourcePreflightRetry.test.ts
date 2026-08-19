@@ -115,8 +115,6 @@ function discoveryResponse(url: string): AIResponse {
   };
 }
 
-const payoutClaimExcerpt = "조회 결과에 따라 지급 청구 절차가 이어집니다.";
-const payoutClaimValue = "지급 청구 절차가 이어집니다";
 
 /**
  * Two required Claims, so a discovery response can support one and leave the
@@ -137,38 +135,8 @@ function twoClaimOpportunity() {
 }
 
 /** Supports only the identity Claim, leaving the payout Claim uncovered. */
-function partialDiscoveryResponse(): AIResponse {
-  return discoveryResponse(textPageUrl);
-}
 
 /** Supports both required Claims from the same readable page. */
-function fullDiscoveryResponse(): AIResponse {
-  const base = discoveryResponse(textPageUrl);
-  return {
-    ...base,
-    content: JSON.stringify({
-      sources: [{
-        url: textPageUrl,
-        title: "휴면예금 조회 공식 안내",
-        evidenceExcerpt: claimExcerpt,
-        claims: [
-          {
-            claimId: "dormant-identity-check",
-            field: "휴면예금 조회의 본인 확인",
-            value: claimValue,
-            evidenceExcerpt: claimExcerpt,
-          },
-          {
-            claimId: "dormant-payout-request",
-            field: "휴면예금 지급 청구",
-            value: payoutClaimValue,
-            evidenceExcerpt: payoutClaimExcerpt,
-          },
-        ],
-      }],
-    }),
-  };
-}
 
 function twoClaimPreflightInput(provider: AIProvider) {
   return { ...preflightInput(provider), opportunity: twoClaimOpportunity() };
@@ -234,38 +202,21 @@ describe("Approval Source Preflight discovery retry", () => {
     expect(provider.requests).toHaveLength(2);
   });
 
-  it("retries a Claim left with no source, which no rejected URL would report", async () => {
+  /**
+   * D-045: 커버리지가 생성을 막지 않으므로 커버리지 때문에 다시 검색하지도
+   * 않는다. 재시도는 한 번의 Preflight 호출을 두 번으로 만들던 비용이었고,
+   * 채워야 할 기준 자체가 없어졌다. 무엇이 비었는지는 결과의 coverage 로 남는다.
+   */
+  it("does not search again for a Claim left without a source", async () => {
     const provider = new QueueProvider([
-      partialDiscoveryResponse(),
-      fullDiscoveryResponse(),
+      discoveryResponse(textPageUrl),
     ]);
 
     const result = await runApprovalSourcePreflight(twoClaimPreflightInput(provider));
 
-    expect(provider.requests).toHaveLength(2);
-    expect(result.sources.length).toBeGreaterThan(0);
-  });
-
-  it("names the uncovered Claim so the retry can search somewhere else", async () => {
-    const provider = new QueueProvider([
-      partialDiscoveryResponse(),
-      fullDiscoveryResponse(),
-    ]);
-
-    await runApprovalSourcePreflight(twoClaimPreflightInput(provider));
-
-    const retryInstruction = provider.requests[1]?.instruction ?? "";
-    expect(retryInstruction).toContain("dormant-payout-request");
-    expect(retryInstruction).toContain("휴면예금 지급 청구");
-    expect(retryInstruction).toContain("administering body's own guidance page");
-  });
-
-  it("does not mention a rejected URL on the first attempt", async () => {
-    const provider = new QueueProvider([discoveryResponse(textPageUrl)]);
-
-    await runApprovalSourcePreflight(preflightInput(provider));
-
     expect(provider.requests).toHaveLength(1);
-    expect(provider.requests[0]?.instruction).not.toContain("Do not submit these URLs again");
+    expect(result.sources.length).toBeGreaterThan(0);
+    expect(result.coverage?.status).toBe("incomplete");
   });
+
 });
