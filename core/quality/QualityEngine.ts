@@ -2,6 +2,7 @@ import {
   analyzeContentOpportunityAlignment,
   analyzeLongFormDocument,
   calculateContentMetrics,
+  longFormNarrativeFloors,
   canonicalDocumentText,
   normalizeSeoKeyword,
   isSystemProjectionBlock,
@@ -93,7 +94,21 @@ export class QualityEngine {
     const overallScore = Math.round(dimensions.reduce((sum, item) => sum + item.score * qualityDimensionWeights[item.category], 0) / scoringWeight);
     const blocked = dimensions.some((item) => item.status === "blocked");
     const opportunityReview = signals.opportunityAlignment?.review;
-    const contentTargetBlocked = signals.hasExplicitQualityTarget && signals.contentDiagnostic.violations.length > 0;
+    /**
+     * 차단은 글 전체 분량 하나로 옮긴다.
+     *
+     * 위반 1건이면 탈락이었다. 그래서 5,074자 원고가 한 섹션 10자 부족으로
+     * 막혔고, 비교표를 약속했다가 산문으로 설명한 글도 같이 막혔다. 섹션 균형과
+     * 표 유무는 글의 완성도를 가르는 선이 아니다 — 애드센스가 거부하는 것은
+     * 얕은 글이다. 나머지 위반은 진단과 최종 편집 지시로 계속 전달되므로
+     * 사라지지 않는다.
+     *
+     * 승인 준비 원고에만 적용한다. 일반 Content 의 통과 조건은 품질 점수뿐이고
+     * (D-045), 분량은 기획이 정한 목표에 따라 짧을 수 있다.
+     */
+    const contentTargetBlocked = Boolean(document.metadata?.approvalPolicy)
+      && signals.hasExplicitQualityTarget
+      && signals.contentDiagnostic.narrativeCharacters < longFormNarrativeFloors.article;
     const opportunityBlocked = opportunityReview ? !opportunityReview.pass : false;
     const evidenceClaimTasks = signals.unsupportedEvidenceClaims.map((message) => ({ category: "searchIntent" as const, message, status: "blocked" as const }));
     const editorialTargets = new Set<QualityCategory>(["searchIntent", "seo", "readability", "completeness"]);

@@ -209,8 +209,7 @@ export function evidenceStatusLabel(source: ApprovalEvidenceSource, candidate: b
     case "malformed_content": return "문서 형식 오류";
     case "content_too_large": return "문서 크기 초과";
     case "unsupported_claim": return "지원되지 않는 Claim";
-    case "needs_corroboration": return "교차 확인 필요";
-    case "unofficial_source": return "보조 출처";
+    case "unofficial_source": return "인용할 수 없는 출처";
     case "fact_mismatch": return "Claim 불일치";
     case "duplicate_source": return "중복 후보";
     case "excluded": return "후보 · 판정 제외";

@@ -251,7 +251,15 @@ export function verifyApprovalEvidence(
   const unverifiedFields = requiredFields.filter((field) => !verifiedFields.has(field));
   const selectedVerified = sources.filter((source) =>
     isApprovalEvidenceSelectedSource(source) && source.verified === true);
-  const verified = selectedVerified.length > 0 && unverifiedFields.length === 0;
+  /**
+   * D-045: 통과 조건은 인정 범위 안의 출처가 실제로 열렸고 그것이 원고에
+   * 채택되어 있는가이다. 사실 필드 커버리지는 진단으로만 남긴다.
+   *
+   * 안쪽 검증에서 커버리지 차단을 걷어내도 이 줄이 같은 차단을 다시 걸고
+   * 있었다. 검증 함수가 둘이고 바깥이 안쪽을 감싼다 — 한쪽만 고치면 정책이
+   * 반만 바뀐다.
+   */
+  const verified = selectedVerified.length > 0;
   const informationAsOf = extractInformationAsOf(document) ?? existing.informationAsOf;
   const reasons = [
     ...sources

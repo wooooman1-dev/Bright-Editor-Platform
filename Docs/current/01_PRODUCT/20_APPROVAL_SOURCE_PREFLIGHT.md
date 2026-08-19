@@ -59,11 +59,13 @@ not become official Evidence.
 ## Purpose
 
 Approval-preparation content must not treat a source as trusted merely because
-it has a URL. Bright Studio must fetch the cited page and confirm material
-content relevance. An accepted official/first-party source may satisfy that
-trust route alone; a non-official source requires independent corroboration of
-the same material Claim. Information dates and reader-visible review dates are
-optional diagnostics, not approval blockers.
+it has a URL. Bright Studio must fetch the cited page and confirm that it is
+reachable and belongs to an accepted scope — public-sector, or a Korean
+financial institution publishing its own product (`D-045`). Content relevance is
+recorded as a diagnostic and does not decide trust. A source outside those
+scopes has no trust route; generation is restricted so it cannot be cited.
+Information dates and reader-visible review dates are optional diagnostics, not
+approval blockers.
 
 A URL alone is not sufficient. The server must independently confirm that the
 fetched page materially supports the cited content. Fine-grained general prose
@@ -223,10 +225,10 @@ A source may enter the Generation bundle only when all checks pass:
 3. Every redirect target remains a safe public HTTPS destination.
 4. The final direct page responds successfully.
 5. Bright Studio can extract supported text from the response within the bounded size limit.
-6. The fetched page materially matches the cited manuscript Claim.
-7. An accepted official/first-party source uses the single-source trust route.
-8. A non-official or secondary source has independent corroboration for the
-   same material Claim.
+6. The fetched page is reachable and its content match with the cited Claim is
+   recorded as a diagnostic.
+7. The source belongs to an accepted scope; that is the only trust route.
+8. A source outside the accepted scopes cannot become trusted Evidence.
 9. The proposed source-level evidence excerpt, when present, exists in the
    extracted page text.
 10. High-risk Claim values and qualifiers pass server verification against the
@@ -236,9 +238,10 @@ A source may enter the Generation bundle only when all checks pass:
 
 Search-result pages, navigation pages, inaccessible pages, unsupported binary
 documents, empty pages, malformed documents, fabricated values, fabricated
-excerpts, and conflicting high-risk Claims are excluded. Secondary blogs,
-copied articles, and community posts are not automatically excluded; they need
-independent corroboration before they become trusted Evidence.
+excerpts, and conflicting high-risk Claims are excluded. Personal blogs,
+community posts, aggregators, and press articles are outside the accepted
+scopes: approval-preparation search never surfaces them, and they cannot become
+trusted Evidence by any route.
 
 Several official sources may divide the required Claims. Generation starts only when their combined verified Coverage is complete.
 

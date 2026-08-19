@@ -111,6 +111,19 @@ function applyGeneratedClaimVerificationIntegrity(
   document: ContentDocument,
   context: QualityReviewContext,
 ): QualityReport {
+  /**
+   * 승인용 원고에서만 판정한다.
+   *
+   * 이 게이트는 조건이 "CRITICAL Claim 이 있는가" 또는 "인벤토리가 있는가"
+   * 뿐이라 콘텐츠 종류를 묻지 않았다. 그래서 일반 콘텐츠도 기획에 CRITICAL
+   * Claim 이 하나 잡히면 여기로 들어왔고, 걸리면 아래에서 `approved: false` 로
+   * 승인을 강제로 껐다 — 점수가 100 이어도. "1년" 같은 표현 하나로 일반 글이
+   * 막히던 경로가 이것이다.
+   *
+   * 승인 정책 스냅샷은 승인용 원고에만 붙으므로, 승인 준비 리포트가 자기
+   * 적용 여부를 판단할 때 쓰는 것과 같은 신호를 쓴다.
+   */
+  if (!document.metadata?.approvalPolicy) return report;
   const plan = context.opportunity?.verificationPlan;
   const criticalPlan = plan?.claims.some(isCriticalVerificationClaim) ? plan : undefined;
   if (!criticalPlan && !document.metadata?.generatedFactualClaimInventory) return report;
@@ -123,18 +136,27 @@ function applyGeneratedClaimVerificationIntegrity(
   const uniqueIssues = integrity.reasons;
   if (!uniqueIssues.length) return report;
 
-  const task = "검증되지 않은 고위험 사실을 제거하거나 현재 VerificationSnapshot에서 검증된 Claim 값으로 수정한 뒤 Quality Review를 다시 실행하세요.";
+  /**
+   * 기록하되 막지 않는다.
+   *
+   * 이 검사는 "출처에서 확인한 값과 본문이 같은가"를 앵커로 확인하는 장치다.
+   * 출처 내용 대조를 하지 않기로 한 이상 대조할 기준값이 없고, 근거 없이
+   * 승인을 끄면 통과할 수 없는 관문이 된다. 2026-08-14 실측: 승인 대기 12편 중
+   * 7편이 여기서 막혔고 그중 다수가 모든 항목 100점이었다. "1년" 한 단어가
+   * 원인인 경우도 있었다.
+   *
+   * 진단은 남긴다. 어떤 Claim 이 본문에서 사라졌는지는 나중에 볼 값어치가
+   * 있고, 남겨 두면 판정을 되돌릴 때 근거가 된다.
+   */
+  const task = "생성이 기록한 Claim과 현재 본문이 어긋납니다. 발행을 막지는 않으나 값이 바뀌었는지 확인하세요.";
   return Object.freeze({
     ...report,
-    approved: false,
-    approvalType: "none" as const,
-    approvalState: "blocked" as const,
     findings: Object.freeze([
       ...report.findings,
       ...uniqueIssues.map((message) => ({
         category: "searchIntent" as const,
         message,
-        severity: "error" as const,
+        severity: "warning" as const,
       })),
     ]),
     tasks: Object.freeze([
@@ -142,7 +164,7 @@ function applyGeneratedClaimVerificationIntegrity(
       ...uniqueIssues.map((message) => ({
         category: "searchIntent" as const,
         message: `${message} ${task}`,
-        status: "blocked" as const,
+        status: "action_required" as const,
       })),
     ]),
   });

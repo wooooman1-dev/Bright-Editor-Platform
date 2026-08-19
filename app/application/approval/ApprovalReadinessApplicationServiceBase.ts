@@ -427,48 +427,113 @@ function upsertVerifiedSourceSection(
   const reviewedAt = pack!.reviewedAt ?? new Date().toISOString();
   const verifiedSources = pack!.sources.filter((source) => Boolean((source.canonicalUrl ?? source.url)?.trim()));
   const clean = removeGeneratedSourceSection(document);
+
+  /**
+   * 붙일 출처가 없으면 섹션도 없다.
+   *
+   * 검증된 출처가 하나도 없는데 검토일 문단만 붙으면, 독자에게는 "출처"라고
+   * 이름 붙은 자리에 링크가 하나도 없는 칸이 남는다. HTML 정합성 검사가 이걸
+   * `source_section_without_links` 로 잡는다. D-045 에서 출처는 원고를 가져온
+   * 곳의 기록이므로, 가져온 곳이 없으면 적을 것도 없다.
+   */
+  if (!verifiedSources.length) {
+    return Object.freeze({
+      document: clean,
+      presentationStatus: "ready",
+      presentationReasons: Object.freeze([]),
+    });
+  }
+
   if (hasEditorialSourceSection(clean)) {
+    const editorialSourceUrls = new Set(
+      clean.blocks
+        .filter((block) =>
+          block.type === "button"
+          && block.purpose === "source"
+          && Boolean(block.targetUrl.trim()),
+        )
+        .map((block) =>
+          block.type === "button"
+            ? canonicalizeApprovalEvidenceUrl(block.targetUrl)
+            : "",
+        )
+        .filter(Boolean),
+    );
+
+    const canonicalEvidenceUrls = new Set(
+      verifiedSources
+        .map((source) => canonicalizeApprovalEvidenceUrl(source.canonicalUrl ?? source.url))
+        .filter(Boolean),
+    );
+
+    const sameUrlSet =
+      editorialSourceUrls.size === canonicalEvidenceUrls.size
+      && [...canonicalEvidenceUrls].every((url) => editorialSourceUrls.has(url));
+
+    if (sameUrlSet) {
+      return Object.freeze({
+        document: clean,
+        presentationStatus: "ready",
+        presentationReasons: Object.freeze([]),
+      });
+    }
+
     return Object.freeze({
       document: clean,
       presentationStatus: "conflict",
       presentationReasons: Object.freeze([
-        "사용자 또는 AI 편집 원고가 소유한 출처 섹션이 있어 시스템 출처 projection을 추가하지 않았습니다. 공개 HTML의 단일 출처 섹션과 canonical Evidence의 링크를 대조하세요.",
+        "사용자 또는 AI 편집 원고의 출처 링크가 canonical Evidence의 검증된 출처 링크와 일치하지 않습니다. 공개 HTML의 출처 링크와 canonical Evidence를 대조하세요.",
       ]),
     });
   }
+
   return Object.freeze({
     document: {
       ...clean,
       blocks: Object.freeze([
-      ...clean.blocks,
-      Object.freeze({ id: "approval-sources-heading", type: "heading" as const, ownership: "system_source_projection" as const, level: 2 as const, text: "공식 출처와 검토 기준" }),
-      ...verifiedSources.map((source, index) => Object.freeze({
-        id: `approval-source-link-${index + 1}`,
-        type: "button" as const,
-        ownership: "system_source_projection" as const,
-        purpose: "source" as const,
-        label: source.publisher && source.publisher !== source.title
-          ? `${source.title} · ${source.publisher}`
-          : source.title,
-        targetUrl: source.canonicalUrl ?? source.url,
-        target: "_blank" as const,
-      })),
-      Object.freeze({
-        id: "approval-review-date",
-        type: "paragraph" as const,
-        ownership: "system_source_projection" as const,
-        text: approvalSourceReviewPresentationText({
-          sourceReviewedAt: reviewedAt,
-          ...(pack!.informationAsOf ? { informationAsOf: pack!.informationAsOf } : {}),
+        ...clean.blocks,
+        /**
+         * 출처 섹션에는 제목이 있어야 한다.
+         *
+         * 제목 없이 링크 버튼과 검토일 문단만 붙이면, HTML 정합성 검사가 "출처
+         * 확인일: …"로 시작하는 문단을 새 출처 섹션으로 읽는다. 그 뒤에는 링크가
+         * 없으므로 `source_section_without_links` 로 걸린다. 제목이 앞에 있으면
+         * 링크와 검토일이 한 섹션 안에 들어간다. 독자에게도 이 자리가 무엇인지
+         * 알려 주어야 한다 (D-045: 출처는 본문 맨 끝에 표시한다).
+         */
+        Object.freeze({
+          id: "approval-sources-heading",
+          type: "heading" as const,
+          ownership: "system_source_projection" as const,
+          level: 2 as const,
+          text: "출처",
         }),
-      }),
+        ...verifiedSources.map((source, index) => Object.freeze({
+          id: `approval-source-link-${index + 1}`,
+          type: "button" as const,
+          ownership: "system_source_projection" as const,
+          purpose: "source" as const,
+          label: source.publisher && source.publisher !== source.title
+            ? `${source.title} · ${source.publisher}`
+            : source.title,
+          targetUrl: source.canonicalUrl ?? source.url,
+          target: "_blank" as const,
+        })),
+        Object.freeze({
+          id: "approval-review-date",
+          type: "paragraph" as const,
+          ownership: "system_source_projection" as const,
+          text: approvalSourceReviewPresentationText({
+            sourceReviewedAt: reviewedAt,
+            ...(pack!.informationAsOf ? { informationAsOf: pack!.informationAsOf } : {}),
+          }),
+        }),
       ]),
     },
     presentationStatus: "ready",
     presentationReasons: Object.freeze([]),
   });
 }
-
 function removeGeneratedSourceSection(document: ContentDocument): ContentDocument {
   const blocks = document.blocks.filter((block) =>
     contentBlockOwnership(block) !== "system_source_projection");

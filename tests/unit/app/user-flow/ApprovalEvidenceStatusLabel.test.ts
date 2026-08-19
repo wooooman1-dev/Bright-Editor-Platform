@@ -25,7 +25,7 @@ describe("Evidence source terminal status labels", () => {
     ["malformed_content", "문서 형식 오류"],
     ["content_too_large", "문서 크기 초과"],
     ["unsupported_claim", "지원되지 않는 Claim"],
-    ["unofficial_source", "보조 출처"],
+    ["unofficial_source", "인용할 수 없는 출처"],
     ["fact_mismatch", "Claim 불일치"],
     ["duplicate_source", "중복 후보"],
     ["excluded", "후보 · 판정 제외"],

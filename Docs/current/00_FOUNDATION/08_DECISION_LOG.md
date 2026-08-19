@@ -867,7 +867,7 @@ Source Authority와 Claim relevance는 독립 Gate로 유지한다. 다른 사�
 
 # D-040 Approval Source Trust and Corroboration
 
-Status: Accepted
+Status: Superseded by D-045
 
 Approval source readiness does not require a government, institutional, or
 other official domain, and it does not require an information-as-of date or a
@@ -965,6 +965,78 @@ The new Content path is a Content-level copy of the confirmed planning context,
 not a document copy. The existing manuscript, review state, and generation
 history remain attached to the original Content; generation starts a fresh
 manuscript on the new Content.
+
+---
+
+# D-045 Approval Source Scope and Verification Depth
+
+Status: Accepted
+
+이 결정은 `D-040 Approval Source Trust and Corroboration`을 대체한다. D-040은
+공식 도메인 요구를 없애고 비공식 출처라도 독립된 두 번째 출처가 같은 주장을
+뒷받침하면 신뢰할 수 있게 열었다. 실측 결과 그 경로는 두 가지를 동시에 만들었다.
+개인 블로그 두 개가 서로를 뒷받침해 통과할 수 있었고, 반대로 정부 페이지를
+근거로 쓴 원고는 페이지 내용 대조에서 계속 막혔다. 2026-08-14 밝은재테크 실측:
+승인 대기 원고 12편 중 6편이 `evidence`에서 멈췄고 그 6편의 출처 도메인은 전부
+정부·공공기관이었다.
+
+## 인용 가능한 출처의 범위
+
+승인 준비 Content가 인용할 수 있는 출처는 세 등급 중 앞의 둘이다.
+
+- `public_sector` — 정부, 공공기관, 시군구청. 법령·세율·정부 지원처럼 정부가
+  소유한 사실의 원문이다.
+- `financial_institution` — 은행, 카드사, 증권사. 예금 금리, 중도해지이율,
+  연회비, 수수료처럼 그 회사가 소유한 사실의 1차 출처다. D-037의 소유자 대조
+  원칙을 도메인 판정에서도 실행한다.
+- `unofficial` — 그 밖의 모든 곳. 개인 블로그, 커뮤니티, 비교 사이트, 언론사가
+  여기 들어온다.
+
+언론사를 `unofficial`로 두는 것은 신뢰도 판단이 아니라 범위 판단이다. 기사는
+발표를 옮긴 2차 자료라 원문이 항상 존재하고, 네이버 제휴 언론사 수백 곳의
+목록을 관리하는 비용에 견줄 이득이 없다. 언론사만 답할 수 있는 주장을 다루게
+되면 그때 이 결정을 개정한다.
+
+범위는 검증이 아니라 생성에서 강제한다. 승인 준비 생성의 웹 검색은 위 두 등급의
+도메인만 결과로 받는다. 찾을 수 없는 곳을 요구하면 생성은 주소를 지어낸다 —
+같은 실측에서 국세환급금 원고가 실재하지 않는 `j.nts.go.kr`을 들고 왔고, 국세청
+도메인 형태라 도메인 검사는 통과했다.
+
+## 검증의 깊이
+
+출처 검증은 두 가지만 확인한다.
+
+- 도메인이 위 두 등급에 속하는가
+- 그 주소가 실제로 열리는가
+
+페이지 내용과 원고 Claim의 일치는 확인하지 않는다. 인용 가능한 곳이 신뢰할 수
+있는 기관으로 좁혀져 있으므로 그 페이지에서 왔다는 사실 자체가 근거이고, 값이
+한 글자 다르다는 이유로 원고 전체를 막지 않는다. 페이지 존재 확인은 유지한다 —
+지어낸 주소를 거르는 유일한 관문이기 때문이다.
+
+비공식 출처의 교차검증 통과 경로는 제거한다. 인용 범위를 좁힌 지금 이 경로는
+그 좁힘을 우회하는 문으로만 남는다.
+
+Generation 구조화 Claim의 verbatim anchor 대조는 차단에서 진단으로 내린다. 이
+검사는 출처에서 확인한 값과 본문을 대조하는 장치이므로, 내용 대조를 하지 않는
+이상 기준값이 없다. 기록은 남긴다.
+
+## 일반 Content와 승인 준비 Content의 분리
+
+일반 Content는 승인 준비 검사를 받지 않으며 출처를 요구하지 않는다. 통과 조건은
+원고 품질뿐이다.
+
+Generation 구조화 Claim 게이트는 승인 정책 스냅샷이 있는 Content에서만 실행한다.
+이 게이트는 "CRITICAL Claim이 있는가"만 물어 왔기 때문에 일반 Content도 기획에
+CRITICAL Claim이 하나 잡히면 들어왔고, 걸리면 점수와 무관하게 승인을 껐다. 품질
+100점 일반 원고가 "1년" 한 단어로 막히던 경로가 이것이다.
+
+## 구조 진단의 차단 범위
+
+발행을 막는 구조 조건은 글 전체 산문 분량 하나로 한정한다. 섹션 단위 산문 미달과
+약속한 비교의 미실행은 진단과 최종 편집 지시로 전달하되 차단하지 않는다. 5,074자
+원고가 한 섹션 10자 부족으로 멈추는 것은 글의 완성도를 가르는 선이 아니다.
+AdSense가 거부하는 것은 얕은 글이므로 그 기준만 남긴다.
 
 ---
 

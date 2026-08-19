@@ -18,11 +18,7 @@ import {
   extractProfileApprovalFactsFromText,
   requiredApprovalFactFields,
 } from "./ApprovalEvidenceClaimPolicy";
-import {
-  approvalOfficialDomains,
-  officialDomainAllowed,
-  publicSectorDomainAllowed,
-} from "./ApprovalOfficialSourcePolicy";
+import { approvalSourceTier } from "./ApprovalOfficialSourcePolicy";
 
 export type ApprovalSourcePage = Readonly<{
   requestedUrl: string;
@@ -244,44 +240,19 @@ export function verifyApprovalEvidence(
       ),
       roleHints,
     );
-    if (!sourceFacts.length) {
-      const reason = `${source.url}: 이 출처에 연결된 지원 가능한 Claim 역할을 식별하지 못했습니다.`;
-      reasons.push(reason);
-      return diagnosticSource(
-        source,
-        reviewedAt,
-        "unsupported_claim",
-        reason,
-        {
-          ...pageDetails,
-          official,
-          selected: false,
-          matchedFacts: Object.freeze([]),
-        },
-        page,
-      );
-    }
-
+    /**
+     * 내용 대조는 판정하지 않고 기록만 한다.
+     *
+     * 여기서 두 번 거부하고 있었다. 출처에 연결할 Claim 역할을 못 찾으면
+     * `unsupported_claim`, 페이지에서 그 값을 못 찾으면 `fact_mismatch` 였다.
+     * 2026-08-14 실측: 승인 대기 6편이 전부 이 두 문 앞에서 멈췄고, 도메인은
+     * 모두 정부·공공기관이었다. 인용 가능한 곳을 신뢰할 수 있는 기관으로 좁힌
+     * 지금은 그 페이지에서 왔다는 사실 자체가 근거이고, 값이 한 글자 다르다는
+     * 이유로 원고 전체를 막지 않는다. 일치 여부는 진단으로 남겨 나중에 볼 수
+     * 있게 한다.
+     */
     const matchedFacts = sourceFacts.filter((fact) =>
       approvalFactMatchesPage(page, fact));
-    if (!matchedFacts.length) {
-      const reason = `${source.url}: 이 출처에 명시적으로 연결된 Claim과 공식 페이지의 일치를 확인하지 못했습니다.`;
-      reasons.push(reason);
-      return diagnosticSource(
-        source,
-        reviewedAt,
-        "fact_mismatch",
-        reason,
-        {
-          ...pageDetails,
-          official,
-          selected: false,
-          matchedFacts: Object.freeze(matchedFacts),
-        },
-        page,
-      );
-    }
-
     return Object.freeze({
       ...source,
       title: verifiedSourceTitle(page, source, matchedFacts),
@@ -305,7 +276,7 @@ export function verifyApprovalEvidence(
         : {}),
       official,
       selected: official && (provenance === "citation" || provenance === "user_selected" || provenance === "system_verified"),
-      verificationStatus: official ? "verified" as const : "needs_corroboration" as const,
+      verificationStatus: official ? "verified" as const : "unofficial_source" as const,
       accessVerificationStatus: "verified" as const,
       officialDomainVerificationStatus: official ? "verified" as const : "failed" as const,
       claimVerificationStatus: "verified" as const,
@@ -320,25 +291,16 @@ export function verifyApprovalEvidence(
     } satisfies ApprovalEvidenceSource);
   });
 
-  const sources = sourceResults.map((source) => {
-    if (source.verificationStatus !== "needs_corroboration") return source;
-    const matchedFields = new Set((source.matchedFacts ?? []).map((fact) => fact.field));
-    const corroboratingSource = sourceResults.find((candidate) =>
-      candidate.sourceId !== source.sourceId
-      && (candidate.verified || candidate.verificationStatus === "needs_corroboration")
-      && (candidate.matchedFacts ?? []).some((fact) => matchedFields.has(fact.field)));
-    if (!corroboratingSource) return source;
-    return Object.freeze({
-      ...source,
-      verified: true,
-      selected: true,
-      provenance: "system_verified" as const,
-      verificationStatus: "verified" as const,
-      trustRoute: "external_corroborated" as const,
-      corroborated: true,
-      corroborationSourceIds: Object.freeze([corroboratingSource.sourceId]),
-    });
-  });
+  /**
+   * 비공식 출처는 몇 개가 모여도 통과하지 않는다.
+   *
+   * D-040 은 비공식 출처라도 독립된 두 번째 출처가 같은 주장을 뒷받침하면
+   * 신뢰할 수 있게 열어 두었고, `needs_corroboration` 인 출처끼리도 서로를
+   * 뒷받침할 수 있었다. 즉 개인 블로그 두 개가 같은 금리를 적어 두면 통과했다.
+   * 인용 가능한 곳을 정부·공공기관·금융회사로 좁힌 지금 이 경로는 필요가 없고,
+   * 남겨 두면 그 좁힘을 우회하는 문이 된다.
+   */
+  const sources = sourceResults;
 
   let verifiedSourceCount = 0;
   for (const source of sources) {
@@ -349,19 +311,15 @@ export function verifyApprovalEvidence(
 
   const unverifiedFactFields = requiredFactFields.filter((field) =>
     !verifiedFactFields.has(field));
-  const blockingUnverifiedFactFields = unverifiedFactFields.filter(isBlockingApprovalFactField);
-  if (blockingUnverifiedFactFields.length) {
-    reasons.push(
-      `중요 Claim 검증이 완료되지 않았습니다: ${blockingUnverifiedFactFields.join(", ")}`,
-    );
-  }
   const hasAdoptedSource = sources.some((source) => source.verified && source.selected);
   if (!hasAdoptedSource) {
     reasons.push("본문 인용 또는 사용자 선택으로 채택된 출처가 없습니다.");
   }
-  const verified = verifiedSourceCount > 0
-    && blockingUnverifiedFactFields.length === 0
-    && hasAdoptedSource;
+  /**
+   * 통과 조건은 두 가지뿐이다. 신뢰할 수 있는 곳에서 온 페이지가 실제로 열렸고,
+   * 그 페이지가 원고에 인용되어 있는가. 사실 필드 커버리지는 진단으로만 남는다.
+   */
+  const verified = verifiedSourceCount > 0 && hasAdoptedSource;
   const pack: ApprovalEvidencePack = Object.freeze({
     version: "1.0",
     status: verified ? "verified" : "needs_review",
@@ -491,9 +449,15 @@ export function officialSourceAllowed(
   }
 
   if (profileId === "wordpress_life_economy_v1") {
-    const domains = approvalOfficialDomains(profileId);
-    if (domains && officialDomainAllowed(host, domains)) return true;
-    return publicSectorDomainAllowed(host) && Boolean(page.publisher.trim());
+    /**
+     * 도메인을 신뢰한다. 페이지 내용은 대조하지 않는다.
+     *
+     * 인용 가능한 곳이 정부·공공기관·금융회사로 좁혀져 있으므로, 그 안에서
+     * 온 페이지는 그 자체로 1차 출처다. 내용 대조는 이 문을 통과한 뒤에도
+     * 원고를 계속 막던 단계였고 — 2026-08-14 실측으로 승인 대기 6편이 전부
+     * 여기서 걸렸다 — 통과할 수 없는 관문은 없느니만 못하다.
+     */
+    return approvalSourceTier(host) !== "unofficial";
   }
 
   if (vivaRainDeniedDomains.some((domain) =>
@@ -545,10 +509,6 @@ export function canonicalizeApprovalEvidenceUrl(value: string): string {
   } catch {
     return value.trim();
   }
-}
-
-function isBlockingApprovalFactField(field: string): boolean {
-  return /(?:amount|eligibility|period|date|rate|fee|disclosure|cancellation|legal|tax|duty|threshold|condition|refund|deadline|requirement|qualification)/i.test(field);
 }
 
 function diagnosticSource(

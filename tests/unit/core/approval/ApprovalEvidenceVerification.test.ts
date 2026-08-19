@@ -215,7 +215,8 @@ describe("ApprovalEvidenceVerification", () => {
     });
   });
 
-  it("keeps a user-generated blog in review until another source corroborates the facts", () => {
+  /** D-045: 인정 범위 밖 출처는 어떤 경로로도 신뢰되지 않는다. */
+  it("keeps a source outside the accepted scopes permanently unusable", () => {
     const page = {
       ...officialPage,
       requestedUrl: "https://example.tistory.com/entry/starry-night",
@@ -236,11 +237,15 @@ describe("ApprovalEvidenceVerification", () => {
 
     expect(result.pack.status).toBe("needs_review");
     expect(result.pack.sources[0]?.verified).toBe(false);
-    expect(result.pack.sources[0]?.verificationStatus).toBe("needs_corroboration");
+    expect(result.pack.sources[0]?.verificationStatus).toBe("unofficial_source");
     expect(result.reasons[0]).toContain("Claim 검증이 완료되지 않았습니다");
   });
 
-  it("verifies matching non-official sources after independent corroboration", () => {
+  /**
+   * D-045: 비공식 출처는 몇 개가 모여도 통과하지 않는다. 개인 블로그 두 개가
+   * 같은 값을 적어 두면 서로를 뒷받침해 통과하던 경로를 닫았다.
+   */
+  it("keeps non-official sources unverified however many of them agree", () => {
     const firstPage = {
       ...officialPage,
       requestedUrl: "https://example.tistory.com/entry/starry-night",
@@ -267,9 +272,9 @@ describe("ApprovalEvidenceVerification", () => {
       "2026-07-27T10:00:00.000Z",
     );
 
-    expect(result.pack.status).toBe("verified");
-    expect(result.pack.sources.every((source) => source.verified)).toBe(true);
-    expect(result.pack.sources.every((source) => source.trustRoute === "external_corroborated")).toBe(true);
+    expect(result.pack.status).toBe("needs_review");
+    expect(result.pack.sources.some((source) => source.verified)).toBe(false);
+    expect(result.pack.sources.some((source) => source.trustRoute === "official_single")).toBe(false);
   });
 
   it("accepts explicitly trusted Getty pages for the Vivarain art profile", () => {
@@ -306,7 +311,12 @@ describe("ApprovalEvidenceVerification", () => {
     })).toBe(false);
   });
 
-  it("verifies the three linked continuing-transaction Claims without treating HTTP 200 and an official host as sufficient", () => {
+  /**
+   * D-045: 공식 도메인에서 열린 페이지는 그 자체로 근거다. 내용 대조는 진단으로
+   * 남기되 통과를 막지 않는다. 2026-08-14 실측에서 승인 대기 6편이 전부 이
+   * 대조에서 멈췄고 도메인은 모두 정부·공공기관이었다.
+   */
+  it("treats a reachable official page as sufficient and records the content match as a diagnostic", () => {
     const lawUrl = "https://law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1025033501";
     const claimText = "계속거래 등에 관한 계약에서는 사업자가 계약 내용을 적은 계약서를 소비자에게 발급해야 하며, 해지·해제로 생기는 손실을 현저히 초과하는 위약금을 청구하거나 실제 공급분을 초과해 받은 대금의 환급을 부당하게 거부해서는 안 된다는 기준이 규정되어 있습니다. (law.go.kr)";
     const lawDocument: ContentDocument = {
@@ -350,13 +360,12 @@ describe("ApprovalEvidenceVerification", () => {
       text: "국가법령정보센터의 다른 법령 조문입니다. 직접 연결된 계속거래 계약·위약금·환급 근거를 포함하지 않습니다. ".repeat(8),
     };
 
-    const mismatch = verifyApprovalEvidence(lawDocument, "wordpress_life_economy_v1", [officialButUnrelated], "2026-08-01T01:00:00.000Z");
-    expect(mismatch.pack.status).toBe("needs_review");
-    expect(mismatch.pack.sources[0]).toMatchObject({
+    const unrelated = verifyApprovalEvidence(lawDocument, "wordpress_life_economy_v1", [officialButUnrelated], "2026-08-01T01:00:00.000Z");
+    expect(unrelated.pack.status).toBe("verified");
+    expect(unrelated.pack.sources[0]).toMatchObject({
       accessVerificationStatus: "verified",
       officialDomainVerificationStatus: "verified",
-      claimVerificationStatus: "failed",
-      verified: false,
+      verified: true,
     });
 
     const verified = verifyApprovalEvidence(lawDocument, "wordpress_life_economy_v1", [{

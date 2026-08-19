@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { resolveApprovalPolicySnapshot } from "../../../../core/approval";
+
 import {
   createGeneratedClaimVerificationRecord,
   createVerificationSnapshot,
@@ -106,6 +108,11 @@ function baseDocument(text: string): ContentDocument {
       version: 1,
       videoCount: 0,
       wordCount: 5,
+      /**
+       * D-045: Generation 구조화 Claim 게이트는 승인 준비 원고에서만 돈다.
+       * 일반 Content 는 품질 점수만 본다.
+       */
+      approvalPolicy: resolveApprovalPolicySnapshot("adsense_approval", "wordpress_life_economy_v1"),
     }),
   });
 }
@@ -144,7 +151,12 @@ describe("Generated Claim verification Quality linkage", () => {
     expect(quality.findings.some((finding) => finding.message.includes("검증 Claim Snapshot"))).toBe(false);
   });
 
-  it("blocks standard Quality when the current manuscript changes to an unverified high-risk value", () => {
+  /**
+   * D-045: 이 검사는 출처에서 확인한 값과 본문을 대조하는 장치다. 내용 대조를
+   * 하지 않기로 한 이상 기준값이 없으므로 승인을 끄지 않는다. 어떤 값이
+   * 어긋났는지는 진단으로 남긴다.
+   */
+  it("records a changed high-risk value as a diagnostic instead of blocking", () => {
     const current = verifiedDocument();
     const changed = Object.freeze({
       ...current,
@@ -154,20 +166,26 @@ describe("Generated Claim verification Quality linkage", () => {
     });
     const quality = review(changed);
 
-    expect(quality.approved).toBe(false);
-    expect(quality.approvalType).toBe("none");
-    expect(quality.approvalState).toBe("blocked");
     expect(quality.findings.some((finding) =>
       finding.message.includes("70만원")
       && finding.message.includes("검증되지 않은 고위험 사실"))).toBe(true);
+    expect(quality.findings.every((finding) =>
+      !finding.message.includes("70만원") || finding.severity === "warning")).toBe(true);
   });
 
-  it("blocks standard Quality when an explicit verification plan has no persisted Snapshot", () => {
+  it("records a missing verification Snapshot as a diagnostic instead of blocking", () => {
     const document = baseDocument("현재 지원 금액은 50만원입니다.");
     const quality = review(document);
 
-    expect(quality.approved).toBe(false);
-    expect(quality.approvalState).toBe("blocked");
-    expect(quality.findings.some((finding) => finding.message.includes("검증 Claim Snapshot"))).toBe(true);
+    /**
+     * D-045 가 보장하는 것은 Claim 게이트가 발행을 막지 않는다는 것뿐이다.
+     * 이 원고는 기획 정렬 같은 다른 이유로 여전히 차단될 수 있으므로, 게이트가
+     * 만드는 항목만 골라 확인한다.
+     */
+    expect(quality.tasks.filter((task) =>
+      task.message.includes("검증 Claim Snapshot")
+      || task.message.includes("검증되지 않은 고위험 사실")
+      || task.message.includes("verbatim anchor"),
+    ).every((task) => task.status !== "blocked")).toBe(true);
   });
 });

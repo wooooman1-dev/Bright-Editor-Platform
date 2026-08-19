@@ -254,7 +254,12 @@ describe("approval Evidence candidate normalization", () => {
     const sources = normalizeApprovalEvidenceCandidates(candidateData, content.id)
       .contents[0]?.document?.metadata?.approvalEvidence?.sources;
 
-    expect(sources).toHaveLength(2);
+    /**
+     * D-045: 본문에 인용되지 않은 검색 후보는 출처가 아니다. 추적 변형인
+     * search-same 은 document-link 와 같은 주소라 병합되고, 본문과 무관한
+     * unrelated 는 남지 않는다.
+     */
+    expect(sources).toHaveLength(1);
     expect(sources?.[0]).toMatchObject({
       url: "https://law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1025033501",
       provenance: "document_link",

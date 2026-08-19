@@ -376,10 +376,25 @@ const listShapedSectionTypes = new Set<ContentSectionType>(["checklist", "steps"
  * this module rather than against those strings, so the numbers are published
  * here instead of being retyped where they can silently drift apart.
  */
+/**
+ * 글 한 편이 얕지 않다고 말할 수 있는 최소 산문 분량.
+ *
+ * 지금까지 발행을 막는 기준은 "구조 진단 위반이 1건이라도 있는가"였다. 그래서
+ * 5,074자짜리 원고가 한 섹션 10자 부족(minimum 250 / actual 240)으로 멈췄고,
+ * 비교표를 약속했다가 산문으로 대신한 글도 같은 취급을 받았다. 섹션 단위 미달은
+ * 글의 균형 문제이지 글이 얕다는 뜻이 아니다.
+ *
+ * 애드센스가 실제로 거부하는 것은 얕은 글이므로, 차단은 글 전체 분량 하나로
+ * 옮긴다. 2,000자는 실측 기준이다 — 통과한 원고들의 본문 산문이 4,388~5,074자
+ * 였고, 그 절반 아래면 주제를 설명했다고 보기 어렵다.
+ */
+export const longFormArticleNarrativeFloor = 2_000;
+
 export const longFormNarrativeFloors = Object.freeze({
   standard: minimumSectionNarrativeCharacters,
   listShaped: minimumListShapedNarrativeCharacters,
   listShapedSectionTypes: Object.freeze([...listShapedSectionTypes]),
+  article: longFormArticleNarrativeFloor,
 });
 
 function minimumNarrativeFor(sectionType: ContentSectionType): number {

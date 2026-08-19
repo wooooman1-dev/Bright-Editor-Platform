@@ -156,7 +156,16 @@ export function canonicalSources(
     });
     sources.set(canonicalUrl, mergeCanonicalSource(sources.get(canonicalUrl), normalized));
   }
-  return Object.freeze([...sources.values()]);
+  /**
+   * 본문에 인용되지 않은 검색 후보는 출처가 아니다.
+   *
+   * 출처 목록은 원고를 가져온 곳의 기록이다. 검색 결과로 스쳐 갔을 뿐 본문이
+   * 쓰지 않은 주소가 목록에 남으면, 독자에게는 근거처럼 보이지만 그 페이지에는
+   * 그 내용이 없다. D-045 에서 출처를 본문 맨 끝에 그대로 표시하기로 했으므로
+   * 이 구분이 더 중요해졌다.
+   */
+  return Object.freeze([...sources.values()].filter((source) =>
+    source.provenance !== "search_candidate"));
 }
 
 function mergeCanonicalSource(

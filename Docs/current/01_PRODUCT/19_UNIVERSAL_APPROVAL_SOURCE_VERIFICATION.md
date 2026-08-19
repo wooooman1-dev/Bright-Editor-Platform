@@ -8,7 +8,7 @@ Scope: Bright Editor Platform Core Approval Evidence
 
 Bright Studio must not assume that future sources use known URLs, fixed HTML structures, one document format, or a pre-registered Claim role.
 
-The universal verifier therefore applies one deterministic pipeline to every source proposed for approval-preparation content. The system does not promise that every source passes. It guarantees that a source cannot become trusted without actual search discovery, safe Fetch, supported extraction, material-Claim content matching, and the applicable trust route: one accepted official/first-party source or independent corroboration for a non-official source.
+The universal verifier therefore applies one deterministic pipeline to every source proposed for approval-preparation content. Under `D-045` the trust conditions are the source's institutional scope and its actual reachability: a source cannot become trusted without real search discovery, a safe Fetch, supported extraction, and membership in an accepted scope — public-sector or a Korean financial institution publishing its own product. Content matching between the page and the manuscript Claim is recorded as a diagnostic and never decides trust. Non-official sources are excluded at generation, so there is no corroboration route for them.
 
 The completion criterion is:
 
@@ -38,9 +38,9 @@ For every submitted source URL and factual Claim:
 13. Every submitted Claim must contain `field`, `value`, and `evidenceExcerpt`.
 14. The Claim field must belong to the Planning-required Claim set.
 15. The Claim evidence excerpt must exist in the fetched final page.
-16. The Claim value must exist in or be deterministically normalized from the fetched final page context.
-17. Dates, money amounts, percentages, durations, and units must match exactly after canonical normalization.
-18. Multiple sources may divide material Claims; non-official sources require independent corroboration for the same material Claim.
+16. The Claim value is compared against the fetched final page context and the result is recorded. A missing or mismatched value is a diagnostic, not a trust condition.
+17. Dates, money amounts, percentages, durations, and units are normalized before that comparison so the diagnostic is meaningful.
+18. Multiple sources may divide material Claims. Non-official sources have no trust route: approval-preparation generation restricts web search to the accepted scopes, so a non-official source cannot enter the pipeline in the first place.
 19. An uncovered or mismatched material Claim is a diagnostic; only an unsupported or conflicting high-risk Claim blocks the applicable approval Gate.
 20. Known URL-to-Claim mappings are diagnostics only and are not required for a new official URL.
 21. Search candidates never change an existing verified Snapshot until selected.
@@ -190,15 +190,14 @@ A source ends in one of these states:
 - `duplicate_source`: the canonical source already exists;
 - `excluded`: the source remains an unselected candidate.
 
-`verified` means the source content matched the applicable material Claim and
-the source passed its trust route. `unofficial_source` is no longer an
-automatic rejection. A non-official source remains `needs_review` until an
-independent source corroborates the same material Claim. Missing information
+`verified` means the source belongs to an accepted scope and its page was
+actually reachable. Content matching is recorded alongside it as a diagnostic
+and does not change the verdict. A source outside the accepted scopes stays
+`needs_review` and has no route to trust — it should never have been cited,
+because approval-preparation search does not surface it. Missing information
 dates or reader-visible review-date labels do not make a source unverified.
 
-Trust routes are recorded as `official_single` for an accepted official or
-first-party source, and `external_corroborated` for a non-official source that
-has independent support for the same material Claim.
+`official_single` is the only trust route.
 
 ## 10. Future Claim contract
 
@@ -263,17 +262,18 @@ Typecheck, lint, focused tests, the full test suite, production build, and diff 
 
 ## 14. Safety boundary
 
-`verified` means the current deterministic rules confirmed the source content,
-the material Claim match, and the applicable official-single or external-
-corroborated trust route. It does not resolve every possible legal
-interpretation or real-world dispute.
+`verified` means the current deterministic rules confirmed that the source
+belongs to an accepted scope and that its page was reachable. It does not assert
+that the page states the manuscript's numbers, and it does not resolve any legal
+interpretation or real-world dispute. The manuscript's factual accuracy rests on
+generation being restricted to those scopes, not on a post-hoc text match.
 
 The platform guarantee is exact:
 
 ```text
 Every source is safely classified.
 Every Planning-required factual Claim is checked before Generation.
-Only Evidence that passed an official-single or external-corroborated route
-contributes to trusted Coverage.
+Only Evidence from an accepted scope with a reachable page contributes to
+trusted Coverage.
 Unknown or unsupported input cannot crash or falsely approve the manuscript.
 ```

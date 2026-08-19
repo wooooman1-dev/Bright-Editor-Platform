@@ -76,7 +76,6 @@ export type ApprovalEvidenceVerificationStatus =
   | "malformed_content"
   | "content_too_large"
   | "unsupported_claim"
-  | "needs_corroboration"
   | "unofficial_source"
   | "fact_mismatch"
   | "duplicate_source"
@@ -128,9 +127,8 @@ export type ApprovalEvidenceSource = Readonly<{
   claimVerificationStatus?: ApprovalEvidenceStageStatus;
   failureReason?: string;
   matchedFacts?: readonly ApprovalEvidenceFact[];
-  trustRoute?: "official_single" | "external_corroborated";
-  corroborated?: boolean;
-  corroborationSourceIds?: readonly string[];
+  /** D-045: 인정 범위 안의 출처가 실제로 열렸다는 단일 경로만 남는다. */
+  trustRoute?: "official_single";
   checkedAt?: string;
   rights?: Readonly<{
     status: "verified" | "unknown" | "restricted";

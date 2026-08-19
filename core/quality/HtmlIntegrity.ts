@@ -48,12 +48,20 @@ export function evaluateHtmlIntegrity(document: ContentDocument, html: string): 
 }
 
 function sourceSectionWithoutLink(html: string): boolean {
-  const section = /<(?:h[2-6]|p)\b[^>]*>\s*(?:공식\s*(?:확인\s*자료|출처)|출처|참고\s*자료)[\s\S]*?(?=<h[2-6]\b|$)/giu;
+  /**
+   * "출처 확인일: 2026-08-19"는 섹션 제목이 아니라 날짜 한 줄이다.
+   *
+   * 시스템이 출처 섹션 안에 넣는 이 문단을 검사기가 새 출처 섹션의 시작으로
+   * 읽으면, 그 뒤에 링크가 없어 `source_section_without_links` 가 뜨고 앞의
+   * 진짜 섹션과 합쳐 `duplicate_source_section` 까지 뜬다. 날짜 역할 이름은
+   * 승인 계약이 여러 곳에서 쓰므로 검사기 쪽에서 구분한다.
+   */
+  const section = /<(?:h[2-6]|p)\b[^>]*>\s*(?:공식\s*(?:확인\s*자료|출처)|출처|참고\s*자료)(?!\s*확인일)[\s\S]*?(?=<h[2-6]\b|$)/giu;
   return [...html.matchAll(section)].some((match) => !/<a\b[^>]*href\s*=\s*["']https:\/\//iu.test(match[0]));
 }
 
 function sourceSectionCount(html: string): number {
-  return matches(html, /<(?:h[2-6]|p)\b[^>]*>\s*(?:공식\s*(?:확인\s*자료|출처)|출처|참고\s*자료)(?:\s|<|&)/giu);
+  return matches(html, /<(?:h[2-6]|p)\b[^>]*>\s*(?:공식\s*(?:확인\s*자료|출처)|출처|참고\s*자료)(?!\s*확인일)(?:\s|<|&)/giu);
 }
 
 function obviousSystemCardDuplicate(html: string): boolean {
