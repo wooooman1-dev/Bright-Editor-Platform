@@ -840,8 +840,8 @@ WordPress HTML 정규화 가능성을 고려해 원문 문자열 완전 일치�
 MVP에서 다음은 제외한다.
 
 - Public Publish
-- Scheduled Publishing
-- Existing Post Update
+- Scheduled Publishing (`D-038`에서 해제)
+- Existing Post Update (`D-046`에서 해제)
 - Existing Post Delete
 - 자동 Plugin 설치 또는 수정
 - Theme 수정
@@ -1040,11 +1040,43 @@ AdSense가 거부하는 것은 얕은 글이므로 그 기준만 남긴다.
 
 ---
 
+# D-046 Existing Post Update
+
+Status: Accepted
+
+이 결정은 `D-036 WordPress Draft Publishing MVP`의 제외 항목 중 `Existing Post
+Update`만 해제한다. `Existing Post Delete`, 자동 Plugin 설치·수정, Theme 수정,
+여러 플랫폼 동시 실행, 자동 Retry 제외는 그대로 유지한다.
+
+발행 실행 식별자는 원고 리비전을 포함한다. 그래서 원고를 한 문장이라도 고치면
+식별자가 바뀌고, 중복 방지 장치는 그것을 처음 보는 발행으로 판단해 새 Post를
+만들었다. 2026-08-14 밝은재테크 실측: 원고 한 편이 Post 92, 95, 98, 101 네 개가
+되었고, 이미 색인된 98번을 사용자가 직접 휴지통으로 옮겨야 했다. 고칠 때마다
+주소가 새로 생기므로 색인도 매번 처음부터 시작한다.
+
+- 갱신 대상은 그 원고가 이미 차지한 Post 하나뿐이다. 다른 Post는 건드리지 않는다.
+- 갱신 요청은 `status`를 보내지 않는다. 독자가 이미 볼 수 있는 Post를 임시글로
+  되돌리지 않는다. `slug`도 보내지 않으므로 주소가 유지된다.
+- 대상 Post가 실제로 존재하는지 확인한 뒤에만 갱신한다. WordPress가 그 Post를
+  더는 갖고 있지 않으면 첫 발행이므로 새 Post를 만든다.
+- 확인 직후 대상이 사라졌다면 그 실행은 멈춘다. 사용자가 요청하지 않은 Post를
+  대신 만들지 않는다.
+- 예약 발행은 언제나 새 Post를 만든다. 예약된 공개는 정의상 새 Post다.
+- Permission은 `draft.create`를 재사용한다. 만들도록 허용한 Post를 고치는 데
+  별도 승인을 다시 받을 이유가 없다. 실행 기록의 workflow는 `draft.update`로
+  남겨 무엇이 일어났는지 구분한다.
+- 갱신 요청은 재시도해도 안전하다. 같은 본문을 두 번 써도 Post는 하나다.
+
+Review First · Draft Only 정책은 변경하지 않는다. 공개 여부는 계속 사용자가
+결정한다.
+
+---
+
 # D-038 WordPress Scheduled Publishing
 
 Status: Accepted
 
-이 결정은 `D-036 WordPress Draft Publishing MVP`의 제외 항목 중 `Scheduled Publishing`만 해제한다. `D-036`의 나머지 제외 항목인 Existing Post Update, Existing Post Delete, 자동 Plugin 설치·수정, Theme 수정, 여러 플랫폼 동시 실행, 자동 Retry는 그대로 유지한다. `D-034`가 Tistory 전용으로 승인한 예약 계약을 WordPress로 확장하되 Tistory 구현을 복제하지 않는다.
+이 결정은 `D-036 WordPress Draft Publishing MVP`의 제외 항목 중 `Scheduled Publishing`만 해제한다. `D-036`의 나머지 제외 항목인 Existing Post Delete, 자동 Plugin 설치·수정, Theme 수정, 여러 플랫폼 동시 실행, 자동 Retry는 그대로 유지한다. `Existing Post Update`는 이후 `D-046`이 해제했다. `D-034`가 Tistory 전용으로 승인한 예약 계약을 WordPress로 확장하되 Tistory 구현을 복제하지 않는다.
 
 WordPress는 Tistory와 달리 공식 REST API가 예약을 지원하므로 브라우저 자동화 Worker를 사용하지 않는다. `POST /wp-json/wp/v2/posts`에 `status`와 `date_gmt`를 전달하는 방식만 사용한다.
 
