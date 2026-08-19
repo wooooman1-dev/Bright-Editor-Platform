@@ -327,3 +327,45 @@ Docs/current/04_DEVELOPMENT/07_VERIFICATION_CLAIM_SOURCE_STATUS.md
 ```
 
 The source/verification architecture remains Core-shared. WordPress and Tistory do not maintain separate factual-source truth systems.
+
+## Candidate matcher correction (2026-08-19, D-047)
+
+The 2026-08-05 scope correction above fixed the bundle-level lexical filter but
+deliberately left the server candidate matcher requiring literal keyword/topic/page
+relevance. That remaining layer reproduced the same failure two weeks later.
+
+Read-only inspection of the finance Project on 2026-08-19 confirmed four `ready`
+Connections, 37 Snapshots and 184 fresh external Evidence records, while both
+Planning candidates — 「연금저축 IRP 차이」 and 「전입신고 확정일자」 — matched zero
+Evidence and reported `marketEvidenceStatus: unavailable` with `confidence: 0.75`.
+
+The confirmed cause is `matchEvidence()` in `OpportunityEvidenceService`, which
+compares candidate terms and Evidence keywords with `overlap()` — a bidirectional
+substring test. `연금저축` and the registered `적금` share no substring, so an
+in-domain finance topic matched nothing. Registered NAVER keywords cannot be
+widened past five per Connection, and GSC contributes only queries the site already
+ranks for (6 queries against 2 indexed pages at inspection time), so adding
+keywords cannot resolve this.
+
+`D-047` replaces substring overlap with deterministic topic-group matching, stops
+treating absent external Evidence as a confidence penalty, and passes registered
+keywords to Planning as a hint rather than a constraint. The unsupported
+market-volume/CPC/rank claim guard is unchanged.
+
+Measured while implementing the change: the same substring rule also produced a
+false positive. The GSC query `보험다모아 실손의료보험 보험료 비교 2025` attached
+itself to 「연금저축 IRP 차이를 비교해…」 because both contain `비교`. Generic
+editorial words — 비교, 차이, 확인, 사용, 정리, 활용, 선택 — now join the existing
+ignore list in `meaningful()`, so a shared verb no longer creates a market-Evidence
+match. After both changes the 2026-08-19 candidates match their own subject area
+and nothing else: 「전입신고 확정일자」 → 월세, 전세; 「연금저축 IRP」 → 예금, 적금.
+
+The `.slice(0, 100)` recency cap in `buildPlanningBundle()` was re-measured and
+left unchanged: all 20 distinct keywords of the Project's 160 scoped external
+Evidence records are present within the newest 100, so the cap drops no subject
+area.
+
+The registered NAVER keyword `퇴지금` is a typo for `퇴직금`, which is why the
+retirement subject area still has no market Evidence. Resource identity is
+immutable once a Connection has Snapshots (`assertResourceIdentityUnchanged`),
+so correcting it requires a new Connection rather than an edit.

@@ -5,6 +5,7 @@ import {
   compareOpportunityEditorialValue,
   createOpportunityEvidence,
   recommendationTypePriority,
+  sharesOpportunityTopicGroup,
   type DataSourceConnectionRepository,
   type OpportunityEvidenceRecord,
   type OpportunityEvidenceRepository,
@@ -204,9 +205,9 @@ function matchEvidence(candidate: ContentOpportunityCandidate, bundle: readonly 
     if (value.workspaceId !== project.workspaceId) return false;
     if (value.projectId && value.projectId !== candidate.projectId) return false;
     if (value.evidenceType === "contentGap" && value.projectId === candidate.projectId) return true;
-    if (value.evidenceType === "clusterOpportunity") return overlap(terms, meaningful(`${value.topic ?? ""} ${value.keyword ?? ""}`));
+    if (value.evidenceType === "clusterOpportunity") return relevant(terms, meaningful(`${value.topic ?? ""} ${value.keyword ?? ""}`));
     const sourceTerms = meaningful(`${value.keyword ?? ""} ${value.topic ?? ""} ${value.pageUrl ?? ""}`);
-    return sourceTerms.length > 0 && overlap(terms, sourceTerms);
+    return sourceTerms.length > 0 && relevant(terms, sourceTerms);
   }));
 }
 function toOpportunityEvidence(value: OpportunityEvidenceRecord): OpportunityEvidence {
@@ -224,13 +225,36 @@ function projectAligned(candidate: ContentOpportunityCandidate, project: UserPro
   return candidate.selectionMode === "automatic" && overlap(meaningful(candidate.sourceRequest), source);
 }
 function safetyPassed(candidate: ContentOpportunityCandidate): boolean { return !/(?:완치|치료\s*보장|진단\s*확정|약을\s*끊)/i.test(`${candidate.selectedTopic} ${candidate.contentAngle} ${candidate.selectionRationale}`); }
-function meaningful(value: string): string[] { const ignored = new Set(["관리", "방법", "가이드", "정보", "콘텐츠", "글", "프로젝트", "위한", "대한"]); return [...new Set(normalize(value).split(" ").filter((term) => term.length >= 2 && !ignored.has(term)))]; }
+function meaningful(value: string): string[] { const ignored = new Set(["관리", "방법", "가이드", "정보", "콘텐츠", "글", "프로젝트", "위한", "대한", "비교", "차이", "확인", "사용", "정리", "활용", "선택"]); return [...new Set(normalize(value).split(" ").filter((term) => term.length >= 2 && !ignored.has(term)))]; }
 function normalize(value: string): string { return value.normalize("NFKC").toLocaleLowerCase("ko-KR").replace(/[^0-9a-z가-힣\s]/g, " ").replace(/\s+/g, " ").trim(); }
 function overlap(left: readonly string[], right: readonly string[]): boolean { return left.some((a) => right.some((b) => a.includes(b) || b.includes(a))); }
+/**
+ * Evidence relevance is literal overlap OR a shared subject area.
+ *
+ * Literal overlap alone rejected in-domain Evidence: 「연금저축」과 등록 키워드
+ * 「적금」은 문자열이 겹치지 않는다. 등록 키워드는 NAVER 연결당 5개가 상한이라
+ * 넓혀서 해결할 수도 없다. 주제군 판정을 더하되 literal overlap은 남긴다.
+ * 주제군 표에 없는 도메인은 예전과 똑같이 동작해야 한다. (D-047)
+ */
+function relevant(candidateTerms: readonly string[], sourceTerms: readonly string[]): boolean {
+  return overlap(candidateTerms, sourceTerms) || sharesOpportunityTopicGroup(candidateTerms, sourceTerms);
+}
+/**
+ * Confidence is the mean over the strongest tier of matched Evidence, not over
+ * everything matched at once.
+ *
+ * 계층을 섞어 평균하면 의미가 뒤집힌다. 외부 Evidence는 confidence 1이고 내부
+ * content-gap은 0.75이므로, 시장 Evidence가 이미 붙은 후보에 내부 Evidence를
+ * 더하면 신뢰도가 오히려 내려갔다. 외부 Evidence가 없다는 사실은
+ * marketEvidenceStatus가 이미 별도 상태로 보고하므로 이 숫자가 같은 사실을
+ * 두 번 깎지 않는다. (D-047)
+ */
 function averageVerifiedEvidenceConfidence(values: readonly OpportunityEvidenceRecord[]): number | undefined {
   const eligible = values.filter((value) => value.verified && value.freshness !== "unavailable");
-  if (!eligible.length) return undefined;
-  return eligible.reduce((sum, value) => sum + value.confidence, 0) / eligible.length;
+  const external = eligible.filter((value) => value.provider !== "brightStudio");
+  const tier = external.length ? external : eligible;
+  if (!tier.length) return undefined;
+  return tier.reduce((sum, value) => sum + value.confidence, 0) / tier.length;
 }
 function projectExcluded(candidate: ContentOpportunityCandidate, project: UserProject): boolean {
   const excluded = (project.strategy?.excludedTopics ?? []).flatMap(meaningful);
