@@ -389,8 +389,19 @@ export function selectContentPlanningOpportunity(data: UserData, input: Readonly
   if (!candidate || candidate.projectId !== input.projectId || !hasCurrentContentOpportunityFingerprint(candidate)) {
     throw new Error("선택한 Content Opportunity가 현재 Planning 후보와 일치하지 않습니다.");
   }
+  /**
+   * 후보를 고르는 것은 워크플로 상태이지 원고를 바꾸는 일이 아니다.
+   *
+   * 여기서 title 을 함께 쓰고 있었다. requirePlanningContent 는 콘텐츠 상태를 보지
+   * 않으므로 이미 완성된 원고에도 그대로 적용됐다. 2026-08-19 실측:
+   * content-mszz92xf-ekb4ph 에서 「추천 주제 후보 다시 보기」로 목록을 열고 다른
+   * 후보를 누르기만 했는데 제목이 근로장려금으로 덮였다. opportunity, primaryKeyword,
+   * body, document.title 은 모두 할부 결제 취소 그대로여서 제목만 다른 글이 됐다.
+   *
+   * 제목은 확정 시점에 createContentFromPlan 이 정한다. 그 경로는 확정 후보가 바뀌면
+   * 제목과 본문을 함께 갱신한다 (D-044 범위).
+   */
   return updateContent(data, content.id, {
-    title: candidate.selectedTopic,
     planningWorkflow: nextPlanningWorkflow(workflow, input.now, {
       status: "opportunitySelected",
       selectedOpportunityId: candidate.opportunityId,
