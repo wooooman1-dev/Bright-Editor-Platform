@@ -157,11 +157,15 @@ export function validateGeneratedFactualClaimDrafts(input: Readonly<{
     }));
   }
 
-  for (const claimId of verifiedClaimIds) {
-    if (claims.some((claim) => claim.claimId === claimId)) continue;
-    if (withdrawn.has(claimId) || withdrawnByInventory.has(claimId)) continue;
-    reasons.push(`검증된 Claim이 Generation 구조화 사실 목록에 연결되지 않았습니다: ${claimId}.`);
-  }
+  /**
+   * 계획된 Claim 이 구조화 목록에 없다는 사실은 더 이상 무결성 위반이 아니다 (D-045).
+   *
+   * 이 검사는 "내용 검증을 통과한 Claim 이라면 원고가 그 값을 말했을 것"이라는 전제
+   * 위에 있었다. 그 전제를 만들던 내용 대조를 걷어낸 뒤 gate 의 Claim 목록은
+   * "Snapshot 결과가 있는 Claim"을 뜻할 뿐이므로, 생성이 그 값을 쓰지 않기로 한
+   * 경우까지 발행 차단이 된다. 원고가 실제로 쓴 사실은 factual inventory 가 따로
+   * 기록한다.
+   */
 
   const rebound = bindGeneratedClaims({
     document: input.document,

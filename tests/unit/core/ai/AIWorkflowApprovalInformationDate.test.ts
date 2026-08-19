@@ -68,40 +68,42 @@ function approvalInput(): GenerationInput {
 }
 
 /**
- * content-mssph0q6-ftn4h7 was blocked on PROFILE_REVIEW_DATE_MISSING with no
- * 정보 기준일 anywhere in its 38 blocks. The approval content policy requires the
- * line in the body and Evidence selection harvests it from there, but the
- * generation prompt only restricted how to write the date if it appeared — it
- * never asked for it.
+ * D-043: 원고는 자기 글의 기준일이나 검토일을 쓰지 않는다. 세 날짜와 공식 재확인
+ * 경로는 시스템이 출처 영역에 렌더링하므로, 원고가 같은 값을 다시 쓰면 한 화면에
+ * 두 번 나온다.
  */
-describe("AIWorkflow approval information-date contract", () => {
-  it("requires the approval manuscript to state a server-supplied 정보 기준일", async () => {
+describe("AIWorkflow approval date-ownership contract", () => {
+  it("forbids the approval manuscript from writing any self-describing date", async () => {
     const provider = new RecordingProvider();
     await new AIWorkflow(provider, strategy).generate(approvalInput());
 
     const instruction = provider.requests[0]!.instruction;
-    expect(instruction).toContain("Information-date contract (mandatory for approval preparation)");
-    expect(instruction).toContain(`"정보 기준일: ${new Date().toISOString().slice(0, 10)}"`);
-    expect(instruction).toContain("The server supplies this date, so do not guess another one");
-    expect(instruction).toContain('heading "정보 기준과 다시 확인할 곳"');
-    expect(instruction).toContain("Do not place this date under the title");
-    expect(instruction).toContain("This paragraph is reader guidance, not source content");
+    expect(instruction).toContain("Date-ownership contract (mandatory for approval preparation)");
+    expect(instruction).toContain("Never write 정보 기준일, 출처 확인일, 최종 검토일");
+    expect(instruction).toContain("Bright Studio renders those dates itself beneath the verified source list");
   });
 
-  it("keeps the system-owned review dates out of the manuscript and invents no source", async () => {
+  it("asks for no closing re-check section and keeps subject-matter dates", async () => {
     const provider = new RecordingProvider();
     await new AIWorkflow(provider, strategy).generate(approvalInput());
 
     const instruction = provider.requests[0]!.instruction;
-    expect(instruction).toContain("Never write 출처 확인일 or 최종 검토일");
-    expect(instruction).toContain("using only a service or page present in the supplied Evidence, without writing a URL");
-    expect(instruction).toContain("Do not report the 정보 기준일 line as a factual Claim");
+    expect(instruction).not.toContain("정보 기준과 다시 확인할 곳");
+    expect(instruction).toContain("Do not create a closing section that points the reader at an official page");
+    expect(instruction).toContain("Dates that belong to the subject matter");
+  });
+
+  it("does not hand the model a server-supplied publication date", async () => {
+    const provider = new RecordingProvider();
+    await new AIWorkflow(provider, strategy).generate(approvalInput());
+
+    expect(provider.requests[0]!.instruction).not.toContain(new Date().toISOString().slice(0, 10));
   });
 
   it("leaves content without an approval policy alone", async () => {
     const provider = new RecordingProvider();
     await new AIWorkflow(provider, strategy).generate({ ...approvalInput(), editorialContext: undefined });
 
-    expect(provider.requests[0]!.instruction).not.toContain("Information-date contract");
+    expect(provider.requests[0]!.instruction).not.toContain("Date-ownership contract");
   });
 });

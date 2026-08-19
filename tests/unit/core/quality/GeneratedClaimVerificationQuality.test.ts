@@ -168,7 +168,7 @@ describe("Generated Claim verification Quality linkage", () => {
 
     expect(quality.findings.some((finding) =>
       finding.message.includes("70만원")
-      && finding.message.includes("검증되지 않은 고위험 사실"))).toBe(true);
+      && finding.message.includes("확인된 출처에 연결되지 않은 값"))).toBe(true);
     expect(quality.findings.every((finding) =>
       !finding.message.includes("70만원") || finding.severity === "warning")).toBe(true);
   });

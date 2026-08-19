@@ -15,6 +15,8 @@ import {
 export type GeneratedClaimVerificationIntegrityResult = Readonly<{
   passed: boolean;
   reasons: readonly string[];
+  /** 발행을 막지는 않지만 사용자가 알아야 하는 변화. 이유를 문장에 담는다. */
+  warnings: readonly string[];
   bindings: readonly GeneratedClaimBinding[];
   verifiedClaimIds: readonly string[];
   unverifiedDetectedCount: number;
@@ -64,13 +66,23 @@ export function evaluateGeneratedClaimVerificationIntegrity(input: Readonly<{
     snapshot: stored.verificationSnapshot,
     gate,
   });
+  /**
+   * 값이 바뀐 것은 막지 않고 알린다 (D-045).
+   *
+   * 이 판정은 "원고의 수치가 검증된 Claim 값과 일치하는가"였다. 값 일치를 만들던
+   * 내용 대조를 걷어낸 이상 어떤 수치도 검증된 값으로 표시될 수 없고, 그래서 차단
+   * 조건으로 두면 통과할 수 없는 관문이 된다. 2026-08-19 밝은재테크 실측: 출처를
+   * 명시한 "전입한 날부터 14일 이내" 문장이 여기에 걸려 정상 원고의 발행을 막았다.
+   *
+   * 그래도 사용자는 무엇이 바뀌었는지 알아야 하므로, 어떤 값이 어디에서 걸렸는지를
+   * 문장에 담아 경고로 남긴다. 생성된 수치가 검토 단계에서 바뀌는 것은
+   * QualityReviewFactualGuard 가 계속 막는다.
+   */
   const reasons: string[] = [];
-  for (const binding of rebound.bindings) {
-    if (binding.reference.referenceType !== "unverifiedDetected") continue;
-    reasons.push(
-      `검증되지 않은 고위험 사실이 원고에 남아 있습니다: ${binding.matchedText} (${bindingLocation(binding.location)}).`,
-    );
-  }
+  const warnings = rebound.bindings
+    .filter((binding) => binding.reference.referenceType === "unverifiedDetected")
+    .map((binding) =>
+      `확인된 출처에 연결되지 않은 값이 원고에 있습니다: "${binding.matchedText}" (${bindingLocation(binding.location)}). 발행은 막지 않으니 값이 편집으로 바뀌지 않았는지 확인하세요.`);
 
   if (stored.semanticContractVersion === 1) {
     if (!stored.semanticClaims) {
@@ -87,30 +99,20 @@ export function evaluateGeneratedClaimVerificationIntegrity(input: Readonly<{
     }
   }
 
-  if (
-    input.currentRevisionId
-    && stored.boundEditorialRevisionId === input.currentRevisionId
-  ) {
-    const expected = JSON.stringify({
-      bindings: rebound.bindings,
-      verifiedClaimIds: rebound.verifiedClaimIds,
-      unverifiedDetectedCount: rebound.unverifiedDetectedCount,
-    });
-    const actual = JSON.stringify({
-      bindings: stored.bindings,
-      verifiedClaimIds: stored.verifiedClaimIds,
-      unverifiedDetectedCount: stored.unverifiedDetectedCount,
-    });
-    if (expected !== actual) {
-      reasons.push(
-        "현재 원고 revision의 저장된 Claim binding이 서버 재계산 결과와 일치하지 않습니다.",
-      );
-    }
-  }
+  /**
+   * 저장된 binding 과 재계산 결과의 불일치는 더 이상 차단 사유가 아니다 (D-045).
+   *
+   * binding 은 Snapshot 에서 파생되는 값이고, 이 모듈은 매 호출마다 그것을 다시
+   * 계산한다. 재계산이 곧 권위이므로 파생값을 서로 비교해 얻는 것이 없다. 반대로
+   * 판정 규칙이 바뀌면 이미 저장된 원고는 전부 불일치가 되어, 정책 변경 자체가
+   * 기존 원고를 발행 불가로 만든다. Snapshot 자체의 위조는 Gate 의 지문 검사가
+   * 계속 잡는다.
+   */
 
   return Object.freeze({
     passed: reasons.length === 0,
     reasons: Object.freeze([...new Set(reasons)]),
+    warnings: Object.freeze([...new Set(warnings)]),
     bindings: rebound.bindings,
     verifiedClaimIds: rebound.verifiedClaimIds,
     unverifiedDetectedCount: rebound.unverifiedDetectedCount,
@@ -129,10 +131,17 @@ export function assertGeneratedClaimVerificationIntegrity(input: Readonly<{
   );
 }
 
+function bindingLocation(location: GeneratedClaimLocation): string {
+  if (location.kind === "title") return "제목";
+  if (location.kind === "metadata") return `metadata.${location.field}`;
+  return `block:${location.blockId}`;
+}
+
 function passedResult(): GeneratedClaimVerificationIntegrityResult {
   return Object.freeze({
     passed: true,
     reasons: Object.freeze([]),
+    warnings: Object.freeze([]),
     bindings: Object.freeze([]),
     verifiedClaimIds: Object.freeze([]),
     unverifiedDetectedCount: 0,
@@ -145,14 +154,10 @@ function failedResult(
   return Object.freeze({
     passed: false,
     reasons: Object.freeze([...new Set(reasons)]),
+    warnings: Object.freeze([]),
     bindings: Object.freeze([]),
     verifiedClaimIds: Object.freeze([]),
     unverifiedDetectedCount: 0,
   });
 }
 
-function bindingLocation(location: GeneratedClaimLocation): string {
-  if (location.kind === "title") return "title";
-  if (location.kind === "metadata") return `metadata.${location.field}`;
-  return `block:${location.blockId}`;
-}

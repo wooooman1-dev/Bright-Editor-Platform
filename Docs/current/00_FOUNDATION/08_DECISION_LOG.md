@@ -931,22 +931,41 @@ scheduled publishing contracts.
 
 ---
 
-# D-043 Information Date Placement and Source Guidance Separation
+# D-043 Information Date Ownership
 
 Status: Accepted
 
-For newly generated `adsense_approval` manuscripts, the AI-generated
-`정보 기준일: YYYY-MM-DD` line must not appear under the title, in the
-introduction, or inside ordinary article prose. It belongs once in a distinct
-final section named `정보 기준과 다시 확인할 곳`, after the conclusion.
+*이전 제목: Information Date Placement and Source Guidance Separation. 2026-08-19
+개정.*
 
-The reader-facing sentence that names an official service or page for
-re-checking is guidance, not source content. It must be a separate paragraph
-from factual or legal explanation. Verified source links and system-owned
-review dates remain separate system projections.
+원고는 `정보 기준일`을 쓰지 않는다. 정보 기준일과 공식 재확인 경로는 Bright
+Studio가 출처 영역에 직접 렌더링한다.
 
-This applies to new Generation and Quality Review results. Existing saved Drafts
-are not rewritten by this decision.
+이전 결정은 AI가 쓴 `정보 기준일`을 본문 끝 `정보 기준과 다시 확인할 곳` 섹션
+한 곳으로 모았다. 흩어진 날짜의 자리를 고정한 것이지, 그 섹션이 필요한지를 판단한
+것은 아니었다. 2026-08-19 밝은재테크 실측에서 같은 값이 한 화면에 두 번 나왔다.
+원고가 쓴 `정보 기준일: 2026-08-19` 문단과, 시스템이 출처 카드 아래에 찍는
+`출처 확인일: 2026-08-19 · 정보 기준일: 2026-08-19` 줄이다. 공식 재확인 경로로
+이름을 부른 정부24 역시 바로 위 출처 카드에 링크로 이미 있다.
+
+분량도 맞지 않았다. 계약이 요구한 두 문단은 113자인데 생성 계약은 모든 H2에 400자
+산문을 요구한다. 그래서 AI가 결론을 두 번 더 반복해 채웠고, 목차 한 줄과 본문 한
+섹션이 중복된 내용으로 채워졌다. 제목 `정보 기준과 다시 확인할 곳`은 할 말이 없는
+자리에 붙은 탓에 글에 문제가 있어 다시 확인해야 한다는 인상까지 준다.
+
+- 원고는 `정보 기준일`, `출처 확인일`, `최종 검토일` 중 어느 것도 쓰지 않는다.
+  세 날짜 모두 시스템 소유다.
+- `정보 기준과 다시 확인할 곳` 섹션은 요구하지 않는다.
+- 공식 재확인 경로는 시스템이 렌더링하는 출처 목록이 담당한다. 원고가 같은 기관을
+  본문 설명에서 자연스럽게 언급하는 것은 막지 않는다. 금지하는 것은 날짜를 쓰는
+  일과 별도 안내 섹션을 만드는 일이다.
+- 시스템이 출처 영역에 찍는 날짜는 `출처 확인일` 하나다. 원고가 기준일을 쓰지
+  않으므로 새 원고에는 `정보 기준일`이 표시되지 않는다. 확인일을 그대로 기준일로
+  베껴 쓰지 않는다. 같은 날짜에 이름만 둘을 붙이는 일이라 독자가 얻는 것이 없다.
+  이미 본문에 기준일이 적힌 기존 원고는 그 값을 계속 읽어 함께 표시한다.
+
+이 결정은 새 Generation과 Quality Review 결과에 적용한다. 이미 저장된 Draft는 이
+결정으로 다시 쓰지 않는다.
 
 ---
 
@@ -965,6 +984,18 @@ The new Content path is a Content-level copy of the confirmed planning context,
 not a document copy. The existing manuscript, review state, and generation
 history remain attached to the original Content; generation starts a fresh
 manuscript on the new Content.
+
+같은 Content에서 확정 후보를 다른 후보로 바꾸는 경우도 새 원고로 시작한다. 이
+경우는 새 Content ID를 만들지 않으므로 위 문단의 범위 밖이었고, 그 틈으로 이전
+후보의 제목과 본문이 그대로 남았다. 2026-08-19 밝은재테크 실측: 연말정산 후보를
+확정했다가 뒤로 가서 전입신고 후보를 확정하자 Opportunity·대표 키워드·검색 의도는
+전입신고로 바뀌고 제목과 본문만 연말정산으로 남아, 생성이 연말정산 주제로 돌았고
+주제 이탈·제목 정렬·목차 범위를 포함한 품질 차단 8건이 한 번에 발생했다.
+
+- 확정 후보가 바뀌면 제목, 본문, 저장된 document, 품질 결과, 생성·검토 진단을
+  모두 비운다. 이전 후보의 결과물은 새 후보의 원고가 아니다.
+- 같은 후보를 다시 확정하는 경우는 지금까지처럼 보존한다. opportunityId는
+  fingerprint에서 결정론적으로 파생되므로 두 경우를 값으로 구분할 수 있다.
 
 ---
 
@@ -1037,6 +1068,36 @@ CRITICAL Claim이 하나 잡히면 들어왔고, 걸리면 점수와 무관하�
 약속한 비교의 미실행은 진단과 최종 편집 지시로 전달하되 차단하지 않는다. 5,074자
 원고가 한 섹션 10자 부족으로 멈추는 것은 글의 완성도를 가르는 선이 아니다.
 AdSense가 거부하는 것은 얕은 글이므로 그 기준만 남긴다.
+
+## 적용 보완 (2026-08-19)
+
+이 결정은 생성 경로에만 적용되어 있었다. 승인 준비와 발행 경로에는 같은 내용
+대조가 그대로 남아, 품질 100점으로 승인된 원고가 발행 단계에서 멈췄다. 실측에서
+Claim 3건이 모두 `insufficient`였고 사유는 `claim_evidence_excerpt_not_found`,
+`claim_value_not_found`, `evidence_anchor_unverified`, `temporal_evidence_missing`
+— 전부 페이지 본문과 원고를 대조하는 검사였다.
+
+- Verification Generation Gate는 Claim별 내용 상태로 막지 않는다. 계획·Snapshot
+  지문, 미지의 결과, 중복 결과 같은 구조 무결성만 본다.
+- Claim에 출처를 연결할 때 supports·normalizedValue·freshness를 요구하지 않는다.
+  셋 다 내용 대조의 산물이라, 남겨 두면 어떤 Claim도 출처를 가질 수 없다.
+- 원고의 수치가 검증된 Claim 값과 일치하는지 보는 검사는 발행을 막지 않는다.
+  값 일치를 만들던 대조가 없으므로 통과할 수 없는 검사가 된다. 개수는 계속
+  노출한다. 검토 단계에서 생성된 수치가 바뀌는 것은 계속 막는다.
+- 계획된 Claim이 구조화 사실 목록에 연결되지 않았다는 사실은 무결성 위반이
+  아니다. 생성이 그 값을 쓰지 않기로 할 수 있다.
+- 저장된 binding과 서버 재계산 결과의 불일치는 차단 사유가 아니다. binding은
+  Snapshot에서 파생되는 값이고 재계산이 권위다. 파생값을 비교해 막으면 판정
+  규칙을 바꿀 때마다 이미 저장된 원고가 전부 발행 불가가 된다.
+- Bright Studio가 스스로 쓴 블록은 생성 Claim 검사 대상이 아니다. 출처 목록,
+  출처 링크, 출처 확인일·정보 기준일 줄이 여기에 해당한다. 계약이 요구해서
+  시스템이 넣은 날짜가 원고가 지어낸 사실로 잡히고 있었다.
+- 승인 준비 검사 문구에서 "페이지 내용과 원고 Claim 일치", "교차 확인"을 걷는다.
+  하지 않는 검사를 했다고 보고하고 있었다.
+- 사람이 편집기에서 고위험 수치를 바꾼 경우는 발행을 막지 않고 경고한다. 어떤
+  값이 어느 위치에서 바뀌었는지를 경고 문구에 함께 표시한다. 출처 내용 대조를
+  하지 않는 이상 "검증된 값"이라는 기준이 없어 차단은 통과할 수 없는 관문이
+  되지만, 값이 바뀐 사실 자체는 사용자가 알아야 한다.
 
 ---
 

@@ -5,7 +5,6 @@ import {
   type AIResponse,
   type AIProvider,
 } from "../../core/ai";
-import { approvalInformationDateContract } from "../../core/ai/AIWorkflow";
 import { evaluateApprovalPreparationText, guardQualityReviewFactualClaims, isApprovalPolicyProfileId, resolveApprovalPolicySnapshot, type ApprovalPolicySnapshot } from "../../core/approval";
 import { analyzeLongFormDocument, canonicalDocumentText, longFormNarrativeFloors, normalizeContentPlanQualityTarget, restoreProtectedImageAssets, restoreVerifiedEditorialLinks, type ContentDocument, type ContentPlanQualityTarget, type ContentSectionType } from "../../core/content";
 import { editorialRevisionId, evaluateQualityReviewReadiness, QualityEngine, type QualityReviewContext } from "../../core/quality";
@@ -204,8 +203,7 @@ function singlePassFinalReviewInstruction(
   );
   const diagnostics = manuscriptDiagnostics(document, requiredInformation, target);
   const priorities = qualityPriorities(quality);
-  const informationDateRepair = missingApprovalInformationDate(document);
-  return `${baseInstruction}${informationDateRepair ? `\n\n${informationDateRepair}` : ""}
+  return `${baseInstruction}
 
 This is the second and final AI call. Make only targeted editorial corrections to the current canonical document. Do not broadly rewrite strong sections or expand the manuscript into a new long-form draft. Return the complete publish-ready canonical ContentDocument in this one response. Do not return a review, plan, score, explanation, or partial patch. Every paragraph.text must be plain text; represent ordered or unordered lists with newline-prefixed \`1.\` or \`-\` items and never return HTML list or paragraph tags.
 Mandatory server approval contract after your edit:
@@ -235,18 +233,6 @@ Verified factual surfaces are recorded by the server, not rewritten here. Do not
   Manuscript diagnostics: ${JSON.stringify(diagnostics)}
 Required information: ${JSON.stringify(requiredInformation)}
   Current canonical document: ${JSON.stringify(contentDocumentAIContext(document))}`;
-}
-
-/**
- * The final call is the last chance to add the information date the approval
- * policy requires in the body. It is only issued to a manuscript that carries
- * an approval policy snapshot and does not already state the line, so revenue
- * content never sees it and an article that already has one is left alone.
- */
-function missingApprovalInformationDate(document: ContentDocument): string | undefined {
-  if (!document.metadata?.approvalPolicy) return undefined;
-  if (/정보\s*기준일\s*[:：]/u.test(canonicalDocumentText(document))) return undefined;
-  return `${approvalInformationDateContract(new Date().toISOString().slice(0, 10))} The current manuscript does not carry this line, so add it during this edit.`;
 }
 
 function qualityPriorities(quality: QualityReport) {

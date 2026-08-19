@@ -76,7 +76,7 @@ describe("ApprovalPolicy", () => {
     expect(context).toContain("Content domain: 생활경제, 생활금융, 정부지원, 세금, 주거 정보");
     expect(context).toContain("publishing Category labels are metadata, not default search keywords");
     expect(context).toContain("Date ownership contract");
-    expect(context).toContain("Never combine 정보 기준일 with 최종 검토일");
+    expect(context).toContain("the manuscript never states a date describing its own currency or review");
     expect(context).not.toContain("wordpress_life_economy_v1");
     expect(context).not.toMatch(/Google\s*AI\s*봇|AI\s*봇에게\s*잘\s*보이/iu);
     expect(context).not.toMatch(/\b\d{3,}\s*(?:자|단어)\b/u);

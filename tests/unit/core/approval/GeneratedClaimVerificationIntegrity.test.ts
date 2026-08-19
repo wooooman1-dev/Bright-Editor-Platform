@@ -124,7 +124,8 @@ describe("Generated Claim verification publishing integrity", () => {
     expect(result.verifiedClaimIds).toContain(claim.claimId);
   });
 
-  it("blocks when the current manuscript changes to an unverified high-risk value", () => {
+  // D-045: 값이 바뀐 것은 막지 않고 알린다. 경고 문장이 바뀐 값과 위치를 담는다.
+  it("warns without blocking when the current manuscript changes to an unverified high-risk value", () => {
     const current = verifiedDocument();
     const changed = Object.freeze({
       ...current,
@@ -138,14 +139,16 @@ describe("Generated Claim verification publishing integrity", () => {
       currentRevisionId: editorialRevisionId(changed),
     });
 
-    expect(result.passed).toBe(false);
+    expect(result.passed).toBe(true);
     expect(result.unverifiedDetectedCount).toBeGreaterThan(0);
-    expect(result.reasons.some((reason) => reason.includes("70만원"))).toBe(true);
+    expect(result.warnings.some((warning) => warning.includes("70만원"))).toBe(true);
+    expect(result.warnings.some((warning) => warning.includes("block:p1"))).toBe(true);
+    expect(result.reasons).toEqual([]);
     expect(() => assertGeneratedClaimVerificationIntegrity({
       document: changed,
       plan,
       currentRevisionId: editorialRevisionId(changed),
-    })).toThrow("Publishing blocked: generated Claim verification failed");
+    })).not.toThrow();
   });
 
   /**

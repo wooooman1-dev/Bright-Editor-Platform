@@ -61,7 +61,7 @@ export const lifeEconomyEditorialFormatOptions: EditorialFormatOptionSet = Objec
     Object.freeze({
       id: "calculation",
       name: "계산 기준형",
-      skeleton: "계산 구조 분해 → 변수별 기준 → 적용 예시 → 정보 기준일 명시",
+      skeleton: "계산 구조 분해 → 변수별 기준 → 적용 예시 → 적용 시점과 예외 명시",
       fitsWhen: "금액, 세액 또는 지원액이 어떻게 정해지는지가 독자의 질문일 때",
     }),
   ]),

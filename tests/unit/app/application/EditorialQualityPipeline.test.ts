@@ -466,12 +466,10 @@ describe("EditorialQualityPipeline", () => {
   });
 
   /**
-   * The approval policy requires the information date in the body, and
-   * content-mssph0q6-ftn4h7 reached the final call without one. The final call
-   * is the last chance to add it, so it is told to — but only for approval
-   * preparation, and only when the line is actually missing.
+   * D-043: 원고는 자기 글의 기준일을 쓰지 않는다. 최종 편집 호출도 그 줄을 넣으라고
+   * 요구하지 않는다. 시스템이 출처 영역에 직접 표시한다.
    */
-  it("asks the final call to add a missing approval information date", async () => {
+  it("never asks the final call to add an information date", async () => {
     const target = comparisonTarget();
     const approvalPolicy = resolveApprovalPolicySnapshot("adsense_approval", "wordpress_life_economy_v1")!;
     const base = comparisonDocument("초기 원고", true, target);
@@ -489,45 +487,10 @@ describe("EditorialQualityPipeline", () => {
       qualityContext: {},
     });
 
-    expect(instruction).toContain("Information-date contract (mandatory for approval preparation)");
-    expect(instruction).toContain("The current manuscript does not carry this line");
-  });
-
-  it("does not repeat the information-date contract for a manuscript that already carries it", async () => {
-    const target = comparisonTarget();
-    const approvalPolicy = resolveApprovalPolicySnapshot("adsense_approval", "wordpress_life_economy_v1")!;
-    const base = comparisonDocument("초기 원고", true, target);
-    const dated: ContentDocument = {
-      ...base,
-      blocks: [...base.blocks, { id: "information-date", type: "paragraph", text: "정보 기준일: 2026-08-14" }],
-      metadata: { ...base.metadata!, approvalPolicy },
-    };
-    let approvalInstruction = "";
-    const generate = vi.fn(async (request: AIRequest) => {
-      approvalInstruction = request.instruction;
-      return { content: JSON.stringify(structuredComparisonArticle("검토 원고", true)), model: "review" };
-    });
-    const qualityEngine = { review: vi.fn(() => report(100, false)) };
-    await new EditorialQualityPipeline({ generate } as AIProvider, undefined, qualityEngine as never).run({
-      document: dated,
-      finalReviewInstruction: () => "final",
-      parseInput: parseInput(),
-      qualityContext: {},
-    });
-    expect(approvalInstruction).not.toContain("Information-date contract");
-
-    let standardInstruction = "";
-    const standardGenerate = vi.fn(async (request: AIRequest) => {
-      standardInstruction = request.instruction;
-      return { content: JSON.stringify(structuredComparisonArticle("검토 원고", true)), model: "review" };
-    });
-    await new EditorialQualityPipeline({ generate: standardGenerate } as AIProvider, undefined, qualityEngine as never).run({
-      document: base,
-      finalReviewInstruction: () => "final",
-      parseInput: parseInput(),
-      qualityContext: {},
-    });
-    expect(standardInstruction).not.toContain("Information-date contract");
+    expect(instruction).not.toContain("Information-date contract");
+    expect(instruction).not.toContain("정보 기준과 다시 확인할 곳");
+    expect(instruction).not.toContain("does not carry this line");
+    expect(instruction).not.toMatch(/정보\s*기준일\s*[:：]/u);
   });
 
   it("rejects a Review that removes a required content element", () => {

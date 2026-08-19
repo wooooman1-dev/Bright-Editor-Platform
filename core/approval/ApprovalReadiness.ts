@@ -426,10 +426,10 @@ function evidenceCheck(
     && (pack.coverageStatus === "verified" || pack.coverageStatus === undefined)
     && verifiedSources.length > 0
     ) {
-    return Object.freeze({ key: "evidence", status: "passed", message: `출처 ${verifiedSources.length}개의 페이지 내용과 원고 핵심 Claim 일치를 확인했습니다.` });
+    return Object.freeze({ key: "evidence", status: "passed", message: `인용 범위 안의 공식 출처 ${verifiedSources.length}개가 실제로 열리는 주소인지 확인했습니다.` });
   }
   if (pack?.status === "missing") {
-    return Object.freeze({ key: "evidence", status: "blocked", message: "승인 준비 원고에 AI가 참고한 출처 URL 검증 정보가 없습니다.", action: "AI가 참고한 출처 URL을 저장하고 원고의 핵심 내용과 대조하세요." });
+    return Object.freeze({ key: "evidence", status: "blocked", message: "승인 준비 원고에 AI가 참고한 출처 URL이 저장되어 있지 않습니다.", action: "AI가 참고한 출처 URL을 저장하세요." });
   }
   if (pack) {
     return unresolvedEvidenceCheck(pack, verifiedSources.length);
@@ -441,9 +441,9 @@ function evidenceCheck(
     key: "evidence",
     status: "not_evaluated",
     message: hasUrl || hasReviewDate
-      ? "본문에 출처 표시가 있지만 페이지 내용과 원고 Claim의 일치가 확인되지 않았습니다."
-      : "AI가 참고한 출처 URL과 페이지 내용 확인 정보가 없습니다.",
-    action: "출처 문구만 확인하지 말고 공식 주소와 핵심 사실을 검증 정보로 저장하세요.",
+      ? "본문에 출처 표시가 있지만 시스템이 확인한 출처 기록이 없습니다."
+      : "AI가 참고한 출처 URL 기록이 없습니다.",
+    action: "출처 문구만 두지 말고 공식 주소를 출처 기록으로 저장하세요.",
   });
 }
 
@@ -505,7 +505,7 @@ function optionalEvidenceCheck(document: ContentDocument): ApprovalReadinessChec
       hasConfirmationPath
         ? ""
         : "원고 본문에 독자가 원문을 확인할 경로를 표시하세요. 발표 기관과 공식 주소가 가장 좋지만, 공식 기관 자료가 없는 주제라면 계약서·상품설명서·약관·공고문처럼 독자가 직접 열어 볼 수 있는 문서를 지목해도 됩니다.",
-      "금액·비율·기한·법정 요건처럼 중요한 사실은 기획 단계에서 필수(CRITICAL) Claim으로 등록해 출처 내용 일치를 확인하세요.",
+      "금액·비율·기한·법정 요건처럼 중요한 사실은 기획 단계에서 필수(CRITICAL) Claim으로 등록해 공식 출처를 붙이세요.",
     ].filter(Boolean).join(" "),
   });
 }
@@ -559,7 +559,7 @@ function unresolvedEvidenceCheck(
     && source.verificationStatus !== "excluded");
   const actions = [
     unverifiedFields.length
-      ? `출처 내용으로 뒷받침되지 않은 핵심 Claim ${unverifiedFields.length}개를 확인하세요: ${unverifiedFields.join(", ")}. 해당 Claim을 확인하는 자료를 추가하거나, 뒷받침할 수 없는 문장을 원고에서 제거하세요.`
+      ? `출처가 붙지 않은 핵심 Claim ${unverifiedFields.length}개를 확인하세요: ${unverifiedFields.join(", ")}. 해당 Claim을 다루는 공식 출처를 추가하세요.`
       : "",
     rejected.length
       ? `검증에 실패한 출처 ${rejected.length}개를 확인하세요: ${rejected.map(rejectedSourceLabel).join(" / ")}.`
@@ -568,7 +568,7 @@ function unresolvedEvidenceCheck(
   return Object.freeze({
     key: "evidence",
     status: "needs_review",
-    message: `출처 ${verifiedSourceCount}개를 확인했지만 핵심 Claim 내용 일치 또는 교차 확인이 완료되지 않았습니다.`,
+    message: `출처 ${verifiedSourceCount}개를 확인했지만 도달을 확인하지 못한 출처가 남아 있습니다.`,
     action: actions.join(" ") || "출처 URL과 페이지 내용이 원고의 핵심 Claim을 뒷받침하는지 검증하세요.",
   });
 }

@@ -126,7 +126,7 @@ const profileSnapshots: Readonly<Record<ApprovalPolicyProfileId, ApprovalPolicyS
       "승인 보장, 수익 보장, 반드시 통과 또는 100% 승인이라는 표현을 사용하지 않는다.",
       "생활경제 분야의 주제와 대상 독자에게 일관된 원고를 작성한다.",
       "변경 가능한 대상, 기간, 금액, 소득 기준, 금리와 세율은 공식 출처로 확인한다.",
-      "본문 마지막의 별도 '정보 기준과 다시 확인할 곳' 영역에 정보 기준일과 공식 재확인 경로를 제공한다. 출처 확인일과 Claim 최종 검토일은 Bright Studio가 Evidence 검증 후 별도로 기록한다.",
+      "원고는 정보 기준일·출처 확인일·최종 검토일을 쓰지 않는다. 세 날짜와 공식 재확인 경로는 Bright Studio가 Evidence 검증 후 출처 영역에 직접 표시한다.",
       "공식 문서를 단순 요약하지 않고 독자가 자신의 적용 여부를 판단할 조건, 예외, 확인 순서와 다음 행동을 제공한다.",
       "초기 Category는 생활재테크 하나만 사용하고 초기 Tag를 만들지 않는다.",
     ]),
@@ -142,7 +142,7 @@ const profileSnapshots: Readonly<Record<ApprovalPolicyProfileId, ApprovalPolicyS
       "국세청·법령정보·금융위원회·금융감독원 자료",
       "공공기관 공식 공고와 공식 신청 페이지",
       "공식 HTTPS URL",
-      "본문 정보 기준일과 시스템 Evidence 검토일의 역할 분리",
+      "정보 기준일과 출처 확인일은 시스템이 기록한다",
     ]),
     qualityChecks: Object.freeze([
       ...sharedQualityChecks,

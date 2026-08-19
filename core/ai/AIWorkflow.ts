@@ -160,7 +160,7 @@ export class AIWorkflow {
         : preflightInstruction, input.contentOpportunity);
       const instruction = approvalSnapshot
         ? withCalculationExampleDisclosureContract(
-            `${riskInstruction}\n\n${approvalInformationDateContract(currentInformationDate())}`,
+            `${riskInstruction}\n\n${approvalInformationDateContract()}`,
           )
         : riskInstruction;
       const response = await this.provider.generate({
@@ -386,31 +386,21 @@ export class AIWorkflow {
  * so revenue content keeps writing facts wherever they read best.
  */
 function withWithdrawableFactIsolationInstruction(instruction: string): string {
-  return `${instruction}\n\nWithdrawal-resilient paragraph contract (mandatory): the server checks every factual surface and deletes the entire paragraph carrying a factual surface it cannot verify, so write so that a deletion costs the article the fact and never the explanation. Keep each externally verifiable fact — an amount, a rate or percentage, a date such as 정보 기준일 or 최종 검토일, a statute or article reference, an eligibility, application, or contract condition — in its own short paragraph that states that fact with its source context and nothing else. Never place such a sentence in the same paragraph as the prose that explains a section's table or list, its reasoning, or the reader's next action. Every H2 must still fulfil its role and reach its running-prose minimum — ${longFormNarrativeFloors.standard} characters excluding whitespace, or ${longFormNarrativeFloors.listShaped} when its sectionType is ${longFormNarrativeFloors.listShapedSectionTypes.join(", ")} — counting only the paragraphs that carry no verifiable fact, because a section whose explanation is welded to a withdrawable fact loses both at once. Report every factual surface you write in the factual Claim inventory: an unreported factual sentence is deleted from the manuscript without replacement.`;
+  return `${instruction}\n\nWithdrawal-resilient paragraph contract (mandatory): the server checks every factual surface and deletes the entire paragraph carrying a factual surface it cannot verify, so write so that a deletion costs the article the fact and never the explanation. Keep each externally verifiable fact — an amount, a rate or percentage, a date belonging to the subject matter such as a statute enforcement date or an application deadline, a statute or article reference, an eligibility, application, or contract condition — in its own short paragraph that states that fact with its source context and nothing else. Never place such a sentence in the same paragraph as the prose that explains a section's table or list, its reasoning, or the reader's next action. Every H2 must still fulfil its role and reach its running-prose minimum — ${longFormNarrativeFloors.standard} characters excluding whitespace, or ${longFormNarrativeFloors.listShaped} when its sectionType is ${longFormNarrativeFloors.listShapedSectionTypes.join(", ")} — counting only the paragraphs that carry no verifiable fact, because a section whose explanation is welded to a withdrawable fact loses both at once. Report every factual surface you write in the factual Claim inventory: an unreported factual sentence is deleted from the manuscript without replacement.`;
 }
 
 /**
- * The approval content policy requires the manuscript body to state its own
- * information date and an official re-check path
- * (`14_ADSENSE_APPROVAL_CONTENT_POLICY.md` §5), and the server reads that line
- * back: Evidence selection harvests `정보 기준일` into the Evidence pack, and the
- * approval policy gate blocks a manuscript that has neither the line nor a
- * recorded Evidence review date.
+ * 날짜는 시스템이 쓴다 (D-043).
  *
- * content-mssph0q6-ftn4h7 was blocked on PROFILE_REVIEW_DATE_MISSING with no
- * such line anywhere in its 38 blocks, because nothing in the generation prompt
- * asked for one — the only mention of the date was a restriction on how to
- * write it if it happened to appear.
+ * 예전 계약은 본문 끝에 "정보 기준과 다시 확인할 곳" 섹션을 만들어 정보 기준일과
+ * 공식 재확인 경로를 쓰게 했다. 그 두 가지를 시스템이 출처 영역에 이미 렌더링하고
+ * 있어 같은 값이 한 화면에 두 번 나왔다. 게다가 요구한 두 문단은 113자인데 모든
+ * H2에 400자 산문을 요구하므로, 남는 자리를 결론 재탕이 채웠다.
  *
- * The date comes from the server rather than from the model, so this asks for
- * publication metadata and never for an invented fact. The colon form is the
- * one the undisclosed-fact sweep recognises as publication metadata, so writing
- * it cannot cost the paragraph that carries it.
- *
- * Approval preparation only: revenue content has no information-date contract.
+ * Approval preparation only: revenue content has no date contract.
  */
-export function approvalInformationDateContract(informationDate: string): string {
-  return `Information-date contract (mandatory for approval preparation): place a distinct final section after the article's conclusion, using the heading "정보 기준과 다시 확인할 곳". In that section, state this article's own information date exactly once, as its own short paragraph, in the exact form "정보 기준일: ${informationDate}". Do not place this date under the title, in the introduction, in an ordinary explanatory paragraph, or inside a source-content paragraph. The server supplies this date, so do not guess another one and do not drop the colon. In a separate paragraph in the same final section, name the official service or page a reader uses to re-check the changeable information, using only a service or page present in the supplied Evidence, without writing a URL. This paragraph is reader guidance, not source content: do not present it as a legal or factual Claim and do not blend it into the article's explanation. Do not build an unstructured source list; verified source links are rendered separately by the system. Never write 출처 확인일 or 최종 검토일 and never combine either role with 정보 기준일: Bright Studio records those system-owned dates itself after Evidence verification. Do not report the 정보 기준일 line as a factual Claim; it is publication metadata about this article, not an external fact. Declare this section with sectionType=explanation and never with sectionType=summary: the renderer draws a summary section as a "핵심 요약" card, and a re-check pointer presented as the article's key summary misleads the reader. Measured on brightjaetech.kr 2026-08-18 — the information-date section shipped as a 핵심 요약 card above the conclusion.`;
+export function approvalInformationDateContract(): string {
+  return `Date-ownership contract (mandatory for approval preparation): never write a date that describes this article's own currency or review. Never write 정보 기준일, 출처 확인일, 최종 검토일 or any equivalent label, in any section, in any form. Bright Studio renders those dates itself beneath the verified source list after Evidence verification, so writing them yourself produces the same date twice on one page. Do not create a closing section that points the reader at an official page to re-check the article — the verified source links carry that, and the system renders them. Naming an institution inside ordinary explanation stays allowed; what is prohibited is a date line and a separate re-check section. Dates that belong to the subject matter — a statute's enforcement date, an application deadline, a period a rule covers — are unaffected and stay in the article as factual Claims.`;
 }
 
 /**
@@ -430,10 +420,6 @@ export function approvalInformationDateContract(informationDate: string): string
  */
 export function withCalculationExampleDisclosureContract(instruction: string): string {
   return `${instruction}\n\nCalculation-example contract (mandatory for approval preparation): when a section presents figures you computed from assumptions rather than figures an institution publishes — a comparison table of payment amounts, a worked total, an illustrative balance — that same section must carry one prose sentence stating all three of: ${calculationDisclosureContract.clauses.join("; ")}. Naming the assumptions alone is not enough and neither is the word 예시. Write it as prose in the section that holds the figures, not as a footnote elsewhere, because the exemption is scoped to the section. Model sentence: "${calculationDisclosureContract.example}" Do not attach this disclosure to figures that came from a verified Claim value; those are published facts and this contract does not apply to them.`;
-}
-
-function currentInformationDate(): string {
-  return new Date().toISOString().slice(0, 10);
 }
 
 function withVerificationClaimRiskInstruction(

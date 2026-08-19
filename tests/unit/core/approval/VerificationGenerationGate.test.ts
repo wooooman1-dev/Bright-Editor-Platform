@@ -132,27 +132,29 @@ describe("Verification Generation Gate", () => {
     ]);
   });
 
+  // D-045: 출처 판정은 인용 범위와 도달까지다. Claim 내용 상태는 게이트를 막지 않는다.
   it.each(["insufficient", "stale", "conflicted", "planned"] as const)(
-    "blocks a required %s Claim",
+    "does not block a required %s Claim",
     (status) => {
       const required = claim("required");
       const gate = evaluateVerificationGenerationGate({
         plan: plan([required]),
         snapshot: snapshot([required], [result("required", status)]),
       });
-      expect(gate.ready).toBe(false);
-      expect(gate.blockingClaimIds).toEqual(["required"]);
+      expect(gate.ready).toBe(true);
+      expect(gate.blockingClaimIds).toEqual([]);
     },
   );
 
-  it("blocks a missing required Claim result", () => {
+  it("does not block a missing required Claim result", () => {
     const required = claim("required");
     const gate = evaluateVerificationGenerationGate({
       plan: plan([required]),
       snapshot: snapshot([required], []),
     });
-    expect(gate.ready).toBe(false);
-    expect(gate.blockingClaimIds).toEqual(["required"]);
+    expect(gate.ready).toBe(true);
+    expect(gate.blockingClaimIds).toEqual([]);
+    expect(gate.verifiedClaimIds).toEqual([]);
   });
 
   it("allows an unverified optional Claim without trusting its sources", () => {
@@ -217,12 +219,13 @@ describe("Verification Generation Gate", () => {
         [result("claim-a", "verified", assessments)],
       ),
     });
-    expect(gate.ready).toBe(false);
+    expect(gate.ready).toBe(true);
     expect(gate.verifiedClaimIds).toEqual(["claim-a"]);
-    expect(gate.blockingClaimIds).toEqual(["claim-b"]);
+    expect(gate.blockingClaimIds).toEqual([]);
   });
 
-  it("excludes stale assessments when a verified Claim also has complete fresh evidence", () => {
+  // D-045: 신선도는 페이지 내용을 읽어야 나오는 판정이라 더 이상 출처를 걸러내지 않는다.
+  it("keeps a stale assessment alongside the fresh ones as a citable source", () => {
     const required = claim("required");
     const fresh = completeSources("required");
     const stale = source("required", "old", "stale");
@@ -231,22 +234,19 @@ describe("Verification Generation Gate", () => {
       snapshot: snapshot([required], [result("required", "verified", [...fresh, stale])]),
     });
     expect(gate.ready).toBe(true);
-    expect(gate.verifiedCanonicalUrls).toEqual([
-      "https://primary.example/claim",
-      "https://official-a.example/claim",
-      "https://official-b.example/claim",
-    ]);
+    expect(gate.verifiedCanonicalUrls).toContain("https://primary.example/claim");
+    expect(gate.verifiedCanonicalUrls).toHaveLength(4);
   });
 
-  it("re-evaluates policy and rejects a malformed verified status backed only by unknown freshness", () => {
+  it("does not re-run Claim policy on a stored status backed only by unknown freshness", () => {
     const required = claim("required");
     const unknown = source("required", "primary", "unknown");
     const gate = evaluateVerificationGenerationGate({
       plan: plan([required]),
       snapshot: snapshot([required], [result("required", "verified", [unknown])]),
     });
-    expect(gate.ready).toBe(false);
-    expect(gate.blockingClaimIds).toEqual(["required"]);
-    expect(gate.diagnostics).toContain("verification_claim_policy_recheck_failed:required");
+    expect(gate.ready).toBe(true);
+    expect(gate.blockingClaimIds).toEqual([]);
+    expect(gate.diagnostics).toEqual([]);
   });
 });

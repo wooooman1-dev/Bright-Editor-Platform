@@ -133,7 +133,9 @@ function applyGeneratedClaimVerificationIntegrity(
     plan: criticalPlan,
     currentRevisionId: context.revisionId ?? editorialRevisionId(document),
   });
-  const uniqueIssues = integrity.reasons;
+  // 차단 사유와 경고를 같은 자리에 낸다. 경고 문장은 어떤 값이 어디에서 걸렸는지를
+  // 이미 담고 있으므로 이유가 화면에 그대로 보인다 (D-045).
+  const uniqueIssues = Object.freeze([...new Set([...integrity.reasons, ...integrity.warnings])]);
   if (!uniqueIssues.length) return report;
 
   /**

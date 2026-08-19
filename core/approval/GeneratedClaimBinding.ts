@@ -1,3 +1,4 @@
+import { isSystemProjectionBlock } from "../content/ContentBlockOwnership";
 import type { ContentDocument } from "../content/ContentDocument";
 import { serializeStructuredList, serializeStructuredTable } from "../content/StructuredText";
 import type { GeneratedFactualClaim } from "./GeneratedFactualClaim";
@@ -69,8 +70,8 @@ export function bindGeneratedClaims(input: Readonly<{
     if (!isCriticalVerificationClaim(claim)) return [];
     if (!verifiedClaimIds.has(claim.claimId)) return [];
     const result = resultByClaimId.get(claim.claimId);
-    if (!result || result.status !== "verified") return [];
-    const sourceIds = trustedClaimSourceIds(result.sourceAssessments, verifiedSourceIds);
+    if (!result) return [];
+    const sourceIds = claimSourceIds(result.sourceAssessments, verifiedSourceIds);
     if (!sourceIds.length) return [];
     const tokens = claimTextTokens(claim, result.normalizedValue);
     if (!tokens.length) return [];
@@ -179,7 +180,16 @@ export function createGeneratedClaimVerificationRecord(input: Readonly<{
   });
 }
 
-function trustedClaimSourceIds(
+/**
+ * The sources recorded against a Claim, ordered so the primary official one comes
+ * first.
+ *
+ * The filter used to also require supports, a normalizedValue and a non-stale
+ * freshness verdict. All three are outcomes of comparing the page's text with the
+ * manuscript, which D-045 stopped doing, so keeping them meant no Claim could ever
+ * carry a source again.
+ */
+function claimSourceIds(
   assessments: readonly VerificationSourceAssessment[],
   gateSourceIds: ReadonlySet<string>,
 ): readonly string[] {
@@ -188,16 +198,10 @@ function trustedClaimSourceIds(
     officialCorroborating: 1,
     independentCorroborating: 2,
   };
-  const trusted = assessments.filter((assessment) =>
-    gateSourceIds.has(assessment.sourceId)
-    && assessment.supports === true
-    && Boolean(assessment.normalizedValue)
-    && assessment.fresh === true
-    && assessment.freshnessStatus !== "stale"
-    && assessment.freshnessStatus !== "unknown")
+  const recorded = assessments.filter((assessment) => gateSourceIds.has(assessment.sourceId))
     .sort((a, b) => roleRank[a.role] - roleRank[b.role]
       || a.sourceId.localeCompare(b.sourceId));
-  return Object.freeze([...new Set(trusted.map((assessment) => assessment.sourceId))]);
+  return Object.freeze([...new Set(recorded.map((assessment) => assessment.sourceId))]);
 }
 
 function claimTextTokens(
@@ -262,6 +266,10 @@ function generatedTextSegments(document: ContentDocument): readonly Readonly<{
     Object.freeze({ location: Object.freeze({ kind: "title" as const }), text: document.title }),
   ];
   for (const block of document.blocks) {
+    // Bright Studio wrote these blocks itself — the source list, the source links
+    // and the 출처 확인일 · 정보 기준일 line. Scanning them for generated Claims made
+    // the system's own dates read as unverified facts the manuscript had invented.
+    if (isSystemProjectionBlock(block)) continue;
     const text = block.type === "heading" || block.type === "paragraph"
       ? block.text
       : block.type === "list"
@@ -374,6 +382,25 @@ const recencyWindowPattern = /(?:최근|지난)\s*\d+(?:\.\d+)?\s*(?:개월|일|
 const thresholdQuantifier = /^\s*(?:이내|이상|이하|미만|초과|안에|내에|까지)/u;
 const thresholdLookaheadWindow = 8;
 
+/**
+ * The "정보 기준일: YYYY-MM-DD" line the approval contract requires.
+ *
+ * That date is metadata about this article, not a fact read off a source, and the
+ * generation contract says so in as many words. Detecting it as a high-risk date
+ * made every approval manuscript carry an unverified-fact finding it could never
+ * clear: 2026-08-19 밝은재테크 실측에서 검출된 3건 중 2건이 이 한 줄이었다.
+ */
+function informationDateSpans(
+  value: string,
+): readonly Readonly<{ start: number; end: number }>[] {
+  const spans: Array<Readonly<{ start: number; end: number }>> = [];
+  for (const match of value.matchAll(/정보\s*기준일\s*[:：]?\s*\d{4}[.\-/]\s*\d{1,2}(?:[.\-/]\s*\d{1,2})?/gu)) {
+    if (typeof match.index !== "number") continue;
+    spans.push(Object.freeze({ start: match.index, end: match.index + match[0].length }));
+  }
+  return Object.freeze(spans);
+}
+
 function recencyWindowSpans(
   value: string,
 ): readonly Readonly<{ start: number; end: number }>[] {
@@ -399,10 +426,13 @@ function detectHighRiskScalarTokens(value: string): readonly DetectedScalar[] {
     detected.push(Object.freeze({ ...item, kind: "duration" as const }));
   }
   const exemptSpans = [...rejectedExampleSpans(value), ...recencyWindowSpans(value)];
+  const metadataSpans = informationDateSpans(value);
   return Object.freeze(detected
     .filter((item) => item.kind !== "duration"
       || !exemptSpans.some((span) =>
         item.start >= span.start && item.end <= span.end))
+    .filter((item) => !metadataSpans.some((span) =>
+      item.start >= span.start && item.end <= span.end))
     .sort((a, b) => a.start - b.start || a.end - b.end));
 }
 

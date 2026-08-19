@@ -500,6 +500,23 @@ export function createContentFromPlan(data: UserData, input: Readonly<{
     contentId: input.id,
     confirmedAt: input.now,
   });
+  /**
+   * Switching to a different Opportunity must not keep the previous manuscript.
+   *
+   * Confirming replaced opportunity, primaryKeyword, searchIntent and
+   * qualityTarget but read title and body straight off the existing Content, and
+   * nothing compared the two Opportunities. 2026-08-19 밝은재테크 실측: 후보 A를
+   * 확정했다가 뒤로 가서 후보 B를 확정하니 Opportunity만 B로 바뀌고 제목·본문은 A로
+   * 남아, 생성이 A 주제로 돌아 주제 이탈·제목 정렬·목차 범위 등 품질 차단 8건이
+   * 한꺼번에 발생했다. opportunityId는 fingerprint에서 결정론적으로 파생되므로 같은
+   * 후보를 다시 확정하면 값이 같고, 그때는 지금까지처럼 원고를 보존한다.
+   *
+   * D-044는 새 Content ID를 만드는 경우를 다루며 "generation starts a fresh
+   * manuscript"라고 못박는다. 같은 Content에서 후보만 바꾸는 이 경로는 그 결정의
+   * 범위 밖이었다.
+   */
+  const opportunityChanged = Boolean(existing?.opportunity?.opportunityId)
+    && existing!.opportunity!.opportunityId !== opportunity.opportunityId;
   if (!request) throw new Error("요청과 콘텐츠 기회를 확인해 주세요.");
   const workflow = existing?.planningWorkflow ?? source?.planningWorkflow;
   const content: UserContent = {
@@ -531,8 +548,9 @@ export function createContentFromPlan(data: UserData, input: Readonly<{
     qualityTarget: opportunity.qualityTarget,
     selectedPublishingAccountIds: [...new Set(input.selectedPublishingAccountIds)],
     ...(input.selectedPublishingAccountIds.length === 1 ? { publishingAccountId: input.selectedPublishingAccountIds[0], platform: resolveProjectStrategy(project).defaultPlatform } : {}),
-    title: existing?.document?.title ?? opportunity.selectedTopic,
-    body: existing?.body ?? "", status: "planning", creationMethod: "natural_language", createdAt: existing?.createdAt ?? input.now, updatedAt: input.now,
+    ...(opportunityChanged ? { document: undefined, quality: undefined, generationDiagnostic: undefined, reviewDiagnostic: undefined, publishingPreparation: undefined, generationError: undefined, reviewError: undefined } : {}),
+    title: opportunityChanged ? opportunity.selectedTopic : existing?.document?.title ?? opportunity.selectedTopic,
+    body: opportunityChanged ? "" : existing?.body ?? "", status: "planning", creationMethod: "natural_language", createdAt: existing?.createdAt ?? input.now, updatedAt: input.now,
   };
   return { ...data, contents: existing ? data.contents.map((item) => item.id === existing.id ? content : item) : [...data.contents, content] };
 }
