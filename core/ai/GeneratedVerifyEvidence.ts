@@ -1,6 +1,5 @@
 import {
   canonicalizeApprovalEvidenceUrl,
-  evaluateApprovalSourceRelevance,
   isCriticalVerificationClaim,
   officialSourceAllowed,
   type ApprovalPolicySnapshot,
@@ -98,21 +97,18 @@ export async function evaluateGeneratedFactualClaimDecisions(input: Readonly<{
       decisions.push(unsupported("verify_source_unofficial"));
       continue;
     }
-    if (!containsNormalized(page.text, draft.evidenceExcerpt, 12)) {
-      decisions.push(unsupported("verify_evidence_anchor_unverified"));
-      continue;
-    }
-    const relevance = evaluateApprovalSourceRelevance({
-      profileId: input.snapshot.profileId,
-      opportunity: input.opportunity,
-      page,
-      additionalScope: [draft.statement, draft.surfaceText, draft.evidenceExcerpt],
-      minimumClaimCoverage: 0.35,
-    });
-    if (relevance.status !== "passed" || !claimMeaningMatchesEvidence(draft, draft.evidenceExcerpt)) {
-      decisions.push(unsupported("verify_claim_relevance_unverified"));
-      continue;
-    }
+    /**
+     * 페이지 내용이 Claim 을 뒷받침하는지는 판정하지 않는다 (D-045).
+     *
+     * 여기 있던 두 검사는 인용문이 페이지 본문에 그대로 있는지와, 페이지가 Claim 을
+     * 의미상 뒷받침하는지를 봤다. 통과하지 못한 문장은 문단째 원고에서 삭제된다.
+     * 2026-08-19 밝은재테크 실측: 출처가 law.go.kr 조문 페이지이고 인용문까지
+     * 저장돼 있던 주택임대차보호법 제3조의2 우선변제권 문단이 여기서 걸려 사라졌고,
+     * 그 결과가 정보 완성도 85점이었다.
+     *
+     * 남는 판정은 D-045 가 정한 셋이다. 생성이 인용한 URL 인가, 인용 범위 안의
+     * 공식 도메인인가, 그 주소가 실제로 열리는가.
+     */
     decisions.push(Object.freeze({
       retained: true,
       evidenceStatus: "verify_verified" as const,
@@ -129,32 +125,3 @@ function unsupported(diagnosticCode: string): GeneratedFactualClaimDecision {
   });
 }
 
-function claimMeaningMatchesEvidence(
-  draft: GeneratedFactualClaimInventoryDraft,
-  evidenceExcerpt: string,
-): boolean {
-  const claimTokens = meaningfulTokens(`${draft.statement} ${draft.surfaceText}`);
-  const evidenceTokens = new Set(meaningfulTokens(evidenceExcerpt));
-  if (!claimTokens.length) return false;
-  const matches = claimTokens.filter((token) => evidenceTokens.has(token));
-  return matches.length >= Math.min(2, claimTokens.length)
-    && matches.length / claimTokens.length >= 0.35;
-}
-
-function meaningfulTokens(value: string): string[] {
-  const stop = new Set([
-    "관련", "경우", "사실", "설명", "수있다", "있습니다", "합니다", "대한",
-    "따라", "통해", "일반", "확인", "정보", "내용", "해당",
-  ]);
-  return [...new Set(value.normalize("NFKC").toLocaleLowerCase("ko-KR")
-    .match(/[0-9a-z가-힣]{2,}/gu) ?? [])].filter((token) => !stop.has(token));
-}
-
-function containsNormalized(haystack: string, needle: string, minimumLength: number): boolean {
-  const target = normalizeComparable(needle);
-  return target.length >= minimumLength && normalizeComparable(haystack).includes(target);
-}
-
-function normalizeComparable(value: string): string {
-  return value.normalize("NFKC").toLocaleLowerCase("ko-KR").replace(/[^0-9a-z가-힣]+/gu, "");
-}
