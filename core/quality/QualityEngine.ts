@@ -13,6 +13,8 @@ import {
   type ConfirmedContentOpportunity,
   type ContentDocument,
   type ContentOpportunityQualityReview,
+  type LongFormDiagnostic,
+  type LongFormViolationCode,
 } from "../content";
 import { analyzeImagePrompts, isBrightComponentPurpose, type ImagePromptIssue } from "../media";
 import { qualityDimensionWeights } from "./QualityScoringPolicy";
@@ -121,7 +123,7 @@ export class QualityEngine {
       ...dimensions.flatMap((item) => item.reasons.map((message) => ({ category: item.category, message, severity: item.status === "blocked" ? "error" as const : "warning" as const }))),
       ...opportunityTasks.map((item) => ({ category: item.category, message: item.message, severity: "error" as const })),
       ...evidenceClaimTasks.map((item) => ({ category: item.category, message: item.message, severity: "error" as const })),
-      ...(signals.hasExplicitQualityTarget ? signals.contentDiagnostic.violations.map((item) => ({ category: "completeness" as const, message: `${item.code}${item.heading ? `: ${item.heading}` : item.requiredElement ? `: ${item.requiredElement}` : ""}`, severity: "error" as const })) : []),
+      ...(signals.hasExplicitQualityTarget ? signals.contentDiagnostic.violations.map((item) => ({ category: "completeness" as const, message: longFormViolationMessage(item), severity: blocksPublishing(item.code) ? "error" as const : "warning" as const })) : []),
     ];
     return Object.freeze({
       approved,
@@ -132,7 +134,7 @@ export class QualityEngine {
       ...(opportunityReview ? { opportunityReview } : {}),
       reviews: Object.freeze(dimensions),
       dimensions: Object.freeze(dimensions),
-      tasks: Object.freeze([...dimensions.flatMap((item) => item.tasks.map((message) => ({ category: item.category, message, status: item.status === "blocked" ? "blocked" as const : "action_required" as const }))), ...opportunityTasks, ...evidenceClaimTasks, ...(signals.hasExplicitQualityTarget ? signals.contentDiagnostic.violations.map((item) => ({ category: "completeness" as const, message: `${item.code}${item.heading ? `: ${item.heading}` : item.requiredElement ? `: ${item.requiredElement}` : ""}`, status: "blocked" as const })) : [])]),
+      tasks: Object.freeze([...dimensions.flatMap((item) => item.tasks.map((message) => ({ category: item.category, message, status: item.status === "blocked" ? "blocked" as const : "action_required" as const }))), ...opportunityTasks, ...evidenceClaimTasks, ...(signals.hasExplicitQualityTarget ? signals.contentDiagnostic.violations.map((item) => ({ category: "completeness" as const, message: longFormViolationMessage(item), status: blocksPublishing(item.code) ? "blocked" as const : "action_required" as const })) : [])]),
       reviewedAt: context.reviewedAt ?? new Date().toISOString(),
       reviewedRevisionId: context.revisionId ?? editorialRevisionId(document),
       weights: qualityDimensionWeights,
@@ -512,3 +514,25 @@ function splitReaderSentences(value: string): string[] {
 }
 function wordCount(value: string) { return value.split(/\s+/u).filter(Boolean).length; }
 function matches(value: string, pattern: RegExp) { return [...value.matchAll(pattern)].length; }
+
+/**
+ * 구조 위반 중 발행을 막는 것은 글 전체 분량 하나뿐이다 (D-045).
+ *
+ * 이전에는 모든 위반이 error 이자 blocked 로 나갔다. 그래서 섹션 하나가 산문
+ * 몇십 자 부족하다는 이유로 완성된 글이 승인에서 멈췄다. 2026-08-19 실측:
+ * 2026-08-09 에 발행된 「신용카드 명세서 보는 방법」이 갱신 발행을 하려는 시점에
+ * CONTENT_SECTION_PROSE_INSUFFICIENT 세 건으로 막혔다.
+ *
+ * D-045 가 정한 대로 섹션 단위 산문 미달과 약속한 비교의 미실행은 진단과 최종
+ * 편집 지시로만 전달한다. AdSense 가 거부하는 것은 얕은 글이므로 글 전체 분량
+ * 기준만 차단으로 남긴다.
+ */
+function blocksPublishing(code: LongFormViolationCode): boolean {
+  return code !== "CONTENT_SECTION_PROSE_INSUFFICIENT"
+    && code !== "CONTENT_DECLARED_COMPARISON_MISSING";
+}
+
+function longFormViolationMessage(item: LongFormDiagnostic["violations"][number]): string {
+  const detail = item.heading ? `: ${item.heading}` : item.requiredElement ? `: ${item.requiredElement}` : "";
+  return `${item.code}${detail}`;
+}
