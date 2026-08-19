@@ -62,3 +62,41 @@ describe("WordPress button rendering", () => {
     expect(html).toContain('<li><a href="https://bright-money.example.com/entry/one">관련 글 1</a></li>');
   });
 });
+
+function sourceDocument(): ContentDocument {
+  return {
+    ...document(),
+    id: "wordpress-sources",
+    blocks: [
+      { id: "intro", type: "paragraph", text: "본문 문단입니다." },
+      { id: "cta", type: "button", purpose: "cta", label: "계속하기", targetUrl: "/next", target: "_self" },
+      { id: "sources-heading", type: "heading", level: 2, text: "출처", ownership: "system_source_projection" },
+      { id: "source-1", type: "button", purpose: "source", label: "청년내일저축계좌 신청 방법 · korea.kr", targetUrl: "https://www.korea.kr/news/one", target: "_blank", ownership: "system_source_projection" },
+      { id: "source-2", type: "button", purpose: "source", label: "자산형성지원사업 · 보건복지부", targetUrl: "https://www.mohw.go.kr/asset", target: "_blank", ownership: "system_source_projection" },
+      { id: "reviewed-at", type: "paragraph", text: "출처 확인일: 2026-08-19", ownership: "system_source_projection" },
+    ],
+  };
+}
+
+describe("WordPress source link rendering", () => {
+  it("renders consecutive source links as one list instead of theme-coloured Gutenberg buttons", () => {
+    const html = new WordPressHtmlRenderer().render(sourceDocument());
+
+    expect(html).toContain('<ul class="bright-sources"><li><a href="https://www.korea.kr/news/one" target="_blank" rel="noopener noreferrer">청년내일저축계좌 신청 방법 · korea.kr</a></li><li><a href="https://www.mohw.go.kr/asset" target="_blank" rel="noopener noreferrer">자산형성지원사업 · 보건복지부</a></li></ul>');
+    expect(html).not.toContain('wp-block-button__link" href="https://www.korea.kr/news/one"');
+    expect(html).not.toContain('wp-block-button__link" href="https://www.mohw.go.kr/asset"');
+  });
+
+  it("keeps the 출처 heading and the review date outside the list", () => {
+    const html = new WordPressHtmlRenderer().render(sourceDocument());
+
+    expect(html).toContain(">출처</h2>");
+    expect(html).toContain("<p>출처 확인일: 2026-08-19</p>");
+  });
+
+  it("leaves CTA buttons as native Gutenberg buttons in the same document", () => {
+    const html = new WordPressHtmlRenderer().render(sourceDocument());
+
+    expect(html).toContain('<div class="wp-block-button"><a class="wp-block-button__link" href="/next">계속하기</a></div>');
+  });
+});

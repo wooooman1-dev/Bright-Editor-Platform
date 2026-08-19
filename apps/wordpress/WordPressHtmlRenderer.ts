@@ -1,4 +1,4 @@
-import { ContentNormalizer, createContentOutline, type ContentDocument, type ContentOutlineEntry, type ListBlock, type TableBlock } from "../../core/content";
+import { ContentNormalizer, createContentOutline, type ButtonBlock, type ContentDocument, type ContentOutlineEntry, type ListBlock, type TableBlock } from "../../core/content";
 import { canonicalizeApprovalEvidenceUrl, readerVisibleApprovalSourceText, type ApprovalEvidenceSource } from "../../core/approval";
 import { isFreeBodyVisualBlock, renderBrightBodyVisualHtml } from "../../core/media";
 import { resolveContentSectionPresentations, resolveTablePresentation, type ContentSectionPresentation } from "../../core/presentation";
@@ -13,13 +13,18 @@ export class WordPressHtmlRenderer {
       .filter((section) => section.treatment === "card")
       .map((section) => [section.headingBlockId, section] as const));
     const consumed = new Set<string>();
-    const body = bodyBlocks.flatMap((block) => {
+    const body = bodyBlocks.flatMap((block, index) => {
       if (consumed.has(block.id)) return [];
       const card = cards.get(block.id);
       if (card) {
         const sourceBlocks = card.sourceBlockIds.flatMap((id) => blockById.get(id) ?? []);
         sourceBlocks.forEach((source) => consumed.add(source.id));
         return [renderCard(card, sourceBlocks, document)];
+      }
+      if (isSourceLink(block)) {
+        const group = consecutiveSourceLinks(bodyBlocks, index);
+        group.forEach((item) => consumed.add(item.id));
+        return [renderSourceList(group)];
       }
       return [renderBlock(block, document)];
     }).filter(Boolean).join("\n");
@@ -38,6 +43,43 @@ export class WordPressHtmlRenderer {
     const relatedHtml = related.length ? `<section class="bright-related-posts"><h2>관련 글 보기</h2><ul>${related.slice(0, 3).map((block) => block.type === "button" ? `<li><a href="${attribute(block.targetUrl)}"${block.target === "_blank" ? ' target="_blank" rel="noopener noreferrer"' : ""}>${escapeHtml(block.label)}</a></li>` : "").join("")}</ul></section>` : "";
     return [toc, body, relatedHtml].filter(Boolean).join("\n");
   }
+}
+
+/**
+ * 출처는 버튼이 아니라 목록이다.
+ *
+ * 출처 링크는 워드프레스 코어 버튼 블록(`wp-block-button`)으로 나갔다. 그러면
+ * 색을 우리가 아니라 테마가 정한다. 2026-08-19 밝은재테크 실측: 테마가 이
+ * 클래스에 어두운 알약 배경과 빨간 글씨를 입혀, 근거 세 건이 검은 버튼 세
+ * 개로 보였다. 바로 아래 "관련 글 보기"는 같은 button 블록인데 자체 클래스로
+ * 목록을 그려 평범하게 나왔다.
+ *
+ * 버튼은 행동을 유도하는 요소이고 출처는 읽고 확인하는 목록이다. CTA 와 제휴
+ * 링크는 버튼으로 남긴다.
+ */
+function isSourceLink(block: ContentDocument["blocks"][number]): block is ButtonBlock {
+  return block.type === "button" && block.purpose === "source" && Boolean(block.targetUrl);
+}
+
+function consecutiveSourceLinks(
+  blocks: readonly ContentDocument["blocks"][number][],
+  start: number,
+): readonly ButtonBlock[] {
+  const group: ButtonBlock[] = [];
+  for (let index = start; index < blocks.length; index += 1) {
+    const block = blocks[index];
+    if (!block || !isSourceLink(block)) break;
+    group.push(block);
+  }
+  return Object.freeze(group);
+}
+
+function renderSourceList(blocks: readonly ButtonBlock[]): string {
+  const items = blocks.map((block) => {
+    const target = block.target === "_blank" ? ' target="_blank" rel="noopener noreferrer"' : "";
+    return `<li><a href="${attribute(block.targetUrl)}"${target}>${escapeHtml(block.label)}</a></li>`;
+  }).join("");
+  return `<ul class="bright-sources">${items}</ul>`;
 }
 
 function renderCard(

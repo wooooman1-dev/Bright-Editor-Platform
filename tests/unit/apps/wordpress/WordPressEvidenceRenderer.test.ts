@@ -72,7 +72,8 @@ describe("WordPress verified Evidence rendering", () => {
     const value = document(true);
     const html = new WordPressHtmlRenderer().render(value);
 
-    expect(html).toContain('<a class="wp-block-button__link" href="https://law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202&amp;lsJoLnkSeq=1025033501"');
+    expect(html).toContain('<ul class="bright-sources"><li><a href="https://law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202&amp;lsJoLnkSeq=1025033501"');
+    expect(html).not.toContain("wp-block-button");
     expect(html).toContain("방문판매 등에 관한 법률 제30조·제32조 · 국가법령정보센터");
     expect(html).toContain("출처 확인일: 2026-08-01");
     expect(html).not.toContain("Claim 최종 검토일");
