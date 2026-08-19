@@ -144,7 +144,7 @@ export function ContentDocumentEditor({
 
 function DerivedTableOfContents({ outline }: { outline: readonly ContentOutlineEntry[] }) {
   return <nav aria-label="원고 자동 목차" className="my-8 rounded-xl border border-[#e8e3dc] bg-[#fbfaf8] px-6 py-5">
-    <div className="flex flex-wrap items-center justify-between gap-2"><strong className="text-lg">목차</strong><span className="text-xs text-[#77777f]">H2/H3에서 자동 생성 · 미리보기와 동일</span></div>
+    <div className="flex flex-wrap items-center justify-between gap-2"><strong className="text-lg">목차</strong><span className="text-xs text-[#77777f]">H2/H3에서 자동 생성 · 발행본에도 같은 목차가 붙습니다</span></div>
     <ul className="mt-4 space-y-2 text-[16px] leading-7">
       {outline.map((entry) => <li className={entry.level === 3 ? "pl-5 text-[#66666f]" : "font-medium"} key={entry.id}>
         <button className="text-left hover:underline" onClick={() => globalThis.document.getElementById(`editor-${entry.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" })} type="button">{entry.text}</button>

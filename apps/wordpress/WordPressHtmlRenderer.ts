@@ -1,4 +1,4 @@
-import { ContentNormalizer, type ContentDocument, type ListBlock, type TableBlock } from "../../core/content";
+import { ContentNormalizer, createContentOutline, type ContentDocument, type ContentOutlineEntry, type ListBlock, type TableBlock } from "../../core/content";
 import { canonicalizeApprovalEvidenceUrl, readerVisibleApprovalSourceText, type ApprovalEvidenceSource } from "../../core/approval";
 import { isFreeBodyVisualBlock, renderBrightBodyVisualHtml } from "../../core/media";
 import { resolveContentSectionPresentations, resolveTablePresentation, type ContentSectionPresentation } from "../../core/presentation";
@@ -23,8 +23,20 @@ export class WordPressHtmlRenderer {
       }
       return [renderBlock(block, document)];
     }).filter(Boolean).join("\n");
+    /**
+     * 목차는 티스토리에만 있었다.
+     *
+     * 편집 화면은 H2/H3 로 목차를 그리고 그 옆에 "미리보기와 동일"이라고 적어
+     * 두었는데, 워드프레스 렌더러에는 목차 코드 자체가 없었다. 2026-08-19 실측:
+     * 발행된 101번 글의 HTML 에 nav 도 앵커도 없고 H2 는 4개였다. 화면이
+     * 보여주는 것과 실제로 나가는 것이 달랐다.
+     */
+    const anchors = headingAnchors(createContentOutline(document));
+    const toc = anchors.length >= 2
+      ? `<nav class="bright-toc" aria-label="목차"><strong>목차</strong><ul>${anchors.map((item) => `<li class="bright-toc-level-${item.level}"><a href="#${attribute(item.anchor)}">${escapeHtml(item.text)}</a></li>`).join("")}</ul></nav>`
+      : "";
     const relatedHtml = related.length ? `<section class="bright-related-posts"><h2>관련 글 보기</h2><ul>${related.slice(0, 3).map((block) => block.type === "button" ? `<li><a href="${attribute(block.targetUrl)}"${block.target === "_blank" ? ' target="_blank" rel="noopener noreferrer"' : ""}>${escapeHtml(block.label)}</a></li>` : "").join("")}</ul></section>` : "";
-    return [body, relatedHtml].filter(Boolean).join("\n");
+    return [toc, body, relatedHtml].filter(Boolean).join("\n");
   }
 }
 
@@ -45,7 +57,7 @@ function renderCard(
 }
 
 function renderBlock(block: ContentDocument["blocks"][number], document: ContentDocument): string {
-  if (block.type === "heading") return `<h${block.level}>${escapeHtml(block.text)}</h${block.level}>`;
+  if (block.type === "heading") return `<h${block.level} id="${attribute(headingAnchor(block.text))}">${escapeHtml(block.text)}</h${block.level}>`;
   if (block.type === "paragraph") {
     const readerText = readerVisibleApprovalSourceText(block);
     const text = projectVerifiedSourceReferences(block.id, readerText, document.metadata?.approvalEvidence?.sources ?? []);
@@ -136,6 +148,18 @@ function renderTable(block: TableBlock): string {
 function renderList(block: ListBlock): string {
   const tag = block.style === "ordered" ? "ol" : "ul";
   return `<${tag}>${block.items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</${tag}>`;
+}
+
+/**
+ * 목차 링크와 제목의 앵커는 같은 규칙에서 나와야 한다. 제목 문자열 하나로
+ * 계산하므로 두 곳이 어긋날 수 없다.
+ */
+function headingAnchor(text: string): string {
+  return text.trim().toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "") || "section";
+}
+
+function headingAnchors(outline: readonly ContentOutlineEntry[]) {
+  return outline.map((entry) => Object.freeze({ ...entry, anchor: headingAnchor(entry.text) }));
 }
 
 function escapeHtml(value: string) { return value.replace(/[&<>]/g, (value) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[value]!); }

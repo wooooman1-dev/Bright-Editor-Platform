@@ -527,7 +527,7 @@ function QualityStatus({ review }: { review: NormalizedQualityReview }) {
   if (review.status === "no_review") return <div className="mt-4 rounded-xl bg-[#f8f8fa] p-4 text-sm"><p className="font-semibold">아직 현재 문서 버전에 대한 품질 검토가 없습니다.</p><p className="mt-1 text-[#66666f]">품질 검토를 실행하면 세부 점수가 표시됩니다.</p></div>;
   if (review.status === "stale") return <div className="mt-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-900"><p className="font-semibold">문서가 수정되어 이전 품질 검토가 만료되었습니다.</p><p className="mt-1">현재 버전을 다시 검토해야 합니다.</p></div>;
   if (review.status === "not_evaluated") return <div className="mt-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-900"><p className="font-semibold">재검토 필요</p><p className="mt-1">현재 형식에서는 세부 품질 근거를 확인할 수 없거나 평가하지 못한 항목이 있습니다.</p>{review.overallScore !== null ? <p className="mt-2">서버 검토 점수 <strong>{review.overallScore}</strong></p> : null}</div>;
-  return <div className="mt-4 flex items-end gap-3"><strong className="text-4xl">{review.overallScore}</strong><span className={`mb-1 rounded-full px-3 py-1 text-sm font-semibold ${review.status === "ready" ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"}`}>{review.status === "ready" ? "standard 원고 품질 승인" : "원고 개선 필요"}</span></div>;
+  return <div className="mt-4 flex items-end gap-3"><strong className="text-4xl">{review.overallScore}</strong><span className={`mb-1 rounded-full px-3 py-1 text-sm font-semibold ${review.status === "ready" ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"}`}>{review.status === "ready" ? "원고 품질 정식 승인" : "원고 개선 필요"}</span></div>;
 }
 function ApprovalReadinessStatus({ review }: { review: NormalizedQualityReview }) {
   const readiness = review.approvalReadiness;

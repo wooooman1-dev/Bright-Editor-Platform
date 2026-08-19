@@ -1161,7 +1161,7 @@ Find 1-6 direct official primary-source pages that can support every factual Cla
 Content Opportunity: ${JSON.stringify(plannedScope)}
 Required factual Claims: ${JSON.stringify(requiredClaimContract)}
 Approval profile: ${snapshot.profileDisplayName}. Content domain: ${snapshot.contentDomain}.
-${domains?.length ? `Allowed official domains: ${domains.join(", ")}.` : "Use only a clearly identifiable official museum, archive, government, public institution, or rights-holder page accepted by the active profile."}
+${domains?.length ? `Allowed official domains: ${domains.join(", ")}. Cite only these. A public-sector page owns statutes, tax rules, and government programmes; a financial institution page owns its own product terms, rates, and fees. A personal blog, community post, aggregator, or news article is out of scope and cannot become a source by any route (D-045), so do not propose one even when it states the same fact.` : "Use only a clearly identifiable official museum, archive, government, public institution, or rights-holder page accepted by the active profile."}
 Rules:
 - Open or inspect each proposed page during this call.
 - Return a direct detail, guidance, law, notice, application, collection, or institutional record page; never return a search-result page, navigation page, copied article, community post, or secondary blog.

@@ -307,7 +307,7 @@ describe("EditorialQualityPipeline", () => {
     expect(instruction).toContain('"minimumNarrativeCharacters":400');
     expect(instruction).toContain("Structural repair is a mandatory final-edit contract");
     expect(instruction).toContain("CONTENT_SECTION_PROSE_INSUFFICIENT");
-    expect(instruction).toContain("Do not close the gap with a new number, date, amount, rate, statute, eligibility rule");
+    expect(instruction).toContain("Do not close the gap with a new number, date, amount, rate, statute, or eligibility rule");
     expect(instruction).toContain("do not add list items or table rows, which are not counted");
   });
 
