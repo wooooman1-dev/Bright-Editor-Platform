@@ -129,7 +129,7 @@ function extractHtml(
   input: ApprovalSourceDocumentInput,
   fallbackPublisher: string,
 ): ApprovalSourceDocumentExtraction {
-  const html = decodeUtf8(input.bytes);
+  const html = decodeUtf8(input.bytes, input.contentType);
   const title = decodeEntities(firstMatch(html, /<title[^>]*>([\s\S]*?)<\/title>/iu));
   const publisher = decodeEntities(
     firstMatch(html, /<meta[^>]+property=["']og:site_name["'][^>]+content=["']([^"']+)["'][^>]*>/iu)
@@ -143,7 +143,7 @@ function extractPlainText(
   input: ApprovalSourceDocumentInput,
   publisher: string,
 ): ApprovalSourceDocumentExtraction {
-  const text = normalizeWhitespace(decodeUtf8(input.bytes));
+  const text = normalizeWhitespace(decodeUtf8(input.bytes, input.contentType));
   const title = firstMeaningfulLine(text);
   return extractedOrEmpty("plain_text", title, publisher, text, input.bytes.byteLength);
 }
@@ -152,7 +152,7 @@ function extractJson(
   input: ApprovalSourceDocumentInput,
   publisher: string,
 ): ApprovalSourceDocumentExtraction {
-  const raw = stripBom(decodeUtf8(input.bytes)).trim();
+  const raw = stripBom(decodeUtf8(input.bytes, input.contentType)).trim();
   let value: unknown;
   try {
     value = JSON.parse(raw);
@@ -178,7 +178,7 @@ function extractXml(
   input: ApprovalSourceDocumentInput,
   publisher: string,
 ): ApprovalSourceDocumentExtraction {
-  const xml = decodeUtf8(input.bytes);
+  const xml = decodeUtf8(input.bytes, input.contentType);
   if (!/^\s*(?:<\?xml\b|<[A-Za-z_][\w:.-]*(?:\s|>|\/))/u.test(xml)) {
     return frozenExtraction(
       "xml",
@@ -201,7 +201,7 @@ function extractCsv(
   input: ApprovalSourceDocumentInput,
   publisher: string,
 ): ApprovalSourceDocumentExtraction {
-  const raw = stripBom(decodeUtf8(input.bytes));
+  const raw = stripBom(decodeUtf8(input.bytes, input.contentType));
   const rows = parseDelimitedText(raw, delimiterFor(input.contentType, raw));
   if (!rows.length) {
     return frozenExtraction(
@@ -508,8 +508,20 @@ function sourcePublisher(value: string): string {
   }
 }
 
-function decodeUtf8(bytes: Uint8Array): string {
+function decodeUtf8(bytes: Uint8Array, contentType = ""): string {
+  const charset = charsetOf(contentType);
+  if (charset && charset !== "utf-8" && charset !== "utf8") {
+    try {
+      return stripBom(new TextDecoder(charset, { fatal: false }).decode(bytes));
+    } catch {
+      // Unrecognized charset label falls back to UTF-8 below.
+    }
+  }
   return stripBom(new TextDecoder("utf-8", { fatal: false }).decode(bytes));
+}
+
+function charsetOf(contentType: string): string {
+  return /;\s*charset\s*=\s*"?([^;"]+)"?/iu.exec(contentType)?.[1]?.trim().toLocaleLowerCase("en-US") ?? "";
 }
 
 export function decodePdfBytesAsLatin1(bytes: Uint8Array): string {
