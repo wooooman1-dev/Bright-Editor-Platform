@@ -508,11 +508,23 @@ function sourcePublisher(value: string): string {
   }
 }
 
+/**
+ * Decodes a fetched page with the encoding it declares, the way a browser does.
+ *
+ * 선언은 두 군데에 올 수 있다. HTTP 헤더의 charset 파라미터와 HTML 안의 meta
+ * 선언이다. 헤더만 읽으면 헤더에 charset 을 싣지 않고 meta 로만 알리는 사이트가
+ * 그대로 깨진다. 한국 정부·공공 사이트에 그 방식이 흔하고, 2026-08-19 gov.kr
+ * 제목이 대체 문자로 저장돼 출처 목록에 그대로 표시됐다.
+ *
+ * meta 는 문서 앞부분에 오므로 앞 4KB 만 훑는다. 그 구간은 ASCII 마커를 찾는
+ * 용도이니 어떤 인코딩으로 읽어도 라벨을 찾을 수 있다. 아무 선언도 없거나 라벨을
+ * 알아보지 못하면 지금까지처럼 UTF-8 로 읽는다.
+ */
 function decodeUtf8(bytes: Uint8Array, contentType = ""): string {
-  const charset = charsetOf(contentType);
-  if (charset && charset !== "utf-8" && charset !== "utf8") {
+  const declared = charsetOf(contentType) || metaCharsetOf(bytes);
+  if (declared && declared !== "utf-8" && declared !== "utf8") {
     try {
-      return stripBom(new TextDecoder(charset, { fatal: false }).decode(bytes));
+      return stripBom(new TextDecoder(declared, { fatal: false }).decode(bytes));
     } catch {
       // Unrecognized charset label falls back to UTF-8 below.
     }
@@ -522,6 +534,15 @@ function decodeUtf8(bytes: Uint8Array, contentType = ""): string {
 
 function charsetOf(contentType: string): string {
   return /;\s*charset\s*=\s*"?([^;"]+)"?/iu.exec(contentType)?.[1]?.trim().toLocaleLowerCase("en-US") ?? "";
+}
+
+function metaCharsetOf(bytes: Uint8Array): string {
+  const prefix = new TextDecoder("latin1", { fatal: false })
+    .decode(bytes.subarray(0, Math.min(bytes.byteLength, 4096)));
+  const direct = /<meta[^>]+charset\s*=\s*["']?([a-z0-9_-]+)/iu.exec(prefix)?.[1];
+  if (direct) return direct.trim().toLocaleLowerCase("en-US");
+  const httpEquiv = /<meta[^>]+http-equiv\s*=\s*["']?content-type["']?[^>]*content\s*=\s*["'][^"']*charset\s*=\s*([a-z0-9_-]+)/iu.exec(prefix)?.[1];
+  return httpEquiv?.trim().toLocaleLowerCase("en-US") ?? "";
 }
 
 export function decodePdfBytesAsLatin1(bytes: Uint8Array): string {
