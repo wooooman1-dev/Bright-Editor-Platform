@@ -234,3 +234,58 @@ describe("explicit verification snapshot", () => {
     }
   });
 });
+
+describe("discovered value over planned statement", () => {
+  /**
+   * 2026-08-20 밝은재테크 실측: 청년내일저축계좌 원고의 CRITICAL Claim 4건이
+   * 전부 eligibility 였다. Preflight 가 korea.kr 에서 연령 범위를 찾아 발췌까지
+   * 붙였는데 normalizedValue 는 기획이 웹에 나가기 전에 쓴 문장이 됐고, 생성이
+   * 그 값을 보존하라는 지시대로 본문에도 숫자 대신 그 문장을 썼다.
+   */
+  const eligibilityClaim: VerificationClaimSpec = {
+    claimId: "claim-eligibility",
+    field: "청년내일저축계좌 연령 요건",
+    kind: "eligibility",
+    statement: "청년내일저축계좌 신청자의 연령 요건은 해당 모집 공고에서 정한다.",
+    qualifiers: { subject: "신청자", scope: "모집 회차별 신청 자격", basis: "공식 모집 공고" },
+    temporalRequirement: { mode: "notRequired" },
+    required: true,
+    risk: "critical",
+  };
+
+  function discover(spec: VerificationClaimSpec, value: string, excerpt: string) {
+    return assessmentsFromExplicitDiscovery({
+      claims: [spec],
+      sources: [{
+        requestedUrl: "https://www.korea.kr/news/policyNewsView.do?newsId=148963092",
+        pageText: `청년내일저축계좌 안내입니다. ${excerpt} 신청은 복지로에서 받습니다.`,
+        evidenceExcerpt: excerpt,
+        claims: [{ claimId: spec.claimId, value, evidenceExcerpt: excerpt }],
+        role: "primaryOfficial",
+        authoritative: true,
+        fresh: true,
+      }],
+    })[0];
+  }
+
+  it("normalizes an eligibility claim to the value found on the page, not the planned statement", () => {
+    const excerpt = "가입 대상은 만 15세 이상 39세 이하의 일하는 청년입니다.";
+    const assessment = discover(eligibilityClaim, "만 15세 이상 39세 이하", excerpt);
+
+    expect(assessment?.supports).toBe(true);
+    expect(assessment?.normalizedValue).toMatchObject({
+      kind: "eligibility",
+      value: { predicate: { field: "청년내일저축계좌 연령 요건", operator: "textEquals", value: "만 15세 이상 39세 이하" } },
+    });
+  });
+
+  it("normalizes a general claim to the discovered value", () => {
+    const excerpt = "적립금은 만기 시 일시금으로 지급합니다.";
+    const assessment = discover({ ...eligibilityClaim, claimId: "claim-general", kind: "general", field: "지급 방식" }, "만기 시 일시금으로 지급", excerpt);
+
+    expect(assessment?.normalizedValue).toMatchObject({
+      kind: "general",
+      value: { statement: "만기 시 일시금으로 지급" },
+    });
+  });
+});

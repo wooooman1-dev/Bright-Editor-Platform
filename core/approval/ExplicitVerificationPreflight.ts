@@ -138,17 +138,36 @@ function freezeAssessments(values: readonly VerificationSourceAssessment[]): rea
   return Object.freeze(values.map((value) => Object.freeze({ ...value, diagnostics: Object.freeze([...value.diagnostics]) })));
 }
 
+/**
+ * 출처에서 찾은 값이 기획의 추측보다 앞선다.
+ *
+ * general·location·eligibility 세 종류만 `spec.rawValue` 가 있을 때만 찾은
+ * 값을 쓰고, 없으면 `spec.statement` 로 되돌렸다. 그런데 기획 규칙이
+ * "never include … source data" 라 `rawValue` 는 채워질 수 없다. 그래서 이
+ * 세 종류는 언제나 찾은 값을 버리고, 웹에 나가기 전에 쓴 문장을 권위 있는
+ * 값으로 만들었다.
+ *
+ * 2026-08-20 밝은재테크 실측: 청년내일저축계좌 원고의 CRITICAL Claim 4건이
+ * 전부 eligibility 였다. Preflight 가 korea.kr 에서 "만 15세 이상 ~ 39세 이하"
+ * 를 찾아 발췌까지 붙였는데, normalizedValue 는 기획이 쓴 "연령 요건은 해당
+ * 모집 공고에서 정한다" 가 됐다. 생성은 그 값을 정확히 보존하라는 지시를
+ * 받으므로 본문에도 숫자가 아니라 그 문장이 나갔다. 네 건 모두 같은 모양이다.
+ *
+ * money·date·ratio·duration·legal 은 처음부터 `text` 를 쓰고 있어 이 문제가
+ * 없다. 값을 담을 구조가 있는 종류와 자유 문자열인 종류를 다르게 다룰 이유는
+ * 없다 — 어느 쪽이든 출처에서 확인한 값이 기획의 추측보다 정확하다.
+ */
 function normalizeExplicitClaimValue(spec: VerificationClaimSpec, value: string, sourceContext = ""): VerificationSourceAssessment["normalizedValue"] {
   const text = value.normalize("NFKC").replace(/\s+/gu, " ").trim();
   if (!text) return undefined;
-  if (spec.kind === "general") return { kind: "general", value: { statement: spec.rawValue ? text : spec.statement.trim() || text } };
+  if (spec.kind === "general") return { kind: "general", value: { statement: text || spec.statement.trim() } };
   if (spec.kind === "money") return normalizeExplicitMoney(text, spec);
   if (spec.kind === "ratio") return normalizeExplicitRatio(text, spec);
   if (spec.kind === "date") return normalizeExplicitDate(text, spec);
   if (spec.kind === "dateRange") return normalizeExplicitDateRange(text);
   if (spec.kind === "duration") return normalizeExplicitDuration(text);
-  if (spec.kind === "location") return normalizeExplicitLocation(spec.rawValue ? text : spec.qualifiers.scope?.trim() || spec.statement.trim() || text);
-  if (spec.kind === "eligibility") return normalizeExplicitEligibility(spec.rawValue ? text : spec.statement.trim() || text, spec);
+  if (spec.kind === "location") return normalizeExplicitLocation(text || spec.qualifiers.scope?.trim() || spec.statement.trim());
+  if (spec.kind === "eligibility") return normalizeExplicitEligibility(text || spec.statement.trim(), spec);
   if (spec.kind === "legal") return normalizeExplicitLegal(text, spec, sourceContext);
   return undefined;
 }
