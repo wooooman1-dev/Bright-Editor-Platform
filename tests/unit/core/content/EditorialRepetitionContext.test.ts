@@ -293,3 +293,79 @@ describe("editorial repetition context: bounded payload", () => {
       .toHaveLength(5);
   });
 });
+
+function shapedArticle(overrides: Readonly<{
+  title: string;
+  headings: readonly string[];
+  sectionTypes: readonly string[];
+  paragraphs: readonly string[];
+}>): ContentDocument {
+  return {
+    id: `doc-${overrides.title}`,
+    title: overrides.title,
+    metadata: {
+      longFormStructure: {
+        introductionBlockIds: [],
+        conclusionBlockIds: [],
+        sections: overrides.sectionTypes.map((sectionType, index) => ({
+          headingBlockId: `h-${index}`,
+          paragraphBlockIds: [],
+          sectionType,
+        })),
+      },
+    },
+    blocks: [
+      ...overrides.headings.map((heading, index) => ({ id: `h-${index}`, type: "heading", level: 2, text: heading })),
+      ...overrides.paragraphs.map((text, index) => ({ id: `p-${index}`, type: "paragraph", text })),
+    ],
+  } as unknown as ContentDocument;
+}
+
+const twoSentences = "첫 문장은 확인 순서를 설명하는 충분히 긴 문단 문장입니다. 두 번째 문장도 같은 길이로 이어집니다.";
+
+describe("repetition beyond the title shape", () => {
+  /**
+   * 2026-08-20 밝은재테크 실측: 최근 6편의 H2 41개 중 질문형이 0개였고,
+   * 문단당 평균 문장 수가 2.4~2.8 로 폭이 0.4 였으며, comparison 과 warning 은
+   * 6편 전부에 들어 있었다.
+   */
+  const repeated = [1, 2, 3].map((index) => shapedArticle({
+    title: `주제 ${index} 확인 방법: 순서를 정리하는 기준`,
+    headings: ["첫 번째 항목을 먼저 확인합니다", "두 번째 항목도 같이 봅니다"],
+    sectionTypes: ["explanation", "comparison", "warning"],
+    paragraphs: [twoSentences, twoSentences],
+  }));
+
+  it("names the heading form when recent articles never used a question and lean declarative", () => {
+    const context = buildEditorialRepetitionContext(repeated);
+
+    expect(context?.instruction).toContain("완결형 서술문");
+    expect(context?.instruction).toContain("질문형은 0개");
+    expect(context?.recent[0].headingForms).toEqual({ declarative: 2, question: 0, nominal: 0 });
+  });
+
+  it("names the section types every recent article shared", () => {
+    const context = buildEditorialRepetitionContext(repeated);
+
+    expect(context?.instruction).toContain("explanation, comparison, warning");
+    expect(context?.recent[0].sectionTypes).toEqual(["explanation", "comparison", "warning"]);
+  });
+
+  it("names the paragraph rhythm when every recent article kept the same length", () => {
+    const context = buildEditorialRepetitionContext(repeated);
+
+    expect(context?.instruction).toContain("문단 길이를 고르게 맞추지 말고");
+    expect(context?.recent[0].rhythm).toEqual({ paragraphs: 2, averageSentences: 2 });
+  });
+
+  it("stays silent when recent articles already vary", () => {
+    const varied = [
+      shapedArticle({ title: "가", headings: ["확인 순서", "무엇을 먼저 볼까요?"], sectionTypes: ["explanation"], paragraphs: ["한 문장짜리 문단도 충분히 길게 씁니다."] }),
+      shapedArticle({ title: "나", headings: ["기준은 어디에 있나요?", "정리"], sectionTypes: ["steps", "faq"], paragraphs: [twoSentences, twoSentences, `${twoSentences} 세 번째 문장까지 이어 붙여 길이를 다르게 만듭니다.`] }),
+    ];
+    const context = buildEditorialRepetitionContext(varied);
+
+    expect(context?.instruction).not.toContain("완결형 서술문");
+    expect(context?.instruction).not.toContain("문단 길이를 고르게 맞추지 말고");
+  });
+});

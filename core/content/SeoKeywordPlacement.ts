@@ -16,27 +16,21 @@ export function ensureSeoKeywordPlacement(
   }
 
   const title = buildReadableSeoTitle(document.title, keyword);
-  const bodyText = document.blocks
-    .filter((block) => block.type === "heading" || block.type === "paragraph")
-    .map((block) => block.text)
-    .join("\n");
-
-  let bodyChanged = false;
-  const blocks = containsExactKeyword(bodyText, keyword)
-    ? document.blocks
-    : document.blocks.map((block) => {
-      if (!bodyChanged && block.type === "paragraph" && block.text.trim()) {
-        bodyChanged = true;
-        return Object.freeze({
-          ...block,
-          text: `${keyword} 관련 핵심 내용을 먼저 정리하면, ${block.text.trim()}`,
-        });
-      }
-      return block;
-    });
-
+  /**
+   * 본문에 키워드가 없다고 문장을 지어 넣지 않는다.
+   *
+   * 없으면 첫 문단 앞에 "<키워드> 관련 핵심 내용을 먼저 정리하면," 을 붙였다.
+   * 사람이 쓰지 않는 문장이고, 붙는 자리가 늘 첫 문단이라 글마다 같은 자리에
+   * 같은 모양으로 나타난다. 2026-08-20 밝은재테크 실측: 발행분 2편에 이 문장이
+   * 그대로 남아 있었다.
+   *
+   * 키워드가 본문에 없다는 사실은 품질 점수가 이미 SEO 15점으로 말한다
+   * (QualityEngine). 점수로 알리는 것과 문장을 지어 덮는 것은 다르다. 실측에서
+   * 원고 전체의 최소 등장 횟수는 1회였으므로 이 주입이 실제로 필요했던 적도
+   * 드물다.
+   */
   const currentDescription = document.metadata?.metaDescription?.trim() ?? "";
-  const firstParagraph = blocks.find((block) => block.type === "paragraph")?.text ?? "";
+  const firstParagraph = document.blocks.find((block) => block.type === "paragraph")?.text ?? "";
   const metaDescription = buildMetaDescription(
     currentDescription,
     firstParagraph,
@@ -47,13 +41,12 @@ export function ensureSeoKeywordPlacement(
     || metaDescription !== currentDescription;
   const titleChanged = title !== document.title;
 
-  if (!titleChanged && !bodyChanged && !metadataChanged) return document;
+  if (!titleChanged && !metadataChanged) return document;
 
   return Object.freeze({
     ...document,
-    blocks: bodyChanged ? Object.freeze(blocks) : document.blocks,
     metadata: metadataChanged
-      ? createMetadata(document, blocks, metaDescription)
+      ? createMetadata(document, document.blocks, metaDescription)
       : document.metadata,
     title,
   });

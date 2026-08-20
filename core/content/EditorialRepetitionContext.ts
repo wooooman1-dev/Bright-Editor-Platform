@@ -1,3 +1,4 @@
+import { isSystemProjectionBlock } from "./ContentBlockOwnership";
 import type { ContentDocument } from "./ContentDocument";
 
 /**
@@ -12,9 +13,23 @@ export type RecentEditorialShape = Readonly<{
   requiredContentElements: readonly string[];
 }>;
 
+export type RecentEditorialHeadingForms = Readonly<{
+  declarative: number;
+  question: number;
+  nominal: number;
+}>;
+
+export type RecentEditorialRhythm = Readonly<{
+  paragraphs: number;
+  averageSentences: number;
+}>;
+
 export type RecentEditorialPattern = Readonly<{
   title: string;
   headings: readonly string[];
+  headingForms: RecentEditorialHeadingForms;
+  sectionTypes: readonly string[];
+  rhythm: RecentEditorialRhythm;
   openingSentence: string;
   shape?: RecentEditorialShape;
 }>;
@@ -57,12 +72,18 @@ const maximumSummarizedRequiredElements = 5;
 
 export function recentEditorialPattern(document: ContentDocument): RecentEditorialPattern {
   const shape = recentEditorialShape(document);
+  const headings = document.blocks.flatMap((block) =>
+    block.type === "heading" && block.level === 2 && block.text.trim()
+      ? [block.text.trim()]
+      : []);
   return Object.freeze({
     title: document.title.trim(),
-    headings: Object.freeze(document.blocks.flatMap((block) =>
-      block.type === "heading" && block.level === 2 && block.text.trim()
-        ? [block.text.trim()]
-        : []).slice(0, maximumSummarizedHeadings)),
+    headings: Object.freeze(headings.slice(0, maximumSummarizedHeadings)),
+    headingForms: countHeadingForms(headings),
+    sectionTypes: Object.freeze((document.metadata?.longFormStructure?.sections ?? [])
+      .flatMap((section) => section.sectionType ? [String(section.sectionType)] : [])
+      .slice(0, maximumSummarizedHeadings)),
+    rhythm: paragraphRhythm(document),
     openingSentence: openingSentence(document),
     ...(shape ? { shape } : {}),
   });
@@ -102,6 +123,9 @@ function repetitionInstruction(recent: readonly RecentEditorialPattern[]): strin
       ? `특히 최근 제목이 반복적으로 사용한 형태(${repeatedTitleShapes.join(", ")})를 그대로 따르지 말 것. 구분자만 다른 기호로 바꾸는 것은 다른 문형이 아니다.`
       : "",
     headingEchoRule(recent),
+    headingFormRule(recent),
+    sectionCompositionRule(recent),
+    paragraphRhythmRule(recent),
     repeatedShapeRule(recent),
     "같은 주제를 다루더라도 독자에게 접근하는 각도와 글의 뼈대를 다르게 구성한다.",
     "다양성을 위해 사실을 바꾸거나 근거 없는 내용을 추가하지 않는다.",
@@ -227,4 +251,98 @@ function normalizeForComparison(value: string): string {
 
 function wordCount(value: string): number {
   return value.split(/\s+/u).filter(Boolean).length;
+}
+
+/**
+ * 소제목이 한 문형으로만 나오는 것을 본다.
+ *
+ * `headingEchoRule` 은 첫 H2 가 제목을 되풀이하는지만 보았다. 그래서 H2 전부가
+ * 같은 문형이어도 아무 신호가 나가지 않았다. 2026-08-20 밝은재테크 실측: 최근
+ * 6편의 H2 41개 중 질문형이 하나도 없었고, 대부분이 "~습니다"로 끝나는 완결형
+ * 서술문이었다. 사람이 쓴 목차는 명사형과 질문형을 섞는다.
+ *
+ * 문형을 바꾸라고만 하고 무엇으로 바꾸라고 지정하지 않는다. 하나를 지정하면
+ * 그것이 다음 반복이 된다.
+ */
+function headingFormRule(recent: readonly RecentEditorialPattern[]): string {
+  const forms = recent.map((pattern) => pattern.headingForms);
+  if (forms.length < 2) return "";
+  const total = forms.reduce((sum, form) => sum + form.declarative + form.question + form.nominal, 0);
+  if (total < 6) return "";
+  const declarative = forms.reduce((sum, form) => sum + form.declarative, 0);
+  const question = forms.reduce((sum, form) => sum + form.question, 0);
+  if (question > 0 && declarative * 10 < total * 7) return "";
+  return `최근 글의 H2 ${total}개 중 ${declarative}개가 완결형 서술문이고 질문형은 ${question}개다. 이번 글은 소제목 문형을 한 가지로 통일하지 말고 명사형·질문형을 함께 섞을 것. 다만 소제목에서 주제어 자체를 빼지는 말 것.`;
+}
+
+/**
+ * 매번 같은 섹션 종류가 함께 등장하는 것을 본다.
+ *
+ * `repeatedShapeRule` 은 기획의 contentDepth 만 보는데, 그것이 같지 않아도
+ * 완성된 글의 섹션 구성은 같을 수 있다. 2026-08-20 실측: 최근 6편이 모두
+ * comparison 과 warning 을 포함했고 5편이 steps 와 explanation 을 포함했다.
+ * 독자에게 보이는 반복은 contentDepth 가 아니라 이 조합이다.
+ */
+function sectionCompositionRule(recent: readonly RecentEditorialPattern[]): string {
+  const compositions = recent.map((pattern) => pattern.sectionTypes).filter((types) => types.length);
+  if (compositions.length < 2) return "";
+  const shared = [...new Set(compositions[0])]
+    .filter((type) => compositions.every((types) => types.includes(type)));
+  if (shared.length < 2) return "";
+  return `최근 글이 모두 ${shared.join(", ")} 섹션을 함께 사용했다. 이번 글은 주제가 실제로 요구하지 않는 섹션 종류를 넣지 말고, 필요한 종류만 다른 조합과 다른 순서로 구성할 것.`;
+}
+
+/**
+ * 문단 길이가 글마다 같은 것을 본다.
+ *
+ * 2026-08-20 실측: 최근 6편의 문단당 평균 문장 수가 2.4~2.8 로 폭이 0.4 였다.
+ * 문장 하나짜리 문단이 한 번도 나오지 않았다. 읽는 사람이 "기계적"이라고
+ * 느끼는 지점이 여기다.
+ */
+function paragraphRhythmRule(recent: readonly RecentEditorialPattern[]): string {
+  const averages = recent.map((pattern) => pattern.rhythm.averageSentences).filter((value) => value > 0);
+  if (averages.length < 2) return "";
+  const lowest = Math.min(...averages);
+  const highest = Math.max(...averages);
+  if (highest - lowest > 0.6) return "";
+  return `최근 글의 문단이 모두 평균 ${lowest.toFixed(1)}~${highest.toFixed(1)}문장으로 같은 길이였다. 문단 길이를 고르게 맞추지 말고 짧은 문단과 긴 문단을 섞을 것. 문장 끝맺음도 한 가지 어미로 반복하지 말 것.`;
+}
+
+/** 질문형은 물음표로, 서술문은 종결어미로 끝난다. 나머지는 명사로 끝나는 제목이다. */
+function headingForm(text: string): "question" | "declarative" | "nominal" {
+  const value = text.trim().replace(/[.·]+$/u, "");
+  if (/[?？]$/u.test(value)) return "question";
+  if (/(?:다|요|죠|까)$/u.test(value)) return "declarative";
+  return "nominal";
+}
+
+function countHeadingForms(headings: readonly string[]): RecentEditorialHeadingForms {
+  let declarative = 0;
+  let question = 0;
+  let nominal = 0;
+  for (const heading of headings) {
+    const form = headingForm(heading);
+    if (form === "question") question += 1;
+    else if (form === "declarative") declarative += 1;
+    else nominal += 1;
+  }
+  return Object.freeze({ declarative, question, nominal });
+}
+
+function paragraphRhythm(document: ContentDocument): RecentEditorialRhythm {
+  const texts = document.blocks.flatMap((block) => block.type === "paragraph"
+    && !isSystemProjectionBlock(block)
+    && block.text.trim().length >= 40
+    ? [block.text.trim()]
+    : []);
+  if (!texts.length) return Object.freeze({ paragraphs: 0, averageSentences: 0 });
+  const sentences = texts.reduce((sum, text) => sum + sentenceCount(text), 0);
+  return Object.freeze({
+    paragraphs: texts.length,
+    averageSentences: Math.round((sentences / texts.length) * 10) / 10,
+  });
+}
+
+function sentenceCount(text: string): number {
+  return text.split(/(?<=[.!?])\s+/u).filter((part) => part.trim()).length;
 }
