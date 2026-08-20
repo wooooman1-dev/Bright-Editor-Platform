@@ -100,3 +100,26 @@ describe("WordPress source link rendering", () => {
     expect(html).toContain('<div class="wp-block-button"><a class="wp-block-button__link" href="/next">계속하기</a></div>');
   });
 });
+
+function tocDocument(): ContentDocument {
+  return {
+    ...document(),
+    id: "wordpress-toc",
+    blocks: [
+      { id: "intro", type: "paragraph", text: "본문 문단입니다." },
+      { id: "h2-1", type: "heading", level: 2, text: "첫 번째 확인 항목" },
+      { id: "p1", type: "paragraph", text: "첫 번째 섹션 본문입니다." },
+      { id: "h2-2", type: "heading", level: 2, text: "두 번째 확인 항목" },
+      { id: "p2", type: "paragraph", text: "두 번째 섹션 본문입니다." },
+    ],
+  };
+}
+
+describe("WordPress table of contents rendering", () => {
+  it("labels the table of contents with the same heading level as the other appended sections", () => {
+    const html = new WordPressHtmlRenderer().render(tocDocument());
+
+    expect(html).toContain('<nav class="bright-toc" aria-label="목차"><h2>목차</h2><ul>');
+    expect(html).not.toContain("<strong>목차</strong>");
+  });
+});

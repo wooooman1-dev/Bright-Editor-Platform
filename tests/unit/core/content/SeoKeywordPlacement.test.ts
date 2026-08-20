@@ -126,3 +126,38 @@ describe("ensureSeoKeywordPlacement", () => {
     expect(ensureSeoKeywordPlacement(source, "   ")).toBe(source);
   });
 });
+
+describe("title clause preservation", () => {
+  /**
+   * 2026-08-19 밝은재테크 실측: 원고 49편 중 3편의 제목이 가운뎃점 자리에서
+   * 끊겨 문장이 되지 않았다. 나열을 접는 규칙이 서술어가 든 마지막 조각까지
+   * 버렸기 때문이다.
+   */
+  it("keeps the trailing clause when the last list part carries a predicate", () => {
+    const source = {
+      ...createDocument(),
+      title: "건강보험 피부양자 자격 조건: 가족관계·소득·재산·변동 사건을 나눠 확인하는 법",
+    };
+    const result = ensureSeoKeywordPlacement(source, "건강보험 피부양자 자격 조건");
+
+    expect(result.title).toBe("건강보험 피부양자 자격 조건: 가족관계·소득·재산·변동 사건을 나눠 확인하는 법");
+    expect(result.title).not.toBe("건강보험 피부양자 자격 조건: 가족관계");
+  });
+
+  it("keeps the reading order clause of the loan repayment title", () => {
+    const source = {
+      ...createDocument(),
+      title: "대출 상환내역 확인 방법: 이번 달 원금·이자·잔액·상환일을 읽는 순서",
+    };
+    const result = ensureSeoKeywordPlacement(source, "대출 상환내역 확인 방법");
+
+    expect(result.title).toBe("대출 상환내역 확인 방법: 이번 달 원금·이자·잔액·상환일을 읽는 순서");
+  });
+
+  it("still compacts a title whose trailing part is a bare list item", () => {
+    const source = { ...createDocument(), title: "장 건강 관리 방법: 음식·검사·운동·수면" };
+    const result = ensureSeoKeywordPlacement(source, "장 건강 관리 방법");
+
+    expect(result.title).toBe("장 건강 관리 방법: 음식");
+  });
+});

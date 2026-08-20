@@ -35,10 +35,14 @@ export class WordPressHtmlRenderer {
      * 두었는데, 워드프레스 렌더러에는 목차 코드 자체가 없었다. 2026-08-19 실측:
      * 발행된 101번 글의 HTML 에 nav 도 앵커도 없고 H2 는 4개였다. 화면이
      * 보여주는 것과 실제로 나가는 것이 달랐다.
+    *
+     * 목차 이름표는 <strong> 이었다. 관련 글 보기와 출처는 <h2> 로 나가므로
+     * 테마가 셋에 서로 다른 크기를 주었고, 목차만 자기 목록 항목보다 작게
+     * 보였다. 2026-08-19 실측. 세 섹션을 같은 위계로 맞춘다.
      */
     const anchors = headingAnchors(createContentOutline(document));
     const toc = anchors.length >= 2
-      ? `<nav class="bright-toc" aria-label="목차"><strong>목차</strong><ul>${anchors.map((item) => `<li class="bright-toc-level-${item.level}"><a href="#${attribute(item.anchor)}">${escapeHtml(item.text)}</a></li>`).join("")}</ul></nav>`
+      ? `<nav class="bright-toc" aria-label="목차"><h2>목차</h2><ul>${anchors.map((item) => `<li class="bright-toc-level-${item.level}"><a href="#${attribute(item.anchor)}">${escapeHtml(item.text)}</a></li>`).join("")}</ul></nav>`
       : "";
     const relatedHtml = related.length ? `<section class="bright-related-posts"><h2>관련 글 보기</h2><ul>${related.slice(0, 3).map((block) => block.type === "button" ? `<li><a href="${attribute(block.targetUrl)}"${block.target === "_blank" ? ' target="_blank" rel="noopener noreferrer"' : ""}>${escapeHtml(block.label)}</a></li>` : "").join("")}</ul></section>` : "";
     return [toc, body, relatedHtml].filter(Boolean).join("\n");

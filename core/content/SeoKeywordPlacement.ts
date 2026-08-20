@@ -94,16 +94,36 @@ export function buildReadableSeoTitle(originalTitle: string, keyword: string): s
   return normalizeTitle(support ? `${keyword}: ${support}` : keyword);
 }
 
+/** 공백으로 갈리는 어절 수. 한 어절이면 나열 항목, 여러 어절이면 문장의 뒷도막이다. */
+function wordCount(value: string): number {
+  return value.trim().split(/\s+/u).filter(Boolean).length;
+}
+
 function compactTitleSegment(value: string, keyword: string): string {
   let segment = normalizeWhitespace(removeExactKeyword(value, keyword))
     .replace(/^[\-–—:·,\s]+|[\-–—:·,\s]+$/gu, "")
     .replace(/\([^)]{18,}\)/gu, "")
     .trim();
 
+  /**
+   * 나열을 접는 것은 제목이 정말 나열일 때만이다.
+   *
+   * 이 규칙은 "식이섬유·프로바이오틱스·프리바이오틱스" 같은 키워드 나열 제목을
+   * 줄이려고 들어왔는데, 조각이 셋만 넘으면 무조건 첫 조각만 남겼다. 그래서
+   * 서술어가 마지막 조각에 들어 있으면 문장이 통째로 잘렸다. 2026-08-19
+   * 밝은재테크 실측: 원고 49편 중 3편의 제목이 이렇게 끊겼다.
+   *
+   *   가족관계·소득·재산·변동 사건을 나눠 확인하는 법 → 가족관계
+   *   이번 달 원금·이자·잔액·상환일을 읽는 순서       → 이번 달 원금
+   *
+   * 가이드·방법·정리만 구제하던 예외가 이미 같은 문제를 절반쯤 알고 있었다.
+   * 마지막 조각이 한 어절이면 나열 항목이고, 여러 어절이면 문장의 뒷도막이다.
+   * 뒷도막이 있으면 접지 않는다 — 길이는 shortenAtWordBoundary 가 어절 경계에서
+   * 처리하므로 제목이 문장 중간에서 끊길 일은 없다.
+   */
   const listParts = segment.split(/\s*[·,/]\s*/u).filter(Boolean);
-  if (listParts.length >= 3) {
-    const ending = listParts.at(-1)?.match(/(?:실천\s*)?(?:가이드|방법|정리)$/u)?.[0] ?? "";
-    segment = `${listParts[0]}${ending ? ` ${ending}` : ""}`;
+  if (listParts.length >= 3 && wordCount(listParts.at(-1) ?? "") <= 1) {
+    segment = listParts[0] ?? segment;
   }
 
   return normalizeWhitespace(segment);
