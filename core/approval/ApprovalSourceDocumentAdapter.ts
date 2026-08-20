@@ -227,7 +227,7 @@ function extractPdf(
   publisher: string,
 ): ApprovalSourceDocumentExtraction {
   const raw = decodeLatin1(input.bytes);
-  const title = decodePdfLiteral(firstMatch(raw, /\/Title\s*\(((?:\\.|[^\\)])*)\)/u));
+  const title = decodePdfLiteral(firstRawMatch(raw, /\/Title\s*\(((?:\\.|[^\\)])*)\)/u));
   const fragments = [extractPdfTextFragments(raw)];
   const extractedServerText = input.pdfTextExtractor?.(input.bytes) ?? "";
   if (extractedServerText) fragments.push(extractedServerText);
@@ -467,11 +467,37 @@ function markupToText(markup: string): string {
   return normalizeWhitespace(decodeEntities(markup.replace(/<[^>]+>/gu, " ")));
 }
 
+/**
+ * PDF 문자열은 두 가지 인코딩으로 적힌다.
+ *
+ * PDF 명세는 텍스트 문자열이 바이트 `FE FF` 로 시작하면 UTF-16BE 로 읽으라고
+ * 정한다. 이 함수는 이스케이프만 풀고 인코딩은 보지 않아서, 한글 제목이 바이트
+ * 그대로 남았다. 2026-08-20 밝은재테크 실측: law.go.kr 의 법령 PDF 출처 제목이
+ * `þÿ È 1Ç¥ Í ÎY` 로 나왔다 — `þÿ` 가 latin1 로 읽힌 BOM 이다.
+ *
+ * 이스케이프를 먼저 풀어야 BOM 바이트가 드러나므로 순서는 이스케이프 해제 →
+ * BOM 판정 → 디코딩이다. BOM 이 없으면 지금까지처럼 바이트를 그대로 쓴다.
+ */
 function decodePdfLiteral(value: string): string {
-  return normalizeWhitespace(value
+  const unescaped = value
     .replace(/\\([nrtbf()\\])/gu, (_match, escaped: string) => pdfEscapes[escaped] ?? escaped)
     .replace(/\\([0-7]{1,3})/gu, (_match, octal: string) => String.fromCharCode(Number.parseInt(octal, 8)))
-    .replace(/\\\r?\n/gu, ""));
+    .replace(/\\\r?\n/gu, "");
+  return normalizeWhitespace(decodePdfTextEncoding(unescaped));
+}
+
+function decodePdfTextEncoding(value: string): string {
+  const bigEndian = value.startsWith("\u00fe\u00ff");
+  const littleEndian = value.startsWith("\u00ff\u00fe");
+  if (!bigEndian && !littleEndian) return value;
+  const body = value.slice(2);
+  let decoded = "";
+  for (let index = 0; index + 1 < body.length; index += 2) {
+    const high = body.charCodeAt(index) & 0xff;
+    const low = body.charCodeAt(index + 1) & 0xff;
+    decoded += String.fromCharCode(bigEndian ? (high << 8) | low : (low << 8) | high);
+  }
+  return decoded;
 }
 
 function decodeEntities(value: string): string {
@@ -490,6 +516,15 @@ function safeCodePoint(value: number): string {
   return Number.isSafeInteger(value) && value >= 0 && value <= 0x10ffff
     ? String.fromCodePoint(value)
     : "";
+}
+
+/**
+ * 바이트를 그대로 돌려주는 짝. `firstMatch` 는 공백을 뭉개는데, PDF 문자열은
+ * 디코딩하기 전까지 바이트열이라 그 정리가 값을 부순다. UTF-16 로 적힌 `급`
+ * (U+AE09) 의 낮은 바이트가 TAB 이어서 공백으로 바뀌면 `긠` 이 된다.
+ */
+function firstRawMatch(value: string, pattern: RegExp): string {
+  return pattern.exec(value)?.[1] ?? "";
 }
 
 function firstMatch(value: string, pattern: RegExp): string {

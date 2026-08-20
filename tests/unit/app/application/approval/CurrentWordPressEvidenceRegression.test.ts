@@ -190,7 +190,7 @@ describe("current WordPress source regression", () => {
     expect(result.document.blocks).toContainEqual(expect.objectContaining({
       id: "approval-source-link-1",
       targetUrl: canonicalUrl,
-      label: "방문판매 등에 관한 법률 제30조·제32조 · 국가법령정보센터",
+      label: "국가법령정보센터",
       ownership: "system_source_projection",
     }));
     expect(result.quality).toMatchObject({ approved: true, approvalType: "standard" });

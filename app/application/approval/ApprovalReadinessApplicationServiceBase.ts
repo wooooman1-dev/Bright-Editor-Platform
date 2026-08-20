@@ -1,5 +1,6 @@
 import {
   approvalReadinessInspectionVersion,
+  approvalSourceLabels,
   approvalSourceReviewPresentationText,
   canonicalizeApprovalEvidenceUrl,
   createNotRequiredApprovalEvidencePack,
@@ -426,6 +427,7 @@ function upsertVerifiedSourceSection(
 }> {
   const reviewedAt = pack!.reviewedAt ?? new Date().toISOString();
   const verifiedSources = pack!.sources.filter((source) => Boolean((source.canonicalUrl ?? source.url)?.trim()));
+  const sourceLabels = approvalSourceLabels(verifiedSources);
   const clean = removeGeneratedSourceSection(document);
 
   /**
@@ -513,9 +515,7 @@ function upsertVerifiedSourceSection(
           type: "button" as const,
           ownership: "system_source_projection" as const,
           purpose: "source" as const,
-          label: source.publisher && source.publisher !== source.title
-            ? `${source.title} · ${source.publisher}`
-            : source.title,
+          label: sourceLabels[index] ?? source.title,
           targetUrl: source.canonicalUrl ?? source.url,
           target: "_blank" as const,
         })),

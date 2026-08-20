@@ -4,6 +4,7 @@ export * from "./ApprovalReadinessDerivation";
 export * from "./ApprovalEvidenceRequirement";
 export * from "./ApprovalDuplicatePolicy";
 export * from "./ApprovalSourceDocumentAdapter";
+export * from "./ApprovalSourceLabel";
 export * from "./ApprovalSourceUrlPolicy";
 export type {
   ApprovalEvidenceVerificationResult,

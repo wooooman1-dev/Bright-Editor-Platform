@@ -154,3 +154,46 @@ export function publicSectorDomainAllowed(host: string): boolean {
     || /(?:^|\.)mil(?:\.[a-z]{2,})?$/u.test(normalized)
     || /(?:^|\.)(?:go|gob)\.[a-z]{2,}$/u.test(normalized);
 }
+
+/**
+ * 도메인이 대표하는 기관의 이름.
+ *
+ * 출처 줄은 페이지 제목과 호스트를 함께 실었다. 2026-08-20 밝은재테크 실측:
+ * ":: 고용노동부 모바일페이지 고객센터 :: · 1350.moel.go.kr" 처럼 사이트가
+ * 제목에 넣은 장식 문자와 호스트가 그대로 독자에게 나갔고, PDF 출처는 제목
+ * 자리에 UTF-16 바이트가 보였다.
+ *
+ * 독자가 확인해야 하는 것은 "어느 기관이 말했는가" 하나다. 페이지 제목과
+ * 호스트는 그 답이 아니다.
+ *
+ * 목록이 빠짐없을 필요는 없다. 여기 없는 도메인은 호스트를 그대로 쓰고,
+ * 필요해질 때 한 줄 추가한다. 인용 범위가 정부·공공기관과 금융회사로 좁혀져
+ * 있으므로 (D-045) 대상은 애초에 한정적이다.
+ */
+const approvalSourceInstitutions: ReadonlyArray<readonly [string, string]> = Object.freeze([
+  ["law.go.kr", "국가법령정보센터"],
+  ["moel.go.kr", "고용노동부"],
+  ["mohw.go.kr", "보건복지부"],
+  ["molit.go.kr", "국토교통부"],
+  ["mois.go.kr", "행정안전부"],
+  ["nts.go.kr", "국세청"],
+  ["fsc.go.kr", "금융위원회"],
+  ["fss.or.kr", "금융감독원"],
+  ["bok.or.kr", "한국은행"],
+  ["hf.go.kr", "한국주택금융공사"],
+  ["kdic.or.kr", "예금보험공사"],
+  ["lh.or.kr", "한국토지주택공사"],
+  ["nps.or.kr", "국민연금공단"],
+  ["nhis.or.kr", "국민건강보험공단"],
+  ["korea.kr", "대한민국 정책브리핑"],
+  ["gov.kr", "정부24"],
+] as ReadonlyArray<readonly [string, string]>);
+
+/** 기관 이름을 모르는 도메인은 호스트를 그대로 돌려준다. */
+export function approvalSourceInstitutionName(host: string): string {
+  const normalized = host.toLocaleLowerCase("en-US").replace(/\.$/, "");
+  for (const [domain, name] of approvalSourceInstitutions) {
+    if (normalized === domain || normalized.endsWith(`.${domain}`)) return name;
+  }
+  return normalized.replace(/^www\./u, "");
+}
