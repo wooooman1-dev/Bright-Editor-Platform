@@ -58,8 +58,10 @@ describe("WordPress button rendering", () => {
   it("still places related_post buttons in the separate 관련 글 보기 section", () => {
     const html = new WordPressHtmlRenderer().render(document());
 
-    expect(html).toContain('<section class="bright-related-posts"><h2>관련 글 보기</h2>');
-    expect(html).toContain('<li><a href="https://bright-money.example.com/entry/one">관련 글 1</a></li>');
+    expect(html).toContain('<section class="bright-related-posts" style=');
+    expect(html).toContain(">관련 글 보기</h2>");
+    expect(html).toContain('href="https://bright-money.example.com/entry/one"');
+    expect(html).toContain("관련 글 1</a></li>");
   });
 });
 
@@ -119,7 +121,25 @@ describe("WordPress table of contents rendering", () => {
   it("labels the table of contents with the same heading level as the other appended sections", () => {
     const html = new WordPressHtmlRenderer().render(tocDocument());
 
-    expect(html).toContain('<nav class="bright-toc" aria-label="목차"><h2>목차</h2><ul>');
+    expect(html).toContain('<nav class="bright-toc" aria-label="목차" style=');
+    expect(html).toContain(">목차</h2>");
     expect(html).not.toContain("<strong>목차</strong>");
+  });
+
+  it("separates the table of contents from body prose with its own box", () => {
+    const html = new WordPressHtmlRenderer().render(tocDocument());
+    const nav = /<nav class="bright-toc"[^>]*style="([^"]*)"/u.exec(html)?.[1] ?? "";
+
+    expect(nav).toContain("background:#f7f8fa");
+    expect(nav).toContain("border:1px solid #dcdfe4");
+  });
+
+  it("gives 관련 글 보기 the same blue family as the in-body internal link card", () => {
+    const html = new WordPressHtmlRenderer().render(document());
+    const section = /<section class="bright-related-posts"[^>]*style="([^"]*)"/u.exec(html)?.[1] ?? "";
+
+    expect(section).toContain("background:#f3f7ff");
+    expect(section).toContain("border:1px solid #cfe0ff");
+    expect(html).toContain('<a href="https://bright-money.example.com/entry/one" style="color:#1456c0');
   });
 });

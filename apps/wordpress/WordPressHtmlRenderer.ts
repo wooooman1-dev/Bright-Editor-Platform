@@ -35,18 +35,48 @@ export class WordPressHtmlRenderer {
      * 두었는데, 워드프레스 렌더러에는 목차 코드 자체가 없었다. 2026-08-19 실측:
      * 발행된 101번 글의 HTML 에 nav 도 앵커도 없고 H2 는 4개였다. 화면이
      * 보여주는 것과 실제로 나가는 것이 달랐다.
-    *
+     *
      * 목차 이름표는 <strong> 이었다. 관련 글 보기와 출처는 <h2> 로 나가므로
      * 테마가 셋에 서로 다른 크기를 주었고, 목차만 자기 목록 항목보다 작게
      * 보였다. 2026-08-19 실측. 세 섹션을 같은 위계로 맞춘다.
      */
     const anchors = headingAnchors(createContentOutline(document));
-    const toc = anchors.length >= 2
-      ? `<nav class="bright-toc" aria-label="목차"><h2>목차</h2><ul>${anchors.map((item) => `<li class="bright-toc-level-${item.level}"><a href="#${attribute(item.anchor)}">${escapeHtml(item.text)}</a></li>`).join("")}</ul></nav>`
-      : "";
-    const relatedHtml = related.length ? `<section class="bright-related-posts"><h2>관련 글 보기</h2><ul>${related.slice(0, 3).map((block) => block.type === "button" ? `<li><a href="${attribute(block.targetUrl)}"${block.target === "_blank" ? ' target="_blank" rel="noopener noreferrer"' : ""}>${escapeHtml(block.label)}</a></li>` : "").join("")}</ul></section>` : "";
+    const toc = anchors.length >= 2 ? renderTableOfContents(anchors) : "";
+    const relatedHtml = related.length ? renderRelatedPosts(related.slice(0, 3)) : "";
     return [toc, body, relatedHtml].filter(Boolean).join("\n");
   }
+}
+
+/**
+ * 목차와 관련 글은 읽는 글이 아니라 이동하는 장치다.
+ *
+ * 둘 다 글머리표 목록으로만 나가서 본문 문단과 글자색·크기·간격이 모두 같았다.
+ * 2026-08-19 발행분 실측: 목차 항목이 본문 문단과 구분되지 않아 글의 일부로
+ * 읽혔다. 같은 화면에서 "함께 읽으면 좋은 글" 카드만 상자로 떨어져 보였다.
+ *
+ * 상자로 감싸 본문에서 떼어 낸다. 목차는 뒤로 물러나는 회색, 관련 글은 내부
+ * 링크 카드와 같은 파란 계열로 두어 다음에 읽을 것으로 읽히게 한다.
+ *
+ * 색은 인라인 스타일로 싣는다. 테마 CSS 를 우리가 정하지 못하고, 워드프레스는
+ * 본문의 인라인 스타일을 허용 목록으로 거른다. bright-internal-link 카드에서
+ * 이미 살아남은 속성만 쓴다.
+ */
+const navigationBoxStyle = "box-sizing:border-box;max-width:100%;margin:28px 0;padding:18px 22px;border-radius:14px";
+const navigationTitleStyle = "margin:0 0 10px;font-size:1.05em;line-height:1.4";
+const navigationListStyle = "margin:0;padding-left:20px;line-height:1.9";
+
+function renderTableOfContents(anchors: ReturnType<typeof headingAnchors>): string {
+  const items = anchors.map((item) => `<li class="bright-toc-level-${item.level}" style="margin:0 0 6px"><a href="#${attribute(item.anchor)}" style="color:#3c4453;text-decoration:none">${escapeHtml(item.text)}</a></li>`).join("");
+  return `<nav class="bright-toc" aria-label="목차" style="${navigationBoxStyle};border:1px solid #dcdfe4;background:#f7f8fa"><h2 style="${navigationTitleStyle};color:#3c4453">목차</h2><ul style="${navigationListStyle};color:#4a5261">${items}</ul></nav>`;
+}
+
+function renderRelatedPosts(blocks: readonly ContentDocument["blocks"][number][]): string {
+  const items = blocks.map((block) => {
+    if (block.type !== "button") return "";
+    const target = block.target === "_blank" ? ' target="_blank" rel="noopener noreferrer"' : "";
+    return `<li style="margin:0 0 6px"><a href="${attribute(block.targetUrl)}"${target} style="color:#1456c0;text-decoration:underline;text-underline-offset:3px">${escapeHtml(block.label)}</a></li>`;
+  }).join("");
+  return `<section class="bright-related-posts" style="${navigationBoxStyle};border:1px solid #cfe0ff;background:#f3f7ff"><h2 style="${navigationTitleStyle};color:#234b8f">관련 글 보기</h2><ul style="${navigationListStyle}">${items}</ul></section>`;
 }
 
 /**
