@@ -298,6 +298,11 @@ function sectionCompositionRule(recent: readonly RecentEditorialPattern[]): stri
  * 2026-08-20 실측: 최근 6편의 문단당 평균 문장 수가 2.4~2.8 로 폭이 0.4 였다.
  * 문장 하나짜리 문단이 한 번도 나오지 않았다. 읽는 사람이 "기계적"이라고
  * 느끼는 지점이 여기다.
+ *
+ * 문장을 길게 늘이는 쪽으로 해석되면 안 된다. 품질 검사는 20어절 이상 문장이
+ * 전체의 25%를 넘으면 readability 를 최대 20점 깎는다. 2026-08-19 실측: 신용카드
+ * 명세서 원고가 이 한 항목으로 readability 80 이 되어 발행이 막혔다. 한 문장
+ * 문단은 문단 수의 40%까지 감점이 없으므로 (현재 0개) 문단 쪽에는 여유가 있다.
  */
 function paragraphRhythmRule(recent: readonly RecentEditorialPattern[]): string {
   const averages = recent.map((pattern) => pattern.rhythm.averageSentences).filter((value) => value > 0);
@@ -305,7 +310,7 @@ function paragraphRhythmRule(recent: readonly RecentEditorialPattern[]): string 
   const lowest = Math.min(...averages);
   const highest = Math.max(...averages);
   if (highest - lowest > 0.6) return "";
-  return `최근 글의 문단이 모두 평균 ${lowest.toFixed(1)}~${highest.toFixed(1)}문장으로 같은 길이였다. 문단 길이를 고르게 맞추지 말고 짧은 문단과 긴 문단을 섞을 것. 문장 끝맺음도 한 가지 어미로 반복하지 말 것.`;
+  return `최근 글의 문단이 모두 평균 ${lowest.toFixed(1)}~${highest.toFixed(1)}문장으로 같은 길이였다. 문단 길이를 고르게 맞추지 말고 짧은 문단과 긴 문단을 섞을 것. 문장 끝맺음도 한 가지 어미로 반복하지 말 것. 바꾸는 것은 문단의 길이와 어미이지 문장의 길이가 아니다 — 절을 이어 붙여 한 문장을 길게 늘이는 방식으로 리듬을 만들지 말 것.`;
 }
 
 /** 질문형은 물음표로, 서술문은 종결어미로 끝난다. 나머지는 명사로 끝나는 제목이다. */
