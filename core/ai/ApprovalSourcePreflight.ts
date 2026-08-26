@@ -351,7 +351,10 @@ async function runExplicitPreflightWithRetry(
     } catch (error) {
       const retryable = attempt < explicitDiscoveryMaximumAttempts;
       const rejected = retryable ? retryableSourceRejections(error) : [];
-      const uncovered = retryable ? uncoveredClaimGaps(error, attemptInput.opportunity) : [];
+      const namedGaps = retryable ? uncoveredClaimGaps(error, attemptInput.opportunity) : [];
+      const uncovered = namedGaps.length
+        ? namedGaps
+        : retryable ? emptyDeclarationClaimGaps(error, attemptInput.opportunity) : [];
       if (!rejected.length && !uncovered.length) throw error;
       attemptInput = Object.freeze({
         ...attemptInput,
@@ -393,6 +396,31 @@ function retryableSourceRejections(error: unknown): readonly ApprovalSourceRejec
  * plain HTML that a single GET returns. Naming the uncovered Claim is what lets
  * the second attempt look somewhere else. Nothing about acceptance is relaxed.
  */
+/**
+ * 제출이 0건인 실패는 재시도에서 통째로 빠져 있었다. 이름 붙일 URL이 없어
+ * rejectionSamples 가 비고, 커버리지 단계까지 가지 못해 missingClaimIds 도 없어
+ * 두 피드백 통로가 동시에 비기 때문이다. 2026-08-26 실측: 통신비 미환급액 원고가
+ * 웹 검색 4회로 44건을 받고도 sources 를 하나도 선언하지 않은 채 1회 만에 막혔다
+ * (official_source_missing, assistantDeclaredSourceCount 0).
+ *
+ * 아무것도 제출되지 않았다면 아직 근거가 없는 것은 CRITICAL Claim 전부다. 그대로
+ * 이름을 붙여 넘기면 2차 시도는 "이 Claim들은 근거가 없다"를 듣고 이미 빗나간
+ * 검색 밖을 보게 된다. 승인 기준은 그대로다 — 2차 시도도 같은 관문을 지난다.
+ *
+ * assistantDeclaredSourceCount 는 응답을 파싱한 뒤에만 기록되므로, 계약·기획
+ * 단계에서 Provider 호출 전에 막힌 실패는 값이 없어 여기 걸리지 않는다.
+ */
+function emptyDeclarationClaimGaps(
+  error: unknown,
+  opportunity: ConfirmedContentOpportunity,
+): readonly ApprovalSourceClaimGapNote[] {
+  if (!(error instanceof ApprovalSourcePreflightError)) return [];
+  if (error.diagnostic?.assistantDeclaredSourceCount !== 0) return [];
+  return Object.freeze((opportunity.verificationPlan?.claims ?? [])
+    .filter(isCriticalVerificationClaim)
+    .map((claim) => Object.freeze({ claimId: claim.claimId, field: claim.field })));
+}
+
 function uncoveredClaimGaps(
   error: unknown,
   opportunity: ConfirmedContentOpportunity,

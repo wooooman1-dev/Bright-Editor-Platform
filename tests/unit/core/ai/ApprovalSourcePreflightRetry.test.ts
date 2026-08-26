@@ -116,6 +116,32 @@ function discoveryResponse(url: string): AIResponse {
 }
 
 
+
+/** 웹 검색은 했지만 출처를 하나도 선언하지 않은 응답. */
+function emptyDiscoveryResponse(): AIResponse {
+  return {
+    content: JSON.stringify({ sources: [] }),
+    model: "test-model",
+    diagnostics: {
+      webSources: [
+        { url: "https://example.com/a", title: "검색 결과 A", provenance: "search_candidate" as const },
+        { url: "https://example.com/b", title: "검색 결과 B", provenance: "search_candidate" as const },
+      ],
+      aiUsage: createAIUsageRecord({
+        stage: "source_preflight",
+        task: "approval-source-preflight",
+        model: "test-model",
+        responseId: "response-empty",
+        recordedAt: "2026-08-12T00:00:00.000Z",
+        inputTokens: 100,
+        outputTokens: 10,
+        totalTokens: 110,
+        webSearchCalls: 4,
+      }),
+    },
+  };
+}
+
 /**
  * Two required Claims, so a discovery response can support one and leave the
  * other with no source at all — the Coverage gap that names no rejected URL.
@@ -217,6 +243,37 @@ describe("Approval Source Preflight discovery retry", () => {
     expect(provider.requests).toHaveLength(1);
     expect(result.sources.length).toBeGreaterThan(0);
     expect(result.coverage?.status).toBe("incomplete");
+  });
+
+  /**
+   * 제출이 0건이면 이름 붙일 URL도, missingClaimIds 도 없어 두 피드백 통로가
+   * 동시에 비었고, 가장 흔한 실패 하나가 재시도에서 통째로 빠져 있었다.
+   * 2026-08-26 실측: 통신비 미환급액 원고가 웹 검색 4회로 44건을 받고도
+   * sources 를 하나도 선언하지 않은 채 1회 만에 막혔다.
+   */
+  it("asks discovery again when the first attempt declared no source at all", async () => {
+    const provider = new QueueProvider([
+      emptyDiscoveryResponse(),
+      discoveryResponse(textPageUrl),
+    ]);
+
+    const result = await runApprovalSourcePreflight(preflightInput(provider));
+
+    expect(provider.requests).toHaveLength(2);
+    expect(result.sources.length).toBeGreaterThan(0);
+    const retryInstruction = provider.requests[1]?.instruction ?? "";
+    expect(retryInstruction).toContain("dormant-identity-check");
+    expect(retryInstruction).toContain("submitted no source at all");
+  });
+
+  it("stops after the second empty declaration instead of retrying forever", async () => {
+    const provider = new QueueProvider([
+      emptyDiscoveryResponse(),
+      emptyDiscoveryResponse(),
+    ]);
+
+    await expect(runApprovalSourcePreflight(preflightInput(provider))).rejects.toThrow();
+    expect(provider.requests).toHaveLength(2);
   });
 
 });
