@@ -346,8 +346,10 @@ function evaluate(s: Signals): QualityDimensionResult[] {
   const titleContainsKeyword = Boolean(s.keyword && titleContainsPrimaryKeyword(s.document.title, s.keyword));
   const metaDescriptionValid = s.metaDescription.length >= 60 && s.metaDescription.length <= 180;
   const tagPenalty = s.context.platform === "tistory" && s.tistoryTags.length < 5 ? 15 : 0;
+  // 본문 키워드 배치는 더 이상 요구하지 않는다 (f975463) — 채점에서도 뺀다.
+  // 없다고 감점하면 문장을 지어 넣게 되므로, 과다 반복 페널티만 남긴다.
   const seoBase = s.keyword
-    ? 55 + (titleContainsKeyword ? 20 : 0) + (s.keywordOccurrences > 0 ? 15 : 0) + (metaDescriptionValid ? 10 : 0) - (keywordRepeated ? 35 : 0) - tagPenalty
+    ? 70 + (titleContainsKeyword ? 20 : 0) + (metaDescriptionValid ? 10 : 0) - (keywordRepeated ? 35 : 0) - tagPenalty
     : 35 + (s.metaDescription ? 10 : 0) - tagPenalty;
 
   return [

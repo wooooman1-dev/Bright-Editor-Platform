@@ -178,8 +178,13 @@ function normalizeExplicitMoney(text: string, spec: VerificationClaimSpec): Veri
   const feeApplicability = normalizeFeeApplicabilityMoney(text, spec);
   if (feeApplicability) return feeApplicability;
   const compact = text.replace(/,/gu, "");
-  const match = compact.match(/^(?:(최대|최소|이상|이하|미만|초과)\s*)?(?:(월|매월|월간|월별|연|연간|연별|매년|일|일일|매일|하루|1인당|인당|개인당|가구당|세대당|1회|일회|한\s*번)\s+)?(?:(최대|최소|이상|이하|미만|초과)\s*)?(-?\d+(?:\.\d+)?)\s*(억원|만원|천원|원|KRW|달러|USD)(?:\s*(이상|이하|미만|초과))?(?:\s*(?:\/\s*)?(월|매월|월간|월별|연|연간|연별|매년|일|일일|매일|하루|1인당|인당|개인당|가구당|세대당|1회|일회|한\s*번))?$/iu);
-  if (!match) return undefined;
+  /**
+   * 금액도 구절 안에서 찾는다. 사유는 normalizeExplicitRatio 와 같다.
+   * 단위(원·만원·억원 등)가 붙은 수치가 정확히 하나일 때만 값을 만든다.
+   */
+  const found = [...compact.matchAll(/(?:(최대|최소|이상|이하|미만|초과)\s*)?(?:(월|매월|월간|월별|연|연간|연별|매년|일|일일|매일|하루|1인당|인당|개인당|가구당|세대당|1회|일회|한\s*번)\s+)?(?:(최대|최소|이상|이하|미만|초과)\s*)?(-?\d+(?:\.\d+)?)\s*(억원|만원|천원|원|KRW|달러|USD)(?:\s*(이상|이하|미만|초과))?(?:\s*(?:\/\s*)?(월|매월|월간|월별|연|연간|연별|매년|일|일일|매일|하루|1인당|인당|개인당|가구당|세대당|1회|일회|한\s*번))?/giu)];
+  if (found.length !== 1) return undefined;
+  const match = found[0]!;
   const numeric = Number(match[4]);
   if (!Number.isFinite(numeric)) return undefined;
   const unit = (match[5] ?? "").toLocaleLowerCase("en-US");
@@ -220,8 +225,22 @@ function normalizeFeeApplicabilityMoney(text: string, spec: VerificationClaimSpe
 }
 
 function normalizeExplicitRatio(text: string, spec: VerificationClaimSpec): VerificationSourceAssessment["normalizedValue"] {
-  const match = text.match(/^(?:(최대|최소|이상|이하|미만|초과)\s*)?(-?\d+(?:\.\d+)?)\s*(%p|%|퍼센트포인트|퍼센트)(?:\s*(이상|이하|미만|초과))?$/iu);
-  if (!match) return undefined;
+  /**
+   * 구절 안에서 비율을 찾는다.
+   *
+   * 이 정규식은 문자열 처음과 끝을 묶어 값 전체가 숫자여야만 통과했다. 그런데
+   * Preflight 에 내린 지시는 "발췌 안의 가장 짧은 축약되지 않은 사실 구절" 을
+   * 값으로 달라는 것이다 — 구절을 요구해 놓고 파서는 숫자만 받았다. 2026-08-26
+   * 밝은재테크 실측: 선택약정 할인율 Claim 이 claim_normalization_failed 로 값을
+   * 잃었고, 원고에 숫자가 하나도 나가지 않았다.
+   *
+   * 단위가 붙은 수치를 구절 어디서든 찾는다. 단위를 기준으로 고르므로
+   * "24개월 약정 시 25% 할인" 에서 24 를 집지 않는다. 단위가 같은 수치가 둘
+   * 이상이면 ("25% 또는 20%") 값을 만들지 않는다 — 잘못 고르느니 비운다.
+   */
+  const found = [...text.matchAll(/(?:(최대|최소|이상|이하|미만|초과)\s*)?(-?\d+(?:\.\d+)?)\s*(%p|%|퍼센트포인트|퍼센트)(?:\s*(이상|이하|미만|초과))?/giu)];
+  if (found.length !== 1) return undefined;
+  const match = found[0]!;
   const numeric = Number(match[2]);
   if (!Number.isFinite(numeric)) return undefined;
   const unit = (match[3] ?? "").toLocaleLowerCase("ko-KR");

@@ -89,8 +89,8 @@ describe("quality improvement candidate route", () => {
 
     expect(response.status, JSON.stringify(result)).toBe(200);
     expect(result.document?.title).toContain(primaryKeyword);
-    const introduction = result.document?.blocks.find((block) => block.type === "paragraph");
-    expect(introduction?.type === "paragraph" ? introduction.text : "").toContain(primaryKeyword);
+    // 본문에는 키워드를 심지 않는다 — 없다고 문장을 지어 넣던 주입을 걷었다 (f975463).
+    expect(JSON.stringify(result.document?.blocks)).not.toContain("관련 핵심 내용을 먼저 정리하면");
     expect(result.document?.metadata?.metaDescription).toContain(primaryKeyword);
 
     const baselineSeo = result.baselineQuality?.dimensions.find((item) => item.category === "seo")?.score ?? 0;

@@ -386,6 +386,11 @@ describe("runApprovalSourcePreflight explicit integration", () => {
     expect(same.result.verificationSnapshot?.results[0]?.status).toBe("verified");
   });
 
+  /**
+   * 세 가지는 진단으로 남지만 판정을 막지 않는다 (D-045). 기획 rawValue 와
+   * 출처 값이 다르면 출처를 따르므로 (50656c7) raw mismatch 도 상태를 내리지
+   * 않는다. 판정을 막는 것은 발췌가 페이지에 없을 때뿐이다.
+   */
   it("preserves fetched-page diagnostics for missing value, excerpt, and raw mismatch", async () => {
     const missingValueExcerpt = "공식 안내에 따르면 지원 금액은 50만원이며 대상 조건을 반드시 확인해야 합니다.";
     const missingValue = await run([source(urls[0], "50만원", missingValueExcerpt)], async () => page("100만원", "공식 안내에 따르면 지원 금액은 100만원이며 대상 조건을 반드시 확인해야 합니다."));
@@ -396,7 +401,6 @@ describe("runApprovalSourcePreflight explicit integration", () => {
     const mismatchExcerpt = "공식 안내에 따르면 지원 금액은 100만원이며 대상 조건을 반드시 확인해야 합니다.";
     const mismatch = await run([source(urls[0], "100만원", mismatchExcerpt)], async () => page("100만원", mismatchExcerpt));
     expect(mismatch.result.verificationSnapshot?.results[0]?.diagnostics).toContain("claim_raw_value_mismatch");
-    expect(mismatch.result.verificationSnapshot?.results[0]?.status).not.toBe("verified");
   });
 
   it("rejects ambiguous unitless money instead of silently assuming KRW", () => {

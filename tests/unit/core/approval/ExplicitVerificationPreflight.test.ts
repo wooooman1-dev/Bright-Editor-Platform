@@ -289,3 +289,69 @@ describe("discovered value over planned statement", () => {
     });
   });
 });
+
+describe("value extraction over content matching", () => {
+  const spec = (kind: VerificationClaimSpec["kind"], field: string): VerificationClaimSpec => ({
+    claimId: "claim-x",
+    field,
+    kind,
+    statement: `${field}을 확인해야 한다.`,
+    qualifiers: { subject: "이용자", scope: "요금 할인", basis: "공식 안내" },
+    temporalRequirement: { mode: "notRequired" },
+    required: true,
+    risk: "critical",
+  });
+
+  function discover(claim: VerificationClaimSpec, value: string, excerpt: string, pageText = `안내입니다. ${excerpt} 끝.`) {
+    return assessmentsFromExplicitDiscovery({
+      claims: [claim],
+      sources: [{
+        requestedUrl: "https://www.korea.kr/news/one",
+        pageText,
+        evidenceExcerpt: excerpt,
+        claims: [{ claimId: claim.claimId, value, evidenceExcerpt: excerpt }],
+        role: "primaryOfficial",
+        authoritative: true,
+        fresh: true,
+      }],
+    })[0];
+  }
+
+  /**
+   * 2026-08-26 밝은재테크 실측: 선택약정 원고의 CRITICAL 4건 중 값이 살아남은
+   * 것이 1건이었고 본문에 숫자가 하나도 나가지 않았다. 할인율은
+   * claim_normalization_failed 로, 재가입 대상은 내용 대조 실패로 값을 잃었다.
+   */
+  it("reads a ratio out of a phrase instead of demanding a bare number", () => {
+    expect(discover(spec("ratio", "선택약정 할인율"), "요금의 25%", "가입자는 요금의 25%를 할인받습니다.")?.normalizedValue)
+      .toMatchObject({ kind: "ratio", value: { value: 25, representation: "percent" } });
+  });
+
+  it("picks the number that carries the unit, not the first number in the phrase", () => {
+    expect(discover(spec("ratio", "선택약정 할인율"), "24개월 약정 시 25% 할인", "24개월 약정 시 25% 할인이 적용됩니다.")?.normalizedValue)
+      .toMatchObject({ kind: "ratio", value: { value: 25 } });
+  });
+
+  it("leaves the value empty when the phrase carries more than one candidate", () => {
+    expect(discover(spec("ratio", "선택약정 할인율"), "25% 또는 20%", "25% 또는 20%가 적용됩니다.")?.normalizedValue).toBeUndefined();
+  });
+
+  it("reads money out of a phrase and keeps its basis and comparator", () => {
+    expect(discover(spec("money", "월 지원 한도"), "월 최대 10만원 지원", "월 최대 10만원 지원이 가능합니다.")?.normalizedValue)
+      .toMatchObject({ kind: "money", value: { amount: 100_000, currency: "KRW", basis: "monthly", comparator: "lte" } });
+  });
+
+  it("keeps a discovered value even when the page does not restate it, and still reports what differed", () => {
+    const assessment = discover(spec("eligibility", "재가입 대상"), "기존 약정이 끝난 이용자", "기존 약정이 끝난 이용자는 다시 신청할 수 있습니다.");
+
+    expect(assessment?.supports).toBe(true);
+    expect(assessment?.normalizedValue).toBeDefined();
+  });
+
+  it("still refuses an excerpt that is not on the fetched page", () => {
+    const assessment = discover(spec("eligibility", "재가입 대상"), "지어낸 값", "이 문장은 페이지에 없습니다.", "전혀 다른 본문입니다.");
+
+    expect(assessment?.supports).toBe(false);
+    expect(assessment?.diagnostics).toContain("claim_evidence_excerpt_not_found");
+  });
+});
