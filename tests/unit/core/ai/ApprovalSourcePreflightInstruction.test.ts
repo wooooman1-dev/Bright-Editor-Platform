@@ -129,4 +129,43 @@ describe("Approval source preflight Generation instruction", () => {
     expect(instruction).toContain("State the value in the sentence itself");
     expect(instruction).toContain("leaves the reader without the fact it came for");
   });
+  /**
+   * 서버가 실제로 읽어온 발췌가 Claim 판정과 무관하게 생성까지 가야 한다.
+   * 2026-08-27 실측: law.go.kr 에서 읽어 문서에 저장까지 한
+   * "임대차기간이 끝나기 6개월 전부터 2개월 전까지" 가 생성에는 가지 않았고,
+   * canonical 분기가 sources 를 가드에만 쓰고 버렸기 때문이었다.
+   */
+  it("carries the fetched source passage into the canonical bundle, not only the verified Claims", () => {
+    const passage = "임대인이 임대차기간이 끝나기 6개월 전부터 2개월 전까지의 기간에 갱신거절의 통지를 하지 아니하면";
+    const instruction = withApprovalSourcePreflightInstruction(
+      "base",
+      [{ ...webSource, excerpt: passage }],
+      [{
+        url: sourceUrl,
+        claims: [],
+        verificationClaims: [{
+          claimId: "claim-1",
+          field: "지원 금액",
+          kind: "money",
+          statement: "월 지원 금액은 50만원이다.",
+          required: true,
+          normalizedValue: { kind: "money", value: { amount: 500_000, currency: "KRW", basis: "monthly" } },
+          qualifiers: {},
+          source: {
+            sourceId: "source-1",
+            canonicalUrl: sourceUrl,
+            role: "primaryOfficial",
+            authoritative: true,
+            evidenceExcerpt: "월 지원 금액은 50만원입니다.",
+          },
+        }],
+      }],
+    );
+
+    expect(instruction).toContain("Explicit verification Generation bundle");
+    expect(instruction).toContain("Fetched official source passages");
+    expect(instruction).toContain(passage);
+    expect(instruction).toContain("Never write a number from your own knowledge");
+    expect(instruction).toContain("Never fill a placeholder");
+  });
 });

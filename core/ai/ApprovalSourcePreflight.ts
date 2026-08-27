@@ -1118,6 +1118,22 @@ export function withApprovalSourcePreflightInstruction(
 ): string {
   if (!sources.length) return instruction;
 
+  /**
+   * 가져온 페이지의 발췌를 Claim 판정과 무관하게 싣는다.
+   *
+   * 2026-08-27 실측: 계약갱신요구권 원고에서 서버가 law.go.kr 에서 실제로 읽어
+   * 문서에 저장까지 한 "임대차기간이 끝나기 6개월 전부터 2개월 전까지" 가
+   * 생성에는 한 글자도 가지 않았다. canonical 분기가 sources 를 "비었으면 반환"
+   * 가드에만 쓰고 그 뒤로 쓰지 않았기 때문이다. 숫자를 들고 있는 것은 판정에서
+   * 떨어진 Claim 에 붙은 발췌인데, 번들은 통과한 Claim 만으로 조립됐다.
+   * 전 기간 49개 Claim 중 수치값이 나온 것이 0개인 이유가 여기다.
+   */
+  const fetchedSourcePassages = sources.map((source, index) => [
+    `${index + 1}. ${source.title?.trim() || sourcePublisher(source.url)}`,
+    `URL: ${source.url}`,
+    `Fetched passage: ${source.excerpt ?? ""}`,
+  ].join("\n")).join("\n\n");
+
   const canonicalProjections = claimSources.flatMap((source) =>
     source.verificationClaims ?? []);
   if (canonicalProjections.length) {
@@ -1133,7 +1149,13 @@ ${JSON.stringify(canonicalClaims)}
 - Do not use web search during Generation and do not add, replace, or invent another source URL.
 - When a canonical Claim does not support a factual assertion, omit it rather than guessing.
 - Write an unverified number — an example, a cadence, an approximation, or an illustrative period — as descriptive prose instead of a compressed numeral-and-unit form, including in a title, heading, list label, or table cell: write "일주일 동안 이어서 점검하는" rather than "1주". This never applies to a Claim-ID-owned normalizedValue, which must stay exactly as the canonical Claim contract represents it.
-- Do not create a reader-visible source section. Bright Studio projects verified sources after deterministic Claim review.`;
+- Do not create a reader-visible source section. Bright Studio projects verified sources after deterministic Claim review.
+
+Fetched official source passages (the server's own extraction from the same pages, listed regardless of Claim verification):
+${fetchedSourcePassages}
+- These passages are source material for the manuscript, not Claim contracts. The claimId attachment rule above governs the canonical Claim contracts only; a figure that appears in a passage here may be written even when no Claim carries it.
+- Write a number only when it appears verbatim in a passage above or in a canonical Claim value. Never write a number from your own knowledge of the subject.
+- Never fill a placeholder such as [공식 확인값] with a number, and never leave the placeholder itself in the manuscript: when the passages do not state that value, write the sentence without the figure.`;
   }
 
   const claimsByUrl = new Map(claimSources.map((source) => [
