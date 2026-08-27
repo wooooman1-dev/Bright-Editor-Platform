@@ -281,6 +281,28 @@ describe("Approval Source Preflight discovery retry", () => {
     expect(instruction).toContain("second-hand copy");
   });
 
+  /**
+   * 뷰어·팝업 주소는 GET 으로 본문이 오지 않는다. 가져오기 전에 주소 모양으로
+   * 거절해야 재시도가 그 주소를 이름으로 듣고 정적 페이지를 찾는다.
+   * 2026-08-27 실측: 계약갱신요구권 원고의 수치 Claim 4개가 law.go.kr
+   * lsLinkCommonInfo.do 와 easylaw.go.kr CnpClsMain.laf 에 붙어 전부 떨어졌다.
+   */
+  it("rejects a viewer endpoint before fetching and names it to the retry", async () => {
+    const viewerUrl = "https://www.easylaw.go.kr/CSP/CnpClsMain.laf?ccfNo=4&popMenu=ov";
+    const provider = new QueueProvider([
+      discoveryResponse(viewerUrl),
+      discoveryResponse(textPageUrl),
+    ]);
+
+    const result = await runApprovalSourcePreflight(preflightInput(provider));
+
+    expect(provider.requests).toHaveLength(2);
+    expect(result.sources.length).toBeGreaterThan(0);
+    const retryInstruction = provider.requests[1]?.instruction ?? "";
+    expect(retryInstruction).toContain(viewerUrl);
+    expect(retryInstruction).toContain("source_url_script_rendered_view");
+  });
+
   it("stops after the second empty declaration instead of retrying forever", async () => {
     const provider = new QueueProvider([
       emptyDiscoveryResponse(),
