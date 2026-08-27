@@ -101,6 +101,23 @@ describe("explicit planning contract", () => {
     expect(generate.mock.calls[0]?.[0].metadata).not.toHaveProperty("explicitVerificationPlanning");
   });
 
+  /**
+   * Claim statement 이 "확인해야 한다 / 법령에서 정한다" 같은 과제형으로 나오면
+   * 확인할 값 자체가 없어 Evidence 가 붙을 자리가 사라지고, 본문에 숫자가
+   * 남지 않는다. 2026-08-26 실측: 최근 원고 8건의 Claim 26개 중 12개가 과제형
+   * 문장이었고 수치 kind 는 2개뿐이었으며 실제 수치값을 확보한 Claim 은 0개였다.
+   */
+  it("tells Planning to write a fact rather than a task and to emit a numeric Claim kind", async () => {
+    const generate = vi.fn(async (request: { instruction: string; metadata?: Readonly<Record<string, string>> }) => { void request; return { content: JSON.stringify(planning), diagnostics: {} }; });
+    const strategy = new ContentPlanningStrategy({ generate } as never);
+
+    await strategy.analyze("서울 청년 지원", undefined, { projectId: "p", selectionMode: "automatic", explicitVerificationPlanningEnabled: true });
+
+    const instruction = generate.mock.calls[0]?.[0].instruction ?? "";
+    expect(instruction).toContain("must be a factual proposition about the subject itself, not a task");
+    expect(instruction).toContain("emit at least one Claim of the matching kind for it: money, ratio, date, dateRange, or duration");
+  });
+
   it("forces explicit verification Planning when canonical approval context is present", async () => {
     const generate = vi.fn(async (request: { instruction: string; metadata?: Readonly<Record<string, string>> }) => { void request; return { content: JSON.stringify(planning), diagnostics: {} }; });
     const strategy = new ContentPlanningStrategy({ generate } as never);

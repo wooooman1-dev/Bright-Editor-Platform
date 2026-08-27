@@ -266,6 +266,21 @@ describe("Approval Source Preflight discovery retry", () => {
     expect(retryInstruction).toContain("submitted no source at all");
   });
 
+  /**
+   * 수치 Claim에 숫자 없는 페이지가 붙으면 claim_normalization_failed 로 값이
+   * 비고, 원고는 그 숫자 없이 발행된다. 2026-08-26 실측: 선택약정 요금 할인율
+   * Claim 에 korea.kr 정책뉴스 한 건만 붙어 normalizedValue 가 null 이었다.
+   */
+  it("requires the numeral and unit for a numeric Claim and asks for the administering body page", async () => {
+    const provider = new QueueProvider([discoveryResponse(textPageUrl)]);
+
+    await runApprovalSourcePreflight(preflightInput(provider));
+
+    const instruction = provider.requests[0]?.instruction ?? "";
+    expect(instruction).toContain("must contain the numeral and its unit exactly as the page writes them");
+    expect(instruction).toContain("second-hand copy");
+  });
+
   it("stops after the second empty declaration instead of retrying forever", async () => {
     const provider = new QueueProvider([
       emptyDiscoveryResponse(),

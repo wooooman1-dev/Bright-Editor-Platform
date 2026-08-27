@@ -411,3 +411,40 @@ tsc·eslint·vitest 는 전부 통과한 상태였다. 번들러 경계는 앱�
 워크스페이스가 없다 — 지난 인수인계가 지목한 content-mss9s98k-mo7oka 등 3편은
 **다른 컴퓨터의 워크스페이스**에 있다. 유실이 아니다.
 완료: 기존 원고 보존 + 새 Content 생성 흐름을 추가했습니다. 기존 원고가 있는 Content에서 별도 생성 버튼을 선택하면 새 Content ID를 만들고, 기존 Content의 문서·검토 상태는 유지한 채 새 Content로 저장·생성·편집기 이동을 진행합니다. 기존 재생성 버튼의 대체 확인 동작은 유지합니다.
+
+== 2026-08-26 숫자가 본문에 안 남는 문제 ==
+
+최근 원고 8건 실측 (`.bright-studio/studio-data.json`):
+
+  Claim 26개 / 과제형 문장 12개 / 수치 kind 2개 / 실제 수치값 확보 0개
+  본문 숫자 토큰: 8건 중 6건이 0개
+
+Planning 이 statement 를 사실이 아니라 과제로 쓴다 -- "현행 요금 할인율을
+확인해야 한다", "법령에서 정한다". 확인할 값이 문장에 없으니 Evidence 가 붙을
+자리도 없고, 수치 kind 자체가 거의 안 나온다.
+
+이번에 넣은 것 (프롬프트 규칙 2개):
+- ContentPlanningStrategyBase: statement 는 사실 명제여야 하고 과제/유예형
+  술어를 금지한다. 독자 질문이 금액·비율·기간·기한·기준선·개수에 걸리면 해당
+  kind Claim 을 최소 1개 낸다.
+- ApprovalSourcePreflight (탐색 지시문): money/ratio/date/dateRange/duration
+  Claim 의 value 는 숫자와 단위를 그대로 담아야 한다. 숫자가 없는 페이지는 그
+  Claim 에 붙이지 않는다. 보도자료·정책뉴스는 2차 자료이므로 주관 기관 자체
+  페이지가 있으면 함께 제출한다.
+
+-- 남은 구멍 (D-045 와 충돌하므로 임의로 되돌리지 않았다) --
+
+수치 Claim 이 근거를 못 찾아도 원고 생성은 그대로 성공한다. 2026-08-26 실측:
+선택약정 요금 할인율 Claim(verification-claim-a2a41699)은 korea.kr 정책뉴스
+한 건만 붙어 `evidence_anchor_unverified` + `claim_normalization_failed` 로
+status insufficient, normalizedValue null 이었는데 원고는 ready 로 발행
+가능 상태가 됐다. 본문에 할인율 숫자는 없다.
+
+재시도는 Preflight 가 예외를 던질 때만 돈다. D-045 가 커버리지를 발행 차단에서
+빼면서 "커버리지 때문에 다시 검색하지 않는다"가 됐고
+(tests/unit/core/ai/ApprovalSourcePreflightRetry.test.ts 에 결정으로 기록),
+그래서 수치 Claim 은 조용히 사라진다.
+
+위 프롬프트 2개로 첫 시도 성공률을 올리는 쪽을 먼저 한다. 그래도 숫자가 안
+나오면 이 결정을 사장님께 다시 여쭙는다 -- 선택지는 (a) 수치 CRITICAL Claim
+미확보 시 탐색 1회 재시도(AI 호출 1회 추가, 발행 차단 아님), (b) 그대로 둔다.
