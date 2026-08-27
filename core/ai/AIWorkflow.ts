@@ -143,7 +143,17 @@ export class AIWorkflow {
         request.instruction,
         input.editorialContext,
       );
-      const preflightInstruction = generationPreflight
+      /**
+       * Preflight 가 출처를 한 건도 못 가져오면 출처 계약 자체가 사라져 있었다.
+       * generationPreflight 는 sources 가 비어도 객체라 첫 갈래를 타고,
+       * withApprovalSourcePreflightInstruction 은 sources 가 비면 지시문을 그대로
+       * 돌려준다. 그래서 검색 계약도 붙지 않아 생성이 출처를 찾으라는 말을
+       * 아예 듣지 못했다. 2026-08-27 실측: 월세 예산 원고는 Claim 0개라
+       * Preflight 가 빈 결과를 냈고 발행 가능 상태인데 출처가 0건이었다.
+       *
+       * 출처 계약은 Claim 유무와 무관하게 항상 붙인다.
+       */
+      const preflightInstruction = generationPreflight?.sources.length
         ? withApprovalSourcePreflightInstruction(
             canonicalInstruction,
             generationPreflight.sources,
