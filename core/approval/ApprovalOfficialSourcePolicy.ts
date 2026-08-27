@@ -22,6 +22,20 @@ export const wordpressLifeEconomyOfficialDomains = Object.freeze([
   "hf.go.kr",
   "nhuf.molit.go.kr",
   "kdic.or.kr",
+  /**
+   * 공단·협회가 운영하는 1차 서비스. go.kr 은 통째로 허용되지만 or.kr 은 개별
+   * 등록이라, 목록에 없는 기관은 검색에서 걸러지고 결국 원고 본문에서 이름조차
+   * 사라진다. 2026-08-26 실측: 통신비 미환급액 원고가 조회처를 끝내 공식 경로
+   * 라고만 부르고 스마트초이스 주소를 한 번도 쓰지 못했다. 제목이 조회 방법인데
+   * 어디서 조회하는지가 글에 없다.
+   *
+   * 그 기관이 실제로 쓰는 도메인만 넣는다. 빠뜨리는 편이 잘못 넣는 것보다 안전하다.
+   */
+  "nps.or.kr",
+  "nhis.or.kr",
+  "comwel.or.kr",
+  "smartchoice.or.kr",
+  "kcredit.or.kr",
 ]);
 
 /**
@@ -185,6 +199,9 @@ const approvalSourceInstitutions: ReadonlyArray<readonly [string, string]> = Obj
   ["lh.or.kr", "한국토지주택공사"],
   ["nps.or.kr", "국민연금공단"],
   ["nhis.or.kr", "국민건강보험공단"],
+  ["comwel.or.kr", "근로복지공단"],
+  ["smartchoice.or.kr", "스마트초이스"],
+  ["kcredit.or.kr", "한국신용정보원"],
   ["korea.kr", "대한민국 정책브리핑"],
   ["gov.kr", "정부24"],
 ] as ReadonlyArray<readonly [string, string]>);

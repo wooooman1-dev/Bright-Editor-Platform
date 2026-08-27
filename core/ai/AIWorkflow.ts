@@ -429,7 +429,7 @@ function withVerificationClaimRiskInstruction(
   const verifyClaims = opportunity?.verificationPlan?.claims.filter((claim) =>
     !isCriticalVerificationClaim(claim) && claim.risk === "verify") ?? [];
   if (!verifyClaims.length) return instruction;
-  return `${instruction}\n\nVerification risk rule: the following VERIFY Claims are optional and have no mandatory Evidence bundle: ${JSON.stringify(verifyClaims.map((claim) => ({ claimId: claim.claimId, statement: claim.statement, rawValue: claim.rawValue })))}. Do not state an unsupported concrete VERIFY value as fact. When it cannot be supported by the available Evidence, remove it or generalize it into non-factual guidance. NONE Claims are editorial guidance and require no source.`;
+  return `${instruction}\n\nVerification risk rule: the following VERIFY Claims are optional and have no mandatory Evidence bundle: ${JSON.stringify(verifyClaims.map((claim) => ({ claimId: claim.claimId, statement: claim.statement, rawValue: claim.rawValue })))}. Do not state an unsupported concrete VERIFY value as fact. When it cannot be supported by the available Evidence, remove it. Do not replace a removed fact with general advice: writing that the reader should check the official notice, compare the current rules, or organize the documents is not a substitute for the fact, and an article made of such sentences answers nothing. A shorter article that states what the Evidence supports is correct; filling the space a removed fact left is not. NONE Claims are editorial guidance and require no source.`;
 }
 
 export function withCanonicalEditorialContext(
