@@ -1119,6 +1119,7 @@ export function withApprovalSourcePreflightInstruction(
     return `${instruction}\n\nExplicit verification Generation bundle (mandatory, server-verified, Claim-ID owned):
 ${JSON.stringify(canonicalClaims)}
 - The Claim-ID-owned normalizedValue is the authoritative factual value and semantics for Generation.
+- State the value in the sentence itself. A sentence that describes the existence of the value instead of naming it — that the scope is set by the operator, that the amount follows the notice, that the rate is determined by law — does not use the Claim and leaves the reader without the fact it came for: write the institutions, the amount, the rate, the threshold, or the period exactly as the Claim states them.
 - Preserve the Claim kind, qualifiers, basis, comparator, scope, subject, and temporal requirement exactly as represented in the canonical Claim contract.
 - Use only the trusted source entries attached to that same claimId. Do not transfer evidence between Claims merely because the field names look similar.
 - Do not use web search during Generation and do not add, replace, or invent another source URL.
@@ -1153,6 +1154,7 @@ ${evidence}
 - The attached bundle is the complete factual source boundary for this manuscript.
 - Do not use web search during Generation and do not add, replace, or invent another source URL.
 - Write each external factual assertion only from the verified Claim value and Claim evidence attached above.
+- State the value in the sentence itself. A sentence that describes the existence of the value instead of naming it — that the scope is set by the operator, that the amount follows the notice, that the rate is determined by law — does not use the Claim and leaves the reader without the fact it came for: write the institutions, the amount, the rate, the threshold, or the period exactly as the Claim states them.
 - Do not change a verified date, amount, percentage, duration, unit, institution, artwork metadata value, eligibility rule, threshold, quotation, or legal requirement.
 - When the bundle does not support a factual assertion, omit it rather than guessing.
 - Write an unverified number — an example, a cadence, an approximation, or an illustrative period — as descriptive prose instead of a compressed numeral-and-unit form, including in a title, heading, list label, or table cell: write "일주일 동안 이어서 점검하는" rather than "1주". This never applies to a verified Claim value, which must stay exactly as attached above.

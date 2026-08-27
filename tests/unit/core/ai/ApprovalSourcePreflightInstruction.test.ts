@@ -107,4 +107,26 @@ describe("Approval source preflight Generation instruction", () => {
     );
     expect(instruction).toContain("Verified value: 월 50만원");
   });
+  /**
+   * 값을 넘겨도 생성이 "운영기관이 정한 대상에 한정됩니다" 처럼 값의 존재만
+   * 서술하면 독자에게는 아무 숫자도 남지 않는다. 2026-08-26 실측:
+   * 통신사 4곳 이름이 normalizedValue 에 들어 있었는데 본문은 그 문장이었다.
+   */
+  it("tells Generation to state the value instead of describing that a value exists", () => {
+    const instruction = withApprovalSourcePreflightInstruction(
+      "base",
+      [webSource],
+      [{
+        url: sourceUrl,
+        claims: [{
+          field: "지원 금액",
+          value: "월 50만원",
+          evidenceExcerpt: "월 지원 금액은 50만원입니다.",
+        }],
+      }],
+    );
+
+    expect(instruction).toContain("State the value in the sentence itself");
+    expect(instruction).toContain("leaves the reader without the fact it came for");
+  });
 });
