@@ -28,5 +28,6 @@ export {
   type HtmlIntegrityIssueCode,
   type HtmlIntegrityReport,
 } from "./HtmlIntegrity";
+export * from "./ContentConcreteness";
 export * from "./QualityImprovementGate";
 export * from "./QualityScoringPolicy";

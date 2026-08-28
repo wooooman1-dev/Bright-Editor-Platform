@@ -17,6 +17,7 @@ import {
   type LongFormViolationCode,
 } from "../content";
 import { analyzeImagePrompts, isBrightComponentPurpose, type ImagePromptIssue } from "../media";
+import { concretenessScore, measureContentConcreteness, readerDeferralScore } from "./ContentConcreteness";
 import { qualityDimensionWeights } from "./QualityScoringPolicy";
 
 /**
@@ -33,7 +34,7 @@ import { qualityDimensionWeights } from "./QualityScoringPolicy";
 const longSentenceWordLimit = 20;
 const longSentenceRatioLimit = 0.25;
 
-export type QualityCategory = "searchIntent" | "seo" | "readability" | "structure" | "completeness" | "usefulness" | "htmlQuality" | "imageStrategy" | "internalLinks" | "cta";
+export type QualityCategory = "searchIntent" | "seo" | "readability" | "structure" | "completeness" | "usefulness" | "htmlQuality" | "imageStrategy" | "internalLinks" | "cta" | "concreteness" | "readerDeferral";
 export type QualityDimensionStatus = "ready" | "needs_improvement" | "blocked";
 export type QualityEvidence = Readonly<{ signal: string; value: string | number | boolean }>;
 export type QualityDimensionResult = Readonly<{
@@ -263,9 +264,10 @@ function measure(document: ContentDocument, context: QualityReviewContext) {
   const practicalToolSignals = structuralToolSignals + matches(text, /(?:체크리스트|기록표|예시|순서|단계|먼저|다음으로|마지막으로|한눈에|표로 정리|행동 흐름)/g);
   const vagueInstructionCount = matches(text, /(?:일정 기간|잠시|필요한 경우|상황에 따라|적절한 때|충분히 쉬고|며칠간)/g);
   const concreteCriteriaCount = matches(text, /(?:\d+\s*(?:분|초|시간|일|회|번)|첫째|둘째|셋째|1단계|2단계|3단계|먼저|다음(?:으로)?|마지막(?:으로)?|통증|증상|조건|상태|불편|중단|확인)/g);
+  const concreteness = measureContentConcreteness(document);
   const semanticHeadingOverlapCount = countSemanticHeadingOverlap(headingNames);
   const repeatedCoreAdviceCount = contentDiagnostic.repetitionWarnings.length;
-  return { document, context, text, metrics, paragraphs, headings, buttons, images, imagePromptAnalysis, promptScoredImageIds, opportunityAlignment, unsupportedEvidenceClaims, contentDiagnostic, hasExplicitQualityTarget, planning: planningPattern.test(text), placeholders: placeholderPattern.test(text), duplicateHeadingCount, emptyHeadings: headings.filter((item) => !item.text.trim()).length, keyword, keywordOccurrences, singleSentenceParagraphs, longSentenceCount, longSentenceRatio, readerSentenceCount: readerSentences.length, repeatedOpenings, clicheCount, experienceClaim, sections, shallowSections, metaDescription, titleLength, titleColonCount, titleListSeparatorCount, tistoryTags, duplicateBlockIds, emptyParagraphs, invalidButtonUrls, targetPolicyViolations, editorialInstructionCount, structuralToolSignals, practicalToolSignals, vagueInstructionCount, concreteCriteriaCount, semanticHeadingOverlapCount, repeatedCoreAdviceCount };
+  return { document, context, text, metrics, paragraphs, headings, buttons, images, imagePromptAnalysis, promptScoredImageIds, opportunityAlignment, unsupportedEvidenceClaims, contentDiagnostic, hasExplicitQualityTarget, planning: planningPattern.test(text), placeholders: placeholderPattern.test(text), duplicateHeadingCount, emptyHeadings: headings.filter((item) => !item.text.trim()).length, keyword, keywordOccurrences, singleSentenceParagraphs, longSentenceCount, longSentenceRatio, readerSentenceCount: readerSentences.length, repeatedOpenings, clicheCount, experienceClaim, sections, shallowSections, metaDescription, titleLength, titleColonCount, titleListSeparatorCount, tistoryTags, duplicateBlockIds, emptyParagraphs, invalidButtonUrls, targetPolicyViolations, editorialInstructionCount, structuralToolSignals, practicalToolSignals, vagueInstructionCount, concreteCriteriaCount, semanticHeadingOverlapCount, repeatedCoreAdviceCount, concreteness };
 }
 
 function detectUnsupportedEvidenceClaims(text: string, opportunity: ConfirmedContentOpportunity): readonly string[] {
@@ -415,12 +417,31 @@ function evaluate(s: Signals): QualityDimensionResult[] {
     dimension("cta", 100,
       ctaButtons.length ? [...ctaReasons(ctaButtons, s.text), "CTA는 생성·배치 진단 항목이며 품질 점수에는 반영하지 않습니다."].filter(Boolean) : ["CTA는 원고 생성 요구사항이지만 존재 여부와 개수는 품질 점수에 반영하지 않습니다."],
       [], [{ signal: "scoringExcluded", value: true }, { signal: "placedCtaBlocks", value: ctaButtons.length }], "optional"),
+    /**
+     * 표시 전용 두 항목 (D-050). 가중치가 0이라 총점, 승인 판정, 검토 AI 호출 조건에
+     * 들어가지 않는다. 지적만 개선 작업 목록에 실린다.
+     */
+    dimension("concreteness", concretenessScore(s.concreteness),
+      [s.concreteness.concreteFacts
+        ? `본문에 확인 가능한 수치가 ${s.concreteness.concreteFacts}개입니다 (1,000자당 ${s.concreteness.concretePerThousand}개).`
+        : "본문에 확인 가능한 수치가 하나도 없습니다."],
+      [s.concreteness.concreteFacts
+        ? "저장된 출처 발췌에 있는 금액·기준·기한을 본문에 그대로 쓰고, 값을 말하지 않고 넘어간 문장을 채우세요."
+        : "본문에 확인 가능한 수치가 하나도 없습니다. 독자가 판단에 쓸 금액·기준·기한을 출처 발췌에서 가져와 본문에 직접 쓰거나, 값을 확보할 수 있는 출처부터 다시 수집하세요."],
+      [{ signal: "concreteFacts", value: s.concreteness.concreteFacts }, { signal: "concretePerThousand", value: s.concreteness.concretePerThousand }, { signal: "proseCharacters", value: s.concreteness.proseCharacters }, { signal: "scoringExcluded", value: true }], "optional"),
+    dimension("readerDeferral", readerDeferralScore(s.concreteness),
+      [s.concreteness.deferrals
+        ? `답을 독자에게 넘기는 문장이 ${s.concreteness.deferrals}개입니다${s.concreteness.deferralExamples.length ? `: “${s.concreteness.deferralExamples.join("” / “")}”` : ""}.`
+        : "답을 독자에게 넘기는 문장이 없습니다."],
+      ["공식 안내를 확인하라고 넘기는 대신, 발췌가 값을 주면 본문에 그대로 쓰고 창구 안내는 값을 쓴 뒤 한 번만 남기세요."],
+      [{ signal: "deferrals", value: s.concreteness.deferrals }, { signal: "scoringExcluded", value: true }], "optional"),
   ];
 }
 function isPublicContentUrl(value: string, platform?: string): boolean { try { const url = new URL(value); if (url.protocol !== "https:" || /\/manage(?:\/|$)/i.test(url.pathname)) return false; return platform === "tistory" ? /\.tistory\.com$/i.test(url.hostname) && url.pathname.startsWith("/entry/") : true; } catch { return false; } }
 
 function imageIssuePenalty(issue: ImagePromptIssue): number {
-  return ({ duplicate_prompt: 30, high_similarity: 18, purpose_mismatch: 18, section_context_missing: 18, uniform_purpose: 16, missing_prompt: 0 })[issue.code];
+  // hero_register_repeated 는 생성 시점에 다시 쓰이는 항목이라 이미지 점수를 깎지 않는다.
+  return ({ duplicate_prompt: 30, hero_register_repeated: 0, high_similarity: 18, purpose_mismatch: 18, section_context_missing: 18, uniform_purpose: 16, missing_prompt: 0 })[issue.code];
 }
 
 function imageIssueTask(issue: ImagePromptIssue): string {

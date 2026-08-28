@@ -527,7 +527,33 @@ function QualityStatus({ review }: { review: NormalizedQualityReview }) {
   if (review.status === "no_review") return <div className="mt-4 rounded-xl bg-[#f8f8fa] p-4 text-sm"><p className="font-semibold">아직 현재 문서 버전에 대한 품질 검토가 없습니다.</p><p className="mt-1 text-[#66666f]">품질 검토를 실행하면 세부 점수가 표시됩니다.</p></div>;
   if (review.status === "stale") return <div className="mt-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-900"><p className="font-semibold">문서가 수정되어 이전 품질 검토가 만료되었습니다.</p><p className="mt-1">현재 버전을 다시 검토해야 합니다.</p></div>;
   if (review.status === "not_evaluated") return <div className="mt-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-900"><p className="font-semibold">재검토 필요</p><p className="mt-1">현재 형식에서는 세부 품질 근거를 확인할 수 없거나 평가하지 못한 항목이 있습니다.</p>{review.overallScore !== null ? <p className="mt-2">서버 검토 점수 <strong>{review.overallScore}</strong></p> : null}</div>;
-  return <div className="mt-4 flex items-end gap-3"><strong className="text-4xl">{review.overallScore}</strong><span className={`mb-1 rounded-full px-3 py-1 text-sm font-semibold ${review.status === "ready" ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"}`}>{review.status === "ready" ? "원고 품질 정식 승인" : "원고 개선 필요"}</span></div>;
+  return <div className="mt-4">
+    <div className="flex items-end gap-3"><strong className="text-4xl">{review.overallScore}</strong><span className={`mb-1 rounded-full px-3 py-1 text-sm font-semibold ${review.status === "ready" ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"}`}>{review.status === "ready" ? "원고 품질 정식 승인" : "원고 개선 필요"}</span></div>
+    <ReaderValueSummary review={review} />
+  </div>;
+}
+
+/**
+ * 총점 옆에 실제 개수를 그대로 붙인다.
+ *
+ * 구체성과 떠넘김은 가중치 0이라 총점을 움직이지 못한다 (D-050). 그러면 "숫자 0개"가
+ * 개선 작업에 떠 있는데 배지는 100점인 상태가 되므로, 총점을 승인으로 오해하지 않도록
+ * 세어놓은 값을 같은 자리에 보여준다.
+ */
+function ReaderValueSummary({ review }: { review: NormalizedQualityReview }) {
+  const signal = (category: QualityCategory, name: string): number | undefined => {
+    const value = review.dimensions.find((item) => item.category === category)?.evidence.find((item) => item.signal === name)?.value;
+    return typeof value === "number" ? value : undefined;
+  };
+  const facts = signal("concreteness", "concreteFacts");
+  const perThousand = signal("concreteness", "concretePerThousand");
+  const deferrals = signal("readerDeferral", "deferrals");
+  if (facts === undefined && deferrals === undefined) return null;
+  return <p className="mt-2 text-sm text-[#66666f]">
+    {facts !== undefined ? <span className={facts === 0 ? "font-semibold text-amber-700" : undefined}>확인 가능한 수치 {facts}개{perThousand !== undefined ? ` (1,000자당 ${perThousand}개)` : ""}</span> : null}
+    {facts !== undefined && deferrals !== undefined ? " · " : ""}
+    {deferrals !== undefined ? <span className={deferrals >= 5 ? "font-semibold text-amber-700" : undefined}>답을 넘긴 문장 {deferrals}개</span> : null}
+  </p>;
 }
 function ApprovalReadinessStatus({ review }: { review: NormalizedQualityReview }) {
   const readiness = review.approvalReadiness;
@@ -610,7 +636,7 @@ function draftFailureMessage(result: Record<string, unknown>) {
   return messages[failedStep] ?? (typeof result.error === "string" ? result.error : "외부 Tistory 임시저장에 실패했습니다. 다시 시도해 주세요.");
 }
 function escapeHtml(value: string) { return value.replace(/[&<>]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[character]!); }
-function qualityLabel(category: QualityCategory) { return ({ searchIntent: "검색 의도", seo: "SEO", readability: "가독성", structure: "콘텐츠 구조", completeness: "정보 완성도", usefulness: "정보 유용성", htmlQuality: "HTML 품질", imageStrategy: "이미지 전략", internalLinks: "내부 링크", cta: "CTA" })[category]; }
+function qualityLabel(category: QualityCategory) { return ({ searchIntent: "검색 의도", seo: "SEO", readability: "가독성", structure: "콘텐츠 구조", completeness: "정보 완성도", usefulness: "정보 유용성", htmlQuality: "HTML 품질", imageStrategy: "이미지 전략", internalLinks: "내부 링크", cta: "CTA", concreteness: "구체성", readerDeferral: "떠넘김" })[category]; }
 function PlacementSummary({ blocks }: { blocks: ContentDocument["blocks"] }) { const images = blocks.filter((block) => block.type === "image"), placedImages = images.filter((block) => block.source.trim()).length; const internalLinks = blocks.filter((block) => block.type === "button" && (block.purpose === "internal_link" || (!block.purpose && block.targetUrl.startsWith("/")))).length; return <section className="mt-4 grid gap-3 sm:grid-cols-2"><p className="rounded-xl bg-white p-4 text-sm"><strong>이미지</strong> · {placedImages ? `배치됨 ${placedImages}개` : images.length ? `추천됨 ${images.length}개` : "추천 없음"}</p><p className="rounded-xl bg-white p-4 text-sm"><strong>내부 링크</strong> · {internalLinks ? `배치됨 ${internalLinks}개` : "추천됨"}</p></section>; }
 function StrategySummary({ content, document, quality, showTistoryDetails }: { content: UserContent; document: ContentDocument; quality: NormalizedQualityReview; showTistoryDetails: boolean }) {
   const metadata = document.metadata;
