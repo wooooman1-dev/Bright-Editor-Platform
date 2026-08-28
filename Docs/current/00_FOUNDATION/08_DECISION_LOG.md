@@ -1229,6 +1229,39 @@ Evidence의 평균 신뢰도가 곧 후보 신뢰도였기 때문에, 외부 Evi
 
 ---
 
+# D-048 Every Article Guarantees One Hero Image
+
+Status: Accepted
+
+원고 한 편에는 대표 이미지 한 장이 항상 붙는다. 생성 응답이 이미지를 주지
+않아도 마찬가지다.
+
+2026-08-28 실측이 근거다. 근로장려금 원고(`content-mtcqjahd-oesz46`)는 이미지
+블록 0개로 저장됐고, 그 앞의 원고 13편은 전부 `imageCount: 1`이었다. 이미지
+블록이 없으면 대표 이미지 생성 화면 자체가 렌더링되지 않아 사용자가 이미지를
+만들 방법이 없고, 그 상태로 WordPress 초안 3784까지 발행됐다. 발행 기록은
+`featuredImageAssigned: false`인데도 `featured_media` 검증을 통과했다. 이
+검사는 블록과 업로드의 일치만 보고 존재 여부를 보지 않기 때문이다.
+
+원인은 두 곳이다. 생성 프롬프트가 "대표 이미지가 꼭 필요하지 않으면 0개를
+반환하라"고 명시적으로 허용했고, 그 뒤에 이를 보정하는 코드가 없었다. 또한
+`appendPlacementBlocks`는 모델이 준 `afterSection`과 일치하는 배치 지점이
+없으면 이미지를 경고 없이 버린다.
+
+- 생성 프롬프트는 대표 이미지 정확히 한 장을 요구한다. 0개 반환은 선택지가
+  아니다.
+- 모델 응답과 무관하게 코드가 대표 이미지를 보장한다. 파싱 결과에 `hero`
+  이미지 블록이 없으면 도입부 뒤에 직접 삽입한다. 제작 프롬프트는 넣지 않고
+  `ensureDistinctImagePrompts`가 섹션 맥락으로 채운다.
+- 판단 기준은 "이미지가 있는가"가 아니라 "`hero`가 있는가"다. 본문 이미지는
+  `applyGeneratedImageCostPolicy`가 걷어내므로, 본문 이미지만 있는 응답을
+  통과시키면 결국 0장으로 끝난다.
+- `afterSection`은 실제 배치 지점으로 맞춘다. `hero`는 도입부 뒤(0)로 고정하고
+  나머지는 존재하는 섹션 범위로 자른다.
+
+유료 이미지 생성 예산은 그대로다. 원고당 대표 이미지 한 장은 이전부터
+`automaticAIImageLimit = 1`이 허용하던 범위다.
+
 # D-038 WordPress Scheduled Publishing
 
 Status: Accepted

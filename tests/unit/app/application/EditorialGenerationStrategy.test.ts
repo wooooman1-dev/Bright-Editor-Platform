@@ -126,9 +126,59 @@ describe("EditorialGenerationStrategy information sufficiency target", () => {
   });
 });
 
+describe("EditorialGenerationStrategy hero image guarantee", () => {
+  // 2026-08-28 근로장려금 원고(content-mtcqjahd-oesz46)는 이미지 블록 0개로 저장돼
+  // 대표 이미지 생성 화면이 뜨지 않았고 그대로 초안 발행까지 갔다.
+  it("requires exactly one hero image in the generation instruction", () => {
+    const request = new EditorialGenerationStrategy().createRequest(input("quick"));
+    expect(request.instruction).toContain("Return exactly one source-empty representative hero image recommendation block");
+    expect(request.instruction).toContain("returning zero images is not an option");
+    expect(request.instruction).not.toContain("return zero when a representative image is not materially needed");
+  });
+
+  it("inserts a hero image after the introduction when the model returns no images", () => {
+    const generated = JSON.parse(response("quick")) as Generated;
+    generated.images = [];
+
+    const document = new EditorialGenerationStrategy().parse(JSON.stringify(generated), input("quick"));
+
+    const images = document.blocks.filter((block) => block.type === "image");
+    expect(images).toHaveLength(1);
+    expect(document.metadata?.imageCount).toBe(1);
+    const hero = images[0];
+    expect(hero.type === "image" && hero.purpose).toBe("hero");
+    expect(hero.type === "image" && hero.alt).toContain("노트북 청소");
+    expect(hero.type === "image" && hero.prompt?.trim()).toBeTruthy();
+    const heroIndex = document.blocks.findIndex((block) => block.type === "image");
+    const firstHeadingIndex = document.blocks.findIndex((block) => block.type === "heading");
+    expect(heroIndex).toBeGreaterThan(0);
+    expect(heroIndex).toBeLessThan(firstHeadingIndex);
+  });
+
+  it("keeps a hero image the model placed outside the section range instead of dropping it", () => {
+    const generated = JSON.parse(response("quick")) as Generated;
+    generated.images = [{ afterSection: 99, purpose: "hero", alt: "노트북 청소 준비물", prompt: "독자가 청소 준비물을 확인하는 한국어 블로그용 장면, 텍스트 없음" }];
+
+    const document = new EditorialGenerationStrategy().parse(JSON.stringify(generated), input("quick"));
+
+    const images = document.blocks.filter((block) => block.type === "image");
+    expect(images).toHaveLength(1);
+    expect(images[0].type === "image" && images[0].alt).toBe("노트북 청소 준비물");
+    const heroIndex = document.blocks.findIndex((block) => block.type === "image");
+    expect(heroIndex).toBeLessThan(document.blocks.findIndex((block) => block.type === "heading"));
+  });
+
+  it("does not add a second image when the model already returned one", () => {
+    const document = new EditorialGenerationStrategy().parse(response("deep"), input("deep"));
+    expect(document.blocks.filter((block) => block.type === "image")).toHaveLength(1);
+    expect(document.metadata?.imageCount).toBe(1);
+  });
+});
+
 type Depth = "quick" | "deep";
 type Generated = {
   sections: Array<{ heading: string; sectionType: string; paragraphs: string[] }>;
+  images?: Array<Record<string, unknown>>;
   [key: string]: unknown;
 };
 

@@ -61,7 +61,7 @@ Answer first, qualify second. Each section states what is true - the amount, the
 Follow helpful, reliable, people-first Google Search principles and support E-E-A-T without pretending to have experience. Use the exact primary keyword in the title and in the meta description, and let it appear in the body wherever the subject is actually being discussed. Those two placements are required; the rest are not. Do not place the keyword by position — do not open successive H2 headings with it, do not lead paragraphs with it, and do not put it in an image ALT unless the picture actually shows that subject. Name the same subject with the words a reader would use, including pronouns and shorter forms, rather than repeating the full keyword phrase. Use a confirmed secondary keyword only where its subject is genuinely explained; omitting one is correct when the article does not cover it. Avoid keyword lists, awkward repetition, or stuffing. Create a concise SEO title that starts with or naturally foregrounds the exact primary keyword, accurately represents the article, and avoids clickbait, duplicated site identity, and unnecessary filler. Write the article title as a title rather than reusing selectedTopic verbatim: the topic is a planning label and the title is what a reader sees, so they must differ in wording even though the title keeps the topic's core terms. Candidates of one planning run share a topic shape, so a title copied from the topic makes every article of that run share it too. Create a truthful 60–180-character meta description that explains what the reader will learn from the actual article without hype. Also return 5–10 concise Tistory post tags for the bottom tag field. Tags must be directly relevant, non-duplicative, not generic filler, and must not be inserted into the visible article body.
   Reader usefulness is also a mandatory completion condition, not a vague preference. Every H2 must directly fulfill its heading and declared sectionType and provide new, non-duplicative information. An explanation needs a direct answer, why it matters, and applicable conditions; a checklist needs distinct items with a reason or action; a comparison needs explicit criteria, differences, interpretation, and selection conditions; steps need ordered actions, conditions, and a usable outcome; a warning needs risk signals, exceptions, and next action; an FAQ needs complete answers; a summary may be shorter but must close the main decision; a case_example needs a concrete situation, decision, and application. One or two token sentences, heading-only sections, and repeated sentences always fail. For comparison content, a table, list, or checklist may replace some prose when it carries equal information density. Put cross-cutting advice such as recording results, checking the same conditions, avoiding self-diagnosis, or consulting a professional in the single section where it is most useful; do not repeat the same caution or next action in every H2. Before returning JSON, self-check each H2 against its sectionType guidance, confirm that it owns a distinct answer unavailable in the other sections, remove duplicated advice, and revise incomplete sections in this same response.
 Safety and evidence integrity are mandatory completion conditions for every article, not optional style guidance. Never invent or imply a study, survey, statistic, percentage, probability, ranking, market volume, treatment effect, expert consensus, or causal claim unless that exact evidence and its approved source were supplied in the editorial context. Without supplied evidence, do not write phrases such as “연구에 따르면”, “통계에 따르면”, “입증되었습니다”, “대부분 효과가 있습니다”, or any precise number that presents an unsupported external fact. Never write first-person experience, product-use experience, treatment experience, or testimonial language unless the user explicitly supplied that experience as verified source material; do not write “제가”, “저는”, “직접 해보니”, “먹어봤더니”, or equivalent fabricated experience. Replace unsupported claims with accurate general explanation, observable criteria, conditional wording, or a clear statement that individual results can differ. For health content, do not diagnose, promise effects, invent treatment advice, probabilities, research, or exact statistics. Distinguish urgent warning signs when relevant, recommend professional assessment when appropriate, and do not bury the useful answer under repeated disclaimers. Before returning JSON, scan the complete manuscript and remove every unsupported evidence claim and fabricated experience. If even one remains, the article is incomplete and must not be returned.
-Return no more than one source-empty representative hero image recommendation block for the entire article, and return zero when a representative image is not materially needed. A hero image must be unique to this article and must never be satisfied by reusing another post's Project image. Do not return source-empty inline or infographic image blocks. Represent comparison, checklist, summary, warning, steps, and other body visuals as a Markdown table, list, checklist, or Bright HTML/SVG component; Bright Studio may separately connect eligible body-only Project media or a user upload without a paid AI image call. The one optional image purpose must be hero, placed after the introduction with afterSection 0, and must include a specific Korean ALT plus a standalone production prompt. Decide whether CTA is useful; when useful place at most two CTA button blocks in context. Never invent a URL. If no approved CTA URL is known, use an empty targetUrl. Do not create internal, monetization, or related-post links unless their real approved URLs are supplied in the editorial context; Bright Studio will place verified catalog links separately.
+Return exactly one source-empty representative hero image recommendation block for the entire article. Every article needs a representative image, so returning zero images is not an option. A hero image must be unique to this article and must never be satisfied by reusing another post's Project image. Do not return source-empty inline or infographic image blocks. Represent comparison, checklist, summary, warning, steps, and other body visuals as a Markdown table, list, checklist, or Bright HTML/SVG component; Bright Studio may separately connect eligible body-only Project media or a user upload without a paid AI image call. That one image purpose must be hero, placed after the introduction with afterSection 0, and must include a specific Korean ALT plus a standalone production prompt. Decide whether CTA is useful; when useful place at most two CTA button blocks in context. Never invent a URL. If no approved CTA URL is known, use an empty targetUrl. Do not create internal, monetization, or related-post links unless their real approved URLs are supplied in the editorial context; Bright Studio will place verified catalog links separately.
 Paragraph values must be plain text. When a list is needed, use newline-prefixed 1. or - items inside the paragraph string. When a table is needed, put a complete GitHub-style Markdown table in one standalone paragraph string, including a header row, a separator row such as |---|---|, and at least one data row. Never return HTML tags such as <table>, <ol>, <ul>, <li>, or <p>. Return JSON only in this exact generation shape: {"title":"...","seoTitle":"...","metaDescription":"...","primarySearchIntent":"...","secondaryIntent":"...","secondaryKeywords":["..."],"relatedTerms":["..."],"tags":["티스토리태그1","티스토리태그2"],"introduction":["paragraph"],"sections":[{"heading":"H2 heading","sectionType":"explanation","paragraphs":["paragraph"]}],"conclusion":["paragraph"],"images":[{"afterSection":0,"purpose":"hero","alt":"specific Korean ALT","prompt":"standalone image production prompt"}],"cta":[]}. sectionType must be one of explanation, checklist, comparison, steps, warning, faq, summary, case_example. afterSection is 0 for placement after the introduction or a 1-based section number. CTA items use {"afterSection":0,"purpose":"cta","label":"...","targetUrl":"","target":"_self"}. Do not return blocks from the generation call.`,
     };
   }
@@ -77,7 +77,7 @@ Paragraph values must be plain text. When a list is needed, use newline-prefixed
     if (!converted && !Array.isArray(value.blocks)) throw new Error("AI response is not a valid Content Model.");
     const parsedBlocks = converted?.blocks ?? normalizeLongFormHeadings(value.blocks!.map((block, index) => parseBlock(block, index)), input);
     if (!structured) assertCompleteArticle(parsedBlocks);
-    const blocks = ensureEditorialPlacement(parsedBlocks);
+    const blocks = ensureEditorialPlacement(parsedBlocks, value.title.trim(), input.keywords[0]);
     const qualityTarget = input.contentOpportunity?.qualityTarget ?? determineContentPlanQualityTarget({ contentType: input.contentType });
     const metadata = typeof value.metaDescription === "string" ? { buttonCount: blocks.filter((block) => block.type === "button").length, createdAt: new Date().toISOString(), generator: "editorial-generation", imageCount: blocks.filter((block) => block.type === "image").length, language: "ko", readingTime: Math.max(1, Math.ceil(blocks.filter((block) => block.type === "paragraph").reduce((sum, block) => sum + block.text.length, 0) / 1000)), source: "ai", updatedAt: new Date().toISOString(), version: 1, videoCount: blocks.filter((block) => block.type === "video").length, wordCount: blocks.filter((block) => block.type === "paragraph").reduce((sum, block) => sum + block.text.split(/\s+/).length, 0), ...(input.contentOpportunity ? { qualityTarget } : {}), ...(typeof value.seoTitle === "string" && value.seoTitle.trim() ? { seoTitle: value.seoTitle.trim() } : {}), metaDescription: value.metaDescription.trim(), ...(typeof value.primarySearchIntent === "string" ? { primarySearchIntent: value.primarySearchIntent.trim() } : {}), ...(typeof value.secondaryIntent === "string" ? { secondaryIntent: value.secondaryIntent.trim() } : {}), ...(Array.isArray(value.secondaryKeywords) ? { secondaryKeywords: value.secondaryKeywords.filter((item): item is string => typeof item === "string") } : {}), ...(Array.isArray(value.relatedTerms) ? { relatedTerms: value.relatedTerms.filter((item): item is string => typeof item === "string") } : {}), ...(Array.isArray(value.tags) ? { tags: value.tags.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean).slice(0, 10) } : {}) } : undefined;
     const longFormStructure = converted?.structure ?? (isLongForm(input) ? inferLongFormStructure(blocks) : undefined);
@@ -178,7 +178,7 @@ function structuredBlocks(value: StructuredGenerationDocument): {
     blocks.push({ id, type: "paragraph", text });
     return id;
   });
-  const imageValues = Array.isArray(value.images) ? value.images : [];
+  const imageValues = normalizeImagePlacements(Array.isArray(value.images) ? value.images : [], value.sections.length);
   appendPlacementBlocks(blocks, imageValues, Array.isArray(value.cta) ? value.cta : [], 0);
   const sections = value.sections.map((section, sectionIndex) => {
     const headingBlockId = `section-${sectionIndex + 1}-heading`;
@@ -285,8 +285,44 @@ function isLongForm(input: GenerationInput): boolean {
   return /tistory|blog|article|long-form|장문|guide/i.test(`${input.platform} ${input.contentType}`);
 }
 
-function ensureEditorialPlacement(blocks: ContentDocument["blocks"]): ContentDocument["blocks"] {
-  return blocks;
+// 대표 이미지는 생성 응답에 의존하지 않는다.
+// 2026-08-28 근로장려금 원고(content-mtcqjahd-oesz46)는 이미지 블록 0개로 저장돼
+// 대표 이미지 생성 화면 자체가 뜨지 않았고, 그대로 초안 발행까지 갔다.
+// 모델이 images를 비워 보내든 afterSection을 범위 밖으로 보내든 hero 한 장은 항상 남는다.
+function ensureEditorialPlacement(blocks: ContentDocument["blocks"], title: string, primaryKeyword: string | undefined): ContentDocument["blocks"] {
+  // 대표 이미지가 있는지만 본다. 본문 이미지는 applyGeneratedImageCostPolicy가 걷어내므로
+  // 본문 이미지만 있는 응답을 통과시키면 결국 이미지 0장으로 끝난다.
+  if (blocks.some((block) => block.type === "image" && block.purpose === "hero")) return blocks;
+  const subject = (primaryKeyword ?? "").trim() || title;
+  if (!subject) return blocks;
+  // 도입부 문단 바로 뒤, 첫 제목이나 CTA보다 앞에 놓는다.
+  const afterIntroduction = blocks.findIndex((block) => block.type !== "paragraph");
+  const placed = [...blocks];
+  // 제작 프롬프트는 넣지 않는다. ensureDistinctImagePrompts가 배치된 섹션 맥락으로 채운다.
+  placed.splice(afterIntroduction < 0 ? placed.length : afterIntroduction, 0, {
+    alt: `${subject} 핵심 내용을 요약한 대표 이미지`,
+    id: "hero-image",
+    purpose: "hero",
+    source: "",
+    type: "image",
+  });
+  return placed;
+}
+
+// 모델이 준 afterSection을 실제 배치 지점으로 맞춘다.
+// appendPlacementBlocks는 일치하는 지점이 없으면 이미지를 조용히 버리므로,
+// hero는 도입부 뒤(0)로 고정하고 나머지는 존재하는 섹션 범위로 자른다.
+function normalizeImagePlacements(images: unknown[], sectionCount: number): unknown[] {
+  return images.map((item) => {
+    if (!item || typeof item !== "object") return item;
+    const record = item as Record<string, unknown>;
+    if (typeof record.alt !== "string") return item;
+    const requested = Number(record.afterSection);
+    const placement = record.purpose === "hero" || !Number.isFinite(requested)
+      ? 0
+      : Math.min(Math.max(Math.trunc(requested), 0), sectionCount);
+    return { ...record, afterSection: placement };
+  });
 }
 
 function normalizeLevel(value: unknown): 1 | 2 | 3 | 4 | 5 | 6 { return typeof value === "number" && value >= 1 && value <= 6 ? value as 1 | 2 | 3 | 4 | 5 | 6 : 2; }

@@ -86,8 +86,9 @@ const freeVisualSource = readFileSync(join(process.cwd(), "core/media/BrightBody
     expect(imageProviderSource).toContain('fetch("https://api.openai.com/v1/images/generations"');
   });
 
-  it("creates at most one optional unique hero prompt in the existing editorial generation call", () => {
-    expect(generationSource).toContain("Return no more than one source-empty representative hero image recommendation block");
+  it("creates exactly one unique hero prompt in the existing editorial generation call", () => {
+    expect(generationSource).toContain("Return exactly one source-empty representative hero image recommendation block");
+    expect(generationSource).toContain("returning zero images is not an option");
     expect(generationSource).toContain("must never be satisfied by reusing another post's Project image");
     expect(generationSource).toContain("Do not return source-empty inline or infographic image blocks");
     expect(generationSource).toContain("standalone production prompt");
