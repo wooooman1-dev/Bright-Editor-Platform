@@ -4,6 +4,10 @@ import {
   type GeneratedClaimBinding,
   type GeneratedClaimLocation,
 } from "./GeneratedClaimBinding";
+import {
+  approvalEvidenceContainsScalar,
+  approvalEvidenceScalarHaystack,
+} from "./ApprovalEvidenceScalarPresence";
 import { evaluateStoredGeneratedFactualClaims } from "./GeneratedFactualClaim";
 import { generatedFactualInventoryIntegrityReason } from "./GeneratedFactualClaimInventory";
 import { isCriticalVerificationClaim } from "./VerificationClaim";
@@ -79,10 +83,23 @@ export function evaluateGeneratedClaimVerificationIntegrity(input: Readonly<{
    * QualityReviewFactualGuard 가 계속 막는다.
    */
   const reasons: string[] = [];
+  /**
+   * 가져온 발췌에 그대로 있는 값은 경고하지 않는다.
+   *
+   * 미연결 수치의 허용 목록은 verified Claim 에서만 만들어지는데 내용 대조를
+   * 걷어낸 뒤로 verified 가 되는 Claim 이 없어, 허용 목록이 늘 비어 본문의 모든
+   * 수치가 경고가 됐다. 2026-08-28 실측: 근로장려금 원고 경고 19개가 전부 국세청
+   * 발췌에 있는 값이었고 그중 넷은 `’26.5.1.` 을 원고가 `2026년 5월 1일` 로 풀어
+   * 쓴 것뿐이었다. 전체 원고의 개선 작업 112개 중 23개가 이 오탐이었다.
+   *
+   * 발췌가 없으면 걸러내지 않는다. 그때는 비교할 근거가 없으므로 전과 같이 남긴다.
+   */
+  const evidenceHaystack = approvalEvidenceScalarHaystack(input.document);
   const warnings = rebound.bindings
     .filter((binding) => binding.reference.referenceType === "unverifiedDetected")
+    .filter((binding) => !approvalEvidenceContainsScalar(evidenceHaystack, binding.matchedText))
     .map((binding) =>
-      `확인된 출처에 연결되지 않은 값이 원고에 있습니다: "${binding.matchedText}" (${bindingLocation(binding.location)}). 발행은 막지 않으니 값이 편집으로 바뀌지 않았는지 확인하세요.`);
+      `가져온 출처 발췌 어디에서도 찾을 수 없는 값이 원고에 있습니다: "${binding.matchedText}" (${bindingLocation(binding.location)}). 발행은 막지 않으니 출처에 있는 값인지 확인하세요.`);
 
   if (stored.semanticContractVersion === 1) {
     if (!stored.semanticClaims) {
