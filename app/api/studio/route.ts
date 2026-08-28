@@ -138,6 +138,7 @@ export async function POST(request: Request) {
         keywords,
         platform: required(input.platform) as never,
         projectId,
+        recentHeroImagePrompts: recentHeroImagePrompts(owned.contents, projectId, contentId),
         structuredLongFormOutput: true,
       });
       const generationCompletedAt = new Date();
@@ -863,6 +864,21 @@ async function placeAvailablePublishingPosts(
     });
     return withInternalLinkCatalogMetadata(document, 0, "catalog_unavailable");
   }
+}
+
+// 같은 Project 의 최근 대표 이미지 프롬프트. 시각 계열이 반복되지 않게 하는 데만 쓴다.
+// 지금 생성 중인 Content 자신은 제외한다.
+function recentHeroImagePrompts(contents: UserData["contents"], projectId: string, contentId: string): readonly string[] {
+  return contents
+    .filter((content) => content.projectId === projectId && content.id !== contentId)
+    .map((content) => ({
+      prompt: content.document?.blocks.find((block) => block.type === "image" && block.purpose === "hero" && Boolean(block.prompt?.trim()))?.prompt?.trim() ?? "",
+      updatedAt: content.document?.metadata?.updatedAt ?? content.updatedAt ?? "",
+    }))
+    .filter((item) => Boolean(item.prompt))
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    .slice(0, 8)
+    .map((item) => item.prompt);
 }
 
 function qualityTargetFailure(quality: ReturnType<QualityEngine["review"]>): string {

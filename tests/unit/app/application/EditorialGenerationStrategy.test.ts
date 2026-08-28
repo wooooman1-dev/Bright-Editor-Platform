@@ -168,6 +168,26 @@ describe("EditorialGenerationStrategy hero image guarantee", () => {
     expect(heroIndex).toBeLessThan(document.blocks.findIndex((block) => block.type === "heading"));
   });
 
+  it("names the visual registers and the registers the recent articles already used", () => {
+    const recent = [
+      "한국의 30~50대 성인이 밝은 책상에서 계산기와 스마트폰을 놓고 자격을 확인하는 현실적인 생활경제 기사형 사진.",
+      "한국의 중장년 성인이 밝은 책상에서 서류와 메모 노트를 확인하는 현실적인 생활경제 기사형 사진.",
+    ];
+    const request = new EditorialGenerationStrategy().createRequest({ ...input("quick"), recentHeroImagePrompts: recent });
+
+    expect(request.instruction).toContain("사물 정물");
+    expect(request.instruction).toContain("평면 개념 그래픽");
+    expect(request.instruction).toContain("관계 도식");
+    expect(request.instruction).toContain("already used these registers: 상황 사진");
+    expect(request.instruction).toContain("no readable letters or numbers anywhere");
+  });
+
+  it("omits the avoid list when the project has no earlier hero image", () => {
+    const request = new EditorialGenerationStrategy().createRequest(input("quick"));
+    expect(request.instruction).toContain("Choose the hero image's visual register deliberately");
+    expect(request.instruction).not.toContain("already used these registers");
+  });
+
   it("does not add a second image when the model already returned one", () => {
     const document = new EditorialGenerationStrategy().parse(response("deep"), input("deep"));
     expect(document.blocks.filter((block) => block.type === "image")).toHaveLength(1);

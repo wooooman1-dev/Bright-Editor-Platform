@@ -5,6 +5,7 @@ export const IMAGE_PROMPT_SIMILARITY_THRESHOLD = 0.72;
 
 export type ImagePromptIssueCode =
   | "duplicate_prompt"
+  | "hero_register_repeated"
   | "high_similarity"
   | "missing_prompt"
   | "purpose_mismatch"
@@ -41,6 +42,96 @@ const PURPOSE_POLICIES: Readonly<Record<ImageBlockPurpose, PurposePolicy>> = Obj
   summary: policy("글의 핵심 요점을 한 화면에서 정리", "가장 중요한 행동과 판단 기준을 간결하게 묶어 제시", "집중을 방해하지 않는 단정한 카드 배경", "핵심 요소가 균형 있게 묶인 요약 카드 구도", "핵심 요점을 빠르게 복습하는 요약형 구성", ["요약", "핵심", "정리", "카드", "summary"]),
   warning: policy("주의사항과 잘못된 행동 또는 위험 신호를 경고", "피해야 할 행동과 즉시 확인할 위험 요소를 명확히 보여줌", "위험 요소가 분명히 드러나는 실제 상황", "주의 대상에 시선이 집중되는 대비 구도", "안전한 선택을 돕는 경고형 장면", ["주의", "위험", "잘못", "경고", "피해야", "warning", "danger"]),
 });
+
+// 대표 이미지의 시각 계열.
+// 2026-08-28 실측: 밝은재테크 대표 이미지 57장의 프롬프트에 '장면' 75%, '책상' 47%,
+// '자연광' 43%, '계산기' 22%, '스마트폰' 22%. 주제가 달라도 결과물은 중년 인물이
+// 책상에서 서류와 계산기를 확인하는 같은 사진이었다. 원인은 hero 정책과 아래 변주
+// 목록이 전부 '사람이 도구로 행동하는 장면' 한 갈래뿐이었다는 것이다.
+// 계열을 나누고 최근에 쓴 계열을 피해서 고른다.
+export type HeroVisualRegisterId = "situation" | "still_life" | "flat_concept" | "structure" | "place";
+
+export type HeroVisualRegister = Readonly<{
+  action: string;
+  background: string;
+  composition: string;
+  id: HeroVisualRegisterId;
+  label: string;
+}>;
+
+export const HERO_REGISTER_LOOKBACK = 5;
+
+export const HERO_VISUAL_REGISTERS: readonly HeroVisualRegister[] = Object.freeze([
+  Object.freeze({
+    action: "주제의 판단이 실제로 일어나는 순간에 있는 사람을 자연스럽게 보여줌",
+    background: "그 상황이 실제로 벌어지는 생활 공간",
+    composition: "인물과 상황 맥락을 함께 담는 넓은 가로 구도",
+    id: "situation" as const,
+    label: "상황 사진",
+  }),
+  Object.freeze({
+    action: "사람 없이 주제를 대표하는 사물만 의도적으로 배치",
+    background: "단색에 가까운 차분한 표면과 넉넉한 여백",
+    composition: "사물의 크기와 간격이 정돈된 정물 구도",
+    id: "still_life" as const,
+    label: "사물 정물",
+  }),
+  Object.freeze({
+    action: "주제의 핵심 개념을 단순한 도형과 아이콘으로 표현하고 인물은 넣지 않음",
+    background: "장식 없는 평면 단색 배경",
+    composition: "중심 개념이 하나로 읽히는 평면 그래픽 구도",
+    id: "flat_concept" as const,
+    label: "평면 개념 그래픽",
+  }),
+  Object.freeze({
+    action: "요소 사이의 순서와 관계를 구조로 배치하고 인물은 넣지 않음",
+    background: "정보에 집중하도록 비운 여백 중심 배경",
+    composition: "흐름과 계층이 분명한 도식 구도",
+    id: "structure" as const,
+    label: "관계 도식",
+  }),
+  Object.freeze({
+    action: "사람 없이 주제와 관련된 장소나 환경 자체를 보여줌",
+    background: "그 장소의 실제 빛과 재질",
+    composition: "장소의 규모가 드러나는 넓은 가로 구도",
+    id: "place" as const,
+    label: "장소·환경",
+  }),
+]);
+
+/** 이미 쓰인 프롬프트가 어떤 시각 계열인지 되읽는다. 판정하지 못하면 undefined. */
+export function heroVisualRegisterFromPrompt(prompt: string): HeroVisualRegisterId | undefined {
+  const value = prompt.normalize("NFKC");
+  if (mentionsPerson(value)) return "situation";
+  if (/도식|인포그래픽|다이어그램|구조도|흐름도/.test(value)) return "structure";
+  if (/일러스트|아이콘|도형|평면|플랫|그래픽/.test(value)) return "flat_concept";
+  if (/정물|사물만|물건만/.test(value)) return "still_life";
+  if (/공간|장소|외관|전경|건물/.test(value)) return "place";
+  return undefined;
+}
+
+/** 최근 원고가 쓰지 않은 계열을 먼저 고르고, 동률이면 seed 로 회전한다. */
+export function selectHeroVisualRegister(seed: string, recentHeroPrompts: readonly string[] = []): HeroVisualRegister {
+  const recent = recentHeroPrompts.slice(0, HERO_REGISTER_LOOKBACK).map((prompt) => heroVisualRegisterFromPrompt(prompt));
+  const staleness = (id: HeroVisualRegisterId): number => {
+    const index = recent.indexOf(id);
+    return index < 0 ? recent.length + 1 : index;
+  };
+  const furthest = Math.max(...HERO_VISUAL_REGISTERS.map((register) => staleness(register.id)));
+  const candidates = HERO_VISUAL_REGISTERS.filter((register) => staleness(register.id) === furthest);
+  return candidates[seedIndex(seed) % candidates.length];
+}
+
+function mentionsPerson(value: string): boolean {
+  if (/(인물|사람)[^.]{0,8}(없|등장하지|넣지|배제)/.test(value)) return false;
+  return /사람|인물|손[만이의 ]|성인|남성|여성|부부|직장인|청년|중년|임차인|가족|어르신/.test(value);
+}
+
+function seedIndex(seed: string): number {
+  let hash = 7;
+  for (const character of seed) hash = (hash * 31 + (character.codePointAt(0) ?? 0)) % 100000007;
+  return hash;
+}
 
 const COMMON_STYLE_TOKENS = new Set([
   "고품질", "구성", "그림", "로고", "블로그", "스타일", "이미지", "일관된", "자연스러운", "전문적인", "텍스트", "한국", "화면", "editorial", "high", "image", "logo", "quality", "style", "text",
@@ -91,15 +182,30 @@ export function imagePromptSimilarity(left: string, right: string): number {
   return Number(Math.max(jaccard, intersection >= 6 ? containment * 0.92 : 0).toFixed(3));
 }
 
-export function analyzeImagePrompts(document: ContentDocument, primaryKeyword?: string): ImagePromptAnalysis {
+export function analyzeImagePrompts(
+  document: ContentDocument,
+  primaryKeyword?: string,
+  recentHeroPrompts: readonly string[] = [],
+): ImagePromptAnalysis {
   const contexts = collectImagePromptContexts(document, primaryKeyword);
   const issues: ImagePromptIssue[] = [];
+  const recentRegisters = recentHeroPrompts
+    .slice(0, HERO_REGISTER_LOOKBACK)
+    .map((value) => heroVisualRegisterFromPrompt(value))
+    .filter((value): value is HeroVisualRegisterId => Boolean(value));
 
   for (const context of contexts) {
     const prompt = context.block.prompt?.trim() ?? "";
     if (!prompt) {
       issues.push(issue("missing_prompt", [context.block.id], `${imageLabel(context)}에 독립 제작용 이미지 프롬프트가 없습니다.`));
       continue;
+    }
+    if (context.purpose === "hero" && recentRegisters.length) {
+      const register = heroVisualRegisterFromPrompt(prompt);
+      if (register && recentRegisters.includes(register)) {
+        const label = HERO_VISUAL_REGISTERS.find((candidate) => candidate.id === register)?.label ?? register;
+        issues.push(issue("hero_register_repeated", [context.block.id], `대표 이미지가 최근 원고와 같은 시각 계열('${label}')을 반복합니다. 같은 장면이 블로그 전체에 반복되지 않도록 다른 계열로 바꿉니다.`));
+      }
     }
     if (!purposeMatches(context.purpose, prompt)) {
       issues.push(issue("purpose_mismatch", [context.block.id], `${imageLabel(context)}의 프롬프트가 ${purposeLabel(context.purpose)} 목적에 필요한 구도와 표현 방식을 반영하지 못합니다.`));
@@ -135,11 +241,16 @@ export function analyzeImagePrompts(document: ContentDocument, primaryKeyword?: 
   return Object.freeze({ contexts, issues: Object.freeze(issues) });
 }
 
-export function ensureDistinctImagePrompts(document: ContentDocument, primaryKeyword?: string): ContentDocument {
-  const analysis = analyzeImagePrompts(document, primaryKeyword);
+export function ensureDistinctImagePrompts(
+  document: ContentDocument,
+  primaryKeyword?: string,
+  recentHeroPrompts: readonly string[] = [],
+): ContentDocument {
+  const analysis = analyzeImagePrompts(document, primaryKeyword, recentHeroPrompts);
   const rewriteIds = new Set(analysis.issues.flatMap((item) => item.blockIds));
   if (!rewriteIds.size) return document;
   const contextById = new Map(analysis.contexts.map((context) => [context.block.id, context] as const));
+  const heroRegister = selectHeroVisualRegister(`${document.id}|${document.title}`, recentHeroPrompts);
   let changed = false;
   const blocks = document.blocks.map((block) => {
     if (block.type !== "image" || block.source.trim() || !rewriteIds.has(block.id)) return block;
@@ -148,7 +259,7 @@ export function ensureDistinctImagePrompts(document: ContentDocument, primaryKey
     changed = true;
     return Object.freeze({
       ...block,
-      prompt: buildContextualImagePrompt(context),
+      prompt: buildContextualImagePrompt(context, context.purpose === "hero" ? heroRegister : undefined),
       purpose: context.purpose,
       sourceType: block.sourceType ?? "planned",
     });
@@ -156,11 +267,19 @@ export function ensureDistinctImagePrompts(document: ContentDocument, primaryKey
   return changed ? Object.freeze({ ...document, blocks: Object.freeze(blocks) }) : document;
 }
 
-function buildContextualImagePrompt(context: ImagePromptContext): string {
+// 이미지 안의 글자는 AI가 지어내며 틀릴 수 있다. 2026-08-28 근로장려금 대표 이미지는
+// "화면 글자는 보이지 않게" 라고 썼는데도 '가족관계', '신청 자격 확인 순서' 같은 한글이
+// 그려져 나왔다. 제약을 프롬프트 끝에 한 번 더, 더 구체적으로 못 박는다.
+const COMMON_STYLE_DIRECTION = "공통 스타일: 한국 독자에게 자연스럽고 신뢰감 있는 고품질 editorial visual, 일관된 따뜻한 중성 색감, 과장된 연출 없음, 워터마크·브랜드 로고 없음. 이미지 안에 읽을 수 있는 글자나 숫자를 그리지 말 것 — 문서, 화면, 메모, 표지판, 표 안에도 글자를 넣지 않는다.";
+
+function buildContextualImagePrompt(context: ImagePromptContext, register?: HeroVisualRegister): string {
   const policy = PURPOSE_POLICIES[context.purpose];
   const subject = excerpt(context.block.alt.trim() || context.sectionHeading || context.primaryKeyword || context.title || "콘텐츠 핵심 장면", 120);
   const section = context.sectionHeading || context.title || context.primaryKeyword || "글 전체 주제";
   const detail = context.primaryParagraph || context.sectionText || `${section}의 핵심 내용을 구체적인 실제 상황으로 표현`;
+  if (register) {
+    return `핵심 대상: ${subject}. 전달 목적: ${policy.role}. 섹션 문맥: ${section} — ${excerpt(detail, 180)}. 시각 계열: ${register.label}. 행동과 장면: ${register.action}. 배경: ${register.background}. 구도: ${register.composition}. 차별화 기준: 최근 원고와 다른 시각 계열을 쓰고, 책상 위 서류·계산기·스마트폰을 확인하는 상황 사진은 반복하지 않는다. ${COMMON_STYLE_DIRECTION}`;
+  }
   const focus = FOCUS_VARIANTS[context.imageIndex % FOCUS_VARIANTS.length];
   const background = BACKGROUND_VARIANTS[(context.imageIndex * 3 + 1) % BACKGROUND_VARIANTS.length];
   const composition = COMPOSITION_VARIANTS[(context.imageIndex * 2 + 1) % COMPOSITION_VARIANTS.length];
@@ -169,7 +288,7 @@ function buildContextualImagePrompt(context: ImagePromptContext): string {
   const distinction = previous
     ? `이전 ${purposeLabel(previous.purpose)} 장면 '${previous.scene}'과 같은 행동·배경·구도를 반복하지 말고 이번 섹션의 확인 지점을 중심으로 차별화.`
     : "글의 첫 이미지로서 이후 세부 이미지와 구분되는 고유한 장면을 사용.";
-  return `핵심 대상: ${subject}. 전달 목적: ${policy.role}. 섹션 문맥: ${section} — ${excerpt(detail, 180)}. 행동과 장면: ${policy.action}; ${focus}. 배경: ${policy.background}; ${background}. 구도: ${policy.composition}; ${composition}. 시점: ${viewpoint}. 정보 표현: ${policy.expression}. 차별화 기준: ${distinction} 공통 스타일: 한국 독자에게 자연스럽고 신뢰감 있는 고품질 editorial visual, 일관된 따뜻한 중성 색감, 과장된 연출 없음, 긴 텍스트·워터마크·브랜드 로고 없음.`;
+  return `핵심 대상: ${subject}. 전달 목적: ${policy.role}. 섹션 문맥: ${section} — ${excerpt(detail, 180)}. 행동과 장면: ${policy.action}; ${focus}. 배경: ${policy.background}; ${background}. 구도: ${policy.composition}; ${composition}. 시점: ${viewpoint}. 정보 표현: ${policy.expression}. 차별화 기준: ${distinction} ${COMMON_STYLE_DIRECTION}`;
 }
 
 function reflectsSectionContext(context: ImagePromptContext, prompt: string): boolean {

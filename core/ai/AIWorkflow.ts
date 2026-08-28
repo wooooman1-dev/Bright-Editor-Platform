@@ -57,6 +57,8 @@ export type GenerationInput = Readonly<{
   keywords: readonly string[];
   platform: PlatformId;
   projectId: string;
+  /** 같은 Project 의 최근 대표 이미지 프롬프트. 시각 계열 반복을 피하는 데만 쓴다. */
+  recentHeroImagePrompts?: readonly string[];
   structuredLongFormOutput?: boolean;
 }>;
 
