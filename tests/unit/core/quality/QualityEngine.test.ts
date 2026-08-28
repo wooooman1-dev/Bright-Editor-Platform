@@ -132,9 +132,13 @@ describe("QualityEngine dimension scoring", () => {
       { id: "internal", type: "button", purpose: "internal_link", label: "관련 글", targetUrl: "https://bright-health.tistory.com/entry/related" },
     ] };
     const report = new QualityEngine().review(recommended, { primaryKeyword: "추천", searchIntent: "추천" });
-    expect(report.dimensions.find((item) => item.category === "imageStrategy")).toMatchObject({ score: 100, status: "ready", evaluation: "not_evaluated" });
+    // 렌더되는 이미지가 없으면 만점을 주지 않는다. 발행은 막지 않되 화면에는 남긴다.
+    expect(report.dimensions.find((item) => item.category === "imageStrategy")).toMatchObject({ score: 90, status: "ready", evaluation: "not_evaluated" });
     expect(report.dimensions.find((item) => item.category === "imageStrategy")?.reasons).toContain(
-      "실제 공개 HTML에 렌더되는 이미지가 없어 source-empty 편집 추천을 품질 점수에서 제외했습니다.",
+      "대표이미지 자리는 있지만 이미지가 아직 채워지지 않아 공개 HTML에는 아무것도 렌더되지 않습니다.",
+    );
+    expect(report.dimensions.find((item) => item.category === "imageStrategy")?.tasks).toContain(
+      "편집기에서 대표이미지를 생성하거나 업로드하세요.",
     );
     expect(report.dimensions.find((item) => item.category === "imageStrategy")?.evidence).toContainEqual({ signal: "renderedImageBlocks", value: 0 });
     expect(report.dimensions.find((item) => item.category === "internalLinks")?.evidence).toContainEqual({ signal: "placedContextualInternalLinks", value: 1 });
@@ -161,9 +165,11 @@ describe("QualityEngine dimension scoring", () => {
     });
 
     expect(report.reviewedRevisionId).toBe(revisionId);
+    // 이미지가 없다고 발행을 막지는 않는다 - 애드센스가 이미지를 요구하지 않는다.
     expect(report).toMatchObject({ approved: true, approvalType: "standard" });
+    // 다만 만점도 주지 않는다. 조용히 100점이면 이미지 없는 원고가 그대로 나간다.
     expect(report.dimensions.find((item) => item.category === "imageStrategy")).toMatchObject({
-      score: 100,
+      score: 90,
       status: "ready",
       evaluation: "not_evaluated",
     });

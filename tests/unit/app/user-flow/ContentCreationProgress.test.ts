@@ -54,4 +54,15 @@ describe("ContentCreationFlow recommendation progress", () => {
     expect(source).toContain("현재 작업 취소");
     expect(source).toContain('action: "delete-content"');
   });
+
+  /**
+   * 2026-08-28 실측: Planning 이 09:16:22 에 끝났는데 화면은 09:25 까지
+   * "분석 중" 이었다. setTimeout 한 번은 서버가 1.2초 안에 끝낼 때만 맞는다.
+   */
+  it("keeps asking until the saved workflow leaves planning or generating", () => {
+    expect(source).toContain("window.setInterval(() => {");
+    expect(source).toContain("window.clearInterval(timer)");
+    expect(source).not.toContain("window.setTimeout(() => {\n      void onRefresh()");
+  });
+
 });

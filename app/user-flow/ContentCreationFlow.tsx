@@ -124,13 +124,31 @@ export function ContentCreationFlow({ automatic = false, content, data, project,
     return () => { active = false; };
   }, [content, project.selectedPublishingAccountIds]);
 
+  /**
+   * 끝날 때까지 되묻는다.
+   *
+   * setTimeout 한 번이면 1.2초 뒤 딱 한 번 새로고침하고 끝난다. 그때 서버가
+   * 아직 같은 revision 이면 이 effect 의 deps 가 그대로라 타이머가 다시 걸리지
+   * 않고, onRefresh 는 useCallback([]) 이라 identity 도 고정이어서 재무장시킬
+   * 트리거가 하나도 없다. 화면은 그대로 멈춘 채 사용자가 저장 상태 새로고침을
+   * 직접 누를 때까지 기다린다.
+   *
+   * 2026-08-28 실측: Planning 이 09:16:22 에 candidatesReady 로 저장됐는데
+   * 화면은 09:25 까지 "요청을 분석하고 추천을 준비하고 있습니다" 였다. 분석은
+   * 2분 만에 끝났고 화면만 9분을 돌았다. Planning 은 보통 수 분, Generation 은
+   * 더 걸리므로 1.2초 안에 끝나지 않는 한 화면은 사실상 항상 멈춘다.
+   *
+   * 주기를 2.5초로 두는 것은 /api/studio 가 20MB 짜리 저장 파일을 통째로 읽어
+   * 돌려주기 때문이다. 생성이 도는 동안 1.2초마다 그것을 반복하면 생성 자체를
+   * 느리게 만든다.
+   */
   useEffect(() => {
     const status = content?.planningWorkflow?.status;
     if (status !== "planning" && status !== "generating") return;
-    const timer = window.setTimeout(() => {
+    const timer = window.setInterval(() => {
       void onRefresh().catch((error) => setNotice(`저장된 작업 상태를 다시 불러오지 못했습니다. ${message(error)}`));
-    }, 1200);
-    return () => window.clearTimeout(timer);
+    }, 2500);
+    return () => window.clearInterval(timer);
   }, [content?.planningWorkflow?.revision, content?.planningWorkflow?.status, onRefresh]);
 
   /**

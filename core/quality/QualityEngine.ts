@@ -320,7 +320,20 @@ function evaluate(s: Signals): QualityDimensionResult[] {
   const actionableImageIssues = s.imagePromptAnalysis.issues.filter((item) => item.code !== "missing_prompt"
     && item.blockIds.every((blockId) => s.promptScoredImageIds.has(blockId)));
   const imagePromptPenalty = actionableImageIssues.reduce((sum, item) => sum + imageIssuePenalty(item), 0);
-  const imageStrategyBaseScore = !s.document.blocks.length ? 0 : !placedImages.length ? 100 : imageStrategyComplete ? 94 : 58;
+  /**
+   * 렌더되는 이미지가 없으면 만점을 주지 않는다.
+   *
+   * 이전에는 100점이었고 사유도 "품질 점수에서 제외했습니다" 였다. 그래서
+   * 이미지가 한 장도 없는 원고가 품질 100점 ready 로 조용히 통과했다.
+   * 2026-08-28 실측: 근로장려금 원고는 image 블록이 0개인데 imageStrategy 100,
+   * 전체 100, 상태 ready 였고 편집기에도 대표이미지 자리가 없어서 사장님이
+   * 직접 눈치채셔야 했다.
+   *
+   * 애드센스는 이미지를 요구하지 않으므로 발행을 막지는 않는다. 가중치 7 에서
+   * 10점을 깎으면 전체 점수는 0.7 만 내려가고 차원 하한 80 도 넘으므로 standard
+   * 승인은 그대로 유지되면서, 화면에는 대표이미지가 없다는 사실이 남는다.
+   */
+  const imageStrategyBaseScore = !s.document.blocks.length ? 0 : !placedImages.length ? 90 : imageStrategyComplete ? 94 : 58;
   const repeatedImageRolePenalty = s.images.length >= 4 && new Set(s.images.map((item) => item.purpose ?? "inline")).size <= 2 ? 15 : 0;
   const zeroCostVisualSignals = s.images.filter((item) => isBrightComponentPurpose(item.purpose)).length
     + s.contentDiagnostic.sections.reduce((sum, section) => sum + section.tableCount, 0);
@@ -390,11 +403,17 @@ function evaluate(s: Signals): QualityDimensionResult[] {
     dimension("imageStrategy", imageStrategyScore,
       [
         ...(!placedImages.length
-          ? ["실제 공개 HTML에 렌더되는 이미지가 없어 source-empty 편집 추천을 품질 점수에서 제외했습니다."]
+          ? [s.images.length
+              ? "대표이미지 자리는 있지만 이미지가 아직 채워지지 않아 공개 HTML에는 아무것도 렌더되지 않습니다."
+              : "대표이미지가 없습니다. 목록 화면의 썸네일 자리가 빈 채로 발행됩니다."]
           : imageStrategyComplete ? [] : ["실제 렌더되는 이미지 블록의 설명 텍스트가 부족합니다."]),
         ...actionableImageIssues.map((item) => item.message),
       ],
-      actionableImageIssues.length ? actionableImageIssues.map(imageIssueTask) : ["본문 흐름에 맞는 이미지 placeholder와 구체적인 ALT 설명을 배치하세요."],
+      actionableImageIssues.length
+        ? actionableImageIssues.map(imageIssueTask)
+        : !placedImages.length
+          ? ["편집기에서 대표이미지를 생성하거나 업로드하세요."]
+          : ["본문 흐름에 맞는 이미지 placeholder와 구체적인 ALT 설명을 배치하세요."],
       [
         { signal: "recommendedImageBlocks", value: s.images.length },
         { signal: "renderedImageBlocks", value: placedImages.length },
