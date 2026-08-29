@@ -90,7 +90,7 @@ const freeVisualSource = readFileSync(join(process.cwd(), "core/media/BrightBody
     expect(generationSource).toContain("Return exactly one source-empty representative hero image recommendation block");
     expect(generationSource).toContain("returning zero images is not an option");
     expect(generationSource).toContain("must never be satisfied by reusing another post's Project image");
-    expect(generationSource).toContain("Do not return source-empty inline or infographic image blocks");
+    expect(generationSource).toContain("Do not return source-empty inline image blocks");
     expect(generationSource).toContain("standalone production prompt");
     expect(generationSource).toContain("applyGeneratedImageCostPolicy");
     expect(generationSource).toContain("ensureDistinctImagePrompts");

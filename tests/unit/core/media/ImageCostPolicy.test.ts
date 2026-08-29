@@ -32,7 +32,7 @@ describe("ImageCostPolicy", () => {
     ]))).toBeUndefined();
   });
 
-  it("keeps only the planned hero while preserving already connected body images", () => {
+  it("keeps the planned hero and the free Bright cards, dropping only paid inline images", () => {
     const placedComparison: ImageBlock = {
       id: "placed-comparison",
       type: "image",
@@ -51,8 +51,11 @@ describe("ImageCostPolicy", () => {
 
     const result = applyGeneratedImageCostPolicy(document);
 
+    // 무료 카드는 HTML 로 그려지므로 남긴다. `inline` 만 유료 생성이 필요해 걷어낸다.
     expect(result.blocks.map((block) => block.id)).toEqual([
       "hero",
+      "comparison",
+      "checklist",
       "placed-comparison",
     ]);
     expect(selectAutomaticImageBlock(result)?.id).toBe("hero");

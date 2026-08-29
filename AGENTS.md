@@ -37,7 +37,7 @@ Never:
 - Create large god files.
 - Break existing functionality.
 - Change architecture without approval.
-- Generate low-quality Canvas thumbnail features.
+- Generate a low-quality representative image by compositing shapes and text.
 
 When uncertain, stop and explain before coding.
 

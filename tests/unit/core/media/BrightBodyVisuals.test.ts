@@ -39,6 +39,74 @@ describe("BrightBodyVisuals", () => {
     expect(renderBrightBodyVisualHtml(candidate)).not.toContain('data-free-visual="true"');
     expect(renderBrightBodyVisualHtml(candidate)).not.toContain("data-image-required");
   });
+
+  it("draws a bar chart from the block data and scales to the largest value", () => {
+    const html = renderBrightBodyVisualHtml({
+      id: "bar", type: "image", source: "", purpose: "comparison",
+      alt: "가구 유형별 총소득 기준",
+      visual: "bar",
+      data: [
+        { label: "단독가구", value: 2200, note: "만 원" },
+        { label: "맞벌이가구", value: 4400, note: "만 원" },
+      ],
+    });
+    expect(html).toContain("단독가구");
+    expect(html).toContain("width:50%");
+    expect(html).toContain("width:100%");
+  });
+
+  it("splits one whole into labelled proportions", () => {
+    const html = renderBrightBodyVisualHtml({
+      id: "ratio", type: "image", source: "", purpose: "summary",
+      alt: "지출 비중", visual: "ratio",
+      data: [{ label: "고정지출", value: 60 }, { label: "변동지출", value: 40 }],
+    });
+    expect(html).toContain("고정지출 60%");
+    expect(html).toContain("변동지출 40%");
+  });
+
+  it("numbers an ordered procedure", () => {
+    const html = renderBrightBodyVisualHtml({
+      id: "steps", type: "image", source: "", purpose: "checklist",
+      alt: "신청 순서", visual: "steps",
+      data: [{ label: "가구 유형 확인" }, { label: "소득 합산", note: "부부합산" }],
+    });
+    expect(html).toContain(">1<");
+    expect(html).toContain(">2<");
+    expect(html).toContain("부부합산");
+  });
+
+  /**
+   * 모양만 요구하고 자료를 안 보내는 응답이 실제로 온다. 빈 상자를 내보내는 대신
+   * 목록으로 떨어뜨린다.
+   */
+  it("falls back to the list card when the requested shape has no usable data", () => {
+    const noData = renderBrightBodyVisualHtml({
+      id: "bar-empty", type: "image", source: "", purpose: "comparison",
+      alt: "비교", visual: "bar",
+    });
+    expect(noData).toContain("<ul");
+    const noNumbers = renderBrightBodyVisualHtml({
+      id: "bar-text", type: "image", source: "", purpose: "comparison",
+      alt: "비교", visual: "bar", data: [{ label: "값 없음" }],
+    });
+    expect(noNumbers).toContain("<ul");
+  });
+
+  /**
+   * 워드프레스가 CSS 속성을 허용 목록으로 거른다(2026-08-29 실측: box-sizing 이
+   * 잘렸다). 확인되지 않은 속성과 SVG·스크립트를 내보내지 않는지 지킨다.
+   */
+  it("uses no SVG, no script and no unverified CSS property", () => {
+    const html = [
+      renderBrightBodyVisualHtml({ id: "a", type: "image", source: "", purpose: "warning", alt: "주의", visual: "timeline", data: [{ label: "6월 1일" }] }),
+      renderBrightBodyVisualHtml({ id: "b", type: "image", source: "", purpose: "comparison", alt: "비교", visual: "compare", data: [{ label: "임의가입" }, { label: "임의계속가입" }] }),
+      renderBrightBodyVisualHtml({ id: "c", type: "image", source: "", purpose: "summary", alt: "요약", visual: "stat", data: [{ label: "기준", value: 2200, note: "만 원" }] }),
+    ].join("");
+    for (const banned of ["<svg", "<script", "box-sizing", "display:flex", "display:grid", "transform:", "box-shadow"]) {
+      expect(html).not.toContain(banned);
+    }
+  });
 });
 
 function article(): ContentDocument {

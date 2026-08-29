@@ -1,4 +1,5 @@
 import type { ContentDocument, ImageBlock, ImageBlockPurpose } from "../content";
+import { isFreeBodyVisualBlock } from "./BrightBodyVisuals";
 
 export type PreviousImagePromptContext = Readonly<{
   alt: string;
@@ -21,7 +22,13 @@ export type ImagePromptContext = Readonly<{
 }>;
 
 export function collectImagePromptContexts(document: ContentDocument, primaryKeyword?: string): readonly ImagePromptContext[] {
-  const imageEntries = document.blocks.flatMap((block, blockIndex) => block.type === "image" ? [{ block, blockIndex }] : []);
+  /**
+   * 무료 본문 시각물은 그림이 아니라 HTML 카드다. 제작용 이미지 프롬프트가 필요
+   * 없고, 넣으면 `ensureDistinctImagePrompts` 가 카드에 프롬프트 문장을 써 넣어
+   * 카드 내용으로 새어 나온다. 그래서 프롬프트 분석 대상에서 제외한다.
+   */
+  const imageEntries = document.blocks.flatMap((block, blockIndex) =>
+    block.type === "image" && !isFreeBodyVisualBlock(block) ? [{ block, blockIndex }] : []);
   return Object.freeze(imageEntries.map(({ block, blockIndex }, imageIndex) => {
     const headingIndex = nearestPreviousHeadingIndex(document, blockIndex);
     const nextHeadingIndex = document.blocks.findIndex((candidate, index) => index > blockIndex && candidate.type === "heading");

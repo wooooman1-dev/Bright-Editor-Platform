@@ -117,7 +117,13 @@ export type {
   HeadingBlock,
   HeadingLevel,
 } from "./blocks/HeadingBlock";
-export type { ImageBlock, ImageBlockPurpose, ImageBlockSourceType } from "./blocks/ImageBlock";
+export type {
+  BrightVisualDatum,
+  BrightVisualShape,
+  ImageBlock,
+  ImageBlockPurpose,
+  ImageBlockSourceType,
+} from "./blocks/ImageBlock";
 export type { ListBlock, ListBlockStyle } from "./blocks/ListBlock";
 export type { ParagraphBlock } from "./blocks/ParagraphBlock";
 export type { TableBlock } from "./blocks/TableBlock";
