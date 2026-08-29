@@ -16,4 +16,5 @@ export const qualityDimensionWeights: Readonly<Record<QualityCategory, number>> 
   // 수치를 채울 수 없다. 그래서 목록에 보이기만 하고 아무것도 막지 않는다.
   concreteness: 0,
   readerDeferral: 0,
+  evidenceUse: 0,
 });

@@ -18,6 +18,7 @@ import {
 } from "../content";
 import { analyzeImagePrompts, isBrightComponentPurpose, type ImagePromptIssue } from "../media";
 import { concretenessScore, measureContentConcreteness, readerDeferralScore } from "./ContentConcreteness";
+import { evidenceValueUseScore, measureEvidenceValueUse } from "./EvidenceValueUse";
 import { qualityDimensionWeights } from "./QualityScoringPolicy";
 
 /**
@@ -34,7 +35,7 @@ import { qualityDimensionWeights } from "./QualityScoringPolicy";
 const longSentenceWordLimit = 20;
 const longSentenceRatioLimit = 0.25;
 
-export type QualityCategory = "searchIntent" | "seo" | "readability" | "structure" | "completeness" | "usefulness" | "htmlQuality" | "imageStrategy" | "internalLinks" | "cta" | "concreteness" | "readerDeferral";
+export type QualityCategory = "searchIntent" | "seo" | "readability" | "structure" | "completeness" | "usefulness" | "htmlQuality" | "imageStrategy" | "internalLinks" | "cta" | "concreteness" | "readerDeferral" | "evidenceUse";
 export type QualityDimensionStatus = "ready" | "needs_improvement" | "blocked";
 export type QualityEvidence = Readonly<{ signal: string; value: string | number | boolean }>;
 export type QualityDimensionResult = Readonly<{
@@ -265,9 +266,10 @@ function measure(document: ContentDocument, context: QualityReviewContext) {
   const vagueInstructionCount = matches(text, /(?:일정 기간|잠시|필요한 경우|상황에 따라|적절한 때|충분히 쉬고|며칠간)/g);
   const concreteCriteriaCount = matches(text, /(?:\d+\s*(?:분|초|시간|일|회|번)|첫째|둘째|셋째|1단계|2단계|3단계|먼저|다음(?:으로)?|마지막(?:으로)?|통증|증상|조건|상태|불편|중단|확인)/g);
   const concreteness = measureContentConcreteness(document);
+  const evidenceUse = measureEvidenceValueUse(document);
   const semanticHeadingOverlapCount = countSemanticHeadingOverlap(headingNames);
   const repeatedCoreAdviceCount = contentDiagnostic.repetitionWarnings.length;
-  return { document, context, text, metrics, paragraphs, headings, buttons, images, imagePromptAnalysis, promptScoredImageIds, opportunityAlignment, unsupportedEvidenceClaims, contentDiagnostic, hasExplicitQualityTarget, planning: planningPattern.test(text), placeholders: placeholderPattern.test(text), duplicateHeadingCount, emptyHeadings: headings.filter((item) => !item.text.trim()).length, keyword, keywordOccurrences, singleSentenceParagraphs, longSentenceCount, longSentenceRatio, readerSentenceCount: readerSentences.length, repeatedOpenings, clicheCount, experienceClaim, sections, shallowSections, metaDescription, titleLength, titleColonCount, titleListSeparatorCount, tistoryTags, duplicateBlockIds, emptyParagraphs, invalidButtonUrls, targetPolicyViolations, editorialInstructionCount, structuralToolSignals, practicalToolSignals, vagueInstructionCount, concreteCriteriaCount, semanticHeadingOverlapCount, repeatedCoreAdviceCount, concreteness };
+  return { document, context, text, metrics, paragraphs, headings, buttons, images, imagePromptAnalysis, promptScoredImageIds, opportunityAlignment, unsupportedEvidenceClaims, contentDiagnostic, hasExplicitQualityTarget, planning: planningPattern.test(text), placeholders: placeholderPattern.test(text), duplicateHeadingCount, emptyHeadings: headings.filter((item) => !item.text.trim()).length, keyword, keywordOccurrences, singleSentenceParagraphs, longSentenceCount, longSentenceRatio, readerSentenceCount: readerSentences.length, repeatedOpenings, clicheCount, experienceClaim, sections, shallowSections, metaDescription, titleLength, titleColonCount, titleListSeparatorCount, tistoryTags, duplicateBlockIds, emptyParagraphs, invalidButtonUrls, targetPolicyViolations, editorialInstructionCount, structuralToolSignals, practicalToolSignals, vagueInstructionCount, concreteCriteriaCount, semanticHeadingOverlapCount, repeatedCoreAdviceCount, concreteness, evidenceUse };
 }
 
 function detectUnsupportedEvidenceClaims(text: string, opportunity: ConfirmedContentOpportunity): readonly string[] {
@@ -435,6 +437,14 @@ function evaluate(s: Signals): QualityDimensionResult[] {
         : "답을 독자에게 넘기는 문장이 없습니다."],
       ["공식 안내를 확인하라고 넘기는 대신, 발췌가 값을 주면 본문에 그대로 쓰고 창구 안내는 값을 쓴 뒤 한 번만 남기세요."],
       [{ signal: "deferrals", value: s.concreteness.deferrals }, { signal: "scoringExcluded", value: true }], "optional"),
+    dimension("evidenceUse", evidenceValueUseScore(s.evidenceUse),
+      [s.evidenceUse.evidenceValues
+        ? `저장된 출처 발췌의 수치 ${s.evidenceUse.evidenceValues}개 중 ${s.evidenceUse.usedValues}개를 본문이 사용했습니다.`
+        : "이 원고에는 대조할 출처 발췌 수치가 없습니다."],
+      s.evidenceUse.unusedValues.length
+        ? [`출처 발췌에 있는데 본문에 없는 값입니다: ${s.evidenceUse.unusedValues.slice(0, 8).map((value) => `“${value}”`).join(", ")}. 발췌에 있는 값이므로 본문에 그대로 쓸 수 있는지 확인하세요. 법령 조문 번호나 기준 연도처럼 독자에게 필요 없는 값은 무시하면 됩니다.`]
+        : [],
+      [{ signal: "evidenceValues", value: s.evidenceUse.evidenceValues }, { signal: "usedEvidenceValues", value: s.evidenceUse.usedValues }, { signal: "unusedEvidenceValues", value: s.evidenceUse.unusedValues.length }, { signal: "scoringExcluded", value: true }], "optional"),
   ];
 }
 function isPublicContentUrl(value: string, platform?: string): boolean { try { const url = new URL(value); if (url.protocol !== "https:" || /\/manage(?:\/|$)/i.test(url.pathname)) return false; return platform === "tistory" ? /\.tistory\.com$/i.test(url.hostname) && url.pathname.startsWith("/entry/") : true; } catch { return false; } }

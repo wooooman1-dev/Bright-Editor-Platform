@@ -63,5 +63,6 @@ export * from "./FactualSurfaceTaxonomy";
 export * from "./PublicPageIndexability";
 export * from "./GeneratedFactualClaimInventory";
 export * from "./ApprovalEvidenceScalarPresence";
+export * from "./StoredEvidencePassages";
 export * from "./QualityReviewFactualGuard";
 export * from "./GeneratedClaimVerificationIntegrity";

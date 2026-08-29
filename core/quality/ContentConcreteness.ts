@@ -32,6 +32,17 @@ const DEFERRAL_TARGET = /홈페이지|누리집|사이트|앱에서|고객센터
 const DEFERRAL_ACTION = /확인|조회|문의|알아보|신청해|접수해/;
 const DIRECT_DEFERRAL = /직접 확인|반드시 확인|따로 확인|미리 확인해|확인하시기 바랍니다/;
 
+/**
+ * 공백을 먼저 지우고 값을 찾는다.
+ *
+ * 2026-08-28 실측에서 본문 `2,200만 원` 과 발췌 `2,200만원` 이 다른 값으로 세어졌다.
+ * 띄어쓰기 하나 때문에 이미 쓴 금액이 "본문에 없는 값" 으로 잡혔고, 미사용 값 49개
+ * 중 10개가 이 오탐이었다.
+ */
+export function scalarValuesIn(text: string): readonly string[] {
+  return Object.freeze((text.replace(/\s+/gu, "").match(FACT_PATTERN) ?? []).map((value) => value.replace(/,/gu, "")));
+}
+
 export function measureContentConcreteness(document: ContentDocument): ContentConcretenessMeasurement {
   const prose = document.blocks
     .filter((block): block is Extract<ContentDocument["blocks"][number], { type: "paragraph" }> => block.type === "paragraph")

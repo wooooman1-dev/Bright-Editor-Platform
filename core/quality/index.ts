@@ -29,5 +29,6 @@ export {
   type HtmlIntegrityReport,
 } from "./HtmlIntegrity";
 export * from "./ContentConcreteness";
+export * from "./EvidenceValueUse";
 export * from "./QualityImprovementGate";
 export * from "./QualityScoringPolicy";
