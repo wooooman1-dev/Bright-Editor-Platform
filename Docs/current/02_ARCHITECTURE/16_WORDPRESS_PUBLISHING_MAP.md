@@ -183,7 +183,10 @@ ASCII 출력 가능 문자 외에는 전부 `-` 가 된다. 한글 파일명은 
 제외 판정은 한 군데에서만 한다.
 
 - `ownPublishedExternalPostIds(data, content)` — `InternalLinkCatalogPolicy`.
-  `publishingRecords` 에서 이 원고의 `externalPostId` 를 모은다.
+  `publishingRecords` 에서 이 원고 **계보** 의 `externalPostId` 를 모은다.
+  계보는 `preservedFromContentId` 를 위아래로 훑어 만든다. 원고를 다시 쓰면
+  `contentId` 가 새로 생기므로, `contentId` 하나만 보면 이전 판본이 발행한 글이
+  자기 글로 인식되지 않는다.
 - `rankPublishingPostCandidates(document, candidates, content, ownExternalPostIds)`
   — 네 번째 인자는 **필수**다. 호출자가 조용히 빠뜨리지 못하게 하려는 것이다.
 - `rankRelatedPosts` 의 `context.excludeExternalPostIds` 로 내려가 후보 루프에서
@@ -233,14 +236,23 @@ for cid,rs in by.items():
         print(r['workflow'], r.get('externalPostId'), [m.get('externalMediaId') for m in (r.get('uploadedMedia') or [])])
 "
 
-# 자기 자신을 가리키는 링크가 있는 원고 (D-052)
+# 자기 계보의 글을 가리키는 링크 (D-052) — 제목이 아니라 글 번호로 센다
 node -e '
 const d=JSON.parse(require("fs").readFileSync(".bright-studio/studio-data.json","utf8"));
-const cs=[];const w=(o)=>{if(!o||typeof o!=="object")return;if(Array.isArray(o)){o.forEach(w);return;}
- if(typeof o.id==="string"&&o.id.startsWith("content-")&&o.document)cs.push(o);Object.values(o).forEach(w);};w(d);
-for(const c of cs)for(const b of c.document.blocks)
- if(b.type==="button"&&(b.purpose==="internal_link"||b.purpose==="related_post")&&b.label===c.document.title)
-  console.log(b.purpose,"|",c.document.title);'
+const w=(o,f)=>{if(!o||typeof o!=="object")return;if(Array.isArray(o)){o.forEach(x=>w(x,f));return;}f(o);Object.values(o).forEach(x=>w(x,f));};
+const cs=new Map();w(d,(o)=>{if(typeof o.id==="string"&&o.id.startsWith("content-")&&o.document&&o.workspaceId&&!cs.has(o.id))cs.set(o.id,o);});
+const recs=[];w(d,(o)=>{if(o.contentRevisionId&&o.externalPostId&&o.contentId)recs.push(o);});
+const postsOf=(id)=>[...new Set(recs.filter(r=>r.contentId===id).map(r=>String(r.externalPostId)))];
+for(const c of cs.values()){
+ const ids=new Set([c.id]); let cur=c,g=0;
+ while(cur&&cur.preservedFromContentId&&g++<50){ids.add(cur.preservedFromContentId);cur=cs.get(cur.preservedFromContentId);}
+ let grew=true; while(grew){grew=false;for(const o of cs.values())
+  if(o.preservedFromContentId&&ids.has(o.preservedFromContentId)&&!ids.has(o.id)){ids.add(o.id);grew=true;}}
+ const bad=new Set([...ids].flatMap(postsOf));
+ for(const b of c.document.blocks)
+  if(b.type==="button"&&(b.purpose==="internal_link"||b.purpose==="related_post")
+     &&bad.has(String(b.sourceExternalPostId)))
+   console.log(b.purpose,"| 글",b.sourceExternalPostId,"|",c.document.title);}'
 
 # 검증 항목이 실제로 무엇을 보는지
 grep -n 'check("' apps/wordpress/WordPressDraftPublishingAdapter.ts

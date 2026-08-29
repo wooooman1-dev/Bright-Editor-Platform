@@ -153,7 +153,50 @@ export function removeAutoPlacedPublishingLinks(
 }
 
 /**
- * Every Post this manuscript has already been published to.
+ * Every manuscript that is a version of this one.
+ *
+ * Rewriting an article creates a NEW manuscript with a new contentId and a
+ * `preservedFromContentId` pointing at the one it replaces. The rewrite and the
+ * original are the same article, so a Post published by either is this
+ * manuscript's own Post. Measured 2026-08-29: the rewritten 국민연금 manuscript
+ * carried its predecessor's Post 3778 as a related post, because contentId
+ * alone does not connect the two.
+ *
+ * The walk goes both ways — up through `preservedFromContentId` and down to
+ * anything preserved from a member — and repeats until the set stops growing,
+ * so a chain of several rewrites is covered.
+ */
+function contentLineageIds(data: UserData, content: UserContent): ReadonlySet<string> {
+  const contents = data.contents ?? [];
+  const byId = new Map(contents.map((item) => [item.id, item]));
+  const ids = new Set<string>([content.id]);
+
+  let cursor: UserContent | undefined = content;
+  let guard = 0;
+  while (cursor?.preservedFromContentId && guard < contents.length + 1) {
+    guard += 1;
+    const parent = cursor.preservedFromContentId;
+    if (ids.has(parent)) break;
+    ids.add(parent);
+    cursor = byId.get(parent);
+  }
+
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const item of contents) {
+      const parent = item.preservedFromContentId;
+      if (!parent || !ids.has(parent) || ids.has(item.id)) continue;
+      ids.add(item.id);
+      grew = true;
+    }
+  }
+  return ids;
+}
+
+/**
+ * Every Post this manuscript — or any other version of it — has been published
+ * to.
  *
  * `UserContent.publishedUrl` exists but is never written — 160 manuscripts,
  * none with a value — so the filter that read it in the posts route never
@@ -164,12 +207,13 @@ export function ownPublishedExternalPostIds(
   data: UserData,
   content: UserContent,
 ): readonly string[] {
+  const lineage = contentLineageIds(data, content);
   const ids = (data.publishingRecords ?? [])
     .filter(isPublishingExecutionRecord)
     .flatMap((record) => {
       if (record.workspaceId !== content.workspaceId) return [];
       if (record.projectId !== content.projectId) return [];
-      if (record.contentId !== content.id) return [];
+      if (!lineage.has(record.contentId)) return [];
       const externalPostId = record.externalPostId?.trim();
       return externalPostId ? [externalPostId] : [];
     });

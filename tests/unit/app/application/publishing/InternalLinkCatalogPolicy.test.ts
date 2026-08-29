@@ -131,6 +131,7 @@ describe("platform-aware internal link catalog policy", () => {
       externalPostId,
     });
     const data = {
+      contents: [content],
       publishingRecords: [
         record("content-1", "3784"),
         record("content-1", "3784"),
@@ -138,5 +139,58 @@ describe("platform-aware internal link catalog policy", () => {
       ],
     } as unknown as Parameters<typeof ownPublishedExternalPostIds>[0];
     expect(ownPublishedExternalPostIds(data, content)).toEqual(["3784"]);
+  });
+
+  it("excludes the Post published by the manuscript this one was rewritten from", () => {
+    const original = {
+      id: "content-old",
+      workspaceId: "workspace-1",
+      projectId: "project-1",
+      title: "국민연금 임의계속가입 조건, 퇴직 뒤 가입기간부터 판단하는 기준",
+      body: "",
+      status: "ready" as const,
+      updatedAt: "2026-08-24T00:00:00.000Z",
+    };
+    const rewrite = {
+      ...original,
+      id: "content-new",
+      title: "국민연금 임의계속가입 조건, 퇴직 후 가입기간부터 따져보는 법",
+      preservedFromContentId: "content-old",
+    };
+    const record = (contentId: string, externalPostId: string) => ({
+      schemaVersion: 1 as const,
+      id: `publishing:${contentId}:${externalPostId}`,
+      idempotencyKey: `publishing:${contentId}:${externalPostId}`,
+      workspaceId: "workspace-1",
+      projectId: "project-1",
+      contentId,
+      contentRevisionId: "rev-1",
+      executionRevisionId: "exec-1",
+      platformConnectionId: "wordpress-1",
+      platform: "wordpress" as const,
+      workflow: "draft.create" as const,
+      status: "verified" as const,
+      stage: "complete" as const,
+      verified: true,
+      uploadedMedia: [],
+      cleanupRequired: false,
+      verificationChecks: [],
+      categoryIds: [],
+      categoryNames: [],
+      localImageCount: 0,
+      featuredImageAssigned: false,
+      createdAt: "2026-08-24T00:00:00.000Z",
+      updatedAt: "2026-08-24T00:00:00.000Z",
+      externalPostId,
+    });
+    const data = {
+      contents: [original, rewrite],
+      publishingRecords: [record("content-old", "3778"), record("content-other", "3775")],
+    } as unknown as Parameters<typeof ownPublishedExternalPostIds>[0];
+
+    // 다시 쓴 원고는 아직 한 번도 발행되지 않았지만, 이전 판본의 글은 자기 글이다.
+    expect(ownPublishedExternalPostIds(data, rewrite)).toEqual(["3778"]);
+    // 반대 방향도 같은 계보다.
+    expect(ownPublishedExternalPostIds(data, original)).toEqual(["3778"]);
   });
 });
