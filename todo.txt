@@ -38,7 +38,11 @@ npm run dev
   accept-improvement·final-review 는 전부 부른다. 그래서 원고를 다시 생성하면
   돈 주고 만든 대표이미지가 항상 떨어져 나간다. 고치려면 hero 끼리 짝지어야
   한다 — id 기준이라 그냥 끼우면 이미지 블록이 두 개가 된다.
-- 갱신 발행 때 이미지 재업로드 (orphan media 3709/3712). 진단만 됐다.
+- 갱신 발행 때 이미지 재업로드 (orphan media 3709/3712). **원인 확정** —
+  16_WORDPRESS_PUBLISHING_MAP.md 4장. 업로드 뒤 URL 치환이 임시 문서에만 적용되고
+  저장된 문서는 로컬 source 그대로라 다음 발행에 또 올린다. 고칠 방향 둘 중 택일:
+  (a) 업로드 결과를 canonical 문서에 반영해 저장, (b) 발행 기록의 uploadedMedia 로
+  건너뛰기.
 - 공개 Post 갱신 시 draft_status 검증 실패. 진단만 됐다.
 - PublishingGate 의 D-045 잔재 (QualityEngine.ts:149-152). 진단만 됐다.
 - Source Preflight 실패에 진단이 안 남는다. content-mst2r5wl-eadjnz 가

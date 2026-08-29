@@ -13,13 +13,14 @@
 | --- | --- | --- |
 | `02_ARCHITECTURE/03_CONTENT_LIFECYCLE.md` | 화면 버튼 → 서버 action → 상태 전이, AI 호출 비용 | 약 150줄 |
 | `02_ARCHITECTURE/15_APPROVAL_EVIDENCE_MAP.md` | 승인 근거·Claim 관문 5개, `core/approval` 46개 파일 | 약 240줄 |
+| `02_ARCHITECTURE/16_WORDPRESS_PUBLISHING_MAP.md` | 발행 실행 순서, 검사 18개, 되읽기 검증 10개 | 약 215줄 |
 
-전부 읽어도 400줄이다. 이 비용은 오늘까지 지도가 없어서 생긴 잘못된 단정 한 번보다
+전부 읽어도 600줄이다. 이 비용은 오늘까지 지도가 없어서 생긴 잘못된 단정 한 번보다
 싸다.
 
 **지도가 없는 영역을 고쳐야 하면, 고치기 전에 그 영역을 읽고 지도를 남긴다.**
-지도는 그렇게 늘린다. 아직 없는 영역: 발행(`apps/wordpress`, `apps/tistory`),
-저장·병합, UI 흐름, 연결·데이터소스.
+지도는 그렇게 늘린다. 아직 없는 영역: Tistory 발행, 저장·병합, UI 흐름,
+연결·데이터소스.
 
 **읽는 것과 시작하는 것은 다르다.** todo.txt 에 적혀 있다고 해서 먼저 손대지
 않는다. 무엇을 할지는 사장님이 정한다. 읽는 이유는 사장님이 무엇을 말씀하실 때
@@ -182,6 +183,7 @@ export 했을 때 tsc·eslint·vitest 가 전부 통과한 상태에서 앱이 �
 | --- | --- |
 | 왜 이렇게 결정했나 | `00_FOUNDATION/08_DECISION_LOG.md` (D-001~) |
 | 승인 근거·Claim 이 어떻게 도나 | `02_ARCHITECTURE/15_APPROVAL_EVIDENCE_MAP.md` |
+| 발행 버튼을 누르면 무슨 일이 나나 | `02_ARCHITECTURE/16_WORDPRESS_PUBLISHING_MAP.md` |
 | 버튼이 무엇을 부르나, AI 를 몇 번 쓰나 | `02_ARCHITECTURE/03_CONTENT_LIFECYCLE.md` |
 | 품질 채점 기준 | `02_ARCHITECTURE/09_QUALITY_SYSTEM.md` |
 | AI 호출 구조 | `02_ARCHITECTURE/07_AI_ARCHITECTURE.md` |
