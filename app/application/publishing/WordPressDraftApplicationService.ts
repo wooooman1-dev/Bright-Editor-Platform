@@ -7,6 +7,7 @@ import {
   type PublishingExecutionRecord,
   type PublishingExecutionStatus,
   type PublishingExecutionWorkflow,
+  type PublishingUploadedMediaRecord,
 } from "../../../core/publishing";
 import {
   WordPressCategoryAdapter,
@@ -191,7 +192,7 @@ export class WordPressDraftApplicationService {
   private async publishedPostToRewrite(
     input: WordPressDraftExecutionInput,
     identity: WordPressDraftExecutionIdentity,
-  ): Promise<string | undefined> {
+  ): Promise<PublishingExecutionRecord | undefined> {
     if (input.schedule) return undefined;
     const published = await this.records.findPublishedPostForContent({
       workspaceId: identity.workspaceId,
@@ -202,7 +203,7 @@ export class WordPressDraftApplicationService {
     const externalPostId = published?.externalPostId?.trim();
     if (!published || !externalPostId) return undefined;
     return await this.verifyExternalLiveness(input.connection, published) === "present"
-      ? externalPostId
+      ? published
       : undefined;
   }
 
@@ -230,6 +231,20 @@ export class WordPressDraftApplicationService {
     let identity = createIdentity;
     let updateTarget: string | undefined;
     let supersede: PublishingExecutionRecord | undefined;
+    /**
+     * 이 Post 에 이미 올라가 있는 파일.
+     *
+     * 2026-08-28 실측: 같은 Post 를 두 번 발행한 세 건 모두 새 미디어가 생겼다.
+     * post 3710 은 media 3709 → 3716, post 3713 은 3712 → 3718 이 되어 앞의 것이
+     * 고아로 남았다. 원인은 업로드 뒤 URL 치환이 HTML 을 만들 때 쓰는 임시 문서에만
+     * 적용되고 저장된 문서는 로컬 source 를 그대로 들고 있어서, 다음 발행에서
+     * 그 블록이 또 "올려야 할 로컬 이미지" 로 잡히기 때문이다.
+     *
+     * canonical 문서에 플랫폼 URL 을 박는 것은 해법이 아니다 — 같은 원고가 다른
+     * 플랫폼으로도 나가므로 문서는 플랫폼 중립이어야 한다. 그래서 문서가 아니라
+     * 발행 기록을 본다. 기록은 이미 platformConnectionId 별로 나뉘어 있다.
+     */
+    let previouslyUploaded: readonly PublishingUploadedMediaRecord[] = [];
     for (const candidate of identityCandidates(createIdentity, updateIdentity)) {
       const existing = await this.records.findByIdempotencyKey(candidate.idempotencyKey);
       if (!existing) continue;
@@ -257,7 +272,8 @@ export class WordPressDraftApplicationService {
       const rewriting = await this.publishedPostToRewrite(input, createIdentity);
       if (rewriting) {
         identity = updateIdentity;
-        updateTarget = rewriting;
+        updateTarget = rewriting.externalPostId?.trim();
+        previouslyUploaded = rewriting.uploadedMedia;
       }
     }
     let prepared: PreparedExecution;
@@ -303,8 +319,24 @@ export class WordPressDraftApplicationService {
     }
 
     const uploadedMedia: WordPressDraftMediaResult[] = [];
+    const reusable = new Map(previouslyUploaded.map((item) => [item.assetId, item] as const));
     for (const item of prepared.mediaPlan) {
       try {
+        // 이 Post 에 같은 자산이 이미 올라가 있으면 다시 올리지 않는다.
+        const previous = reusable.get(item.assetId);
+        const reuseUrl = await this.reusableMediaUrl(prepared.credentials, previous);
+        if (previous && reuseUrl) {
+          uploadedMedia.push(Object.freeze({
+            assetId: item.assetId,
+            blockId: item.blockId,
+            externalMediaId: previous.externalMediaId,
+            sourceUrl: reuseUrl,
+            alt: item.alt,
+            verified: true,
+          }));
+          record = await this.persist(record, { uploadedMedia });
+          continue;
+        }
         this.authorize("media.upload", input);
         const uploaded = await this.media.uploadMedia({ ...prepared.credentials, ...item });
         uploadedMedia.push(Object.freeze({
@@ -620,6 +652,28 @@ export class WordPressDraftApplicationService {
     });
   }
 
+  /**
+   * 이미 올라가 있는 파일의 주소. 재사용할 수 없으면 undefined 를 돌려 업로드로 보낸다.
+   *
+   * 2026-08-29 이전 발행 기록에는 sourceUrl 이 없어서 플랫폼에서 되읽어야 한다.
+   * 되읽기가 실패하는 것은 정상적인 경우다 — 사용자가 미디어를 지웠을 수 있다.
+   * 그때는 실패가 아니라 다시 올리는 것이 맞으므로 여기서 오류를 삼킨다.
+   */
+  private async reusableMediaUrl(
+    credentials: WordPressConnectionInput,
+    previous: PublishingUploadedMediaRecord | undefined,
+  ): Promise<string | undefined> {
+    if (!previous?.externalMediaId?.trim()) return undefined;
+    const stored = previous.sourceUrl?.trim();
+    if (stored) return stored;
+    try {
+      const external = await this.media.readMedia({ ...credentials, externalMediaId: previous.externalMediaId });
+      return external.sourceUrl?.trim() || undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   private async persist(
     current: PublishingExecutionRecord,
     update: PublishingRecordUpdate,
@@ -630,6 +684,8 @@ export class WordPressDraftApplicationService {
       uploadedMedia: Object.freeze([...(update.uploadedMedia ?? current.uploadedMedia)].map((item) => Object.freeze({
         assetId: item.assetId,
         externalMediaId: item.externalMediaId,
+        // 다음 발행에서 이 파일을 다시 올리지 않고 재사용하려면 주소가 필요하다.
+        ...("sourceUrl" in item && item.sourceUrl ? { sourceUrl: item.sourceUrl } : {}),
       }))),
       verificationChecks: Object.freeze([...(update.verificationChecks ?? current.verificationChecks)]),
       updatedAt: this.now().toISOString(),

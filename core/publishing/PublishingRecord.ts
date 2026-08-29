@@ -14,6 +14,14 @@ export type PublishingExecutionStatus = (typeof publishingExecutionStatuses)[num
 export type PublishingUploadedMediaRecord = Readonly<{
   assetId: string;
   externalMediaId: string;
+  /**
+   * 플랫폼이 돌려준 파일 주소.
+   *
+   * 2026-08-29 이전 기록에는 없다. 같은 원고를 다시 발행할 때 이미 올린 파일을
+   * 재사용하려면 본문에 넣을 주소가 필요한데, 그때는 assetId 와 externalMediaId
+   * 둘만 남겼다. 없으면 플랫폼에서 되읽는다.
+   */
+  sourceUrl?: string;
 }>;
 
 export type PublishingVerificationCheckRecord = Readonly<{
