@@ -153,7 +153,7 @@ export 했을 때 tsc·eslint·vitest 가 전부 통과한 상태에서 앱이 �
 
 | 틀린 것 | 실제 |
 | --- | --- |
-| "재생성 버튼이 없다" | 있다. `ContentCreationFlow.tsx:609` 「이 기획으로 원고 만들기」가 같은 Content 를 덮어쓴다. 막힌 것은 Planning 재실행뿐(`user-data.ts:298`) |
+| "재생성 버튼이 없다" | 있다. `ContentCreationFlow.tsx` 의 `confirm(true)` — 「이 기획으로 원고 만들기」가 같은 Content 를 덮어쓴다. 막힌 것은 Planning 재실행뿐(`startContentPlanning`) |
 | "D-050 이 커밋 안 됐다" | 돼 있었다. `COMMIT_EDITMSG` 만 보고 판단했다 |
 | 버튼이 안 보이면 서버가 막는 것 | 다르다. `Retry generation` 은 `generationError` 가 있을 때만 렌더링될 뿐 서버는 허용한다 |
 | 측정값을 그대로 믿기 | 2026-08-28 미사용 수치 49개 중 10개가 내 측정 버그였다(표를 안 셈, `2,200만 원` vs `2,200만원`) |
@@ -166,11 +166,18 @@ export 했을 때 tsc·eslint·vitest 가 전부 통과한 상태에서 앱이 �
 | 알고 싶은 것 | 문서 |
 | --- | --- |
 | 왜 이렇게 결정했나 | `00_FOUNDATION/08_DECISION_LOG.md` (D-001~) |
+| 승인 근거·Claim 이 어떻게 도나 | `02_ARCHITECTURE/15_APPROVAL_EVIDENCE_MAP.md` |
 | 버튼이 무엇을 부르나, AI 를 몇 번 쓰나 | `02_ARCHITECTURE/03_CONTENT_LIFECYCLE.md` |
 | 품질 채점 기준 | `02_ARCHITECTURE/09_QUALITY_SYSTEM.md` |
 | AI 호출 구조 | `02_ARCHITECTURE/07_AI_ARCHITECTURE.md` |
 | 남은 할 일 | 저장소 루트 `todo.txt` |
 | 지난 세션에 무엇을 했나 | `04_DEVELOPMENT/14_WORK_LOG_2026_08.md` |
+
+코드 지도의 앵커는 **줄 번호가 아니라 식별자**로 쓴다. 줄 번호는 커밋 하나에
+깨지고, 낡은 지도는 없는 것보다 나쁘다. `grep -n '<식별자>' <파일>` 로 찾는다.
+
+**지도는 색인이지 진실이 아니다.** 위치를 찾는 데 쓰고, 고치기 직전에 그 파일을
+실제로 읽는다.
 
 **새 규칙이나 재발 방지 항목은 이 문서에 적는다.** todo.txt 에 적지 않는다 —
 그렇게 흩어져서 서로 못 찾는 일이 2026-08-29 에 문제가 됐다.

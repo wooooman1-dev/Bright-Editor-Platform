@@ -21,33 +21,33 @@ Discover -> Decide -> Create -> Publish -> Measure -> Improve -> Repurpose
 
 ### create 화면 — `app/user-flow/ContentCreationFlow.tsx`
 
-| 버튼 | 줄 | 부르는 action | AI 호출 |
+| 버튼 | 핸들러 | 부르는 action | AI 호출 |
 | --- | --- | --- | --- |
-| 분석하고 추천받기 | 579 | `plan` | 1 |
-| 직접 설정하기 | 580 | `manual-plan` | 0 |
-| 저장 상태 새로고침 | 581 | 없음 (로컬) | 0 |
-| 추천 다시 생성 | 606 | `plan` | 1 |
-| 이 기획으로 직접 작성 | 607 | 없음 (Content 기록만 생성) | 0 |
-| 기존 원고를 보존하고 새 Content로 생성 | 608 | `generate` (**새 contentId**) | 생성 1회 이상 |
-| 이 기획으로 원고 만들기 | 609 | `generate` (**같은 contentId, 덮어씀**) | 생성 1회 이상 |
+| 분석하고 추천받기 | `analyze(false, …)` | `plan` | 1 |
+| 직접 설정하기 | `analyze(true, …)` | `manual-plan` | 0 |
+| 저장 상태 새로고침 | `onRefresh()` | 없음 (로컬) | 0 |
+| 추천 다시 생성 | `analyze(false, true)` | `plan` | 1 |
+| 이 기획으로 직접 작성 | `confirm(false)` | 없음 (Content 기록만 생성) | 0 |
+| 기존 원고를 보존하고 새 Content로 생성 | `confirm(true, …, "new")` | `generate` (**새 contentId**) | 생성 1회 이상 |
+| 이 기획으로 원고 만들기 | `confirm(true)` | `generate` (**같은 contentId, 덮어씀**) | 생성 1회 이상 |
 
-`confirm()` 은 `target` 기본값이 `"existing"` 이다 (`:298`). 원고가 이미 있으면
-`window.confirm` 으로 덮어쓰기를 한 번 묻는다 (`:302`). 새 Content 경로는
-`target: "new"` 로 `createId("content")` 를 새로 만든다 (`:303`).
+`confirm()` 은 `target` 기본값이 `"existing"` 이다. 원고가 이미 있으면
+`window.confirm` 으로 덮어쓰기를 한 번 묻는다. 새 Content 경로는
+`target: "new"` 로 `createId("content")` 를 새로 만든다.
 
 ### 편집기 — `app/user-flow/EditorWorkspaceImplementation.tsx`
 
-| 버튼 | 줄 | action | AI 호출 |
+| 버튼 | 핸들러 | action | AI 호출 |
 | --- | --- | --- | --- |
-| 품질 다시 검토 | 478 (`review()` `:208`) | `review-quality` | **0** |
-| AI 개선안 만들기 | 478 (`requestQualityImprovement()` `:240`) | `improve-quality` | 1 |
-| (개선안 적용) | 257 | `accept-improvement` | **0** |
-| 수정 지시 입력 후 실행 | `revise()` `:220` | `revise` | 1 |
-| Retry generation without creating a duplicate | 469 (`retryGeneration()` `:230`) | `generate` (**같은 contentId**) | 생성 1회 이상 |
-| 추천 주제 후보 다시 보기 → | 463 | create 화면으로 이동 (contentId 유지) | 0 |
-| 플랫폼 미리보기 | `:179` | `render-platform` | 0 |
+| 품질 다시 검토 | `review()` | `review-quality` | **0** |
+| AI 개선안 만들기 | `requestQualityImprovement()` | `improve-quality` | 1 |
+| (개선안 적용) | `acceptImprovement()` | `accept-improvement` | **0** |
+| 수정 지시 입력 후 실행 | `revise()` | `revise` | 1 |
+| Retry generation without creating a duplicate | `retryGeneration()` | `generate` (**같은 contentId**) | 생성 1회 이상 |
+| 추천 주제 후보 다시 보기 → | 편집기 상단 버튼 | create 화면으로 이동 (contentId 유지) | 0 |
+| 플랫폼 미리보기 | `previewPlatform()` | `render-platform` | 0 |
 
-**재생성 버튼의 렌더링 조건**: `:469` 의 retry 버튼은 `content.generationError`
+**재생성 버튼의 렌더링 조건**: `retryGeneration()` 버튼은 `content.generationError`
 가 있을 때만 그려진다. 정상 생성된 원고에는 보이지 않는다. 서버가 막는 것이
 아니라 화면이 감추는 것이다.
 
@@ -55,25 +55,27 @@ Discover -> Decide -> Create -> Publish -> Measure -> Improve -> Repurpose
 
 ## 2. action 명세 — `app/api/studio/route.ts`
 
-| action | 줄 | AI 호출 | 주요 가드 | 무엇을 쓰나 |
-| --- | --- | --- | --- | --- |
-| `start-planning` | 71 | 0 | workspace·project 소유 | `planningWorkflow` 시작 |
-| `plan` | 86 | **1** (generation 모델, `:639`) | operation 일치 `:599`, 실패한 operation 재사용 금지 `:603` | Planning 후보 |
-| `manual-plan` | 89 | **0** (`createManualPlanningResult` `:638`) | 위와 같음 | Planning 후보 |
-| `generate` | 92 | **1~4** (아래 4장) | 같은 Content 동시 생성 금지 `:105`. **원고 존재 여부 가드는 없음** | `document`, `quality`, `status` |
-| `final-review` | 319 | **1** (review 모델 `:328`) | `document` 필요 | `document`, `quality`, `status` |
-| `revise` | 346 | **1** (generation 모델 `:354`) | `document` 필요 | 응답만 반환 (저장은 별도) |
-| `improve-quality` | 367 | **1** (review 모델 `:375`) | 개선 항목이 없으면 거부 `:374` | 미리보기 (저장 안 함) |
-| `accept-improvement` | 401 | **0** | 리비전 일치 `:405`, 개선 채택 조건, standard 승인 필요 `:417` | `document`, `quality`, `status` |
-| `review-quality` | 473 | **0** | `document` 필요 | `quality`, `status` |
-| `render-platform` / `render-tistory` | 438 | 0 | 지원 플랫폼 | 없음 |
-| `prepare-tistory` | 461 | 0 | Tistory 활성화, 카테고리 선택 | 없음 |
-| `content-deletion-impact` | 424 | 0 | — | 없음 |
-| `delete-content` | 429 | 0 | — | Content 삭제 |
+찾는 법: `grep -n 'body.action === "<이름>"' app/api/studio/route.ts`
+
+| action | AI 호출 | 주요 가드 | 무엇을 쓰나 |
+| --- | --- | --- | --- |
+| `start-planning` | 0 | workspace·project 소유 | `planningWorkflow` 시작 |
+| `plan` | **1** (generation 모델, `executePlanning` 안의 `ContentPlanningStrategy.analyze`) | operation 일치, 실패한 operation 재사용 금지 | Planning 후보 |
+| `manual-plan` | **0** (`createManualPlanningResult`) | 위와 같음 | Planning 후보 |
+| `generate` | **1~4** (아래 4장) | 같은 Content 동시 생성 금지(`activeGenerationOperations`). **원고 존재 여부 가드는 없음** | `document`, `quality`, `status` |
+| `final-review` | **1** (review 모델, `finalEditInstruction`) | `document` 필요 | `document`, `quality`, `status` |
+| `revise` | **1** (generation 모델) | `document` 필요 | 응답만 반환 (저장은 별도) |
+| `improve-quality` | **1** (review 모델) | `currentQuality.tasks` 가 비면 거부 | 미리보기 (저장 안 함) |
+| `accept-improvement` | **0** | 리비전 일치, `evaluateQualityImprovement` 채택, `isPublishReady` | `document`, `quality`, `status` |
+| `review-quality` | **0** | `document` 필요 | `quality`, `status` |
+| `render-platform` / `render-tistory` | 0 | 지원 플랫폼 | 없음 |
+| `prepare-tistory` | 0 | Tistory 활성화, 카테고리 선택 | 없음 |
+| `content-deletion-impact` | 0 | — | 없음 |
+| `delete-content` | 0 | — | Content 삭제 |
 
 ### 유일한 덮어쓰기 금지
 
-`app/user-flow/user-data.ts:298`
+`app/user-flow/user-data.ts` 의 `startContentPlanning`
 
 ```
 if (existing?.document) {
@@ -82,7 +84,7 @@ if (existing?.document) {
 ```
 
 **Planning 에만 걸려 있다.** 생성 경로에는 같은 가드가 없고,
-`applyCanonicalDocument` (`user-data.ts:684`) 도 기존 문서를 그대로 교체한다.
+`applyCanonicalDocument` (`applyCanonicalDocument`) 도 기존 문서를 그대로 교체한다.
 
 즉 **원고 재생성은 허용된다.** 막힌 것은 이미 원고가 있는 Content 에 새 Planning
 을 다시 돌리는 것뿐이며, 그때도 기존 추천 후보는 보존되므로 그중에서 다시 고르면
@@ -109,12 +111,11 @@ if (existing?.document) {
 `generate` 한 번이 부르는 호출은 모드에 따라 다르다.
 
 - 승인 준비(`adsense_approval`) + 구조화 생성 + Opportunity 가 모두 있을 때만
-  출처 preflight 가 돈다 (`core/ai/AIWorkflow.ts:112`).
-- preflight discovery 는 최대 2회 (`ApprovalSourcePreflight.ts:343`
-  `explicitDiscoveryMaximumAttempts = 2`).
-- 생성 1회 (`AIWorkflow.ts:178`).
+  출처 preflight 가 돈다 (`AIWorkflow.generate` 의 `sourcePreflight` 분기).
+- preflight discovery 는 최대 2회 (`ApprovalSourcePreflight.ts` 의 `explicitDiscoveryMaximumAttempts = 2`).
+- 생성 1회 (`AIWorkflow.generate` 의 `this.provider.generate`).
 - 검토 1회. 단 규칙 채점이 이미 정식 승인이면 **호출하지 않는다**
-  (`EditorialQualityPipeline.ts:90`, `skipped / rule_validation_already_standard_approved`).
+  (`EditorialQualityPipeline.run` 의 `meetsStandardApprovalTarget` 조기 반환, `skipped / rule_validation_already_standard_approved`).
 
 실측: 근로장려금 원고 한 편이 3회 호출 87,642 tokens $0.465334 (편집기 AI USAGE).
 
@@ -125,20 +126,20 @@ if (existing?.document) {
 
 ## 5. Content status
 
-`UserContentStatus` — `app/user-flow/user-data.ts:142`
+`UserContentStatus` — `app/user-flow/user-data.ts`
 
 ```
 planning | configuration_required | draft | in_review | ready | draft_saved
 ```
 
-- `applyCanonicalDocument` 는 `status: "draft"` 로 되돌린다 (`:690`).
+- `applyCanonicalDocument` 는 `status: "draft"` 로 되돌린다 (`applyCanonicalDocument`).
 - `review-quality`, `final-review`, `accept-improvement` 는 `isPublishReady` 결과에
   따라 `ready` 또는 `in_review` 로 정한다.
-- `improve-quality` 가 적용될 때는 `ready` 로 쓴다 (`route.ts:394`).
+- `improve-quality` 가 적용될 때는 `ready` 로 쓴다 (`improve-quality` 분기).
 
 발행 기록의 `workflow` 는 별도 축이다: `draft.create`, `draft.update`,
 `schedule.create`, `schedule.verify` 등
-(`app/application/publishing/WordPressDraftApplicationService.ts:171`, `:214`).
+(`WordPressDraftApplicationService` 의 `identity(input, "draft.update")`).
 
 ---
 
