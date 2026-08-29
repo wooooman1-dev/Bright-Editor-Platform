@@ -24,6 +24,7 @@ import {
   applyInternalLinkCatalogResult,
   internalLinkCatalogChanged,
   publishingCategoryNames,
+  ownPublishedExternalPostIds,
   rankPublishingPostCandidates,
   withInternalLinkCatalogMetadata,
 } from "../application/publishing/InternalLinkCatalogPolicy";
@@ -397,6 +398,7 @@ export function EditorWorkspace({ content, data, project, onBack, onOpenPlanning
         liveDocument,
         posts,
         effectiveContent,
+        ownPublishedExternalPostIds(data, effectiveContent),
       );
       setPostCandidates([...ranked]);
       setPostCatalogState(ranked.length ? "success" : "empty");

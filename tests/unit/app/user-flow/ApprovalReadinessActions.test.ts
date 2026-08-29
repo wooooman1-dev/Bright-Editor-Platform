@@ -53,6 +53,9 @@ function quality(revisionId: string, reviewedAt = "2026-07-28T01:00:00.000Z"): Q
       imageStrategy: 0,
       internalLinks: 0,
       cta: 0,
+      concreteness: 0,
+      readerDeferral: 0,
+      evidenceUse: 0,
     },
   };
 }

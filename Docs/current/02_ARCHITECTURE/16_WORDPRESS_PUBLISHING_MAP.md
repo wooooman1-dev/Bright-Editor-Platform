@@ -174,6 +174,31 @@ ASCII 출력 가능 문자 외에는 전부 `-` 가 된다. 한글 파일명은 
 - `ScheduledPublishingApplicationService` (319줄) 예약 경로 전체.
 - `WordPressPostCatalogAdapter` (241줄) — 내부 링크용 공개 글 목록.
 
+### 자기 자신 제외 (D-052)
+
+공개 글 목록에는 **이 원고가 이미 발행된 Post 도 들어 있다.** 그래서 후보를 고를
+때 반드시 제외해야 한다. 제외하지 않으면 같은 카테고리·최신이라 자기 자신이 1등
+후보가 되어 글이 자기 링크를 단다 (2026-08-29 실측, 원고 2건).
+
+제외 판정은 한 군데에서만 한다.
+
+- `ownPublishedExternalPostIds(data, content)` — `InternalLinkCatalogPolicy`.
+  `publishingRecords` 에서 이 원고의 `externalPostId` 를 모은다.
+- `rankPublishingPostCandidates(document, candidates, content, ownExternalPostIds)`
+  — 네 번째 인자는 **필수**다. 호출자가 조용히 빠뜨리지 못하게 하려는 것이다.
+- `rankRelatedPosts` 의 `context.excludeExternalPostIds` 로 내려가 후보 루프에서
+  걸러진다.
+
+호출자는 네 곳이다. 새 호출자를 만들면 여기도 늘려야 한다.
+
+- `app/api/publishing/posts/route.ts`
+- `app/api/studio/route.ts`
+- `InternalLinkCatalogEvaluationService.evaluate` → `ApprovalReadinessApplicationServiceBase`
+- `EditorWorkspaceImplementation.tsx`
+
+`UserContent.publishedUrl` 은 **읽지 않는다.** 타입에만 있고 한 번도 저장된 적이
+없어(160개 중 0개) 이 필드를 읽던 예전 필터는 아무것도 걸러내지 못했다.
+
 ---
 
 ## 9. 파일 지도
@@ -207,6 +232,15 @@ for cid,rs in by.items():
     for r in sorted(rs,key=lambda x:x['createdAt']):
         print(r['workflow'], r.get('externalPostId'), [m.get('externalMediaId') for m in (r.get('uploadedMedia') or [])])
 "
+
+# 자기 자신을 가리키는 링크가 있는 원고 (D-052)
+node -e '
+const d=JSON.parse(require("fs").readFileSync(".bright-studio/studio-data.json","utf8"));
+const cs=[];const w=(o)=>{if(!o||typeof o!=="object")return;if(Array.isArray(o)){o.forEach(w);return;}
+ if(typeof o.id==="string"&&o.id.startsWith("content-")&&o.document)cs.push(o);Object.values(o).forEach(w);};w(d);
+for(const c of cs)for(const b of c.document.blocks)
+ if(b.type==="button"&&(b.purpose==="internal_link"||b.purpose==="related_post")&&b.label===c.document.title)
+  console.log(b.purpose,"|",c.document.title);'
 
 # 검증 항목이 실제로 무엇을 보는지
 grep -n 'check("' apps/wordpress/WordPressDraftPublishingAdapter.ts

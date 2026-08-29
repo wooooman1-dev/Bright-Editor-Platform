@@ -6,7 +6,8 @@ import {
   type ContentDocument,
   type PublicPostCandidate,
 } from "../../../core/content";
-import type { UserContent, UserProject } from "../../user-flow/user-data";
+import type { UserContent, UserData, UserProject } from "../../user-flow/user-data";
+import { isPublishingExecutionRecord } from "../../../core/publishing";
 
 /**
  * The publishing category a freshly generated article should use.
@@ -151,10 +152,35 @@ export function removeAutoPlacedPublishingLinks(
     : { ...document, blocks: Object.freeze(blocks) };
 }
 
+/**
+ * Every Post this manuscript has already been published to.
+ *
+ * `UserContent.publishedUrl` exists but is never written — 160 manuscripts,
+ * none with a value — so the filter that read it in the posts route never
+ * excluded anything. The publishing records are the only place the identity of
+ * a manuscript's own Post is actually stored, so the exclusion reads them.
+ */
+export function ownPublishedExternalPostIds(
+  data: UserData,
+  content: UserContent,
+): readonly string[] {
+  const ids = (data.publishingRecords ?? [])
+    .filter(isPublishingExecutionRecord)
+    .flatMap((record) => {
+      if (record.workspaceId !== content.workspaceId) return [];
+      if (record.projectId !== content.projectId) return [];
+      if (record.contentId !== content.id) return [];
+      const externalPostId = record.externalPostId?.trim();
+      return externalPostId ? [externalPostId] : [];
+    });
+  return Object.freeze([...new Set(ids)]);
+}
+
 export function rankPublishingPostCandidates(
   document: ContentDocument,
   candidates: readonly PublicPostCandidate[],
   content: UserContent,
+  ownExternalPostIds: readonly string[],
 ): readonly PublicPostCandidate[] {
   const categories = publishingCategoryIdentities(content);
   if (!categories.length) return Object.freeze([]);
@@ -166,6 +192,7 @@ export function rankPublishingPostCandidates(
       primaryKeyword: content.primaryKeyword,
       categoryId: category.id,
       categoryName: category.name ?? undefined,
+      excludeExternalPostIds: ownExternalPostIds,
     });
     for (const candidate of ranked) {
       const key = normalizeUrl(candidate.publishedUrl);

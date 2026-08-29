@@ -1427,6 +1427,52 @@ AdSense 승인 준비 단계의 Content에도 `future` 예약을 적용할 수 �
 
 ---
 
+# D-052 발행된 글은 자기 자신을 내부링크 후보로 삼지 않는다
+
+Status: Accepted
+
+공개 글 목록에서 내부링크·관련글 후보를 고를 때, 그 원고가 이미 발행된 Post 를
+후보에서 제외한다. 판단 근거는 발행 기록(`publishingRecords`)의
+`externalPostId` 이며, 제외 목록은 호출자가 반드시 넘겨야 한다(선택 인자가
+아니다).
+
+2026-08-29 실측이 근거다. 브라이트제이테크 라이브 글과 앱 저장본을 브라우저로
+문장 단위 비교한 결과 본문은 한 글자도 다르지 않았고, 시스템이 자동으로 넣는
+링크만 달랐다.
+
+- 라이브: 「함께 읽으면 좋은 글」 = 국민연금 임의계속가입 조건
+- 저장본: 「함께 읽으면 좋은 글」 = 근로장려금 신청 조건 — 자기 자신
+
+같은 증상인 원고가 2개였다(근로장려금, 국민연금). 둘 다 아직 라이브에는 반영
+전이었다.
+
+원인은 세 가지가 겹친 것이다.
+
+- `placeRecommendedPosts` 는 후보 1등을 내부링크로 꽂으며 자기 글을 빼는 조건이
+  없었다 (`core/content/RelatedPostRecommendation.ts`).
+- 자기 글 제외 코드는 `app/api/publishing/posts/route.ts` 한 곳뿐이었고
+  `content.publishedUrl` 을 읽었다. 그 필드는 타입에만 있고 한 번도 저장된 적이
+  없다 — 문서가 있는 원고 160개 중 값이 있는 것 0개. 항상 참이 되어 아무것도
+  걸러내지 못했다.
+- 발행 준비 때 실제로 쓰이는 `InternalLinkCatalogEvaluationService` 에는 그
+  필터조차 없었다.
+
+즉 글이 워드프레스에 발행되는 순간 공개 글 목록에 들어가고, 같은 카테고리·최신
+이라 다음 갱신 때 자기 자신이 1등 후보가 된다.
+
+한 곳에만 가드가 있었던 것이 이 버그가 숨은 이유이므로, 제외 목록은
+`rankRelatedPosts` 의 `excludeExternalPostIds` 로 내려 한 군데에서만 판정하고,
+`rankPublishingPostCandidates` 의 네 번째 인자를 필수로 만들어 호출자가 조용히
+빠뜨릴 수 없게 한다. 죽어 있던 `publishedUrl` 필터는 제거한다 — 작동하지 않는
+가드를 진짜 가드 옆에 남겨 두는 것이 이 사고의 원인이었다.
+
+기존에 잘못 들어간 링크는 별도 이관이 필요 없다.
+`applyInternalLinkCatalogResult` 가 `removeAutoPlacedPublishingLinks` 로
+system_catalog 블록을 모두 걷어낸 뒤 다시 배치하므로, 승인·발행 화면을 열어
+재평가되면 자기 링크가 사라진다.
+
+---
+
 # 통합 결과
 
 이 완성본은 다음 문제를 해결합니다.

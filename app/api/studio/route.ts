@@ -28,6 +28,7 @@ import {
   publishingCategoryIdentities,
   withProjectDefaultPublishingCategories,
   publishingCategoryNames,
+  ownPublishedExternalPostIds,
   rankPublishingPostCandidates,
   withInternalLinkCatalogMetadata,
 } from "../../application/publishing/InternalLinkCatalogPolicy";
@@ -840,7 +841,8 @@ async function placeAvailablePublishingPosts(
       connection,
       selectedTarget,
     });
-    const ranked = rankPublishingPostCandidates(document, catalog.posts, content);
+    const ranked = rankPublishingPostCandidates(document, catalog.posts, content,
+      ownPublishedExternalPostIds(data, content));
     const placed = applyInternalLinkCatalogResult(document, ranked, "evaluated");
     console.info("[internal-link-trace] platform catalog evaluated", {
       cached: catalog.cached,
@@ -872,7 +874,10 @@ function recentHeroImagePrompts(contents: UserData["contents"], projectId: strin
   return contents
     .filter((content) => content.projectId === projectId && content.id !== contentId)
     .map((content) => ({
-      prompt: content.document?.blocks.find((block) => block.type === "image" && block.purpose === "hero" && Boolean(block.prompt?.trim()))?.prompt?.trim() ?? "",
+      prompt: content.document?.blocks.flatMap((block) => (
+        block.type === "image" && block.purpose === "hero" && block.prompt?.trim()
+          ? [block.prompt.trim()]
+          : []))[0] ?? "",
       updatedAt: content.document?.metadata?.updatedAt ?? content.updatedAt ?? "",
     }))
     .filter((item) => Boolean(item.prompt))

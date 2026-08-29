@@ -27,6 +27,7 @@ import { tistorySiteReadinessAdapter } from "../../../apps/tistory/approval/Tist
 import { wordpressSiteReadinessAdapter } from "../../../apps/wordpress/approval/WordPressSiteReadinessAudit";
 import type { UserContent, UserData } from "../../user-flow/user-data";
 import { InternalLinkCatalogEvaluationService } from "../publishing/InternalLinkCatalogEvaluationService";
+import { ownPublishedExternalPostIds } from "../publishing/InternalLinkCatalogPolicy";
 import { contentOwnedIdentityContamination } from "../publishing/ContentOwnedIdentityPolicy";
 import type { ApprovalAwareContent } from "./ApprovalContentPolicy";
 import { approvalReadinessExecutionIdentity } from "./ApprovalReadinessExecutionIdentity";
@@ -155,6 +156,7 @@ export class ApprovalReadinessApplicationService {
       document: content.document,
       connection: input.connection,
       selectedTarget: input.selectedTarget === true,
+      ownExternalPostIds: ownPublishedExternalPostIds(input.data, content),
       refresh: true,
     });
     const candidateUrls = evidenceApplicable ? documentWithInternalLinks.metadata?.approvalEvidence?.sources
