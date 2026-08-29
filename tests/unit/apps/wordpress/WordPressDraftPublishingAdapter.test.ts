@@ -98,6 +98,87 @@ describe("WordPress draft publishing adapter", () => {
     expect(verification.checks).toContainEqual({ key: failedKey, passed: false });
   });
 
+  /**
+   * 공개된 글을 갱신하면 updateDraft 는 status 를 보내지 않는다. 공개 글이 조용히
+   * 초안으로 돌아가면 안 되기 때문이다. 그러면 되읽기에서 WordPress 가 publish 를
+   * 돌려주는데, 기대값이 draft 로 굳어 있으면 정상 갱신이 실패로 기록된다.
+   */
+  it("accepts a published Post that stayed published after an update", () => {
+    const adapter = new WordPressDraftPublishingAdapter(vi.fn<typeof fetch>());
+    const draft: WordPressExternalDraft = {
+      externalId: "3710",
+      status: "publish",
+      title: "Approved title",
+      content: html,
+      categoryIds: ["12", "34"],
+      tagIds: [],
+      featuredMediaId: "91",
+    };
+
+    const verification = adapter.verifyDraft(draft, {
+      externalId: "3710",
+      title: "Approved title",
+      content: html,
+      categoryIds: ["12", "34"],
+      mediaUrls: ["https://example.com/uploads/image.png"],
+      featuredMediaId: "91",
+      status: "publish",
+    });
+
+    expect(verification.checks).toContainEqual({ key: "draft_status", passed: true });
+    expect(verification.verified).toBe(true);
+  });
+
+  it("still fails when a published Post came back as a draft", () => {
+    const adapter = new WordPressDraftPublishingAdapter(vi.fn<typeof fetch>());
+    const draft: WordPressExternalDraft = {
+      externalId: "3710",
+      status: "draft",
+      title: "Approved title",
+      content: html,
+      categoryIds: ["12", "34"],
+      tagIds: [],
+      featuredMediaId: "91",
+    };
+
+    const verification = adapter.verifyDraft(draft, {
+      externalId: "3710",
+      title: "Approved title",
+      content: html,
+      categoryIds: ["12", "34"],
+      mediaUrls: ["https://example.com/uploads/image.png"],
+      featuredMediaId: "91",
+      status: "publish",
+    });
+
+    expect(verification.checks).toContainEqual({ key: "draft_status", passed: false });
+    expect(verification.verified).toBe(false);
+  });
+
+  it("keeps expecting a draft when no status was requested", () => {
+    const adapter = new WordPressDraftPublishingAdapter(vi.fn<typeof fetch>());
+    const published: WordPressExternalDraft = {
+      externalId: "3710",
+      status: "publish",
+      title: "Approved title",
+      content: html,
+      categoryIds: ["12", "34"],
+      tagIds: [],
+      featuredMediaId: "91",
+    };
+
+    const verification = adapter.verifyDraft(published, {
+      externalId: "3710",
+      title: "Approved title",
+      content: html,
+      categoryIds: ["12", "34"],
+      mediaUrls: ["https://example.com/uploads/image.png"],
+      featuredMediaId: "91",
+    });
+
+    expect(verification.checks).toContainEqual({ key: "draft_status", passed: false });
+  });
+
   it("accepts ordered meaningful segments through WordPress comments, wrappers, whitespace, and entities", () => {
     const expected = "<h2>Eligibility &amp; timing</h2><p>Check the official notice&nbsp;before applying.</p><ul><li>First step</li><li>Second step</li></ul>";
     const actual = `

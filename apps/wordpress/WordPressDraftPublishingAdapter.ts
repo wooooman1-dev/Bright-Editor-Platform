@@ -275,7 +275,16 @@ export class WordPressDraftPublishingAdapter implements PublishingAdapter {
       mediaUrls: readonly string[];
       featuredMediaId?: string;
       seoMetadata?: WordPressSeoMetadata;
-      status?: WordPressPostStatus;
+      /**
+       * 되읽었을 때 이 Post 가 가지고 있어야 할 상태.
+       *
+       * 우리가 만들 수 있는 상태는 draft 와 future 뿐이지만, 기대값은 그 둘로
+       * 좁힐 수 없다. 이미 공개된 글을 갱신하는 경우 `updateDraft` 는 status 를
+       * 보내지 않고 (공개 글을 초안으로 되돌리지 않으려고), 그러면 되읽기에서
+       * WordPress 가 publish 를 돌려준다. 기대값을 draft 로 굳히면 정상 갱신이
+       * 실패로 기록된다. WordPress 의 상태 집합은 열려 있으므로 문자열로 받는다.
+       */
+      status?: string;
       scheduledAt?: string;
     }>,
   ): WordPressDraftVerification {

@@ -192,7 +192,7 @@ export class WordPressDraftApplicationService {
   private async publishedPostToRewrite(
     input: WordPressDraftExecutionInput,
     identity: WordPressDraftExecutionIdentity,
-  ): Promise<PublishingExecutionRecord | undefined> {
+  ): Promise<Readonly<{ record: PublishingExecutionRecord; status?: string }> | undefined> {
     if (input.schedule) return undefined;
     const published = await this.records.findPublishedPostForContent({
       workspaceId: identity.workspaceId,
@@ -202,9 +202,9 @@ export class WordPressDraftApplicationService {
     });
     const externalPostId = published?.externalPostId?.trim();
     if (!published || !externalPostId) return undefined;
-    return await this.verifyExternalLiveness(input.connection, published) === "present"
-      ? published
-      : undefined;
+    const live = await this.verifyExternalLiveness(input.connection, published);
+    if (live.liveness !== "present") return undefined;
+    return Object.freeze({ record: published, ...(live.status ? { status: live.status } : {}) });
   }
 
   async execute(input: WordPressDraftExecutionInput): Promise<WordPressDraftExecutionResult> {
@@ -245,6 +245,8 @@ export class WordPressDraftApplicationService {
      * 발행 기록을 본다. 기록은 이미 platformConnectionId 별로 나뉘어 있다.
      */
     let previouslyUploaded: readonly PublishingUploadedMediaRecord[] = [];
+    /** 갱신 직전 그 Post 의 상태. 되읽기 검증의 기대값이 된다. */
+    let existingPostStatus: string | undefined;
     for (const candidate of identityCandidates(createIdentity, updateIdentity)) {
       const existing = await this.records.findByIdempotencyKey(candidate.idempotencyKey);
       if (!existing) continue;
@@ -256,7 +258,7 @@ export class WordPressDraftApplicationService {
         break;
       }
       if (!input.explicitNewAttempt || existing.status !== "verified") return duplicateResult(existing);
-      const liveness = await this.verifyExternalLiveness(input.connection, existing);
+      const { liveness } = await this.verifyExternalLiveness(input.connection, existing);
       if (liveness === "present") return duplicateResult(existing);
       if (liveness === "unknown") return inconclusiveLivenessResult(existing);
       identity = candidate;
@@ -272,8 +274,9 @@ export class WordPressDraftApplicationService {
       const rewriting = await this.publishedPostToRewrite(input, createIdentity);
       if (rewriting) {
         identity = updateIdentity;
-        updateTarget = rewriting.externalPostId?.trim();
-        previouslyUploaded = rewriting.uploadedMedia;
+        updateTarget = rewriting.record.externalPostId?.trim();
+        previouslyUploaded = rewriting.record.uploadedMedia;
+        existingPostStatus = rewriting.status;
       }
     }
     let prepared: PreparedExecution;
@@ -516,7 +519,11 @@ export class WordPressDraftApplicationService {
         ...(prepared.seoMetadata ? { seoMetadata: prepared.seoMetadata } : {}),
         ...(input.schedule
           ? { status: input.schedule.postStatus, scheduledAt: input.schedule.scheduledAt }
-          : {}),
+          // 공개된 글을 갱신했다면 그 글은 여전히 공개여야 한다. 기대값을 draft 로
+          // 굳히면 정상 갱신이 verification_failed 로 기록된다.
+          : existingPostStatus && existingPostStatus !== "draft"
+            ? { status: existingPostStatus }
+            : {}),
       });
       if (!verification.verified) {
         record = await this.persist(record, {
@@ -843,19 +850,31 @@ export class WordPressDraftApplicationService {
     }, input.connection);
   }
 
+  /**
+   * 그 Post 가 아직 있는지, 있다면 지금 어떤 상태인지.
+   *
+   * 상태를 함께 돌려주는 이유: 공개된 글을 갱신할 때 `updateDraft` 는 status 를
+   * 일부러 보내지 않는다 (공개 글이 조용히 초안으로 돌아가면 안 되므로). 그런데
+   * 되읽기 검증은 status 를 안 보냈으면 `draft` 를 기대하도록 굳어 있어서,
+   * WordPress 가 `publish` 를 돌려주는 순간 이 항목만 실패한다. 글은 정상적으로
+   * 갱신되는데 기록만 verification_failed 로 남는다.
+   *
+   * 갱신 직전의 상태가 곧 기대값이다. 이미 이 자리에서 그 글을 읽고 있으므로
+   * 네트워크 호출은 늘지 않는다.
+   */
   private async verifyExternalLiveness(
     connection: PlatformConnection,
     record: PublishingExecutionRecord,
-  ): Promise<"present" | "removed" | "unknown"> {
-    if (!record.externalPostId) return "unknown";
+  ): Promise<Readonly<{ liveness: "present" | "removed" | "unknown"; status?: string }>> {
+    if (!record.externalPostId) return { liveness: "unknown" };
     let credentials: WordPressConnectionInput;
     try { credentials = await this.credentials(connection); }
-    catch { return "unknown"; }
+    catch { return { liveness: "unknown" }; }
     try {
-      await this.drafts.readDraft({ ...credentials, externalId: record.externalPostId });
-      return "present";
+      const external = await this.drafts.readDraft({ ...credentials, externalId: record.externalPostId });
+      return { liveness: "present", status: external.status };
     } catch (error) {
-      return error instanceof WordPressDraftNotFoundError ? "removed" : "unknown";
+      return { liveness: error instanceof WordPressDraftNotFoundError ? "removed" : "unknown" };
     }
   }
 
