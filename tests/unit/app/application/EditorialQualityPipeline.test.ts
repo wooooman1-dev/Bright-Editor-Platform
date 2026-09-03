@@ -97,6 +97,37 @@ describe("EditorialQualityPipeline", () => {
     expect(JSON.stringify(result.document.blocks)).not.toContain("7%");
   });
 
+  it("sends the canonical factual claim inventory the model is told to reproduce exactly", async () => {
+    // 2026-09-03 실측: 검토 프롬프트는 verificationClaimsUsed를 원본과 똑같이
+    // 돌려달라고 요구하면서도, contentDocumentAIContext가 generatedFactualClaimInventory를
+    // 제외해 모델이 원본 값을 한 번도 보지 못했다. 이 테스트는 그 원본 데이터가
+    // 실제로 지시문에 실려 가는지 잠근다.
+    const verifySurface = "취소 처리와 청구 반영은 서로 다른 단계일 수 있습니다.";
+    const verifyDraft: GeneratedFactualClaimInventoryDraft = {
+      claimId: "claim-verify", planningClaimId: "", origin: "generation", risk: "verify",
+      surfaceText: verifySurface, statement: verifySurface, kind: "general", normalizedValueJson: "{}",
+      qualifiers: { subject: "", scope: "", basis: "", note: "" }, temporalRequirementJson: "null",
+      evidenceUrl: "https://www.fss.or.kr/card", evidenceExcerpt: verifySurface,
+    };
+    const source = rawDocument("초기 원고");
+    source.blocks.push({ type: "paragraph", text: verifySurface });
+    const parsed = new EditorialGenerationStrategy().parse(JSON.stringify(source), parseInput());
+    const initial = applyGeneratedFactualClaimInventory({
+      document: parsed, drafts: [verifyDraft], decisions: [{ retained: true, evidenceStatus: "verify_verified" }], fallbackTitle: parsed.title,
+    }).document;
+    const generate = vi.fn(async (request: AIRequest) => {
+      void request;
+      return { content: JSON.stringify({ ...rawDocument("검토 후보"), verificationClaimsUsed: [verifyDraft] }), model: "review" };
+    });
+    const qualityEngine = { review: vi.fn(() => report(92, false)) };
+    await new EditorialQualityPipeline({ generate } as AIProvider, undefined, qualityEngine as never).run({
+      document: initial, finalReviewInstruction: (document, quality) => `base ${document.title} ${quality.overallScore}`, parseInput: parseInput(), qualityContext: {},
+    });
+    const instruction = generate.mock.calls[0]?.[0].instruction as string;
+    expect(instruction).toContain("claim-verify");
+    expect(instruction).toContain("https://www.fss.or.kr/card");
+  });
+
   it("projects the public profile label into Quality prompts without exposing the stable profile ID", () => {
     const approvalPolicy = {
       ...resolveApprovalPolicySnapshot("adsense_approval", "wordpress_life_economy_v1")!,

@@ -7,14 +7,14 @@ import {
 } from "../../../../app/application/OpenAIModelPolicy";
 
 describe("OpenAIModelPolicy", () => {
-  it("uses Terra for generation and Sol for final quality editing by default", () => {
+  it("uses Terra for generation and final quality editing by default", () => {
     expect(resolveOpenAIModelPolicy({})).toEqual({
       generationModel: "gpt-5.6-terra",
-      reviewModel: "gpt-5.6-sol",
+      reviewModel: "gpt-5.6-terra",
       sourcePreflightModel: "gpt-5.6-luna",
     });
     expect(defaultOpenAIGenerationModel).toBe("gpt-5.6-terra");
-    expect(defaultOpenAIReviewModel).toBe("gpt-5.6-sol");
+    expect(defaultOpenAIReviewModel).toBe("gpt-5.6-terra");
   });
 
   it("uses explicit role-specific overrides", () => {
@@ -24,7 +24,7 @@ describe("OpenAIModelPolicy", () => {
   it("does not route role-based work through legacy OPENAI_MODEL", () => {
     expect(resolveOpenAIModelPolicy({ OPENAI_MODEL: "gpt-5-mini" })).toEqual({
       generationModel: "gpt-5.6-terra",
-      reviewModel: "gpt-5.6-sol",
+      reviewModel: "gpt-5.6-terra",
       sourcePreflightModel: "gpt-5.6-luna",
     });
   });
