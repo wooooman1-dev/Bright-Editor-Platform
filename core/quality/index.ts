@@ -30,5 +30,6 @@ export {
 } from "./HtmlIntegrity";
 export * from "./ContentConcreteness";
 export * from "./EvidenceValueUse";
+export * from "./SentenceFormality";
 export * from "./QualityImprovementGate";
 export * from "./QualityScoringPolicy";

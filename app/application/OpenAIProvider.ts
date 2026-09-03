@@ -588,15 +588,26 @@ export function structuredGenerationFormat(
           },
         } },
         conclusion: { type: "array", minItems: 1, maxItems: 8, items: { type: "string" } },
-        images: { type: "array", maxItems: 1, items: {
+        images: { type: "array", maxItems: 4, items: {
           type: "object",
           additionalProperties: false,
-          required: ["afterSection", "purpose", "alt", "prompt"],
+          required: ["afterSection", "purpose", "alt", "prompt", "visual", "data"],
           properties: {
-            afterSection: { type: "integer", enum: [0] },
-            purpose: { type: "string", enum: ["hero"] },
+            afterSection: { type: "integer", minimum: 0 },
+            purpose: { type: "string", enum: ["hero", "comparison", "checklist", "infographic", "summary", "warning"] },
             alt: { type: "string" },
             prompt: { type: "string" },
+            visual: { type: "string", enum: ["", "bar", "ratio", "steps", "timeline", "compare", "stat", "list"] },
+            data: { type: "array", maxItems: 8, items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["label", "value", "note"],
+              properties: {
+                label: { type: "string" },
+                value: { type: ["number", "null"] },
+                note: { type: "string" },
+              },
+            } },
           },
         } },
         cta: { type: "array", items: {

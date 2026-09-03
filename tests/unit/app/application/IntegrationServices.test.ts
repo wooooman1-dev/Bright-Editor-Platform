@@ -85,11 +85,12 @@ describe("integration infrastructure", () => {
                 items: { type: "string" },
               },
               images: {
-                maxItems: 1,
+                maxItems: 4,
                 items: {
                   properties: {
-                    afterSection: { type: "integer", enum: [0] },
-                    purpose: { type: "string", enum: ["hero"] },
+                    afterSection: { type: "integer", minimum: 0 },
+                    purpose: { type: "string", enum: ["hero", "comparison", "checklist", "infographic", "summary", "warning"] },
+                    visual: { type: "string", enum: ["", "bar", "ratio", "steps", "timeline", "compare", "stat", "list"] },
                   },
                 },
               },

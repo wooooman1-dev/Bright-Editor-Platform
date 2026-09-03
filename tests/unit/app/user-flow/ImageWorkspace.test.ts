@@ -30,7 +30,7 @@ const freeVisualSource = readFileSync(join(process.cwd(), "core/media/BrightBody
     expect(imageEditorSource).toContain("AI 이미지로 교체 · 유료");
     expect(documentEditorSource).toContain("Project 이미지·파일·AI로 교체");
     expect(mediaRouteSource).toContain('owner.block.purpose !== "hero"');
-    expect(openAIProviderSource).toContain('purpose: { type: "string", enum: ["hero"] }');
+    expect(openAIProviderSource).toContain('purpose: { type: "string", enum: ["hero", "comparison", "checklist", "infographic", "summary", "warning"] }');
     expect(imageCostPolicySource).toContain('block.purpose === "hero"');
     expect(imageCostPolicySource).toContain('"infographic"');
   });

@@ -17,4 +17,7 @@ export const qualityDimensionWeights: Readonly<Record<QualityCategory, number>> 
   concreteness: 0,
   readerDeferral: 0,
   evidenceUse: 0,
+  // 문장 종결어미(반말/존댓말) 검사. 정규식 판정이라 인용문·법령 원문에서 오탐이
+  // 날 수 있어 표시 전용으로 둔다(2026-08-29 실측으로 만든 지표, 위와 같은 이유).
+  formality: 0,
 });

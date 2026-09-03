@@ -82,7 +82,7 @@ function standardQuality(value: ContentDocument): QualityReport {
     tasks: [],
     reviewedAt: "2026-07-27T00:00:00.000Z",
     reviewedRevisionId: editorialRevisionId(value),
-    weights: { searchIntent: 0, seo: 0, readability: 0, structure: 0, completeness: 0, usefulness: 0, htmlQuality: 0, imageStrategy: 0, internalLinks: 0, cta: 0, concreteness: 0, readerDeferral: 0, evidenceUse: 0 },
+    weights: { searchIntent: 0, seo: 0, readability: 0, structure: 0, completeness: 0, usefulness: 0, htmlQuality: 0, imageStrategy: 0, internalLinks: 0, cta: 0, concreteness: 0, readerDeferral: 0, evidenceUse: 0, formality: 0 },
   };
 }
 

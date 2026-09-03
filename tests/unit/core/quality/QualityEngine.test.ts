@@ -108,8 +108,8 @@ describe("QualityEngine dimension scoring", () => {
     const short = new QualityEngine().review({ id: "short", title: "건강 관리", blocks: [{ id: "p", type: "paragraph", text: "짧은 설명입니다." }] }, context);
     const complete = new QualityEngine().review(structured(), context);
     expect(complete.overallScore).toBeGreaterThan(short.overallScore);
-    // 표시 전용 구체성·떠넘김이 더해져 12개다 (D-050). 채점 대상은 여전히 8개.
-    expect(complete.dimensions).toHaveLength(13);
+    // 표시 전용 구체성·떠넘김·근거활용·문체가 더해져 14개다 (D-050, 2026-08-29). 채점 대상은 여전히 8개.
+    expect(complete.dimensions).toHaveLength(14);
   });
 
   it("calculates the overall score from the canonical weights", () => {

@@ -56,6 +56,7 @@ function quality(revisionId: string, reviewedAt = "2026-07-28T01:00:00.000Z"): Q
       concreteness: 0,
       readerDeferral: 0,
       evidenceUse: 0,
+      formality: 0,
     },
   };
 }

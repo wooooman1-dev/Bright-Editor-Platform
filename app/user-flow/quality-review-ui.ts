@@ -5,7 +5,7 @@ import {
 } from "../../core/approval";
 import type { QualityApprovalType, QualityCategory, QualityDimensionResult } from "../../core/quality";
 
-const categories: readonly QualityCategory[] = ["searchIntent", "seo", "readability", "structure", "completeness", "usefulness", "htmlQuality", "imageStrategy", "concreteness", "readerDeferral", "evidenceUse", "internalLinks", "cta"];
+const categories: readonly QualityCategory[] = ["searchIntent", "seo", "readability", "structure", "completeness", "usefulness", "htmlQuality", "imageStrategy", "concreteness", "readerDeferral", "evidenceUse", "formality", "internalLinks", "cta"];
 const scoringCategories = new Set<QualityCategory>(["searchIntent", "seo", "readability", "structure", "completeness", "usefulness", "htmlQuality", "imageStrategy"]);
 const editorialTargets = new Set<QualityCategory>(["searchIntent", "seo", "readability", "completeness"]);
 const evidenceLabels: Readonly<Record<string, string>> = Object.freeze({
@@ -261,7 +261,7 @@ function normalizeTasks(value: unknown, dimensions: readonly QualityDimensionRes
   }
   return dimensions.flatMap((dimension) => dimension.tasks.map((message) => ({ category: dimension.category, message })));
 }
-function qualityLabel(category: QualityCategory) { return ({ searchIntent: "검색 의도", seo: "SEO", readability: "가독성", structure: "콘텐츠 구조", completeness: "정보 완성도", usefulness: "정보 유용성", htmlQuality: "HTML 품질", imageStrategy: "이미지 전략", internalLinks: "내부 링크", cta: "CTA", concreteness: "구체성", readerDeferral: "떠넘김", evidenceUse: "근거 활용" })[category]; }
+function qualityLabel(category: QualityCategory) { return ({ searchIntent: "검색 의도", seo: "SEO", readability: "가독성", structure: "콘텐츠 구조", completeness: "정보 완성도", usefulness: "정보 유용성", htmlQuality: "HTML 품질", imageStrategy: "이미지 전략", internalLinks: "내부 링크", cta: "CTA", concreteness: "구체성", readerDeferral: "떠넘김", evidenceUse: "근거 활용", formality: "문체(존댓말)" })[category]; }
 function empty(status: QualityUiStatus): NormalizedQualityReview { return Object.freeze({ dimensions: Object.freeze([]), overallScore: null, approvalType: "none", approvalReadiness: null, status, revisionId: null, reviewedAt: null, issues: Object.freeze([]), actionableTasks: Object.freeze([]) }); }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 function text(value: unknown) { return typeof value === "string" && value.trim() ? value.trim() : null; }
