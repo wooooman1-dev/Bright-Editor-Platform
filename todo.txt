@@ -4,6 +4,27 @@
 Docs/current/00_FOUNDATION/03_AI_DEVELOPMENT_RULE.md 에 있다.
 2026-08-29 이전 기록은 Docs/current/04_DEVELOPMENT/14_WORK_LOG_2026_08.md.
 
+== 2026-09-04 subtopics·excludedTopics 편집 UI 추가 (완료, 커밋 대기) ==
+
+읽기 전용 칩으로만 보여주던 걸 확인(ProjectApprovalSettingsCard.tsx).
+데이터 계층의 updateProjectStrategy 는 이미 완전한 ProjectContentStrategy 를
+받아 통째로 교체하는 함수라 이미 있었다 — UI 입력만 없었다.
+
+고침: 세부 주제·제외 주제를 쉼표 구분 textarea 로 편집 가능하게 하고,
+저장 버튼이 기존 strategy 를 스프레드한 뒤 두 필드만 교체해
+updateProjectStrategy 를 부르도록 추가. 단위 테스트 추가(실제 프로젝트
+데이터로 seed 되는지 확인) 통과.
+
+브라우저에서 직접 열어 실제 데이터(밝은재테크 project 의 subtopics
+["생활경제·재테크 콘텐츠 운영"])가 입력창에 정확히 채워지는 것까지 확인했다.
+**다만 저장 버튼 클릭은 이 세션의 Browser 패널이 "hidden" 상태라(오늘 아침과
+같은 문제) 실제로 눌러서 저장까지 확인하지 못했다.** form_input 으로 입력창에
+값을 넣는 것까지는 됐지만 클릭이 좌표를 못 찾았다. 실제 저장 파일은 안
+건드려진 것으로 확인(excludedTopics 그대로 []). 다음에 패널이 정상일 때
+직접 눌러서 저장까지 확인 필요.
+
+검증: tsc·eslint 클린, 전체 유닛 테스트 336개 파일 2,192개 전부 통과.
+
 == 2026-09-04 무관한 기존 테스트 결함 3건 정리 (완료) ==
 
 셋 다 실제로 다시 열어서 성격을 구분했다 — 전부 같은 원인이 아니었다.
@@ -45,7 +66,7 @@ ApprovalSourcePreflight.ts:165 "적격 URL이 하나도 없음" 예외만 diagno
 rejectionStage: "source") 를 추가했다. 회귀 테스트 추가, 전체 유닛 테스트
 (무관한 기존 결함 3건 제외) 통과.
 
-== 2026-09-04 PublishingGate D-045 잔재 수정 (완료, 커밋 대기) ==
+== 2026-09-04 PublishingGate D-045 잔재 수정 (완료, 커밋됨) ==
 
 코드로 직접 확인: QualityEngine.ts 148~157행 PublishingGate.assertReady() 는
 같은 파일 561~576행의 blocksPublishing()(D-045: 산문 부족·비교 미실행은
@@ -62,6 +83,15 @@ WordPressDraftReadiness.ts:232 의 standardQualityReady() 가 실제로 이 함�
 고침: assertReady 가 diagnostic.violations 를 blocksPublishing 으로 먼저
 거르도록 수정(한 파일 안이라 새 import 없음). 회귀 테스트 추가 — 표+얕은
 산문으로 CONTENT_SECTION_PROSE_INSUFFICIENT 만 나는 문서를 만들어 재현.
+
+추가 확인: "최소 글자수가 결정 로그(D-035)와 코드가 어긋난다"던 별도 항목도
+같은 수정으로 같이 풀렸다. informationSufficiencyScore(completeness·usefulness
+점수) 계산식을 끝까지 추적했는데 CONTENT_SECTION_PROSE_INSUFFICIENT 는
+거기 전혀 안 들어간다 — 점수를 깎는 건 정보 요소 개수 기준인
+CONTENT_INCOMPLETE_SECTION 뿐이다. findings 의 severity 도 "warning"
+(blocksPublishing 이 error/warning 을 가른다), tasks 도 "action_required"다.
+즉 지금은 순수 안내 표시일 뿐 Gate도 승인 조건도 아니다 — D-035 그대로다.
+원고 59편을 셀 필요가 없어져 그 항목은 지운다.
 
 검증: tsc·eslint 클린, 전체 유닛 테스트(무관한 기존 결함 3건 제외) 통과.
 국민연금 새 원고(content-mtd1j0wv-a7ptt6)가 이제 「품질 다시 검토」 없이도
@@ -209,8 +239,9 @@ evidenceUrl 이 실제로 실리는지 확인). tsc·eslint·전체 유닛 테�
    사람이 값을 찾아주지 않아도 모델이 채우는지 본다.
 3. 국민연금 새 원고(content-mtd1j0wv-a7ptt6)는 이미지가 아니라 분량으로 막혀 있다.
    섹션 「신청 전에 확인할 순서와 피해야 할 단정」이 산문 392자 / 필요 400자.
-   PublishingGate 세 번째 검사(analyzeLongFormDocument)에서 걸리므로 「품질 다시
-   검토」로는 안 풀린다. 8자를 채우거나, 아래 '최소 글자수' 항목을 먼저 정한다.
+   2026-09-04: PublishingGate D-045 잔재를 고쳤으니(아래 완료 기록) 이 원고는
+   이제 막힘 없이 발행 가능해졌을 것으로 보인다 — 8자를 채울 필요가 없어졌다.
+   실제 화면에서 아직 확인 안 함.
 4. 국민연금 옛 원고(content-mt74z7xg-h6zuwe)와 초안 3778 정리. 발행 수정 두 건
    (이미지 재사용·상태값 검증) 확인은 이 원고로 한다 — 글 3778, 미디어 3777.
    이 원고가 그 확인의 첫 실제 기회다 — 근로장려금 쪽은 문서 리비전이 안 바뀌어
@@ -314,13 +345,6 @@ approvalSourcePreflightDiagnostic 이 {} 라 확인할 기록이 없다. 추측�
   updateDraft 는 status 를 일부러 안 보내는데(공개 글을 초안으로 되돌리지 않으려고)
   검증은 draft 를 기대하도록 굳어 있었다. 갱신 직전에 읽은 그 글의 상태를 기대값으로
   쓴다. 공개 글이 초안으로 떨어지는 것은 여전히 잡는다.
-- PublishingGate 의 D-045 잔재 (QualityEngine.ts:149-152). 진단만 됐다.
-- 최소 글자수가 결정 로그와 코드가 어긋난다. D-035 는 "최소·선호·최대 글자 수를
-  Gate 또는 승인 조건으로 쓰지 않는다"고 하는데, CONTENT_SECTION_PROSE_INSUFFICIENT
-  는 400자(목록형 250자)로 발행을 막는다(LongFormDiagnostics.ts:363).
-  취지는 "표로 때우지 마라"인데 구현이 숫자라 8자 차이로 막힌다. 셋 중 하나로
-  정해야 한다 — 차단에서 빼기 / 글자수가 아닌 기준으로 바꾸기 / 결정 로그에 예외
-  명시하기. 고치기 전에 원고 59편 중 몇 편이 걸리는지부터 센다.
 - 프로젝트 전략의 subtopics·excludedTopics 편집 UI 가 없다(읽기 전용).
   지금은 「주제를 직접 입력해 작성」으로 우회한다.
 - 2026-09-03 전체 유닛 테스트 중 이번 작업과 무관하게 이미 깨져 있던 것 3건을
