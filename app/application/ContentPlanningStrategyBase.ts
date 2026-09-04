@@ -94,7 +94,7 @@ export class ContentPlanningStrategy {
     const ownedBrandTerms = planningOwnedBrandTerms(context);
     const explicitVerificationPlanningEnabled = context.explicitVerificationPlanningEnabled ?? isExplicitVerificationPlanningEnabled();
     const modeInstruction = context.selectionMode === "automatic"
-      ? "The user delegated topic selection. Compare content gaps, then return 2-4 complete and mutually coherent opportunities. Select topic and primary keyword together. Rank editorial value before SEO opportunity: first concrete reader usefulness, then factual defensibility, then complete search-intent resolution, then additional value beyond existing content, and only then competition, scarcity, trend, or other market opportunity. A rare or low-competition keyword is not a valid opportunity unless it solves a real reader problem."
+      ? "The user delegated topic selection. Compare content gaps, then return 2-4 complete and mutually coherent opportunities. Select topic and primary keyword together. Rank editorial value before SEO opportunity: first concrete reader usefulness, then factual defensibility, then complete search-intent resolution, then additional value beyond existing content, and only then competition, scarcity, trend, or other market opportunity. A rare or low-competition keyword is not a valid opportunity unless it solves a real reader problem. Factual defensibility means the reader's core question turns on at least one specific eligibility rule, deadline, amount, or rate that this topic can state as a CRITICAL verification Claim; before selecting a topic, check whether it clears this bar. Measured 2026-09: 63% of past automatic candidates (141 of 222) produced zero CRITICAL Claims, because the topic only supported general facts such as \"a lookup service exists\" or \"a portal provides this information\" with no eligibility, deadline, or amount underneath it, so the article reached publication with no official source attached. When comparing content gaps, prefer the gap whose reader problem already implies a checkable eligibility, deadline, amount, or rate over one that only describes how to use a tool or service."
       : "The user explicitly specified a topic. Keep every opportunity within that topic and search intent; never replace it with an adjacent topic because it seems more attractive.";
     const approvalSourceRequirementInstruction = explicitVerificationPlanningEnabled
       && typeof context.projectContext === "string"
@@ -265,8 +265,10 @@ function parseOpportunityCandidates(
       const audience = text(value.audience, "opportunity.audience");
       const contentType = text(value.contentType, "opportunity.contentType");
       const readerProblem = text(value.readerProblem, "opportunity.readerProblem");
-      const expectedCoverage = list(value.expectedCoverage);
       const verificationPlan = context.explicitVerificationPlanningEnabled ? createPlanningVerificationPlan(value.verificationClaims) : undefined;
+      const expectedCoverage = verificationPlan
+        ? pruneUnclaimedFactCoverage(list(value.expectedCoverage), verificationPlan.claims)
+        : list(value.expectedCoverage);
       const candidate = createContentOpportunityCandidate({
         sourceRequest: context.sourceRequest,
         selectionMode: context.selectionMode,
@@ -313,6 +315,35 @@ function parseOpportunityCandidates(
       return [];
     }
   }));
+}
+
+/**
+ * expectedCoverage 항목이 한도·금액·비율 같은 구체적 사실을 약속하는데
+ * verificationClaims 어디에도 그 사실을 검증할 Claim이 없으면, 생성은 그
+ * 수치를 절대 쓸 수 없다(발췌 없는 숫자는 안전 규칙이 막는다) — 그런데도 그
+ * 항목은 여전히 "다뤄야 할 범위"로 남아, 실제 값 없이 절차 설명만 반복하는
+ * 빈 섹션이 만들어진다.
+ *
+ * 2026-09-03 실측: 신용카드 소득공제 원고에서 expectedCoverage에 "기본
+ * 공제한도와 추가 한도가 계산 결과에 미치는 역할"이 있었는데, 만들어진 Claim
+ * 3개(25%/15%/30%) 중 한도 금액을 다루는 것은 하나도 없었다. 프롬프트(위
+ * approvalSourceRequirementInstruction)가 이미 "expectedCoverage를 감사해서
+ * 사실적 전제마다 Claim을 만들라"고 지시하지만, 모델이 매 응답에서 빠짐없이
+ * 지키지는 않는다 — 이건 parsePlanningClaimRisk가 이미 한 번 구조적으로
+ * 막아 둔 "risk 하향으로 검증을 피해가는" 문제의 다른 변형이라, 같은 자리에서
+ * 코드로 막는다. 숫자를 지어내 채우지 않고, 못 지킬 약속 자체를 지운다.
+ */
+const FACT_IMPLYING_COVERAGE_TERMS = ["한도", "상한", "하한", "기준액", "공제액", "지원금", "보조금", "수당", "이자율", "금리", "세율", "공제율", "환급액", "납부액", "가산금", "과태료", "벌금", "수수료", "요율"];
+
+function pruneUnclaimedFactCoverage(
+  expectedCoverage: readonly string[],
+  claims: readonly VerificationClaimSpec[],
+): readonly string[] {
+  const claimText = claims.map((claim) => `${claim.field} ${claim.statement} ${claim.qualifiers.subject ?? ""}`).join(" ");
+  return expectedCoverage.filter((item) => {
+    const matchedTerm = FACT_IMPLYING_COVERAGE_TERMS.find((term) => item.includes(term));
+    return !matchedTerm || claimText.includes(matchedTerm);
+  });
 }
 
 function createPlanningVerificationPlan(raw: unknown) {

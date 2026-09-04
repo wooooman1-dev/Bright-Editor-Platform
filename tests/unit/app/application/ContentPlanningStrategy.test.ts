@@ -91,6 +91,17 @@ describe("natural-language content planning", () => {
     expect(plan.estimateDisclosure).toContain("not measured");
   });
 
+  it("tells automatic topic selection to prefer topics that can produce a CRITICAL Claim", async () => {
+    // 2026-09-04 실측: 기획 후보 222개 중 141개(63%)가 CRITICAL Claim 0개로
+    // 끝나 공식 출처가 안 붙었다. "factual defensibility"라는 말만으로는 안
+    // 걸러졌으니, 무엇을 걸러야 하는지 구체적으로 지시한다.
+    const provider = { generate: vi.fn().mockResolvedValue({ content: JSON.stringify(result), model: "test" }) };
+    await new ContentPlanningStrategy(provider).analyze("아직 작성하지 않은 생활경제 주제를 AI가 골라줘", undefined, { projectId: "project-1", selectionMode: "automatic" });
+    const instruction = provider.generate.mock.calls[0]?.[0].instruction as string;
+    expect(instruction).toContain("at least one specific eligibility rule, deadline, amount, or rate");
+    expect(instruction).toContain("63% of past automatic candidates (141 of 222) produced zero CRITICAL Claims");
+  });
+
   it("passes GSC site performance and NAVER relative trend Evidence to the single Planning prompt without changing their meaning", async () => {
     const provider = { generate: vi.fn().mockResolvedValue({ content: JSON.stringify(result), model: "test" }) };
     const gsc = createOpportunityEvidence({ workspaceId: "workspace-1", connectionId: "gsc-1", projectId: null, provider: "googleSearchConsole", evidenceType: "searchPerformance", metric: "impressions", keyword: "휴면예금", observedAt: "2026-08-05", syncedAt: "2026-08-05T00:00:00.000Z", freshness: "fresh", verified: true, value: 12, unit: "siteImpressions", confidence: 1, limitations: ["Search Console impressions are site performance, not total market demand."], sourceReference: "snapshot-gsc:row-0:impressions", resourceScope: "query" });

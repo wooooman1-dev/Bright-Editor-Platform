@@ -72,6 +72,50 @@ describe("explicit planning contract", () => {
     expect(parsePlanningResult(JSON.stringify(planning), { projectId: "p", selectionMode: "automatic", explicitVerificationPlanningEnabled: false }).opportunityCandidates?.[0].fingerprint).toBe(parsePlanningResult(JSON.stringify(planning), { projectId: "p", selectionMode: "automatic", explicitVerificationPlanningEnabled: true }).opportunityCandidates?.[0].fingerprint);
   });
 
+  /**
+   * 2026-09-03 실측: 신용카드 소득공제 원고에서 expectedCoverage에 "기본
+   * 공제한도와 추가 한도가 계산 결과에 미치는 역할"이 있었는데, Claim은
+   * 25%/15%/30% 세 개뿐이고 한도 금액을 다루는 Claim이 하나도 없었다. Claim이
+   * 없으면 생성은 그 숫자를 쓸 수 없는데도 coverage에는 남아, 절차 설명만
+   * 반복하는 빈 섹션이 만들어졌다.
+   */
+  it("drops an expectedCoverage item that promises a fact with no matching Claim", () => {
+    const uncovered = {
+      ...planning,
+      opportunityCandidates: [{
+        ...candidate,
+        expectedCoverage: ["신청 절차", "기본 공제한도와 추가 한도가 계산 결과에 미치는 역할"],
+      }],
+    };
+    const parsed = parsePlanningResult(JSON.stringify(uncovered), { projectId: "p", selectionMode: "automatic", explicitVerificationPlanningEnabled: true });
+    expect(parsed.opportunityCandidates?.[0].expectedCoverage).toEqual(["신청 절차"]);
+  });
+
+  it("keeps an expectedCoverage item whose promised fact is covered by a Claim", () => {
+    const covered = {
+      ...planning,
+      opportunityCandidates: [{
+        ...candidate,
+        expectedCoverage: ["신청 절차", "월 지원 한도액"],
+        verificationClaims: [{ ...candidate.verificationClaims[0], field: "월 지원 한도액", statement: "월 지원 한도액은 최대 500000원이다." }],
+      }],
+    };
+    const parsed = parsePlanningResult(JSON.stringify(covered), { projectId: "p", selectionMode: "automatic", explicitVerificationPlanningEnabled: true });
+    expect(parsed.opportunityCandidates?.[0].expectedCoverage).toEqual(["신청 절차", "월 지원 한도액"]);
+  });
+
+  it("leaves expectedCoverage untouched when explicit verification planning is disabled", () => {
+    const uncovered = {
+      ...planning,
+      opportunityCandidates: [{
+        ...candidate,
+        expectedCoverage: ["신청 절차", "기본 공제한도와 추가 한도가 계산 결과에 미치는 역할"],
+      }],
+    };
+    const parsed = parsePlanningResult(JSON.stringify(uncovered), { projectId: "p", selectionMode: "automatic", explicitVerificationPlanningEnabled: false });
+    expect(parsed.opportunityCandidates?.[0].expectedCoverage).toEqual(["신청 절차", "기본 공제한도와 추가 한도가 계산 결과에 미치는 역할"]);
+  });
+
   it("selects explicit and legacy formats from metadata with one provider call", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(JSON.stringify({ output_text: JSON.stringify(planning) }), { status: 200 }));
     await new OpenAIProvider("sk-test", "gpt-test").generate({ instruction: "plan", metadata: { task: "content-planning", explicitVerificationPlanning: "1" } });

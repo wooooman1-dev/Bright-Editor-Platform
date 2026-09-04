@@ -4,6 +4,27 @@
 Docs/current/00_FOUNDATION/03_AI_DEVELOPMENT_RULE.md 에 있다.
 2026-08-29 이전 기록은 Docs/current/04_DEVELOPMENT/14_WORK_LOG_2026_08.md.
 
+== 2026-09-04 기획 단계 결함 2건 수정 (완료, 커밋 대기) ==
+
+1) expectedCoverage 가 약속한 사실에 Claim 이 없으면 그 항목을 지운다.
+   ContentPlanningStrategyBase.ts 에 pruneUnclaimedFactCoverage 추가. 신용카드
+   소득공제 원고에서 "공제한도"가 expectedCoverage 에는 있었는데 Claim 은
+   0개였던 실측 사례를 근거로 만들었다. 한도·상한·기준액·공제액·지원금·
+   이자율·세율 등 숫자를 암시하는 단어가 coverage 에 있는데 어떤 Claim
+   에도 그 단어가 없으면 coverage 에서 지운다. 이미 발행된 원고는 안 건드림
+   (지난 원고 수정 금지 지시 지킴). 회귀 테스트 3개 추가.
+2) 자동 주제 선정이 CRITICAL Claim 없는 주제를 너무 자주 고른다.
+   실측: 전체 기획 후보 222개 중 141개(63%)가 CRITICAL Claim 0개 →
+   "공식 출처 · 붙지 않음". ContentPlanningStrategyBase.ts 의 자동 선정
+   프롬프트(modeInstruction)에 "reader problem 이 자격요건·기한·금액·요율
+   중 하나로 검증 가능해야 factual defensibility 로 친다"는 구체적 기준과
+   실측 수치를 추가해, 애초에 출처 못 붙는 주제를 덜 고르게 했다. 회귀
+   테스트 1개 추가.
+
+검증: tsc·eslint 클린, 전체 유닛 테스트(무관한 기존 결함 3건 제외) 통과.
+**원고 1편 실제 기획으로 두 수정이 실제 효과가 있는지는 아직 확인 못 했다**
+— 유료 호출(plan, 1회).
+
 == 이어받는 명령 ==
 
 git fetch origin
