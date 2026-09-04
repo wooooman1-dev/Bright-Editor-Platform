@@ -6,7 +6,11 @@ const routeSource = readFileSync(join(process.cwd(), "app/api/studio/route.ts"),
 
 describe("Studio content deletion and SEO policy boundaries", () => {
   it("enforces the confirmed Opportunity before SEO placement across AI document paths", () => {
-    expect(routeSource).toContain("const initialDocument = applyContentPolicy(await placeAvailablePublishingPosts(owned, existing, result.document), existing);");
+    expect(routeSource).toContain("const initialDocument = applyContentPolicy(await placeAvailablePublishingPosts(owned, existing, heroPreservedDocument), existing);");
+    // 2026-09-04: generate 만 유일하게 restoreProtectedImageAssets(id 매칭)를
+    // 안 불렀다 — 첫 생성 이미지는 id가 없어 id 매칭이 항상 실패해서 대표
+    // 이미지가 두 장이 됐다. restoreProtectedHeroImage(역할 매칭)로 고쳤다.
+    expect(routeSource).toContain("const heroPreservedDocument = existing.document\n        ? restoreProtectedHeroImage(existing.document, result.document)\n        : result.document;");
     expect(routeSource).toContain("placeDocument: async (document) => applyContentPolicy(await placeAvailablePublishingPosts(owned, existing, document), existing)");
     expect(routeSource).toContain("const document = applyContentPolicy(preserveCanonicalSeoMetadata(current.document, restoreProtectedImageAssets(current.document, parsed)), current, true);");
     expect(routeSource.match(/document = applyContentPolicy\(await placeAvailablePublishingPosts\(data, content, document\), content\);/gu)?.length).toBeGreaterThanOrEqual(3);

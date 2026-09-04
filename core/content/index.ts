@@ -90,7 +90,7 @@ export {
 export { deriveContentTags } from "./ContentTags";
 export { placeRecommendedPosts, rankRelatedPosts, type PublicPostCandidate } from "./RelatedPostRecommendation";
 export { restoreProtectedEditorialMetadata } from "./ProtectedEditorialMetadata";
-export { restoreProtectedImageAssets } from "./ProtectedImageAssets";
+export { restoreProtectedImageAssets, restoreProtectedHeroImage } from "./ProtectedImageAssets";
 export { isVerifiedEditorialLink, restoreVerifiedEditorialLinks } from "./ProtectedEditorialLinks";
 export { buildReadableSeoTitle, ensureSeoKeywordPlacement, normalizeSeoKeyword, titleContainsPrimaryKeyword } from "./SeoKeywordPlacement";
 export type { ContentMetrics } from "./ContentMetrics";

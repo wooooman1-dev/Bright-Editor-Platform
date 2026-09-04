@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { restoreProtectedImageAssets, type ContentDocument } from "../../../../core/content";
+import { restoreProtectedHeroImage, restoreProtectedImageAssets, type ContentDocument } from "../../../../core/content";
 
 const original = Object.freeze({
   id: "content-1",
@@ -96,5 +96,57 @@ describe("restoreProtectedImageAssets", () => {
     };
 
     expect(restoreProtectedImageAssets(external, candidate).blocks[0]).toEqual(external.blocks[0]);
+  });
+});
+
+/**
+ * 2026-09-04 실측: generate 액션의 첫 생성 결과는 이미지 블록에 id가 없어
+ * (모델이 안 준다) parseBlock이 위치 기반 id(block-N)를 새로 붙인다. 이전
+ * 원고의 대표 이미지 id(hero-image)와 절대 일치하지 않으므로, id로 짝짓는
+ * restoreProtectedImageAssets를 그대로 쓰면 원본 hero가 후보 목록에 그대로
+ * 추가되어 대표 이미지가 두 장이 된다. restoreProtectedHeroImage는 id가
+ * 아니라 역할(purpose: hero)로 짝짓는다.
+ */
+describe("restoreProtectedHeroImage", () => {
+  const paidHero: ContentDocument = {
+    id: "content-1",
+    title: "원본",
+    blocks: [
+      { id: "hero-image", type: "image", source: "/api/media/hero-1.png", alt: "돈 주고 만든 대표 이미지", assetId: "asset-hero", purpose: "hero", sourceType: "ai_generated" },
+    ],
+  };
+
+  it("merges the paid hero onto the freshly generated hero without adding a duplicate block", () => {
+    const freshCandidate: ContentDocument = {
+      id: "content-1",
+      title: "다시 생성된 원고",
+      blocks: [
+        { id: "block-1", type: "image", source: "", alt: "새 생성이 만든 ALT", purpose: "hero" },
+        { id: "block-2", type: "paragraph", text: "본문" },
+      ],
+    };
+
+    const restored = restoreProtectedHeroImage(paidHero, freshCandidate);
+    const images = restored.blocks.filter((block) => block.type === "image");
+
+    expect(images).toHaveLength(1);
+    expect(images[0]).toMatchObject({
+      id: "block-1",
+      source: "/api/media/hero-1.png",
+      assetId: "asset-hero",
+      purpose: "hero",
+      alt: "돈 주고 만든 대표 이미지",
+    });
+  });
+
+  it("leaves the candidate untouched when the original has no attached hero", () => {
+    const noHero: ContentDocument = { id: "content-1", title: "원본", blocks: [] };
+    const candidate: ContentDocument = { id: "content-1", title: "새 생성", blocks: [{ id: "block-1", type: "image", source: "", alt: "새 ALT", purpose: "hero" }] };
+    expect(restoreProtectedHeroImage(noHero, candidate)).toBe(candidate);
+  });
+
+  it("leaves the candidate untouched when the candidate has no hero block", () => {
+    const candidate: ContentDocument = { id: "content-1", title: "새 생성", blocks: [{ id: "block-1", type: "paragraph", text: "본문" }] };
+    expect(restoreProtectedHeroImage(paidHero, candidate)).toBe(candidate);
   });
 });

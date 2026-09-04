@@ -54,6 +54,11 @@ export class EditorialGenerationStrategy implements ContentGenerationStrategy {
       ? JSON.stringify(contentOpportunityAIContext(opportunity))
       : input.editorialContext ?? "Use the supplied keywords and content type.";
     const heroVisualDirection = heroVisualDirectionFor(input.recentHeroImagePrompts ?? []);
+    const quantifiableCriticalClaims = (opportunity?.verificationPlan?.claims ?? [])
+      .filter((claim) => claim.risk === "critical" && QUANTIFIABLE_CRITICAL_CLAIM_KINDS.has(claim.kind));
+    const workedExampleInstruction = quantifiableCriticalClaims.length
+      ? ` This article has ${quantifiableCriticalClaims.length} CRITICAL Claim(s) stating a money, ratio, duration, or date fact: ${quantifiableCriticalClaims.map((claim) => claim.statement).join(" | ")}. Return workedExamples: for every one of these Claims, apply its number to one concrete reader scenario and show the computed result — a specific starting condition, the arithmetic or rule applied to it, and the concrete outcome in the reader's own terms. Stating the rule and calling it complete is not enough; the reader must see the number actually applied, not only quoted. Never invent a number beyond what the Claim already supplies. Measured 2026-09-04: an article that quoted "80퍼센트 이상 출근한 근로자에게 15일" verbatim but never applied it to a single scenario left the reader with the rule and nothing else, and was rejected for it.`
+      : "";
     return {
       instruction: `Act as one integrated Korean editorial team: Content Strategist → Writer → SEO Specialist → Senior Editor → Image Strategist → Internal Link Planner → CTA Planner. For a health topic, also act as a conservative Medical Safety Reviewer. Make one editorial pass and write the complete publishable ${input.contentType} article for ${input.platform} about: ${input.keywords.join(", ")}.
 Canonical Content Opportunity: ${opportunityContract}
@@ -64,8 +69,8 @@ Answer first, qualify second. Each section states what is true - the amount, the
 Follow helpful, reliable, people-first Google Search principles and support E-E-A-T without pretending to have experience. Use the exact primary keyword in the title and in the meta description, and let it appear in the body wherever the subject is actually being discussed. Those two placements are required; the rest are not. Do not place the keyword by position — do not open successive H2 headings with it, do not lead paragraphs with it, and do not put it in an image ALT unless the picture actually shows that subject. Name the same subject with the words a reader would use, including pronouns and shorter forms, rather than repeating the full keyword phrase. Use a confirmed secondary keyword only where its subject is genuinely explained; omitting one is correct when the article does not cover it. Avoid keyword lists, awkward repetition, or stuffing. Create a concise SEO title that starts with or naturally foregrounds the exact primary keyword, accurately represents the article, and avoids clickbait, duplicated site identity, and unnecessary filler. Write the article title as a title rather than reusing selectedTopic verbatim: the topic is a planning label and the title is what a reader sees, so they must differ in wording even though the title keeps the topic's core terms. Candidates of one planning run share a topic shape, so a title copied from the topic makes every article of that run share it too. Create a truthful 60–180-character meta description that explains what the reader will learn from the actual article without hype. Also return 5–10 concise Tistory post tags for the bottom tag field. Tags must be directly relevant, non-duplicative, not generic filler, and must not be inserted into the visible article body.
   Reader usefulness is also a mandatory completion condition, not a vague preference. Every H2 must directly fulfill its heading and declared sectionType and provide new, non-duplicative information. An explanation needs a direct answer, why it matters, and applicable conditions; a checklist needs distinct items with a reason or action; a comparison needs explicit criteria, differences, interpretation, and selection conditions; steps need ordered actions, conditions, and a usable outcome; a warning needs risk signals, exceptions, and next action; an FAQ needs complete answers; a summary may be shorter but must close the main decision; a case_example needs a concrete situation, decision, and application. One or two token sentences, heading-only sections, and repeated sentences always fail. For comparison content, a table, list, or checklist may replace some prose when it carries equal information density. Put cross-cutting advice such as recording results, checking the same conditions, avoiding self-diagnosis, or consulting a professional in the single section where it is most useful; do not repeat the same caution or next action in every H2. Before returning JSON, self-check each H2 against its sectionType guidance, confirm that it owns a distinct answer unavailable in the other sections, remove duplicated advice, and revise incomplete sections in this same response.
 Safety and evidence integrity are mandatory completion conditions for every article, not optional style guidance. Never invent or imply a study, survey, statistic, percentage, probability, ranking, market volume, treatment effect, expert consensus, or causal claim unless that exact evidence and its approved source were supplied in the editorial context. Without supplied evidence, do not write phrases such as “연구에 따르면”, “통계에 따르면”, “입증되었습니다”, “대부분 효과가 있습니다”, or any precise number that presents an unsupported external fact. Never write first-person experience, product-use experience, treatment experience, or testimonial language unless the user explicitly supplied that experience as verified source material; do not write “제가”, “저는”, “직접 해보니”, “먹어봤더니”, or equivalent fabricated experience. Replace unsupported claims with accurate general explanation, observable criteria, conditional wording, or a clear statement that individual results can differ. For health content, do not diagnose, promise effects, invent treatment advice, probabilities, research, or exact statistics. Distinguish urgent warning signs when relevant, recommend professional assessment when appropriate, and do not bury the useful answer under repeated disclaimers. Before returning JSON, scan the complete manuscript and remove every unsupported evidence claim and fabricated experience. If even one remains, the article is incomplete and must not be returned.
-Return exactly one source-empty representative hero image recommendation block for the entire article. Every article needs a representative image, so returning zero images is not an option. A hero image must be unique to this article and must never be satisfied by reusing another post's Project image. Do not return source-empty inline image blocks; an inline picture needs a paid image and is not available here. Body visuals are different: return one to three Bright body visual blocks when a section is genuinely easier to read as a visual. They cost nothing because Bright Studio draws them as HTML cards, never as pictures, so give them no prompt. Their purpose is one of comparison, checklist, summary, warning, infographic, and their visual is one of bar, ratio, steps, timeline, compare, stat, list. Choose the shape from the material: bar compares magnitudes of the same unit, ratio splits one whole into parts, steps is an ordered procedure, timeline is dated or sequential periods, compare is two to four alternatives side by side, stat highlights up to three headline figures, list is distinct check items. Every shape except list needs data, an array of at most eight {"label":"...","value":숫자,"note":"..."}; value must be a bare number with no commas, currency, or unit, and the unit belongs in note. Send null for value in steps, timeline, and compare entries. A body visual must add a view the prose does not already give: never copy sentences that are already in the article, and never restate a table you already returned. Use a table when the reader must read exact cell values, and a body visual when the reader needs to see shape, order, or proportion. Bright Studio may separately connect eligible body-only Project media or a user upload without a paid AI image call. That one image purpose must be hero, placed after the introduction with afterSection 0, and must include a specific Korean ALT plus a standalone production prompt. ${heroVisualDirection} Every image item must always include all six fields afterSection, purpose, alt, prompt, visual, data even when one does not apply: a hero item sends visual as "" and data as []; a body visual item sends prompt as "". Decide whether CTA is useful; when useful place at most two CTA button blocks in context. Never invent a URL. If no approved CTA URL is known, use an empty targetUrl. Do not create internal, monetization, or related-post links unless their real approved URLs are supplied in the editorial context; Bright Studio will place verified catalog links separately.
-Paragraph values must be plain text. When a list is needed, use newline-prefixed 1. or - items inside the paragraph string. When a table is needed, put a complete GitHub-style Markdown table in one standalone paragraph string, including a header row, a separator row such as |---|---|, and at least one data row. Never return HTML tags such as <table>, <ol>, <ul>, <li>, or <p>. Return JSON only in this exact generation shape: {"title":"...","seoTitle":"...","metaDescription":"...","primarySearchIntent":"...","secondaryIntent":"...","secondaryKeywords":["..."],"relatedTerms":["..."],"tags":["티스토리태그1","티스토리태그2"],"introduction":["paragraph"],"sections":[{"heading":"H2 heading","sectionType":"explanation","paragraphs":["paragraph"]}],"conclusion":["paragraph"],"images":[{"afterSection":0,"purpose":"hero","alt":"specific Korean ALT","prompt":"standalone image production prompt","visual":"","data":[]},{"afterSection":2,"purpose":"comparison","alt":"카드 제목이 되는 한국어 한 줄","prompt":"","visual":"bar","data":[{"label":"단독가구","value":2200,"note":"만 원"}]}],"cta":[]}. sectionType must be one of explanation, checklist, comparison, steps, warning, faq, summary, case_example. afterSection is 0 for placement after the introduction or a 1-based section number. CTA items use {"afterSection":0,"purpose":"cta","label":"...","targetUrl":"","target":"_self"}. Do not return blocks from the generation call.`,
+Return exactly one source-empty representative hero image recommendation block for the entire article. Every article needs a representative image, so returning zero images is not an option. A hero image must be unique to this article and must never be satisfied by reusing another post's Project image. Do not return source-empty inline image blocks; an inline picture needs a paid image and is not available here. Body visuals are different: return one to three Bright body visual blocks when a section is genuinely easier to read as a visual. They cost nothing because Bright Studio draws them as HTML cards, never as pictures, so give them no prompt. Their purpose is one of comparison, checklist, summary, warning, infographic, and their visual is one of bar, ratio, steps, timeline, compare, stat, list. Choose the shape from the material: bar compares magnitudes of the same unit, ratio splits one whole into parts, steps is an ordered procedure, timeline is dated or sequential periods, compare is two to four alternatives side by side, stat highlights up to three headline figures, list is distinct check items. Every shape except list needs data, an array of at most eight {"label":"...","value":숫자,"note":"..."}; value must be a bare number with no commas, currency, or unit, and the unit belongs in note. Send null for value in steps, timeline, and compare entries. A body visual must add a view the prose does not already give: never copy sentences that are already in the article, and never restate a table you already returned. Use a table when the reader must read exact cell values, and a body visual when the reader needs to see shape, order, or proportion. Bright Studio may separately connect eligible body-only Project media or a user upload without a paid AI image call. That one image purpose must be hero, placed after the introduction with afterSection 0, and must include a specific Korean ALT plus a standalone production prompt. ${heroVisualDirection} Every image item must always include all six fields afterSection, purpose, alt, prompt, visual, data even when one does not apply: a hero item sends visual as "" and data as []; a body visual item sends prompt as "". Decide whether CTA is useful; when useful place at most two CTA button blocks in context. Never invent a URL. If no approved CTA URL is known, use an empty targetUrl. Do not create internal, monetization, or related-post links unless their real approved URLs are supplied in the editorial context; Bright Studio will place verified catalog links separately.${workedExampleInstruction}
+Paragraph values must be plain text. When a list is needed, use newline-prefixed 1. or - items inside the paragraph string. When a table is needed, put a complete GitHub-style Markdown table in one standalone paragraph string, including a header row, a separator row such as |---|---|, and at least one data row. Never return HTML tags such as <table>, <ol>, <ul>, <li>, or <p>. Return JSON only in this exact generation shape: {"title":"...","seoTitle":"...","metaDescription":"...","primarySearchIntent":"...","secondaryIntent":"...","secondaryKeywords":["..."],"relatedTerms":["..."],"tags":["티스토리태그1","티스토리태그2"],"introduction":["paragraph"],"sections":[{"heading":"H2 heading","sectionType":"explanation","paragraphs":["paragraph"]}],"conclusion":["paragraph"],"images":[{"afterSection":0,"purpose":"hero","alt":"specific Korean ALT","prompt":"standalone image production prompt","visual":"","data":[]},{"afterSection":2,"purpose":"comparison","alt":"카드 제목이 되는 한국어 한 줄","prompt":"","visual":"bar","data":[{"label":"단독가구","value":2200,"note":"만 원"}]}],"cta":[],"workedExamples":[{"afterSection":1,"scenario":"입사 10개월 차에 결근 없이 근무한 근로자라면","computation":"매월 개근할 때마다 1일씩 발생해 10개월 동안 10일이 쌓입니다","result":"이 경우 총 10일의 연차휴가를 받을 수 있습니다"}]}. sectionType must be one of explanation, checklist, comparison, steps, warning, faq, summary, case_example. afterSection is 0 for placement after the introduction or a 1-based section number. CTA items use {"afterSection":0,"purpose":"cta","label":"...","targetUrl":"","target":"_self"}. workedExamples items use {"afterSection":N,"scenario":"...","computation":"...","result":"..."} and, when no CRITICAL money/ratio/duration/date Claim exists, an empty array is correct. Do not return blocks from the generation call.`,
     };
   }
 
@@ -76,6 +81,7 @@ Paragraph values must be plain text. When a list is needed, use newline-prefixed
       throw new Error("AI response did not use the required structured long-form generation contract.");
     }
     const structured = isStructuredGenerationDocument(value);
+    if (structured) assertWorkedExamplesForQuantifiableClaims(value, input);
     const converted = structured ? structuredBlocks(value) : undefined;
     if (!converted && !Array.isArray(value.blocks)) throw new Error("AI response is not a valid Content Model.");
     const parsedBlocks = converted?.blocks ?? normalizeLongFormHeadings(value.blocks!.map((block, index) => parseBlock(block, index)), input);
@@ -147,6 +153,7 @@ type GenerationDocument = {
   conclusion?: unknown;
   images?: unknown;
   cta?: unknown;
+  workedExamples?: unknown;
   blocks?: unknown[];
 };
 
@@ -199,7 +206,9 @@ function structuredBlocks(value: StructuredGenerationDocument): {
     return id;
   });
   const imageValues = normalizeImagePlacements(Array.isArray(value.images) ? value.images : [], value.sections.length);
-  appendPlacementBlocks(blocks, imageValues, Array.isArray(value.cta) ? value.cta : [], 0);
+  const ctaValues = Array.isArray(value.cta) ? value.cta : [];
+  const exampleValues = Array.isArray(value.workedExamples) ? value.workedExamples : [];
+  appendPlacementBlocks(blocks, imageValues, ctaValues, exampleValues, 0);
   const sections = value.sections.map((section, sectionIndex) => {
     const headingBlockId = `section-${sectionIndex + 1}-heading`;
     blocks.push({ id: headingBlockId, type: "heading", level: 2, text: section.heading });
@@ -208,7 +217,7 @@ function structuredBlocks(value: StructuredGenerationDocument): {
       blocks.push({ id, type: "paragraph", text });
       return id;
     });
-    appendPlacementBlocks(blocks, imageValues, Array.isArray(value.cta) ? value.cta : [], sectionIndex + 1);
+    appendPlacementBlocks(blocks, imageValues, ctaValues, exampleValues, sectionIndex + 1);
     return Object.freeze({ headingBlockId, paragraphBlockIds: Object.freeze(paragraphBlockIds), sectionType: normalizeSectionType(section.sectionType) });
   });
   const conclusionBlockIds = value.conclusion.map((text, index) => {
@@ -230,12 +239,18 @@ function appendPlacementBlocks(
   blocks: Array<ContentDocument["blocks"][number]>,
   images: unknown[],
   ctas: unknown[],
+  examples: unknown[],
   afterSection: number,
 ): void {
-  for (const [index, item] of [...images, ...ctas].entries()) {
+  for (const [index, item] of [...images, ...ctas, ...examples].entries()) {
     if (!item || typeof item !== "object" || Number((item as { afterSection?: unknown }).afterSection) !== afterSection) continue;
     const record = item as Record<string, unknown>;
-    if (typeof record.alt === "string") {
+    if (typeof record.result === "string" && typeof record.scenario === "string") {
+      const text = [record.scenario, record.computation, record.result]
+        .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
+        .join(" ").trim();
+      if (text) blocks.push({ id: `worked-example-${blocks.length + index}`, type: "paragraph", text });
+    } else if (typeof record.alt === "string") {
       blocks.push(parseBlock({ ...record, type: "image", source: "" }, blocks.length + index));
     } else if (typeof record.label === "string") {
       blocks.push(parseBlock({ ...record, type: "button", targetUrl: typeof record.targetUrl === "string" ? record.targetUrl : "" }, blocks.length + index));
@@ -275,6 +290,32 @@ function parseBlock(value: unknown, index: number): ContentDocument["blocks"][nu
   if (block.type === "image" && typeof block.alt === "string") return { alt: block.alt, id, source: typeof block.source === "string" ? block.source : "", type: "image", ...(typeof block.prompt === "string" ? { prompt: block.prompt.trim() } : {}), ...(normalizeImagePurpose(block.purpose) ? { purpose: normalizeImagePurpose(block.purpose) } : {}), ...(typeof block.assetId === "string" && block.assetId.trim() ? { assetId: block.assetId.trim() } : {}), ...(typeof block.fileName === "string" && block.fileName.trim() ? { fileName: block.fileName.trim() } : {}), ...(typeof block.mimeType === "string" && block.mimeType.trim() ? { mimeType: block.mimeType.trim() } : {}), ...(normalizeImageSourceType(block.sourceType) ? { sourceType: normalizeImageSourceType(block.sourceType) } : {}), ...(normalizeVisualShape(block.visual) ? { visual: normalizeVisualShape(block.visual) } : {}), ...(normalizeVisualData(block.data).length ? { data: normalizeVisualData(block.data) } : {}), ...(typeof block.caption === "string" && block.caption.trim() ? { caption: block.caption.trim() } : {}) };
   if (block.type === "button" && typeof block.label === "string" && typeof block.targetUrl === "string") return { id, label: block.label, purpose: normalizePurpose(block.purpose), target: block.target === "_blank" ? "_blank" : "_self", targetUrl: block.targetUrl, ...(typeof block.sourceExternalPostId === "string" && block.sourceExternalPostId.trim() ? { sourceExternalPostId: block.sourceExternalPostId.trim() } : {}), type: "button" };
   throw new Error(`AI returned unsupported block ${index + 1}.`);
+}
+
+const QUANTIFIABLE_CRITICAL_CLAIM_KINDS = new Set(["money", "ratio", "duration", "date", "dateRange"]);
+
+/**
+ * 법 조문이나 기준율을 정확히 인용한다고 해서 독자가 자기 상황에 대입할
+ * 방법을 아는 건 아니다. 2026-09-04 실측: 연차휴가 원고가 "80% 이상 출근시
+ * 15일" 규정을 조문까지 정확히 인용했지만, 그 규정을 실제 숫자에 대입한
+ * 계산 예시가 하나도 없어 독자가 얻는 건 규정 문구뿐이었다. CRITICAL 이고
+ * 금액·비율·기간·날짜 종류인 Claim이 하나라도 있으면, 그 값을 실제로 대입한
+ * workedExamples 없이는 원고를 반환할 수 없게 막는다 — 부탁이 아니라 거부다.
+ */
+function assertWorkedExamplesForQuantifiableClaims(value: GenerationDocument, input: GenerationInput): void {
+  const claims = input.contentOpportunity?.verificationPlan?.claims ?? [];
+  const requiresExample = claims.some((claim) => claim.risk === "critical" && QUANTIFIABLE_CRITICAL_CLAIM_KINDS.has(claim.kind));
+  if (!requiresExample) return;
+  const examples = Array.isArray(value.workedExamples) ? value.workedExamples : [];
+  const hasExample = examples.some((item) => {
+    if (!item || typeof item !== "object") return false;
+    const record = item as Record<string, unknown>;
+    return typeof record.result === "string" && record.result.trim().length > 0
+      && typeof record.scenario === "string" && record.scenario.trim().length > 0;
+  });
+  if (!hasExample) {
+    throw new Error("AI response omitted a worked example for a critical money/ratio/duration/date Claim.");
+  }
 }
 
 function assertCompleteArticle(blocks: ContentDocument["blocks"]): void {

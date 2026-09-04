@@ -17,7 +17,7 @@ import { approvalAwareInstruction, contentEditorialContext, preserveContentAppro
 import { editorialContextWithoutDiversityPolicy } from "../../application/approval/ApprovalContentPolicy";
 import { TistoryPublishingAdapter } from "../../../apps/tistory/publishing/TistoryPublishingAdapter";
 import { WordPressHtmlRenderer } from "../../../apps/wordpress/WordPressHtmlRenderer";
-import { analyzeLongFormDocument, applyContentDepthPolicy, applyContentOpportunityPolicy, contentOpportunityKeywords, deriveContentTags, detectContentOpportunitySelectionMode, ensureSeoKeywordPlacement, LongFormValidationError, requiresLongFormValidation, restoreProtectedImageAssets, restoreVerifiedEditorialLinks, type ConfirmedContentOpportunity, type ContentDocument, type LongFormDiagnostic } from "../../../core/content";
+import { analyzeLongFormDocument, applyContentDepthPolicy, applyContentOpportunityPolicy, contentOpportunityKeywords, deriveContentTags, detectContentOpportunitySelectionMode, ensureSeoKeywordPlacement, LongFormValidationError, requiresLongFormValidation, restoreProtectedHeroImage, restoreProtectedImageAssets, restoreVerifiedEditorialLinks, type ConfirmedContentOpportunity, type ContentDocument, type LongFormDiagnostic } from "../../../core/content";
 import { ContentDeletionService } from "../../application/content/ContentDeletionService";
 import { applyCanonicalDocument, completeContentGeneration, completeContentPlanning, failContentPlanning, resolveProjectStrategy, startContentPlanning, updateContent, type UserData } from "../../user-flow/user-data";
 import { isPlatformEnabled, resolveWorkspaceSettings } from "../../application/settings/WorkspaceSettingsService";
@@ -143,7 +143,10 @@ export async function POST(request: Request) {
         structuredLongFormOutput: true,
       });
       const generationCompletedAt = new Date();
-      const initialDocument = applyContentPolicy(await placeAvailablePublishingPosts(owned, existing, result.document), existing);
+      const heroPreservedDocument = existing.document
+        ? restoreProtectedHeroImage(existing.document, result.document)
+        : result.document;
+      const initialDocument = applyContentPolicy(await placeAvailablePublishingPosts(owned, existing, heroPreservedDocument), existing);
       const context = qualityContext(existing, initialDocument);
       const initialQuality = new QualityEngine().review(initialDocument, context);
       const generationDiagnostic = initialDocument.metadata?.generationDiagnostic

@@ -500,6 +500,7 @@ const structuredGenerationRequired = Object.freeze([
   "conclusion",
   "images",
   "cta",
+  "workedExamples",
 ]);
 
 const generatedFactualClaimSchema = {
@@ -620,6 +621,17 @@ export function structuredGenerationFormat(
             label: { type: "string" },
             targetUrl: { type: "string" },
             target: { type: "string", enum: ["_self", "_blank"] },
+          },
+        } },
+        workedExamples: { type: "array", maxItems: 3, items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["afterSection", "scenario", "computation", "result"],
+          properties: {
+            afterSection: { type: "integer", minimum: 0 },
+            scenario: { type: "string" },
+            computation: { type: "string" },
+            result: { type: "string" },
           },
         } },
         ...(options.verificationClaims

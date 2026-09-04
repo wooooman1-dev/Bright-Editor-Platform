@@ -193,7 +193,62 @@ describe("EditorialGenerationStrategy hero image guarantee", () => {
     expect(document.blocks.filter((block) => block.type === "image")).toHaveLength(1);
     expect(document.metadata?.imageCount).toBe(1);
   });
+
+  /**
+   * 2026-09-04 실측: 연차휴가 원고가 "80% 이상 출근 시 15일" 규정을 조문까지
+   * 정확히 인용했지만 그 규정을 실제 숫자에 대입한 예시가 하나도 없어,
+   * 독자는 규정 문구만 받고 자기 상황에 어떻게 적용되는지는 알 수 없었다.
+   */
+  it("rejects a structured response that quotes a quantifiable CRITICAL Claim without a worked example", () => {
+    const withClaim = inputWithQuantifiableClaim();
+    expect(() => new EditorialGenerationStrategy().parse(response("deep"), withClaim))
+      .toThrow("worked example");
+  });
+
+  it("does not require a worked example when no quantifiable CRITICAL Claim exists", () => {
+    const document = new EditorialGenerationStrategy().parse(response("deep"), input("deep"));
+    expect(document.title).toBeTruthy();
+  });
+
+  it("accepts a structured response that applies the Claim's number to a concrete scenario", () => {
+    const withClaim = inputWithQuantifiableClaim();
+    const withExample = JSON.stringify({
+      ...JSON.parse(response("deep")),
+      workedExamples: [{ afterSection: 1, scenario: "예시 상황 문장", computation: "예시 계산 문장", result: "예시 결과 문장" }],
+    });
+    const document = new EditorialGenerationStrategy().parse(withExample, withClaim);
+    const text = JSON.stringify(document.blocks);
+    expect(text).toContain("예시 상황 문장");
+    expect(text).toContain("예시 계산 문장");
+    expect(text).toContain("예시 결과 문장");
+  });
 });
+
+function inputWithQuantifiableClaim() {
+  const base = input("deep");
+  return {
+    ...base,
+    contentOpportunity: {
+      ...base.contentOpportunity,
+      verificationPlan: {
+        schemaVersion: 1,
+        mode: "explicit",
+        claims: [{
+          claimId: "claim-quantifiable",
+          atomicity: "single_assertion",
+          field: "테스트 발생 기준",
+          kind: "ratio",
+          statement: "1년간 80퍼센트 이상 출근한 근로자에게 15일의 유급휴가를 준다.",
+          qualifiers: { subject: "", scope: "", basis: "", note: "" },
+          temporalRequirement: { mode: "notRequired" },
+          required: true,
+          risk: "critical",
+        }],
+        fingerprint: "vfp-test",
+      },
+    },
+  } as unknown as ReturnType<typeof input>;
+}
 
 type Depth = "quick" | "deep";
 type Generated = {
