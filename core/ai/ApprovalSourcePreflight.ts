@@ -164,6 +164,10 @@ export async function runApprovalSourcePreflight(input: Readonly<{
   if (!eligible.length) {
     throw new ApprovalSourcePreflightError(
       "공식 출처 사전검증을 중단했습니다. 웹 검색 도구가 실제로 확인한 직접 출처 URL이 없습니다.",
+      createPreflightDiagnostic(input, {
+        rejectionCode: "discovery_sources_not_observed",
+        rejectionStage: "source",
+      }),
     );
   }
 

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AIWorkflow } from "../../../../core/ai/AIWorkflow";
+import { ApprovalSourcePreflightError } from "../../../../core/ai/ApprovalSourcePreflight";
 import {
   createAIUsageRecord,
   type AIProvider,
@@ -355,6 +356,35 @@ describe("Approval Source Preflight", () => {
     );
     expect(fetchMock).not.toHaveBeenCalled();
     expect(provider.requests).toHaveLength(1);
+  });
+
+  /**
+   * 2026-09-04 실측: 이 거부 경로만 diagnostic 인자를 안 넘겨서 진단이
+   * 비어 있었다(undefined). 저장된 실제 데이터에서 이 사유로 막힌 사례는
+   * 못 찾았지만(0건), todo.txt 가 말한 "approvalSourcePreflightDiagnostic
+   * 이 {} 다"는 다른 원인(저장 경로를 잘못 조회함)이었지 이 문제는 아니었다 —
+   * 그래도 이 한 경로는 실제로 비어 있었으므로 채운다.
+   */
+  it("attaches a diagnostic when no discovered candidate matches an observed web-search source", async () => {
+    const provider = new QueueProvider([preflightResponse({
+      observedUrls: [
+        "https://www.gov.kr/portal/service/serviceInfo/different",
+      ],
+    })]);
+    vi.stubGlobal("fetch", vi.fn());
+
+    let caught: unknown;
+    try {
+      await new AIWorkflow(provider, strategy).generate(generationInput());
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(ApprovalSourcePreflightError);
+    const error = caught as ApprovalSourcePreflightError;
+    expect(error.diagnostic).toBeDefined();
+    expect(error.diagnostic?.rejectionStage).toBe("source");
+    expect(error.diagnostic?.rejectionCode).toBe("discovery_sources_not_observed");
   });
 
   it("blocks before Generation when a required Claim field is missing", async () => {

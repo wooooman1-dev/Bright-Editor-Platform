@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { confirmContentOpportunity, createContentOpportunityCandidate, type ContentDocument } from "../../../../core/content";
+import { analyzeLongFormDocument, confirmContentOpportunity, createContentOpportunityCandidate, determineContentPlanQualityTarget, type ContentDocument } from "../../../../core/content";
 import { contentRevisionId, editorialRevisionId, PublishingGate, QualityEngine, qualityDimensionWeights, resolveQualityApproval } from "../../../../core/quality";
 
 const planning: ContentDocument = { id: "planning", title: "건강 관리 가이드 기획안", blocks: [
@@ -124,6 +124,39 @@ describe("QualityEngine dimension scoring", () => {
     const report = new QualityEngine().review(document, { contentType: "article", platform: "tistory", primaryKeyword: "건강 관리", searchIntent: "건강 관리", revisionId: revision });
     expect(report.reviewedRevisionId).toBe(revision);
     expect(() => new PublishingGate().assertReady({ ...report, approved: true }, "rev-stale")).toThrow("stale");
+  });
+
+  /**
+   * 2026-09-04 실측: QualityEngine.review()의 tasks 구성은 blocksPublishing()으로
+   * CONTENT_SECTION_PROSE_INSUFFICIENT를 차단 대상에서 뺀다(D-045). 그런데
+   * PublishingGate.assertReady()는 같은 파일 안에 있으면서도 diagnostic.violations
+   * 를 필터 없이 그대로 봐서, 국민연금 새 원고가 섹션 산문 8자 부족으로 발행이
+   * 막혔다 — 품질 보고서는 차단 사유가 없다고 하는데 발행은 막히는 모순이었다.
+   */
+  it("does not block publishing on a D-045-exempt long-form violation", () => {
+    const target = determineContentPlanQualityTarget({ contentType: "article", readerProblem: "독자가 안전하게 판단하고 행동하는 방법", requiredContentElements: ["판단 기준"] });
+    const table = ["| 구분 | 조건 |", "| --- | --- |", "| 항목 1 | 조건 1 |", "| 항목 2 | 조건 2 |", "| 항목 3 | 조건 3 |", "| 항목 4 | 조건 4 |"].join("\n");
+    const thinProseDocument: ContentDocument = {
+      id: "thin-prose",
+      title: "정보 충분성 진단 문서",
+      blocks: [
+        { id: "intro", type: "paragraph", text: "이 글은 독자가 자신의 상황을 판단하고 안전한 다음 행동을 선택하도록 돕습니다." },
+        { id: "h-0", type: "heading", level: 2, text: "판단 기준" },
+        { id: "p-0", type: "paragraph", text: `이 표는 확인할 항목을 정리한 것입니다.\n${table}` },
+        { id: "conclusion", type: "paragraph", text: "조건을 다시 확인하고 다음 행동을 실행합니다." },
+      ],
+      metadata: {
+        buttonCount: 0, createdAt: "now", generator: "test", imageCount: 0, language: "ko", readingTime: 1,
+        source: "test", updatedAt: "now", version: 1, videoCount: 0, wordCount: 1, qualityTarget: target,
+        longFormStructure: { introductionBlockIds: ["intro"], sections: [{ headingBlockId: "h-0", paragraphBlockIds: ["p-0"], sectionType: "comparison" }], conclusionBlockIds: ["conclusion"] },
+      },
+    };
+    const diagnostic = analyzeLongFormDocument(thinProseDocument, target);
+    expect(diagnostic.violations.map((item) => item.code)).toContain("CONTENT_SECTION_PROSE_INSUFFICIENT");
+
+    const report = new QualityEngine().review(thinProseDocument, { contentType: "article", platform: "tistory", primaryKeyword: "판단 기준", searchIntent: "판단 기준" });
+    expect(() => new PublishingGate().assertReady({ ...report, approved: true, approvalType: "standard" }, undefined, thinProseDocument))
+      .not.toThrow();
   });
 
   it("distinguishes recommendations from placed image, internal-link, and CTA blocks", () => {

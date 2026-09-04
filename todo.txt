@@ -4,6 +4,69 @@
 Docs/current/00_FOUNDATION/03_AI_DEVELOPMENT_RULE.md 에 있다.
 2026-08-29 이전 기록은 Docs/current/04_DEVELOPMENT/14_WORK_LOG_2026_08.md.
 
+== 2026-09-04 무관한 기존 테스트 결함 3건 정리 (완료) ==
+
+셋 다 실제로 다시 열어서 성격을 구분했다 — 전부 같은 원인이 아니었다.
+
+1) Epic1.test.ts — 그냥 낡은 숫자. formality 차원 추가 때 다른 파일은 14로
+   맞췄는데 이 파일만 10으로 남아 있었다. 숫자만 고침.
+2) IntegrationServices.test.ts — 코드가 아니라 테스트가 낡았다.
+   core/media/ImageCostPolicy.ts 를 읽어보니 "infographic"은 2026-08-29부터
+   의도적으로 무료 본문 시각물로 보존하도록 정책이 바뀌었는데(그 실측 이유가
+   주석에 남아 있음), 테스트는 그 전 기준(inline·infographic 둘 다 제거)으로
+   남아 있었다. 테스트 기대값을 지금 정책(hero+infographic 2장 유지)에 맞게
+   고침.
+3) QualityImprovementCandidateRoute.test.ts — 이건 실제 코드 결함이었다.
+   실제 데이터에서 확인(content-mroi39eu-cc1fqo, 진행 중인 원고): purpose 없는
+   이미지 블록이 2개 있다. EditorialGenerationStrategy.ts 의
+   ensureEditorialPlacement 가 purpose==="hero" 만 대표 이미지로 인정해서,
+   이런 원고가 AI 개선안 같은 재파싱 경로를 지날 때마다 합성 대표 이미지가
+   하나씩 더 끼어들어 이미지가 계속 늘어난다. purpose 가 비어 있는 이미지도
+   대표 이미지로 인정하도록 고쳤다(명시적으로 다른 purpose 인 이미지는 여전히
+   hero 로 안 침).
+
+검증: tsc·eslint 클린. **전체 유닛 테스트 336개 파일 2,191개 전부 통과 —
+오늘 세션 시작 이래 처음으로 무관한 결함 없이 완전히 초록.**
+
+== 2026-09-04 "Source Preflight 진단 안 남음" 항목 재확인 — 낡은 기록이었다 ==
+
+todo에 있던 "content-mst2r5wl-eadjnz 가 approvalSourcePreflightDiagnostic
+{} 다"를 실제 데이터로 재확인했더니 사실이 아니었다. 그 필드는
+content.approvalSourcePreflightDiagnostic 이 아니라 content.planningWorkflow.
+approvalSourcePreflightDiagnostic 에 있고, 실제로는 33개 필드가 꽉 찬 값이다
+(rejectionCode·rejectionStage·단계별 카운트·거부 URL 발췌까지). 같은 필드가
+있는 다른 6편도 전부 마찬가지로 풍부했다 — 실제 {} 인 저장 사례는 0건.
+이 항목은 지운다.
+
+다만 코드를 읽다가 진짜로 작은 구멍 하나는 찾았다: core/ai/
+ApprovalSourcePreflight.ts:165 "적격 URL이 하나도 없음" 예외만 diagnostic
+인자를 안 넘겨서 진단이 비게 돼 있었다(14개 throw 지점 중 이 1개만). 고쳤다
+— createPreflightDiagnostic(rejectionCode: "discovery_sources_not_observed",
+rejectionStage: "source") 를 추가했다. 회귀 테스트 추가, 전체 유닛 테스트
+(무관한 기존 결함 3건 제외) 통과.
+
+== 2026-09-04 PublishingGate D-045 잔재 수정 (완료, 커밋 대기) ==
+
+코드로 직접 확인: QualityEngine.ts 148~157행 PublishingGate.assertReady() 는
+같은 파일 561~576행의 blocksPublishing()(D-045: 산문 부족·비교 미실행은
+차단 안 함)을 안 거치고 diagnostic.violations.length 를 그대로 봐서 차단한다.
+WordPressDraftReadiness.ts:232 의 standardQualityReady() 가 실제로 이 함수를
+부른다(죽은 코드 아님, grep 으로 확인) — 정확히 todo '지금 바로 3번'(국민연금
+새 원고가 산문 8자 부족으로 막힌 것)과 같은 경로였다.
+
+같은 패턴이 core/content/LongFormDiagnostics.ts 의 assertLongFormDocument 에도
+있지만 app/ 어디서도 안 부르는 죽은 코드라 grep 으로 확인하고 일부러 안 건드림
+(core/content 가 core/quality 의 blocksPublishing 을 가져오려면 모듈 경계를
+넘어야 해서 범위가 커진다 — 필요해지면 그때 한다).
+
+고침: assertReady 가 diagnostic.violations 를 blocksPublishing 으로 먼저
+거르도록 수정(한 파일 안이라 새 import 없음). 회귀 테스트 추가 — 표+얕은
+산문으로 CONTENT_SECTION_PROSE_INSUFFICIENT 만 나는 문서를 만들어 재현.
+
+검증: tsc·eslint 클린, 전체 유닛 테스트(무관한 기존 결함 3건 제외) 통과.
+국민연금 새 원고(content-mtd1j0wv-a7ptt6)가 이제 「품질 다시 검토」 없이도
+발행 가능해졌을 것으로 보이나, 실제 화면에서 아직 안 봤다.
+
 == 2026-09-04 generate 만 대표이미지 재사용을 안 하던 문제 수정 (완료, 커밋 대기) ==
 
 코드로 재확인(추측 아님): app/api/studio/route.ts 의 generate 액션을 처음부터
@@ -258,8 +321,6 @@ approvalSourcePreflightDiagnostic 이 {} 라 확인할 기록이 없다. 추측�
   취지는 "표로 때우지 마라"인데 구현이 숫자라 8자 차이로 막힌다. 셋 중 하나로
   정해야 한다 — 차단에서 빼기 / 글자수가 아닌 기준으로 바꾸기 / 결정 로그에 예외
   명시하기. 고치기 전에 원고 59편 중 몇 편이 걸리는지부터 센다.
-- Source Preflight 실패에 진단이 안 남는다. content-mst2r5wl-eadjnz 가
-  preflight 에서 막혔는데 approvalSourcePreflightDiagnostic 이 {} 다.
 - 프로젝트 전략의 subtopics·excludedTopics 편집 UI 가 없다(읽기 전용).
   지금은 「주제를 직접 입력해 작성」으로 우회한다.
 - 2026-09-03 전체 유닛 테스트 중 이번 작업과 무관하게 이미 깨져 있던 것 3건을

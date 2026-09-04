@@ -151,7 +151,8 @@ export class PublishingGate {
     if (!isStandardQualityApproved(report)) throw new Error(`Publishing blocked: standard quality approval is required; score ${report.overallScore}, approval ${report.approvalType ?? "none"}.`);
     if (document && requiresLongFormValidation(document)) {
       const diagnostic = analyzeLongFormDocument(document, document.metadata?.qualityTarget);
-      if (diagnostic.violations.length) throw new Error(`Publishing blocked: content does not satisfy its ${document.metadata?.qualityTarget?.contentDepth ?? "planned"} quality target (${diagnostic.violations[0]?.code}).`);
+      const blockingViolations = diagnostic.violations.filter((violation) => blocksPublishing(violation.code));
+      if (blockingViolations.length) throw new Error(`Publishing blocked: content does not satisfy its ${document.metadata?.qualityTarget?.contentDepth ?? "planned"} quality target (${blockingViolations[0]?.code}).`);
     }
   }
 }

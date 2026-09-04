@@ -354,7 +354,13 @@ function ensureEditorialPlacement(blocks: ContentDocument["blocks"], title: stri
   // 대표 이미지가 있는지만 본다. 본문 무료 시각물은 이제 남지만(2026-08-29) 그것은
   // 대표 이미지를 대신하지 못한다 — 본문 카드만 있는 응답을 통과시키면 대표 이미지가
   // 0장으로 끝나고, 그러면 생성 화면 자체가 뜨지 않는다(D-048).
-  if (blocks.some((block) => block.type === "image" && block.purpose === "hero")) return blocks;
+  //
+  // purpose 가 비어 있는 이미지도 대표 이미지로 친다. 2026-09-04 실측
+  // (content-mroi39eu-cc1fqo): 수동으로 추가하거나 옛 방식으로 저장된 이미지
+  // 블록은 purpose 가 없는데, 이걸 hero 로 안 쳐주면 AI 개선안 같은 재파싱 경로를
+  // 지날 때마다 합성 대표 이미지가 하나씩 더 끼어들어 이미지가 계속 늘어난다.
+  // purpose 가 명시적으로 다른 값(inline·comparison 등)이면 여전히 hero 로 안 친다.
+  if (blocks.some((block) => block.type === "image" && (block.purpose === "hero" || !block.purpose))) return blocks;
   const subject = (primaryKeyword ?? "").trim() || title;
   if (!subject) return blocks;
   // 도입부 문단 바로 뒤, 첫 제목이나 CTA보다 앞에 놓는다.
