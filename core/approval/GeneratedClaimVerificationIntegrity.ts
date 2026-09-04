@@ -101,6 +101,7 @@ export function evaluateGeneratedClaimVerificationIntegrity(input: Readonly<{
     .map((binding) =>
       `가져온 출처 발췌 어디에서도 찾을 수 없는 값이 원고에 있습니다: "${binding.matchedText}" (${bindingLocation(binding.location)}). 발행은 막지 않으니 출처에 있는 값인지 확인하세요.`);
 
+  const semanticWarnings: string[] = [];
   if (stored.semanticContractVersion === 1) {
     if (!stored.semanticClaims) {
       reasons.push("구조화 Generated Claim semantic contract가 canonical metadata에서 누락되었습니다.");
@@ -113,6 +114,7 @@ export function evaluateGeneratedClaimVerificationIntegrity(input: Readonly<{
         claims: stored.semanticClaims,
       });
       reasons.push(...semantic.reasons);
+      semanticWarnings.push(...semantic.warnings);
     }
   }
 
@@ -129,7 +131,7 @@ export function evaluateGeneratedClaimVerificationIntegrity(input: Readonly<{
   return Object.freeze({
     passed: reasons.length === 0,
     reasons: Object.freeze([...new Set(reasons)]),
-    warnings: Object.freeze([...new Set(warnings)]),
+    warnings: Object.freeze([...new Set([...warnings, ...semanticWarnings])]),
     bindings: rebound.bindings,
     verifiedClaimIds: rebound.verifiedClaimIds,
     unverifiedDetectedCount: rebound.unverifiedDetectedCount,

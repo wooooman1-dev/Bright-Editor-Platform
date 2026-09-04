@@ -47,6 +47,8 @@ export type GeneratedFactualClaim = Readonly<{
 export type GeneratedFactualClaimValidationResult = Readonly<{
   passed: boolean;
   reasons: readonly string[];
+  /** 발행을 막지는 않지만 사용자가 알아야 하는 변화. 이유를 문장에 담는다. */
+  warnings: readonly string[];
   claims: readonly GeneratedFactualClaim[];
 }>;
 
@@ -167,6 +169,16 @@ export function validateGeneratedFactualClaimDrafts(input: Readonly<{
    * 기록한다.
    */
 
+  /**
+   * 재계산된 위치가 저장된 claim의 anchor와 어긋나는 것은 차단 사유가 아니다
+   * (D-045). 이 비교는 위 per-draft 루프와 달리 "anchor가 아예 사라졌는가"가
+   * 아니라 "검토 편집 이후 anchor 위치·표현이 살짝 달라졌는가"를 본다. 값 자체가
+   * 검토 단계에서 바뀌는 사고는 QualityReviewFactualGuard 가 이미 막으므로,
+   * 여기서 다시 차단하면 정상적인 편집(문장 다듬기, 존댓말 통일 등)까지 발행을
+   * 막는다. 2026-09-04 실측: 청약저축 소득공제 원고에서 검토가 문장을 존댓말로
+   * 다듬었을 뿐인데 300만원/40%/7천만원 Claim 5건이 전부 이 이유로 막혔다.
+   */
+  const warnings: string[] = [];
   const rebound = bindGeneratedClaims({
     document: input.document,
     plan: input.plan,
@@ -181,13 +193,14 @@ export function validateGeneratedFactualClaimDrafts(input: Readonly<{
       && claim.locations.some((location) => sameLocation(location, binding.location))
       && normalizeComparableText(claim.surfaceText).includes(normalizeComparableText(binding.matchedText)));
     if (!covered) {
-      reasons.push(`검증 factual token이 같은 Claim의 구조화 semantic anchor에 포함되지 않았습니다: ${reference.verificationClaimId} / ${binding.matchedText}.`);
+      warnings.push(`검증 factual token이 같은 Claim의 구조화 semantic anchor에 포함되지 않았습니다: ${reference.verificationClaimId} / ${binding.matchedText}. 발행은 막지 않으니 값이 바뀌었는지 확인하세요.`);
     }
   }
 
   return Object.freeze({
     passed: reasons.length === 0,
     reasons: Object.freeze([...new Set(reasons)]),
+    warnings: Object.freeze([...new Set(warnings)]),
     claims: Object.freeze(claims),
   });
 }

@@ -212,7 +212,13 @@ describe("Generated factual Claim semantic contract", () => {
     expect(result.reasons.join(" ")).toContain(moneyClaim.claimId);
   });
 
-  it("fails closed when one verified non-scalar Claim is omitted from the Generation semantic list", () => {
+  it("warns without blocking when one verified non-scalar Claim is omitted from the Generation semantic list", () => {
+    // D-045: 이 재계산은 "현재 본문에서 찾은 검증 토큰이 구조화 목록에
+    // 포함되는가"를 본다. evaluateStoredGeneratedFactualClaims 로 재평가할 때는
+    // 검토 편집이 anchor 위치·표현을 살짝 바꿨을 뿐인 경우와 구별할 수 없어
+    // (2026-09-04 실측: 청약저축 소득공제 원고), 차단 사유가 아니라 경고로
+    // 남긴다. Generation이 실제로 값을 빠뜨렸는지는 값 자체가 verified Snapshot과
+    // 일치하는지를 보는 위쪽 per-draft 검사가 계속 차단한다.
     const result = validateGeneratedFactualClaimDrafts({
       document,
       plan,
@@ -221,8 +227,8 @@ describe("Generated factual Claim semantic contract", () => {
       drafts: Object.freeze([validDrafts[0]!]),
     });
 
-    expect(result.passed).toBe(false);
-    expect(result.reasons.join(" ")).toContain(eligibilityClaim.claimId);
+    expect(result.passed).toBe(true);
+    expect(result.warnings.join(" ")).toContain(eligibilityClaim.claimId);
   });
 
   it("rechecks persisted semantic anchors against the current manuscript revision", () => {

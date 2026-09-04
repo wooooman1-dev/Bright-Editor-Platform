@@ -128,6 +128,52 @@ describe("EditorialQualityPipeline", () => {
     expect(instruction).toContain("https://www.fss.or.kr/card");
   });
 
+  it("never asks the review model to reproduce a Claim the generation sweep already removed", async () => {
+    // 2026-09-04 실측(content-mtn0ukak-qwva2x): 프롬프트가 원본 inventory 레코드
+    // 전체를 그대로 넘겨서, disposition="removed"인 Claim(예: 소제목 문장, 계산
+    // 예시 문장)까지 "정확히 베껴 돌려달라"고 지시했다. 검토 AI가 그 지시를
+    // 충실히 따르면 activeGeneratedFactualClaims(retained만) 기준인 Guard가
+    // 즉시 quality_new_factual_claim_added로 후보 전체를 폐기해 비용이 버려졌다.
+    // 이 테스트는 removed Claim이 다시는 지시문에 실리지 않도록 잠근다.
+    const retainedSurface = "취소 처리와 청구 반영은 서로 다른 단계일 수 있습니다.";
+    const retainedDraft: GeneratedFactualClaimInventoryDraft = {
+      claimId: "claim-retained", planningClaimId: "", origin: "generation", risk: "verify",
+      surfaceText: retainedSurface, statement: retainedSurface, kind: "general", normalizedValueJson: "{}",
+      qualifiers: { subject: "", scope: "", basis: "", note: "" }, temporalRequirementJson: "null",
+      evidenceUrl: "https://www.fss.or.kr/card", evidenceExcerpt: retainedSurface,
+    };
+    const removedSurface = "청구 반영 절차는 이렇게 이해합니다";
+    const removedDraft: GeneratedFactualClaimInventoryDraft = {
+      claimId: "claim-removed-heading", planningClaimId: "", origin: "generation", risk: "verify",
+      surfaceText: removedSurface, statement: removedSurface, kind: "general", normalizedValueJson: "{}",
+      qualifiers: { subject: "", scope: "", basis: "", note: "" }, temporalRequirementJson: "null",
+      evidenceUrl: "", evidenceExcerpt: "",
+    };
+    const source = rawDocument("초기 원고");
+    source.blocks.push({ type: "paragraph", text: retainedSurface });
+    const parsed = new EditorialGenerationStrategy().parse(JSON.stringify(source), parseInput());
+    const initial = applyGeneratedFactualClaimInventory({
+      document: parsed,
+      drafts: [retainedDraft, removedDraft],
+      decisions: [
+        { retained: true, evidenceStatus: "verify_verified" },
+        { retained: false, evidenceStatus: "not_applicable", diagnosticCode: "not_a_claim" },
+      ],
+      fallbackTitle: parsed.title,
+    }).document;
+    const generate = vi.fn(async (request: AIRequest) => {
+      void request;
+      return { content: JSON.stringify({ ...rawDocument("검토 후보"), verificationClaimsUsed: [retainedDraft] }), model: "review" };
+    });
+    const qualityEngine = { review: vi.fn(() => report(92, false)) };
+    await new EditorialQualityPipeline({ generate } as AIProvider, undefined, qualityEngine as never).run({
+      document: initial, finalReviewInstruction: (document, quality) => `base ${document.title} ${quality.overallScore}`, parseInput: parseInput(), qualityContext: {},
+    });
+    const instruction = generate.mock.calls[0]?.[0].instruction as string;
+    expect(instruction).toContain("claim-retained");
+    expect(instruction).not.toContain("claim-removed-heading");
+  });
+
   it("projects the public profile label into Quality prompts without exposing the stable profile ID", () => {
     const approvalPolicy = {
       ...resolveApprovalPolicySnapshot("adsense_approval", "wordpress_life_economy_v1")!,

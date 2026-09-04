@@ -4,6 +4,71 @@
 Docs/current/00_FOUNDATION/03_AI_DEVELOPMENT_RULE.md 에 있다.
 2026-08-29 이전 기록은 Docs/current/04_DEVELOPMENT/14_WORK_LOG_2026_08.md.
 
+== 2026-09-04 검토 AI 비용 낭비 + 발행 오차단 근본 원인 2건 수정 (완료, 커밋 대기) ==
+
+사장님 지시: "어떤 상황이 되었던같에 버려지는 비용이 없어야해. 앞으로는
+절대로 버려지는 비용이 안생기도록 원인 끝까지 파악하고 개선해." 실제 생성
+content-mtn0ukak-qwva2x(청약저축 소득공제)에서 검토 AI 호출이
+quality_new_factual_claim_added 로 폐기된 것과, 그 뒤 같은 원고가 "차단"으로
+발행이 막힌 것을 각각 코드 추적으로 근본 원인까지 확인하고 고쳤다.
+
+1) 검토 AI 호출 비용 낭비 (quality_new_factual_claim_added):
+   app/application/EditorialQualityPipeline.ts:267-268 의 검토 프롬프트가
+   "현재 사실 목록 전체를 그대로 베껴 돌려달라"고 지시하면서
+   document.metadata.generatedFactualClaimInventory 원본 레코드 전체를
+   넘겼다. 그런데 이 레코드의 items 에는 disposition:"retained"(실제 보호되는
+   사실) 와 disposition:"removed"(생성 단계에서 이미 탈락한 문장 — 소제목,
+   제목 변형, 계산 예시 문장 등, 실측 12개 중 9개)가 섞여 있는 반면,
+   core/approval/QualityReviewFactualGuard.ts 의 가드는
+   activeGeneratedFactualClaims()로 retained 만 걸러 허용 집합을 만든다. 검토
+   AI가 지시를 충실히 따라 removed 항목까지 그대로 반환하면 가드가 즉시
+   quality_new_factual_claim_added 로 후보 전체를 폐기해 그 호출 비용이
+   버려졌다.
+   고침: 프롬프트에 원본 레코드 대신
+   activeGeneratedFactualClaims(document.metadata.generatedFactualClaimInventory)
+   (retained 만 필터링된 배열)를 넘기도록 수정. AI에게 "베끼라"고 주는
+   데이터와 가드가 "허용"하는 집합이 항상 일치하도록 구조적으로 맞췄다.
+   회귀 테스트 추가(removed 항목의 claimId 가 다시는 지시문에 실리지 않는지
+   잠금).
+
+2) 발행 오차단 (같은 원고가 "차단"으로 발행 불가):
+   core/approval/GeneratedClaimVerificationIntegrity.ts 의 semantic contract
+   하위 검사(104-117행, evaluateStoredGeneratedFactualClaims 호출)가
+   core/approval/GeneratedFactualClaim.ts:176-186 의 rebound 비교("현재
+   본문에서 찾은 검증 토큰이 저장된 claim 의 위치·anchor 와 정확히 같은가")
+   결과를 여전히 차단(reasons)으로 반환하고 있었다. 그런데 같은 파일의
+   최상위 rebound.bindings 비교는 2026-08-19·2026-08-28 실측(D-045)으로 이미
+   "검토 편집이 문장을 다듬으면 anchor 위치·표현만 달라질 수 있고, 값 자체가
+   검토 단계에서 바뀌는 사고는 QualityReviewFactualGuard 가 따로 막으니 이
+   재계산은 차단이 아니라 경고여야 한다"는 원칙으로 경고로 완화되어 있었다 —
+   semantic contract 경로만 그 완화를 놓쳤다. 실측: 검토가 반말 문장을
+   존댓말로 다듬었을 뿐인데 300만원·40%·7천만원 등 Claim 5건이 전부 이
+   이유로 막혀 발행 불가였다.
+   고침: GeneratedFactualClaimValidationResult 에 warnings 필드를 추가해
+   per-draft 루프(anchor 가 아예 사라진 경우, 계속 차단 — 관련 기존 테스트
+   "still blocks a verified Claim whose anchor disappeared without a
+   withdrawal" 그대로 통과)와 rebound 루프(위치·표현 드리프트, 경고로 완화)
+   결과를 분리했다. GeneratedClaimVerificationIntegrity.ts 는 reasons 는
+   차단에, warnings 는 경고에 각각 연결. 기존 GeneratedFactualClaim.test.ts
+   의 "fails closed..." 테스트는 이 원고가 실제로 evaluateStoredGeneratedFactualClaims
+   경로(항상 저장된 claims 전체에서 draft 를 재구성하므로 "generation 이
+   claim 을 아예 누락"하는 시나리오 자체가 발생 불가)로만 소비된다는 점을
+   확인한 뒤 "경고로 남는다"로 기대값을 갱신했다.
+   실측 원고(content-mtn0ukak-qwva2x)를
+   evaluateGeneratedClaimVerificationIntegrity 로 재평가해 passed:true,
+   reasons:[] 로 바뀐 것을 직접 스크립트로 확인 완료 — 원고 텍스트는 전혀
+   건드리지 않고 코드만 고쳐서 같은 원고가 재평가 시 통과하도록 만들었다.
+
+검증: tsc --noEmit 클린, eslint 클린, 전체 유닛 테스트 340개 파일(348개 중
+skip 8개) 2,208개 전부 통과(skip 18개). 실제 studio-data.json 의 살아있는
+문서로 재평가해 차단 해제 확인.
+
+다음: 커밋 대기. 그리고 이번 세션에서 다룬 "버려지는 비용" 조사는
+quality_verified_factual_claim_omitted / quality_new_factual_claim_added
+2건만 확인했다 — guardQualityReviewFactualClaims 의 다른 rejection code
+(quality_factual_claim_contract_changed, quality_verified_factual_surface_changed
+등)는 아직 실측 사례로 근본 원인을 확인하지 않았다.
+
 == 2026-09-04 subtopics·excludedTopics 편집 UI 추가 (완료, 커밋 대기) ==
 
 읽기 전용 칩으로만 보여주던 걸 확인(ProjectApprovalSettingsCard.tsx).
