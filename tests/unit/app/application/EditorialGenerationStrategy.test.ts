@@ -222,6 +222,27 @@ describe("EditorialGenerationStrategy hero image guarantee", () => {
     expect(text).toContain("예시 계산 문장");
     expect(text).toContain("예시 결과 문장");
   });
+
+  /**
+   * 2026-09-04 실측(content-mtn0ukak-qwva2x, 청약저축 소득공제): Planning의
+   * examplesNeeded 3건 중 2건이 "무주택이더라도 세대주가 아닌 가입자는 같은
+   * 방식으로 공제 대상이라고 단정하기 어렵습니다" 같은 한 문장짜리 추상적
+   * 언급으로만 끝났다. examplesNeeded는 프롬프트 문장으로만 전달되고 응답을
+   * 검증하는 코드가 전혀 없었다.
+   */
+  it("rejects a structured response with no concrete case example when Planning named example scenarios", () => {
+    const withoutCaseExample = JSON.stringify({ ...JSON.parse(response("deep")), caseExamples: [] });
+    expect(() => new EditorialGenerationStrategy().parse(withoutCaseExample, input("deep")))
+      .toThrow("case example");
+  });
+
+  it("accepts a structured response with at least one concrete case example", () => {
+    const document = new EditorialGenerationStrategy().parse(response("deep"), input("deep"));
+    const text = JSON.stringify(document.blocks);
+    expect(text).toContain("테스트 상황 문장");
+    expect(text).toContain("테스트 판단 문장");
+    expect(text).toContain("테스트 결과 문장");
+  });
 });
 
 function inputWithQuantifiableClaim() {
@@ -320,6 +341,7 @@ function response(depth: Depth): string {
       : "다음 행동은 결과를 기록하고 관찰한 변화와 판단 기준을 정리한 뒤 필요한 경우 의료진에게 확인하는 것입니다. 주의사항과 예외를 놓치지 않습니다. " + "결".repeat(350)],
     images: [{ afterSection: 0, purpose: "hero", alt: quick ? "노트북 청소 준비물" : "건강검진 결과표 해석", prompt: "독자가 핵심 판단 순서를 이해하는 한국어 블로그용 장면, 텍스트 없음" }],
     cta: [],
+    caseExamples: [{ afterSection: 1, situation: "테스트 상황 문장", decision: "테스트 판단 문장", outcome: "테스트 결과 문장" }],
   });
 }
 

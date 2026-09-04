@@ -70,6 +70,7 @@ function structuredArticle(title: string, prose: string) {
     conclusion: ["The conclusion summarizes the decision. The reader can now take the next action with the warnings in mind."],
     images: [],
     cta: [],
+    caseExamples: [{ afterSection: 4, situation: "Test situation sentence.", decision: "Test decision sentence.", outcome: "Test outcome sentence." }],
   };
 }
 
