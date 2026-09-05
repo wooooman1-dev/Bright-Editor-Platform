@@ -48,6 +48,18 @@ export function extractProfileApprovalFactsFromText(
   if (revolvingTopic) add("revolvingTopic", "신용카드 리볼빙");
 
   collect("eligibility", /(?:지원|신청|지급|적용)\s*대상\s*[:：]?\s*([^\n.]{2,200})/gi);
+  /**
+   * 위 패턴은 "지원/신청/지급/적용 대상"처럼 정해진 동사 뒤에서만 반응한다.
+   * 2026-09-05 실측(content-mtnqhijd-f1m7e0, 주휴수당 조건): "주휴수당 **대상**
+   * 인지는…"처럼 그 글의 주제어가 바로 앞에 오는 경우는 안 잡혔다. 그런데
+   * "대상"만 넓게 잡으면 "비교 대상", "검토 대상"처럼 정책과 무관한 곳에서도
+   * 걸린다(정책 조사에서 만든 amount/exceptions 오탐과 같은 함정). 대신
+   * statutoryBasis와 같은 법 이름 문장이 "발생·해당·대상"까지 함께 말하면 —
+   * 실제로 그 문장이 "누가 대상인가"를 정의하는 문장이라는 뜻이므로 —
+   * 그 문장도 eligibility로 등록한다. 새 키워드를 넓히는 대신, 이미 법
+   * 이름으로 확인된 신뢰할 수 있는 문장을 다른 필드로도 재사용하는 것이다.
+   */
+  collect("eligibility", /((?:근로자퇴직급여\s*보장법|근로기준법|소득세법)[^\n.]{0,160}(?:발생|해당|대상)[^\n.]{0,60})/gi);
   collect("period", /(?:신청|적용|지급)\s*기간\s*[:：]?\s*([^\n.]{2,160})/gi);
   collect("amount", /(?:지원\s*금액|지급액|금액|한도)\s*[:：]?\s*([^\n.]{2,160})/gi);
   collect("incomeThreshold", /(?:소득\s*기준|기준\s*중위소득)\s*[:：]?\s*([^\n.]{2,160})/gi);
@@ -237,18 +249,18 @@ const statutoryBasisLaws: readonly string[] = Object.freeze(["근로자퇴직급
 export function approvalFactMatchesPage(page: ApprovalFactPage, fact: ApprovalEvidenceFact): boolean {
   const haystack = normalize(`${page.title} ${page.publisher} ${page.text}`);
   /**
-   * statutoryBasis는 글마다 다른 법을 가리킬 수 있어 고정된 신호 하나로 볼 수
+   * 법 이름 문장은 글마다 다른 법을 가리킬 수 있어 고정된 신호 하나로 볼 수
    * 없다. 2026-09-05 실측(content-mtnqhijd-f1m7e0, 주휴수당 조건): 이 신호가
    * "근로자퇴직급여보장법"(퇴직금 관련 법)으로 고정되어 있어서, 주휴수당
    * 원고가 실제로 인용한 근로기준법 근거가 출처 발췌에 거의 그대로 있었는데도
    * 영원히 검증되지 않았다. 추출한 값 자체가 어느 법을 언급했는지 먼저 보고,
-   * 그 법 이름이 출처에 있는지를 확인한다.
+   * 그 법 이름이 출처에 있는지를 확인한다. statutoryBasis뿐 아니라 같은 법
+   * 이름 문장을 재사용하는 eligibility에도 똑같이 적용한다 — 둘 다 같은
+   * 문장에서 나온 값이라 전체 문장 그대로는 발췌의 괄호 삽입 때문에 절대
+   * 정확히 일치하지 않는다.
    */
-  if (fact.field === "statutoryBasis") {
-    const normalizedValue = normalize(fact.value);
-    const law = statutoryBasisLaws.find((name) => normalizedValue.includes(normalize(name)));
-    if (law) return haystack.includes(normalize(law));
-  }
+  const law = statutoryBasisLaws.find((name) => normalize(fact.value).includes(normalize(name)));
+  if (law) return haystack.includes(normalize(law));
   const signalGroups: Readonly<Record<string, readonly string[]>> = {
     continuousServicePeriod: ["계속근로", "1년"],
     averageWage: ["평균임금", "3개월"],

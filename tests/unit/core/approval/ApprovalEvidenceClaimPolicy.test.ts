@@ -243,4 +243,49 @@ describe("Approval Evidence Claim Policy", () => {
     const exceptionsValues = facts.filter((fact) => fact.field === "exceptions").map((fact) => fact.value);
     expect(exceptionsValues).toEqual(["중도해지 시 공제되지 않습니다"]);
   });
+
+  /**
+   * 2026-09-05 실측(content-mtnqhijd-f1m7e0, 주휴수당 조건): eligibility는
+   * "지원/신청/지급/적용 대상"이라는 정해진 동사 뒤에서만 반응해, "주휴수당
+   * 대상인지는…"처럼 그 글의 주제어가 바로 앞에 오는 문장은 못 잡았다.
+   * amount/exceptions 오탐이 사라지자 eligibility가 값 없이 필수 항목으로
+   * 남아 원고가 계속 차단됐다. "대상"만 넓게 잡으면 "비교 대상", "검토 대상"
+   * 처럼 정책과 무관한 곳까지 걸리므로, 이미 statutoryBasis로 신뢰할 수 있게
+   * 확인되는 법 이름 문장이 "발생/해당/대상"까지 말하면 그 문장을 eligibility
+   * 로도 등록하는 방식으로 넓혔다.
+   */
+  it("registers a statutoryBasis-style sentence as eligibility when it also defines who it applies to, without widening 대상 generally", () => {
+    const document: ContentDocument = {
+      ...retirementDocument(),
+      id: "weekly-holiday-pay-3",
+      title: "주휴수당 조건",
+      blocks: [{
+        id: "p1",
+        type: "paragraph",
+        text: "고용노동부 1350 안내에 따르면, 근로기준법상 근로자가 4주 평균하여 1주 소정근로시간이 15시간 이상이고 1주간의 소정근로일을 개근했을 때 발생합니다.",
+      }],
+    };
+    const facts = extractProfileApprovalFacts(document, "wordpress_life_economy_v1");
+    expect(facts.find((fact) => fact.field === "eligibility")?.value).toContain("4주 평균하여 1주 소정근로시간이 15시간 이상");
+
+    const page = { title: ":: 고용노동부 모바일페이지 고객센터 ::", publisher: "1350.moel.go.kr", text: "근로기준법 제55조제1항 등에 따라 주휴수당은…" };
+    const eligibilityFact = facts.find((fact) => fact.field === "eligibility")!;
+    expect(approvalFactMatchesPage(page, eligibilityFact)).toBe(true);
+  });
+
+  it("does not register unrelated '대상' phrases (비교/검토/분석/조사 대상) as eligibility", () => {
+    const document: ContentDocument = {
+      ...retirementDocument(),
+      id: "unrelated-target-phrases",
+      title: "무관한 대상 문구",
+      blocks: [
+        { id: "p1", type: "paragraph", text: "비교 대상은 서울과 부산입니다." },
+        { id: "p2", type: "paragraph", text: "검토 대상 문서는 총 3건입니다." },
+        { id: "p3", type: "paragraph", text: "분석 대상 표본은 100명입니다." },
+        { id: "p4", type: "paragraph", text: "조사 대상 기간은 2025년입니다." },
+      ],
+    };
+    const facts = extractProfileApprovalFacts(document, "wordpress_life_economy_v1");
+    expect(facts.some((fact) => fact.field === "eligibility")).toBe(false);
+  });
 });
