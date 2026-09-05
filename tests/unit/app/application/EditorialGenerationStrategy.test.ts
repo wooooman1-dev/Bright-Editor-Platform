@@ -40,6 +40,17 @@ describe("EditorialGenerationStrategy information sufficiency target", () => {
     expect(request.instruction).toContain("never invent an unverified number");
   });
 
+  /**
+   * 2026-09-05 실측(content-mtnqhijd-f1m7e0): caseExamples 지시문이
+   * sectionType=case_example H2 자체의 지시(concrete situation, decision,
+   * application)와 겹치지 않게 하라는 말이 없어, 모델이 같은 결근 사례를
+   * 본문 case_example 섹션과 caseExamples 항목에서 두 번 서술했다.
+   */
+  it("tells the model not to repeat a scenario its own case_example section already narrates", () => {
+    const request = new EditorialGenerationStrategy().createRequest(input("deep"));
+    expect(request.instruction).toContain("do not write that same scenario again here");
+  });
+
   it("does not reintroduce a legacy length target through the Opportunity snapshot", () => {
     const generationInput = input("deep");
     const opportunity = generationInput.contentOpportunity!;

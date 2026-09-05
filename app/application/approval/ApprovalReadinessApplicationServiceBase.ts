@@ -429,7 +429,7 @@ function upsertVerifiedSourceSection(
 }> {
   const reviewedAt = pack!.reviewedAt ?? new Date().toISOString();
   const verifiedSources = pack!.sources.filter((source) => Boolean((source.canonicalUrl ?? source.url)?.trim()));
-  const sourceLabels = approvalSourceLabels(verifiedSources);
+  const sourceLabels = approvalSourceLabels(verifiedSources.map((source) => ({ ...source, excerpt: source.citationExcerpt })));
   const clean = removeGeneratedSourceSection(document);
 
   /**

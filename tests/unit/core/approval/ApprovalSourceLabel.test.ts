@@ -60,4 +60,49 @@ describe("approval source labels", () => {
 
     expect(labels).toEqual(["국가법령정보센터", "국가법령정보센터 · 조문정보"]);
   });
+
+  /**
+   * 2026-09-05 실측(content-mtnqhijd-f1m7e0): 고용노동부 1350 상담 출처
+   * 4개가 서로 다른 URL(다른 답변)인데 title이 전부 ":: 고용노동부
+   * 모바일페이지 고객센터 ::"로 동일한 SPA 화면이라, title에서 걷어낸 나머지도
+   * 4개 다 같은 값이 되어 라벨이 구분되지 않았다. 답변 발췌로 넘어가도 이
+   * 사이트 답변은 서로 다른 말로 같은 법 조항을 반복해 표현이 갈라지지 않으므로,
+   * 최종적으로 순번으로 구분해야 한다.
+   */
+  it("falls back to the citation excerpt, then to a sequence number, when the title is a fixed site shell for every source", () => {
+    const labels = approvalSourceLabels([
+      {
+        url: "https://1350.moel.go.kr/rtmview.do?id=1000059852",
+        title: ":: 고용노동부 모바일페이지 고객센터 ::",
+        excerpt: "고용노동부 1350모바일 상담입니다. 근로기준법 제55조제1항 등에 따라 주휴수당은 ①근로기준법상 근로자로서 …",
+      },
+      {
+        url: "https://1350.moel.go.kr/rtmview.do?id=1000092981",
+        title: ":: 고용노동부 모바일페이지 고객센터 ::",
+        excerpt: "근로기준법 제55조제1항 및 같은법 시행령 제30조제1항에 따르면 사용자는 1주 소정근로일을 개근한 근로자에게 …",
+      },
+      {
+        url: "https://1350.moel.go.kr/rtmview.do?id=1000304054",
+        title: ":: 고용노동부 모바일페이지 고객센터 ::",
+        excerpt: "가. 주휴수당은 - ①근로기준법상 근로자로서, ②4주 평균하여 1주 소정근로시간 …",
+      },
+      {
+        url: "https://1350.moel.go.kr/rtmview.do?id=1000306709",
+        title: ":: 고용노동부 모바일페이지 고객센터 ::",
+        excerpt: "고용노동부 1350 모바일 상담입니다. 주휴수당은, ①근로기준법상 근로자로서 …",
+      },
+    ]);
+
+    expect(new Set(labels).size).toBe(4);
+    for (const label of labels) expect(label.startsWith("고용노동부 · ")).toBe(true);
+  });
+
+  it("uses the excerpt to distinguish same-institution sources whose titles collide but excerpts differ", () => {
+    const labels = approvalSourceLabels([
+      { url: "https://a.go.kr/1", title: "동일한 화면 제목", excerpt: "첫 번째 답변의 실제 내용입니다." },
+      { url: "https://a.go.kr/2", title: "동일한 화면 제목", excerpt: "두 번째 답변의 실제 내용입니다." },
+    ]);
+
+    expect(labels).toEqual(["a.go.kr · 첫 번째 답변의 실제 내용입니다.", "a.go.kr · 두 번째 답변의 실제 내용입니다."]);
+  });
 });

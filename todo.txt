@@ -4,6 +4,47 @@
 Docs/current/00_FOUNDATION/03_AI_DEVELOPMENT_RULE.md 에 있다.
 2026-08-29 이전 기록은 Docs/current/04_DEVELOPMENT/14_WORK_LOG_2026_08.md.
 
+== 2026-09-05 caseExamples fix 실제 생성 검증 후 발견한 2건 수정 (완료, 커밋 대기) ==
+
+어제 만든 caseExamples 수정을 실제 생성(content-mtnqhijd-f1m7e0, 주휴수당
+조건)으로 검증하다가 사장님이 원고 본문을 직접 읽고 새 문제 2건을 지적했다.
+근본 원인까지 확인한 뒤 고쳤다.
+
+1) caseExamples와 case_example 섹션의 중복:
+   `app/application/EditorialGenerationStrategy.ts`의 `caseExampleInstruction`이
+   "examplesNeeded를 구체적으로 채워라"고만 지시하고, 이미 있는
+   `sectionType: case_example` H2 자체의 지시(line 70: "a case_example needs
+   a concrete situation, decision, and application")와 겹치지 않게 하라는
+   말이 없었다. 실측: 모델이 case_example 섹션 본문에서 "첫 사례처럼…",
+   "둘째 사례처럼…"이라며 스스로 사례를 서술한 뒤, caseExamples 항목이 거의
+   같은 소재(하루 3시간 계약자의 결근 1건)를 또 한 번 구체적으로 풀어써서
+   같은 내용을 두 번 읽게 됐다. 이미지 지시문의 "never copy sentences that
+   are already in the article"과 같은 종류의 중복 방지 문구를
+   `caseExampleInstruction`에 추가했다. 프롬프트 문장 수정이라 실제 효과는
+   다음 생성에서 확인 필요.
+
+2) 출처 라벨 4개 동일:
+   실제 데이터 확인 결과 `core/approval/ApprovalSourceLabel.ts`의
+   `distinguishingDetail()`이 페이지 `<title>`에서만 구분값을 만드는데, 이번
+   출처 4개(고용노동부 1350 상담, 서로 다른 URL)가 전부 같은 SPA 화면 제목
+   (":: 고용노동부 모바일페이지 고객센터 ::")을 가져 4개 다 "고용노동부 ·
+   모바일페이지 고객센터"로 나왔다. title → citationExcerpt → 순번의 3단계
+   대체로 고쳤다(제목이 겹치거나 빈 경우에만 다음 단계로, 값이 없는 것과
+   겹치는 것을 구분해 기존 정상 케이스는 그대로 유지). 실제 저장된 원고
+   데이터로 재실행해 4개 라벨이 전부 달라지는 것까지 확인했다.
+
+   **더 근본적인 문제(별도 조사 필요, 오늘은 진행 안 함)**: 이 4개 출처의
+   실제 답변 내용을 비교하면 사실상 같은 법 조항(주휴수당 4주 평균 15시간,
+   개근)을 표현만 바꿔 답한 근본적으로 동일한 근거다. `ApprovalEvidenceSelection.ts`의
+   중복 제거(`normalizeEvidenceSources`)는 완전히 같은 URL끼리만 중복으로
+   묶어서, "다른 URL인데 같은 사실"인 경우를 걸러내지 못한다. 라벨만 고쳐서
+   증상은 해결했지만, 왜 사실상 중복인 출처 4개가 전부 살아남아 인용됐는지는
+   아직 조사하지 않았다.
+
+검증: tsc·eslint 클린, 전체 유닛 테스트 340개 파일 2,213개 통과. 라벨
+수정은 실제 저장된 원고 데이터로 재실행해 확인 완료. caseExamples 중복
+방지는 프롬프트 문장이라 다음 실제 생성에서 확인 필요.
+
 == 2026-09-04 examplesNeeded 무검증 문제 수정 (완료, 커밋 대기 — 실제 생성으로 미검증) ==
 
 사장님이 발행한 원고(content-mtn0ukak-qwva2x, 청약저축 소득공제, 965단어)를
