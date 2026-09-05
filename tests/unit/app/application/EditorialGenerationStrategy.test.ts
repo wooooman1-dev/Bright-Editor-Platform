@@ -44,11 +44,15 @@ describe("EditorialGenerationStrategy information sufficiency target", () => {
    * 2026-09-05 실측(content-mtnqhijd-f1m7e0): caseExamples 지시문이
    * sectionType=case_example H2 자체의 지시(concrete situation, decision,
    * application)와 겹치지 않게 하라는 말이 없어, 모델이 같은 결근 사례를
-   * 본문 case_example 섹션과 caseExamples 항목에서 두 번 서술했다.
+   * 본문 case_example 섹션과 caseExamples 항목에서 두 번 서술했다. 이후
+   * content-mto0upm1-ef3773(배우자 출산휴가)에서는 sectionType=explanation인
+   * 일반 설명 섹션에서 같은 중복이 재발해, 지시를 case_example 섹션에
+   * 국한하지 않고 모든 섹션으로 넓혔다.
    */
-  it("tells the model not to repeat a scenario its own case_example section already narrates", () => {
+  it("tells the model not to repeat a scenario any section already narrates, regardless of sectionType", () => {
     const request = new EditorialGenerationStrategy().createRequest(input("deep"));
-    expect(request.instruction).toContain("do not write that same scenario again here");
+    expect(request.instruction).toContain("regardless of that section's sectionType");
+    expect(request.instruction).toContain("Applying the same rule or number to a different concrete situation or a different outcome is not repetition");
   });
 
   it("does not reintroduce a legacy length target through the Opportunity snapshot", () => {
@@ -253,6 +257,44 @@ describe("EditorialGenerationStrategy hero image guarantee", () => {
     expect(text).toContain("테스트 상황 문장");
     expect(text).toContain("테스트 판단 문장");
     expect(text).toContain("테스트 결과 문장");
+  });
+
+  /**
+   * 2026-09-05 실측(content-mto0upm1-ef3773, 배우자 출산휴가): scenario/situation이
+   * "…쓰려는 근로자"처럼 완결되지 않은 명사구로 끝나면, computation/decision과
+   * 공백만으로 이어붙여 "근로자 법정 총 20일을…"처럼 두 문장이 접속 없이
+   * 붙었다. 완결형(다/까/요/경우/때 등)으로 끝나지 않는 조각에는 "인 경우,"를
+   * 붙여 자연스럽게 잇는다.
+   */
+  it("inserts a connector when a worked example's scenario ends in a bare noun phrase instead of a complete clause", () => {
+    const withExample = JSON.stringify({
+      ...JSON.parse(response("deep")),
+      workedExamples: [{
+        afterSection: 1,
+        scenario: "출산 직후부터 법정 휴가를 모두 이어서 쓰려는 근로자",
+        computation: "법정 총 20일을 한 번의 사용분으로 배치하면 사용일수는 20일입니다",
+        result: "법정 배우자 출산휴가 20일을 한 번에 사용하는 일정으로 알릴 수 있습니다",
+      }],
+    });
+    const document = new EditorialGenerationStrategy().parse(withExample, input("deep"));
+    const text = JSON.stringify(document.blocks);
+    expect(text).toContain("출산 직후부터 법정 휴가를 모두 이어서 쓰려는 근로자인 경우, 법정 총 20일을");
+  });
+
+  it("does not add a redundant connector when the scenario already ends as a complete clause", () => {
+    const withExample = JSON.stringify({
+      ...JSON.parse(response("deep")),
+      workedExamples: [{
+        afterSection: 1,
+        scenario: "이 근로자는 4주 평균 소정근로시간이 15시간 이상입니다.",
+        computation: "개근 요건도 충족했다면",
+        result: "주휴수당이 발생합니다",
+      }],
+    });
+    const document = new EditorialGenerationStrategy().parse(withExample, input("deep"));
+    const text = JSON.stringify(document.blocks);
+    expect(text).toContain("이 근로자는 4주 평균 소정근로시간이 15시간 이상입니다. 개근 요건도 충족했다면 주휴수당이 발생합니다");
+    expect(text).not.toContain("이상입니다.인 경우");
   });
 });
 

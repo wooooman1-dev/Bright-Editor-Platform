@@ -60,7 +60,7 @@ export class EditorialGenerationStrategy implements ContentGenerationStrategy {
       ? ` This article has ${quantifiableCriticalClaims.length} CRITICAL Claim(s) stating a money, ratio, duration, or date fact: ${quantifiableCriticalClaims.map((claim) => claim.statement).join(" | ")}. Return workedExamples: for every one of these Claims, apply its number to one concrete reader scenario and show the computed result — a specific starting condition, the arithmetic or rule applied to it, and the concrete outcome in the reader's own terms. Stating the rule and calling it complete is not enough; the reader must see the number actually applied, not only quoted. Never invent a number beyond what the Claim already supplies. Measured 2026-09-04: an article that quoted "80퍼센트 이상 출근한 근로자에게 15일" verbatim but never applied it to a single scenario left the reader with the rule and nothing else, and was rejected for it.`
       : "";
     const caseExampleInstruction = target.examplesNeeded.length
-      ? ` Planning also named these example scenarios: ${target.examplesNeeded.join(" | ")}. Return caseExamples: for at least one of these scenarios, write a concrete situation, the decision or judgment it leads to, and the concrete outcome — not a one-sentence abstract mention. Measured 2026-09-04: an article named a scenario ("무주택이지만 세대주가 아닌 가입자가 공제 여부를 판단하는 사례") but only mentioned it in one abstract sentence with no concrete situation or outcome, leaving the reader without an answer for their own case. A caseExamples entry must add a scenario your sections do not already narrate concretely: if an H2 with sectionType=case_example already tells a specific situation and its outcome in its own prose, do not write that same scenario again here — pick a different named scenario instead, or leave caseExamples to the scenarios genuinely still missing. Measured 2026-09-05: an article's own case_example section already narrated a worker missing one scheduled workday, then caseExamples repeated nearly the same situation in different words right after it, so the reader read the same point twice.`
+      ? ` Planning also named these example scenarios: ${target.examplesNeeded.join(" | ")}. Return caseExamples: for at least one of these scenarios, write a concrete situation, the decision or judgment it leads to, and the concrete outcome — not a one-sentence abstract mention. Measured 2026-09-04: an article named a scenario ("무주택이지만 세대주가 아닌 가입자가 공제 여부를 판단하는 사례") but only mentioned it in one abstract sentence with no concrete situation or outcome, leaving the reader without an answer for their own case. A caseExamples entry must add a scenario no section's own prose already narrates concretely, regardless of that section's sectionType: before writing a caseExamples entry, check whether any section already tells that same situation and its outcome in its own sentences, and if so pick a different named scenario instead, or leave caseExamples to the scenarios genuinely still missing. Applying the same rule or number to a different concrete situation or a different outcome is not repetition and is genuinely useful — only restating the same situation and the same outcome in different words is repetition. Measured 2026-09-05: an ordinary explanation section (not sectionType=case_example) already narrated a worker splitting leave into an earlier and later use and recording each separately, then caseExamples repeated nearly the same situation in different words right after it, so the reader read the same point twice.`
       : "";
     return {
       instruction: `Act as one integrated Korean editorial team: Content Strategist → Writer → SEO Specialist → Senior Editor → Image Strategist → Internal Link Planner → CTA Planner. For a health topic, also act as a conservative Medical Safety Reviewer. Make one editorial pass and write the complete publishable ${input.contentType} article for ${input.platform} about: ${input.keywords.join(", ")}.
@@ -255,14 +255,10 @@ function appendPlacementBlocks(
     if (!item || typeof item !== "object" || Number((item as { afterSection?: unknown }).afterSection) !== afterSection) continue;
     const record = item as Record<string, unknown>;
     if (typeof record.result === "string" && typeof record.scenario === "string") {
-      const text = [record.scenario, record.computation, record.result]
-        .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
-        .join(" ").trim();
+      const text = joinExampleParts([record.scenario, record.computation, record.result]);
       if (text) blocks.push({ id: `worked-example-${blocks.length + index}`, type: "paragraph", text });
     } else if (typeof record.outcome === "string" && typeof record.situation === "string") {
-      const text = [record.situation, record.decision, record.outcome]
-        .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
-        .join(" ").trim();
+      const text = joinExampleParts([record.situation, record.decision, record.outcome]);
       if (text) blocks.push({ id: `case-example-${blocks.length + index}`, type: "paragraph", text });
     } else if (typeof record.alt === "string") {
       blocks.push(parseBlock({ ...record, type: "image", source: "" }, blocks.length + index));
@@ -270,6 +266,27 @@ function appendPlacementBlocks(
       blocks.push(parseBlock({ ...record, type: "button", targetUrl: typeof record.targetUrl === "string" ? record.targetUrl : "" }, blocks.length + index));
     }
   }
+}
+
+/**
+ * workedExamples/caseExamples는 situation·computation·result 같은 필드를
+ * 따로 받아 이어붙여 한 문단으로 만든다. 2026-09-05 실측(content-mto0upm1-ef3773,
+ * 배우자 출산휴가): 모델이 scenario/situation을 "…쓰려는 근로자"처럼 완결되지
+ * 않은 명사구로 끝내는 경우가 있었다. 그대로 공백만 넣어 이어붙이면 "근로자
+ * 법정 총 20일을…"처럼 두 문장이 접속사 없이 붙어 어색하다. 앞 조각이
+ * 완결된 문장(다/까/요/경우/때 등으로 끝남)이 아니면 "인 경우," 를 붙여
+ * 자연스럽게 이어지게 한다.
+ */
+function joinExampleParts(parts: readonly unknown[]): string {
+  const cleaned = parts
+    .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
+    .map((part) => part.trim());
+  if (!cleaned.length) return "";
+  const [first, ...rest] = cleaned;
+  const withoutTrailingPunctuation = first!.replace(/[.!?]+$/u, "");
+  const endsAsClause = /(?:다|요|까|죠|경우|때|함|음)$/u.test(withoutTrailingPunctuation);
+  const lead = endsAsClause ? first! : `${first}인 경우,`;
+  return [lead, ...rest].join(" ").trim();
 }
 
 function unwrapDocument(value: unknown): unknown {
