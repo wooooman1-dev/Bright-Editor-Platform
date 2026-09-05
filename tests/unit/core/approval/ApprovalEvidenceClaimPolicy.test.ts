@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   approvalEvidenceClaimFieldsForSourceUrl,
+  approvalFactMatchesPage,
   extractProfileApprovalFacts,
   requiredApprovalFactFields,
 } from "../../../../core/approval";
@@ -179,5 +180,67 @@ describe("Approval Evidence Claim Policy", () => {
       "excessiveTerminationPenalty",
       "excessPaymentRefund",
     ]);
+  });
+
+  /**
+   * 2026-09-05 실측(content-mtnqhijd-f1m7e0, 주휴수당 조건): statutoryBasis는
+   * "근로자퇴직급여보장법·근로기준법·소득세법" 중 하나를 추출하는데, 검증
+   * 신호는 "근로자퇴직급여보장법" 하나로 고정되어 있어 근로기준법을 인용한
+   * 원고는 완벽한 출처를 대도 영원히 검증되지 않았다.
+   */
+  it("verifies statutoryBasis against whichever statute the extracted fact actually names", () => {
+    const laborStandardsFact = {
+      field: "statutoryBasis",
+      value: "근로기준법상 근로자가 4주 평균하여 1주 소정근로시간이 15시간 이상이고 1주간의 소정근로일을 개근했을 때 발생합니다.",
+    };
+    const page = {
+      title: ":: 고용노동부 모바일페이지 고객센터 ::",
+      publisher: "1350.moel.go.kr",
+      text: "근로기준법 제55조제1항 등에 따라 주휴수당은 ①근로기준법상 근로자로서 …",
+    };
+    expect(approvalFactMatchesPage(page, laborStandardsFact)).toBe(true);
+
+    const retirementFact = { field: "statutoryBasis", value: "근로자퇴직급여보장법에 따라 계산합니다." };
+    expect(approvalFactMatchesPage(page, retirementFact)).toBe(false);
+  });
+
+  /**
+   * amount/exceptions는 키워드 뒤에 오는 글자를 그대로 값으로 잡는다. 2026-09-05
+   * 실측: "이 순서의 목적은 금액을 먼저 추정하는 데 있지 않습니다"에서 amount가
+   * "을 먼저 추정하는 데 있지 않습니다"를 값으로 잡아, 어떤 출처를 대도 검증될
+   * 수 없는 조각이 필수 근거로 등록됐다. "지원 대상: 만 19세 이상"처럼 흔한
+   * 정책 문구는 계속 정상 추출되어야 한다.
+   */
+  it("does not register a sentence fragment as amount when the keyword is only the object of a negated clause", () => {
+    const document: ContentDocument = {
+      ...retirementDocument(),
+      id: "weekly-holiday-pay-1",
+      title: "주휴수당 조건",
+      blocks: [
+        { id: "p1", type: "paragraph", text: "이 순서의 목적은 금액을 먼저 추정하는 데 있지 않습니다." },
+        { id: "p2", type: "paragraph", text: "지원 대상: 만 19세 이상 거주자" },
+        { id: "p3", type: "paragraph", text: "지원 금액: 100만원" },
+      ],
+    };
+    const facts = extractProfileApprovalFacts(document, "wordpress_life_economy_v1");
+    const amountValues = facts.filter((fact) => fact.field === "amount").map((fact) => fact.value);
+    expect(amountValues).toEqual(["100만원"]);
+    expect(facts.find((fact) => fact.field === "eligibility")?.value).toBe("만 19세 이상 거주자");
+  });
+
+  /** "그 주의", "여러 주의"처럼 "주(week)"+조사 "의"가 "주의사항"으로 오인되면 안 된다. */
+  it("does not mistake a week's possessive '주의' for the word 주의(사항) in exceptions", () => {
+    const document: ContentDocument = {
+      ...retirementDocument(),
+      id: "weekly-holiday-pay-2",
+      title: "주휴수당 조건",
+      blocks: [
+        { id: "p1", type: "paragraph", text: "이후 여러 주의 표가 같은 방식으로 이어졌는지 봅니다." },
+        { id: "p2", type: "paragraph", text: "주의사항: 중도해지 시 공제되지 않습니다." },
+      ],
+    };
+    const facts = extractProfileApprovalFacts(document, "wordpress_life_economy_v1");
+    const exceptionsValues = facts.filter((fact) => fact.field === "exceptions").map((fact) => fact.value);
+    expect(exceptionsValues).toEqual(["중도해지 시 공제되지 않습니다"]);
   });
 });

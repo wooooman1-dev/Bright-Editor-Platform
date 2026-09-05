@@ -23,6 +23,7 @@ export function extractProfileApprovalFactsFromText(
   const add = (field: string, value: string) => {
     const cleaned = value.replace(/https:\/\/\S+/gi, "").replace(/\s+/g, " ").replace(/[.;,]+$/g, "").trim();
     if (cleaned.length < 2 || cleaned.length > 240) return;
+    if (!isPlausibleAssertion(field, cleaned)) return;
     const key = `${field}:${normalize(cleaned)}`;
     if (!found.has(key)) found.set(key, Object.freeze({ field, value: cleaned }));
   };
@@ -60,7 +61,15 @@ export function extractProfileApprovalFactsFromText(
   collect("interimSettlement", /((?:퇴직금|퇴직급여)\s*중간\s*정산[^\n.]{0,220})/gi);
   collect("paymentDeadline", /((?:퇴직|지급)[^\n.]{0,120}14\s*일\s*이내[^\n.]{0,100})/gi);
   collect("statutoryBasis", /((?:근로자퇴직급여\s*보장법|근로기준법|소득세법)[^\n.]{0,160})/gi);
-  collect("exceptions", /(?:예외|제외|주의(?:사항)?)\s*[:：]?\s*([^\n.]{2,220})/gi);
+  /**
+   * "주의"만 두 글자로 잡으면 "그 주의", "여러 주의", "해당 주의"처럼
+   * "주(week)"+조사 "의"가 붙은 글자와 구분되지 않는다. "주(week)" 앞에 올 수
+   * 있는 관형어를 전부 나열해 막는 방법은 끝이 없다(그/매/해당/여러/몇몇/지난…).
+   * 2026-09-05 실측(content-mtnqhijd-f1m7e0): "여러 주의 표가…"가 "주의사항"
+   * 으로 오인돼 exceptions에 뜻 없는 조각이 등록됐다. "사항"까지 붙은 완전한
+   * 단어만 잡으면 이 충돌이 생기지 않는다.
+   */
+  collect("exceptions", /(?:예외|제외|주의사항)\s*[:：]?\s*([^\n.]{2,220})/gi);
 
   collect(
     "continuingTransactionDefinition",
@@ -218,8 +227,28 @@ export function approvalEvidenceClaimFieldsForSourceUrl(urlValue: string): reado
   return undefined;
 }
 
+/**
+ * statutoryBasis 추출 정규식(위 collect 호출)이 인정하는 법 이름 세 가지.
+ * 근로자퇴직급여보장법(퇴직금), 근로기준법(주휴수당 등), 소득세법(공제) 중
+ * 어느 글이 어느 법을 언급했는지는 주제마다 다르다.
+ */
+const statutoryBasisLaws: readonly string[] = Object.freeze(["근로자퇴직급여보장법", "근로기준법", "소득세법"]);
+
 export function approvalFactMatchesPage(page: ApprovalFactPage, fact: ApprovalEvidenceFact): boolean {
   const haystack = normalize(`${page.title} ${page.publisher} ${page.text}`);
+  /**
+   * statutoryBasis는 글마다 다른 법을 가리킬 수 있어 고정된 신호 하나로 볼 수
+   * 없다. 2026-09-05 실측(content-mtnqhijd-f1m7e0, 주휴수당 조건): 이 신호가
+   * "근로자퇴직급여보장법"(퇴직금 관련 법)으로 고정되어 있어서, 주휴수당
+   * 원고가 실제로 인용한 근로기준법 근거가 출처 발췌에 거의 그대로 있었는데도
+   * 영원히 검증되지 않았다. 추출한 값 자체가 어느 법을 언급했는지 먼저 보고,
+   * 그 법 이름이 출처에 있는지를 확인한다.
+   */
+  if (fact.field === "statutoryBasis") {
+    const normalizedValue = normalize(fact.value);
+    const law = statutoryBasisLaws.find((name) => normalizedValue.includes(normalize(name)));
+    if (law) return haystack.includes(normalize(law));
+  }
   const signalGroups: Readonly<Record<string, readonly string[]>> = {
     continuousServicePeriod: ["계속근로", "1년"],
     averageWage: ["평균임금", "3개월"],
@@ -228,7 +257,6 @@ export function approvalFactMatchesPage(page: ApprovalFactPage, fact: ApprovalEv
     leaveTreatment: ["휴직", "평균임금"],
     interimSettlement: ["중간정산"],
     paymentDeadline: ["14일"],
-    statutoryBasis: ["근로자퇴직급여보장법"],
     continuingTransactionDefinition: ["계속거래", "1개월", "환급", "위약금"],
     continuingTransactionArticle30Threshold: ["10만원", "3개월"],
     continuingTransactionContractDocument: ["계속거래", "계약서", "소비자", "발급"],
@@ -253,6 +281,34 @@ export function approvalFactMatchesPage(page: ApprovalFactPage, fact: ApprovalEv
   const fieldSignals = signalGroups[fact.field];
   if (fieldSignals?.length) return fieldSignals.every((signal) => haystack.includes(normalize(signal)));
   return variants(fact.value).some((value) => value.length >= 3 && haystack.includes(value));
+}
+
+/**
+ * amount/exceptions 같은 필드는 "금액", "제외" 같은 키워드 뒤에 오는 글자를
+ * 그대로 값으로 잡는다. 그 키워드가 실제로 값을 선언하는 자리가 아니라 다른
+ * 문장의 목적어로 쓰였을 뿐이면(예: "목적은 금액을 먼저 추정하는 데 있지
+ * 않습니다") 캡처가 조사 "을/를"부터 시작해 뜻 없는 조각이 남는다. 2026-09-05
+ * 실측(content-mtnqhijd-f1m7e0, 주휴수당 조건): amount 필드가
+ * "을 먼저 추정하는 데 있지 않습니다" 를 값으로 잡아, 어떤 출처를 대도 검증될
+ * 수 없는 조각이 "필수 근거"로 등록됐다.
+ */
+function isPlausibleAssertion(field: string, value: string): boolean {
+  /**
+   * "만"은 넣지 않는다. "그 정책은 저소득층만 해당됩니다"의 조사 "만"과
+   * "만 19세 이상"의 "만 나이" 표현이 똑같이 "만 " 로 시작해 구분되지 않고,
+   * 후자가 정책 글에서 훨씬 흔하다. 2026-09-05 실측: 이 목록에 "만"을 넣었더니
+   * "지원 대상: 만 19세 이상 거주자"가 통째로 걸러졌다.
+   */
+  if (/^(?:을|를|이|가|의|에|에서|에게|으로|로|와|과|도|까지|부터|보다|처럼)\s/.test(value)) return false;
+  /**
+   * 부정형으로 끝나는 것 자체는 결함이 아니다 — "예외" 필드는 "~되지
+   * 않습니다"처럼 부정형으로 예외를 서술하는 것이 정상이다(2026-09-05 실측:
+   * "주의사항: 중도해지 시 공제되지 않습니다"를 걸러내는 회귀가 있었다).
+   * amount처럼 긍정 진술(값이 얼마다)을 기대하는 필드에서만, 부정형으로
+   * 끝난다는 것이 그 필드 자체를 부정하는 별개 문장을 잘못 잡았다는 신호다.
+   */
+  if (field === "amount" && /(?:지\s*않습니다|지\s*않는다|아닙니다|아니다|없습니다|없다)$/.test(value)) return false;
+  return true;
 }
 
 function variants(value: string): readonly string[] {
