@@ -149,6 +149,41 @@ describe("primary keyword confirmation UI", () => {
     expect(marketCandidate.opportunityEvidence.some((item) => item.provider === "naverSearchTrend")).toBe(true);
   });
 
+  /**
+   * 2026-09-05 실측: CRITICAL Claim 2건을 가진 후보가 "공식 출처 · 붙음"으로
+   * 표시됐는데, 실제 생성 시점에는 웹 검색 32건 중 어느 것도 출처 요건을
+   * 통과하지 못해 그대로 실패했다. "붙음"은 기획 단계의 계획일 뿐 실제 검증이
+   * 아니므로, 이미 확보된 것처럼 보이는 완료형 문구 대신 아직 검증 전임을
+   * 분명히 밝힌다.
+   */
+  it("does not claim an official source is already attached before generation-time preflight verifies it", () => {
+    const withCriticalClaim = {
+      ...opportunities[0],
+      verificationPlan: {
+        schemaVersion: 1,
+        mode: "explicit",
+        claims: [{
+          claimId: "claim-refund-deadline",
+          atomicity: "single_assertion",
+          field: "연회비 반환 기한",
+          kind: "duration",
+          statement: "카드 해지 후 일정 기간 내 연회비를 반환해야 한다.",
+          qualifiers: { subject: "", scope: "", basis: "", note: "" },
+          temporalRequirement: { mode: "notRequired" },
+          required: true,
+          risk: "critical",
+        }],
+        fingerprint: "vfp-test",
+      },
+    } as unknown as (typeof opportunities)[number];
+
+    const html = renderToStaticMarkup(<PrimaryKeywordConfirmation customKeyword="" customKeywordSelected={false} disabled={false} onCustomKeywordChange={vi.fn()} onReanalyzeCustom={vi.fn()} onSelectCandidate={vi.fn()} onSelectCustom={vi.fn()} opportunityCandidates={[withCriticalClaim]} plan={{ ...plan, opportunityCandidates: [withCriticalClaim] }} request="신용카드 연회비 환불 기준 글을 만들어줘" selectedOpportunityId={withCriticalClaim.opportunityId} />);
+
+    expect(html).toContain("공식 출처 · 확인 필요 (1건: 연회비 반환 기한)");
+    expect(html).toContain("아직 검증 전");
+    expect(html).not.toContain("공식 출처 · 붙음");
+  });
+
   it("converts normalized confidence values to UI percentages", () => {
     expect(formatOpportunityConfidence(0)).toBe("0%");
     expect(formatOpportunityConfidence(0.91666)).toBe("92%");

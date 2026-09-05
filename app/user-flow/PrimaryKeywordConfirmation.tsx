@@ -15,20 +15,27 @@ import {
 } from "./opportunity-presentation";
 
 /**
- * 이 후보로 원고를 만들면 본문 끝에 공식 출처가 붙는지 미리 알려 준다.
+ * 이 후보로 원고를 만들면 본문 끝에 공식 출처가 붙을 필요가 있는지 미리 알려 준다.
  *
  * 카드에는 선정 근거 데이터(NAVER 검색 트렌드·Search Console)가 "데이터 출처"라는
  * 이름으로 이미 있어서, 그것이 본문 출처인 줄 읽혔다. 둘은 다른 계통이다. 시장
  * 데이터는 이 주제를 왜 골랐는지의 근거이고, 공식 출처는 본문의 사실을 뒷받침하는
- * 인용이다. 후자는 기획이 CRITICAL Claim 을 등록했을 때만 붙는다.
+ * 인용이다. 후자는 기획이 CRITICAL Claim 을 등록했을 때만 필요해진다.
+ *
+ * "붙음"이라고 단정하지 않는다. 여기서 보는 것은 기획 단계의 계획일 뿐, 그 출처가
+ * 실제 웹 검색으로 발견·검증되는지는 "생성"을 눌렀을 때 실행되는
+ * runApprovalSourcePreflight 가 그때 처음 확인한다. 2026-09-05 실측: CRITICAL
+ * Claim 2건을 들고 "공식 출처 · 붙음"으로 표시된 후보가, 실제 생성 시점에는
+ * 32개 검색 후보 중 어느 것도 출처 요건을 통과하지 못해 그대로 실패했다 — 이미
+ * 확보된 것처럼 보이는 완료형 문구가 이 결과와 어긋났다.
  */
 function officialSourceOutlook(candidate: ContentOpportunityCandidate): string {
   const claims = candidate.verificationPlan?.claims ?? [];
   const critical = claims.filter(isCriticalVerificationClaim);
   if (!critical.length) {
-    return "공식 출처 · 붙지 않음 — 이 주제에는 출처로 확인할 외부 사실이 없습니다";
+    return "공식 출처 · 필요 없음 — 이 주제에는 출처로 확인할 외부 사실이 없습니다";
   }
-  return `공식 출처 · 붙음 (${critical.length}건: ${critical.map((claim) => claim.field).join(", ")})`;
+  return `공식 출처 · 확인 필요 (${critical.length}건: ${critical.map((claim) => claim.field).join(", ")}) — 아직 검증 전이며, 생성 시 실제 출처를 찾지 못하면 실패할 수 있습니다`;
 }
 
 export function PrimaryKeywordConfirmation({
