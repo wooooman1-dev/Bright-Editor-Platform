@@ -23,7 +23,7 @@ describe("Quality Review UI compatibility normalization", () => {
   it("keeps a new planning review canonical and non-ready", () => {
     const report = new QualityEngine().review(document, { contentType: "article", platform: "tistory", primaryKeyword: "내용", searchIntent: "내용", reviewedAt: "2026-01-01T00:00:00.000Z" });
     const normalized = normalizeQualityReview(report, { currentRevisionId: report.reviewedRevisionId });
-    expect(normalized.dimensions).toHaveLength(10);
+    expect(normalized.dimensions).toHaveLength(14);
     expect(normalized.overallScore).toBeLessThan(100);
     expect(normalized.status).toBe("improvement_required");
   });

@@ -24,6 +24,8 @@ export class InternalLinkCatalogEvaluationService {
     document: ContentDocument;
     connection?: PlatformConnection;
     selectedTarget: boolean;
+    /** Posts this manuscript is already published to, so it never links to itself. */
+    ownExternalPostIds: readonly string[];
     refresh?: boolean;
   }>): Promise<ContentDocument> {
     const contextKey = internalLinkCatalogContextKey(input.content, input.connection?.id);
@@ -67,6 +69,7 @@ export class InternalLinkCatalogEvaluationService {
         input.document,
         catalog.posts,
         input.content,
+        input.ownExternalPostIds,
       );
       return applyInternalLinkCatalogResult(
         input.document,

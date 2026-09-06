@@ -19,7 +19,7 @@ describe("server-owned Opportunity Evidence classification", () => {
     const snapshot = resolveApprovalPolicySnapshot("adsense_approval", "wordpress_life_economy_v1")!;
     const contract = createApprovalRequiredEvidenceContract(original, snapshot);
     const contracted = createContentOpportunityCandidate({ ...original, requiredEvidenceContract: contract });
-    const classified = service.classifyCandidates([contracted], await service.buildPlanningBundle(data, project), data, project)[0]!;
+    const classified = service.classifyCandidates([contracted], await service.buildPlanningBundle(data, project), data, project).candidates[0]!;
     expect(classified.requiredEvidenceContract).toEqual(contract);
     expect(classified.fingerprint).toBe(createContentOpportunityCandidate({ ...classified }).fingerprint);
   });
@@ -27,7 +27,7 @@ describe("server-owned Opportunity Evidence classification", () => {
   it("allows all three candidates to be blog-growth recommendations without forced type balancing", async () => {
     const store = new InMemoryPersistenceStore(), service = new OpportunityEvidenceService(new DurableDataSourceConnectionRepository(store), new DurableProjectDataSourceReferenceRepository(store), new DurableOpportunityEvidenceRepository(store));
     const bundle = await service.buildPlanningBundle(data, project);
-    const values = service.classifyCandidates([candidate("장 건강"), candidate("혈당 건강"), candidate("수면 건강")], bundle, data, project);
+    const values = service.classifyCandidates([candidate("장 건강"), candidate("혈당 건강"), candidate("수면 건강")], bundle, data, project).candidates;
     expect(values).toHaveLength(3);
     expect(values.every((value) => value.recommendationType === "blogGrowth")).toBe(true);
     expect(values.every((value) => value.marketEvidenceStatus === "unavailable")).toBe(true);
@@ -42,7 +42,7 @@ describe("server-owned Opportunity Evidence classification", () => {
     await evidence.saveMany([createOpportunityEvidence({ workspaceId: "workspace-1", connectionId: "gsc-1", projectId: null, provider: "googleSearchConsole", evidenceType: "searchPerformance", metric: "clicks", keyword: "장 건강 방법", observedAt: new Date().toISOString(), syncedAt: new Date().toISOString(), freshness: "fresh", verified: true, value: 10, unit: "clicks", confidence: 1, limitations: ["site performance"], sourceReference: "snapshot:1", resourceScope: "query" })]);
     const withPublished: UserData = { ...data, contents: [{ id: "published-1", workspaceId: "workspace-1", projectId: "project-1", title: "장 건강 기초", body: "", status: "draft_saved", primaryKeyword: "장 건강", publishedUrl: "https://example.com/gut", updatedAt: "now" }] };
     const bundle = await service.buildPlanningBundle(withPublished, project);
-    expect(service.classifyCandidates([candidate("장 건강")], bundle, withPublished, project)[0].recommendationType).toBe("comprehensive");
+    expect(service.classifyCandidates([candidate("장 건강")], bundle, withPublished, project).candidates[0].recommendationType).toBe("comprehensive");
   });
 
   it("includes latest GSC and NAVER Evidence from Connections owned by the current Project without literal Project-name overlap", async () => {
@@ -118,7 +118,7 @@ describe("server-owned Opportunity Evidence classification", () => {
     await references.save({ workspaceId: "workspace-1", projectId: project.id, connectionId: "gsc-only", enabled: true, updatedAt: "now" });
     await evidence.saveMany([createOpportunityEvidence({ workspaceId: "workspace-1", connectionId: "gsc-only", projectId: null, provider: "googleSearchConsole", evidenceType: "searchPerformance", metric: "impressions", keyword: "장 건강", observedAt: "2026-08-05", syncedAt: new Date().toISOString(), freshness: "fresh", verified: true, value: 120, unit: "siteImpressions", confidence: 1, limitations: ["Search Console impressions are site performance, not total market demand."], sourceReference: "snapshot-gsc:row-0:impressions", resourceScope: "query" })]);
 
-    const classified = service.classifyCandidates([candidate("장 건강")], await service.buildPlanningBundle(data, project), data, project)[0];
+    const classified = service.classifyCandidates([candidate("장 건강")], await service.buildPlanningBundle(data, project), data, project).candidates[0];
     const gscEvidence = classified.opportunityEvidence.find((value) => value.provider === "googleSearchConsole");
 
     expect(gscEvidence).toMatchObject({ evidenceType: "searchPerformance", metric: "impressions" });
@@ -139,10 +139,13 @@ describe("server-owned Opportunity Evidence classification", () => {
       createOpportunityEvidence({ workspaceId: "workspace-1", connectionId: "naver-current", projectId: null, provider: "naverSearchTrend", evidenceType: "risingTrend", metric: "trendChange", keyword: "장 건강", observedAt: "2026-08-05", syncedAt: new Date().toISOString(), freshness: "fresh", verified: true, value: 0.5, relativeValue: 72, unit: "relativeChangeRate", confidence: 1, limitations: ["A rising relative trend does not establish absolute market size."], sourceReference: "snapshot-naver:row-0:rising", resourceScope: "query" }),
     ]);
 
-    const classified = service.classifyCandidates([candidate("장 건강", 0)], await service.buildPlanningBundle(data, project), data, project)[0];
+    const classified = service.classifyCandidates([candidate("장 건강", 0)], await service.buildPlanningBundle(data, project), data, project).candidates[0];
 
     expect(classified).toMatchObject({ freshness: "fresh", marketEvidenceStatus: "verified" });
-    expect(classified.confidence).toBeCloseTo((1 + 1 + 0.75) / 3);
+    // D-047: 외부 Evidence가 붙으면 외부 계층만 평균한다. 이전에는 내부
+    // content-gap(0.75)까지 함께 평균해 (1 + 1 + 0.75) / 3 이었고, 그래서 내부
+    // Evidence를 더할수록 신뢰도가 내려갔다.
+    expect(classified.confidence).toBe(1);
     expect(classified.confidence).toBeGreaterThan(0);
     expect(classified.limitations).not.toContain("외부 시장 데이터가 확인되지 않았습니다. 검색 수요는 검증되지 않았습니다.");
     expect(classified.opportunityEvidence.find((value) => value.provider === "naverSearchTrend" && value.evidenceType === "relativeTrend")).toMatchObject({ evidenceType: "relativeTrend" });
@@ -152,7 +155,7 @@ describe("server-owned Opportunity Evidence classification", () => {
     const store = new InMemoryPersistenceStore();
     const service = new OpportunityEvidenceService(new DurableDataSourceConnectionRepository(store), new DurableProjectDataSourceReferenceRepository(store), new DurableOpportunityEvidenceRepository(store));
 
-    const classified = service.classifyCandidates([candidate("장 건강", 0, "userSpecified")], [], data, project)[0];
+    const classified = service.classifyCandidates([candidate("장 건강", 0, "userSpecified")], [], data, project).candidates[0];
 
     expect(classified.confidence).toBe(0);
     expect(classified.evidenceIds).toEqual([]);
@@ -171,5 +174,25 @@ describe("server-owned Opportunity Evidence classification", () => {
     await evidence.saveMany([foreign]);
     await expect(service.assertOpportunityEvidenceBindings("workspace-1", [{ projectId: "project-1", evidenceIds: [foreign.evidenceId] }]))
       .rejects.toThrow("cross-Project");
+  });
+  /**
+   * D-047. 2026-08-19 밝은재테크 실측: 연결 4개가 정상 동기화 중이고 외부
+   * Evidence 184건이 모두 fresh인데도 「전입신고 확정일자」 후보는 매칭 0건,
+   * marketEvidenceStatus unavailable, confidence 0.75였다. 등록 키워드 월세·전세와
+   * 후보 용어가 문자열로 겹치지 않았기 때문이다.
+   */
+  it("attaches market Evidence to a candidate in the same subject area without literal keyword overlap", async () => {
+    const financeProject: UserProject = { ...project, id: "project-finance", name: "밝은재테크", description: "생활경제·재테크 콘텐츠 운영", strategy: { ...project.strategy!, primaryTopic: "밝은재테크", subtopics: ["생활경제·재테크 콘텐츠 운영"] } };
+    const financeData: UserData = { ...data, projects: [financeProject] };
+    const store = new InMemoryPersistenceStore(), connections = new DurableDataSourceConnectionRepository(store), references = new DurableProjectDataSourceReferenceRepository(store), evidence = new DurableOpportunityEvidenceRepository(store);
+    const service = new OpportunityEvidenceService(connections, references, evidence);
+    await connections.save({ id: "naver-finance", workspaceId: "workspace-1", provider: "naverSearchTrend", displayName: "NAVER", status: "ready", resourceConfiguration: { keywords: ["월세", "전세"] }, enabled: true, lastSuccessfulSyncAt: new Date().toISOString(), createdAt: "now", updatedAt: "now", version: 1 });
+    await references.save({ workspaceId: "workspace-1", projectId: financeProject.id, connectionId: "naver-finance", enabled: true, updatedAt: "now" });
+    await evidence.saveMany([createOpportunityEvidence({ workspaceId: "workspace-1", connectionId: "naver-finance", projectId: null, provider: "naverSearchTrend", evidenceType: "relativeTrend", metric: "searchTrendRatio", keyword: "월세", observedAt: "2026-08-19", syncedAt: new Date().toISOString(), freshness: "fresh", verified: true, value: 42, relativeValue: 42, unit: "relativeRatio", confidence: 1, limitations: ["NAVER ratio is relative and is not absolute search volume."], sourceReference: "snapshot-naver:row-0", resourceScope: "query" })]);
+    const housing = createContentOpportunityCandidate({ sourceRequest: "오늘의 재테크 글", selectionMode: "automatic", selectedTopic: "전입신고 확정일자 차이를 이해하고 임대차 계약 뒤에 처리할 일 정하기", primaryKeyword: "전입신고 확정일자", secondaryKeywords: ["임대차 계약"], searchIntent: "전입신고와 확정일자의 차이 확인", audience: "임차인", contentType: "guide", contentAngle: "처리 순서 안내", readerProblem: "무엇을 먼저 할지 모름", expectedCoverage: ["전입신고 절차", "확정일자 효력"], selectionRationale: "콘텐츠 공백", opportunityEvidence: [{ source: "unknown", summary: "서버 판정 전" }], confidence: 0.8, cautions: [], projectId: financeProject.id });
+    const bundle = await service.buildPlanningBundle(financeData, financeProject);
+    const classified = service.classifyCandidates([housing], bundle, financeData, financeProject).candidates[0]!;
+    expect(classified.marketEvidenceStatus).toBe("verified");
+    expect(classified.recommendationType).toBe("marketOpportunity");
   });
 });

@@ -251,8 +251,26 @@ export function verifyApprovalEvidence(
   const unverifiedFields = requiredFields.filter((field) => !verifiedFields.has(field));
   const selectedVerified = sources.filter((source) =>
     isApprovalEvidenceSelectedSource(source) && source.verified === true);
-  const verified = selectedVerified.length > 0 && unverifiedFields.length === 0;
-  const informationAsOf = extractInformationAsOf(document) ?? existing.informationAsOf;
+  /**
+   * D-045: 통과 조건은 인정 범위 안의 출처가 실제로 열렸고 그것이 원고에
+   * 채택되어 있는가이다. 사실 필드 커버리지는 진단으로만 남긴다.
+   *
+   * 안쪽 검증에서 커버리지 차단을 걷어내도 이 줄이 같은 차단을 다시 걸고
+   * 있었다. 검증 함수가 둘이고 바깥이 안쪽을 감싼다 — 한쪽만 고치면 정책이
+   * 반만 바뀐다.
+   */
+  const verified = selectedVerified.length > 0;
+  /**
+   * 정보 기준일은 시스템이 소유한다 (D-043).
+   *
+   * 예전에는 원고가 쓴 `정보 기준일` 줄을 서버가 읽어 이 값으로 삼았고, 그래서
+   * 화면에 같은 날짜가 두 번 나왔다 — 원고가 쓴 문단 하나, 시스템이 출처 영역에
+   * 찍는 줄 하나. 새 원고는 그 줄을 쓰지 않으므로 이 값도 비고, 출처 영역에는
+   * 출처 확인일만 남는다. 확인일을 그대로 기준일로 베껴 쓰면 같은 날짜를 두 이름으로
+   * 두 번 보여 주는 것이라 아무것도 더 알려 주지 않는다. 이미 저장된 원고는 본문에
+   * 그 줄이 남아 있으므로 계속 읽어 들여 기존 표시를 유지한다.
+   */
+  const informationAsOf = existing.informationAsOf ?? extractInformationAsOf(document);
   const reasons = [
     ...sources
       .filter((source) => {

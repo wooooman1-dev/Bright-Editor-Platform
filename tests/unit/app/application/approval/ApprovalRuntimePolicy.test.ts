@@ -6,6 +6,7 @@ import {
   preserveContentApprovalPolicy,
 } from "../../../../../app/application/approval/ApprovalRuntimePolicy";
 import {
+  editorialContextWithoutDiversityPolicy,
   snapshotApprovalPolicyForPlanning,
   updateProjectApprovalSettings,
 } from "../../../../../app/application/approval/ApprovalContentPolicy";
@@ -171,7 +172,8 @@ describe("ApprovalRuntimePolicy", () => {
     expect(generationContext).toContain("Content domain: 생활경제, 생활금융, 정부지원, 세금, 주거 정보");
     expect(generationContext).not.toContain("wordpress_life_economy_v1");
     expect(planningContext).toContain(peopleFirstValueAndTrustPrinciple);
-    expect(qualityReviewInstruction).toContain(generationContext);
+    expect(qualityReviewInstruction).toContain(editorialContextWithoutDiversityPolicy(generationContext));
+    expect(qualityReviewInstruction).not.toContain("formatOptions");
     expect(qualityReviewInstruction).toContain("Reader Value:");
     expect(qualityReviewInstruction).toContain("Original Contribution:");
     expect(qualityReviewInstruction).not.toMatch(/Google\s*AI\s*봇|AI\s*봇에게\s*잘\s*보이/iu);

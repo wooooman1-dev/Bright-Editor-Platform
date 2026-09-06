@@ -7,16 +7,17 @@ import { AIProviderError } from "../../../core/ai";
 import { ApprovalSourcePreflightError } from "../../../core/ai/ApprovalSourcePreflight";
 import { contentRevisionId, editorialRevisionId, evaluateQualityImprovement, evaluateQualityReviewReadiness, isStandardQualityApproved, qualityImprovementRejectionMessage, QualityEngine } from "../../../core/quality";
 import { contentOpportunityAIContext, EditorialGenerationStrategy } from "../../application/EditorialGenerationStrategy";
-import { approvalPolicySnapshotFromEditorialContext } from "../../../core/approval";
+import { approvalPolicySnapshotFromEditorialContext, withStoredEvidencePassagesInstruction } from "../../../core/approval";
 import { OpenAIProvider } from "../../application/OpenAIProvider";
 import { openAIGenerationModel, openAIReviewModel } from "../../application/OpenAIModelPolicy";
 import { contentDocumentAIContext, EditorialQualityPipeline } from "../../application/EditorialQualityPipeline";
 import { preserveCanonicalSeoMetadata } from "../../application/SeoMetadataPolicy";
 import { attachApprovalEvidenceContracts, ContentPlanningStrategy, createManualPlanningResult, ensureApprovalEvidenceContract, projectStrategyAIContext } from "../../application/ContentPlanningStrategy";
 import { approvalAwareInstruction, contentEditorialContext, preserveContentApprovalPolicy } from "../../application/approval/ApprovalRuntimePolicy";
+import { editorialContextWithoutDiversityPolicy } from "../../application/approval/ApprovalContentPolicy";
 import { TistoryPublishingAdapter } from "../../../apps/tistory/publishing/TistoryPublishingAdapter";
 import { WordPressHtmlRenderer } from "../../../apps/wordpress/WordPressHtmlRenderer";
-import { analyzeLongFormDocument, applyContentDepthPolicy, applyContentOpportunityPolicy, contentOpportunityKeywords, deriveContentTags, detectContentOpportunitySelectionMode, ensureSeoKeywordPlacement, LongFormValidationError, requiresLongFormValidation, restoreProtectedImageAssets, restoreVerifiedEditorialLinks, type ConfirmedContentOpportunity, type ContentDocument, type LongFormDiagnostic } from "../../../core/content";
+import { analyzeLongFormDocument, applyContentDepthPolicy, applyContentOpportunityPolicy, contentOpportunityKeywords, deriveContentTags, detectContentOpportunitySelectionMode, ensureSeoKeywordPlacement, LongFormValidationError, requiresLongFormValidation, restoreProtectedHeroImage, restoreProtectedImageAssets, restoreVerifiedEditorialLinks, type ConfirmedContentOpportunity, type ContentDocument, type LongFormDiagnostic } from "../../../core/content";
 import { ContentDeletionService } from "../../application/content/ContentDeletionService";
 import { applyCanonicalDocument, completeContentGeneration, completeContentPlanning, failContentPlanning, resolveProjectStrategy, startContentPlanning, updateContent, type UserData } from "../../user-flow/user-data";
 import { isPlatformEnabled, resolveWorkspaceSettings } from "../../application/settings/WorkspaceSettingsService";
@@ -25,7 +26,9 @@ import { PublicPostCatalogApplicationService } from "../../application/publishin
 import {
   applyInternalLinkCatalogResult,
   publishingCategoryIdentities,
+  withProjectDefaultPublishingCategories,
   publishingCategoryNames,
+  ownPublishedExternalPostIds,
   rankPublishingPostCandidates,
   withInternalLinkCatalogMetadata,
 } from "../../application/publishing/InternalLinkCatalogPolicy";
@@ -136,10 +139,14 @@ export async function POST(request: Request) {
         keywords,
         platform: required(input.platform) as never,
         projectId,
+        recentHeroImagePrompts: recentHeroImagePrompts(owned.contents, projectId, contentId),
         structuredLongFormOutput: true,
       });
       const generationCompletedAt = new Date();
-      const initialDocument = applyContentPolicy(await placeAvailablePublishingPosts(owned, existing, result.document), existing);
+      const heroPreservedDocument = existing.document
+        ? restoreProtectedHeroImage(existing.document, result.document)
+        : result.document;
+      const initialDocument = applyContentPolicy(await placeAvailablePublishingPosts(owned, existing, heroPreservedDocument), existing);
       const context = qualityContext(existing, initialDocument);
       const initialQuality = new QualityEngine().review(initialDocument, context);
       const generationDiagnostic = initialDocument.metadata?.generationDiagnostic
@@ -350,7 +357,7 @@ export async function POST(request: Request) {
       const keywords = current.opportunity ? contentOpportunityKeywords(current.opportunity) : resolveConfirmedGenerationKeywords(current, [input.primaryKeyword]);
       const provider = new OpenAIProvider(undefined, openAIGenerationModel());
       const response = await provider.generate({
-        instruction: approvalAwareInstruction(`Revise the canonical ContentDocument according to the user's instruction. The confirmed Content Opportunity is immutable: ${JSON.stringify(current.opportunity ?? { primaryKeyword: current.primaryKeyword, searchIntent: current.searchIntent })}. Keep the selected topic, primary keyword, search intent, secondary keywords, and expected coverage aligned as one article; never satisfy this by attaching a keyword to an unrelated title. Preserve unaffected blocks and every attached image source, assetId, ALT, prompt, purpose, and media field. For source-empty recommendations, keep each prompt grounded in its nearest H2 and make image scenes differ in at least two of subject, action, background, composition, viewpoint, or information expression. Never publish or invoke browser automation. Return the complete revised document as JSON only in {"title":"...","blocks":[...]} form.\nUser instruction: ${required(input.instruction)}\nCurrent document: ${JSON.stringify(contentDocumentAIContext(current.document))}`, data, current),
+        instruction: withStoredEvidencePassagesInstruction(approvalAwareInstruction(`Revise the canonical ContentDocument according to the user's instruction. The confirmed Content Opportunity is immutable: ${JSON.stringify(current.opportunity ?? { primaryKeyword: current.primaryKeyword, searchIntent: current.searchIntent })}. Keep the selected topic, primary keyword, search intent, secondary keywords, and expected coverage aligned as one article; never satisfy this by attaching a keyword to an unrelated title. Preserve unaffected blocks and every attached image source, assetId, ALT, prompt, purpose, and media field. For source-empty recommendations, keep each prompt grounded in its nearest H2 and make image scenes differ in at least two of subject, action, background, composition, viewpoint, or information expression. Never publish or invoke browser automation. Return the complete revised document as JSON only in {"title":"...","blocks":[...]} form.\nUser instruction: ${required(input.instruction)}\nCurrent document: ${JSON.stringify(contentDocumentAIContext(current.document))}`, data, current), current.document),
         metadata: { task: "content-revision" },
       });
       const parsed = new EditorialGenerationStrategy().parse(response.content, {
@@ -645,12 +652,13 @@ async function performPlanning(data: UserData, project: UserData["projects"][num
   const contractedPlan = approvalSnapshot
     ? attachApprovalEvidenceContracts(rawPlan, approvalSnapshot)
     : rawPlan;
-  const classified = opportunityEvidenceService.classifyCandidates(contractedPlan.opportunityCandidates ?? [], evidenceBundle, data, project)
+  const classification = opportunityEvidenceService.classifyCandidates(contractedPlan.opportunityCandidates ?? [], evidenceBundle, data, project);
+  const classified = classification.candidates
     .map((candidate) => applyContentDepthPolicy(candidate, {
       domain: rawPlan.domain,
-      projectStrategy: projectContext,
+      projectStrategy: editorialContextWithoutDiversityPolicy(projectContext),
     }));
-  const plan = withClassifiedCandidates(contractedPlan, classified);
+  const plan = withClassifiedCandidates(contractedPlan, classified, classification.excluded);
   const saved = await persistPlanningResult(data, input, plan);
   return { plan, data: saved };
 }
@@ -714,7 +722,33 @@ function opportunityFailure(quality: ReturnType<QualityEngine["review"]>): strin
 async function ownedWorkspace(workspaceId: string) {
   const data = await studioStore.get<UserData>(collection, stateId);
   if (!data?.workspace || data.workspace.id !== workspaceId) throw new Error("Workspace was not found.");
-  return data;
+  return withProjectDefaultPublishingPreparation(data);
+}
+
+/**
+ * Resolves the Project's declared publishing category onto contents that have
+ * no preparation of their own, once per request and before anything reads it.
+ *
+ * Six places ask a content which category it publishes to, and two of them —
+ * the approval persistence store and the readiness execution identity — only
+ * ever receive a content, never a Project. Passing the Project to some callers
+ * and not others would make `internalLinkCatalogContextKey` disagree with
+ * itself and the catalog would look permanently stale. Filling the content in
+ * one place keeps every reader consistent without changing any signature.
+ *
+ * This is derived on load rather than stored. Contents that already carry a
+ * preparation, or whose account has no declared default, are returned as the
+ * same object, so nothing here registers as a change to persist.
+ */
+function withProjectDefaultPublishingPreparation(data: UserData): UserData {
+  const projects = new Map(data.projects.map((project) => [project.id, project]));
+  let changed = false;
+  const contents = data.contents.map((content) => {
+    const resolved = withProjectDefaultPublishingCategories(content, projects.get(content.projectId));
+    if (resolved !== content) changed = true;
+    return resolved;
+  });
+  return changed ? Object.freeze({ ...data, contents: Object.freeze(contents) }) : data;
 }
 function ownedProject(data: UserData, projectId: string) {
   const project = data.projects.find((item) => item.id === projectId && item.workspaceId === data.workspace!.id);
@@ -729,10 +763,10 @@ async function persistServerMutation(base: UserData, next: UserData): Promise<Us
 function message(error: unknown): string { return error instanceof Error ? error.message : "Request failed."; }
 function required(value: unknown): string { if (typeof value !== "string" || !value.trim()) throw new Error("Required generation input is missing."); return value.trim(); }
 
-function withClassifiedCandidates(plan: import("../../user-flow/user-data").ContentPlanningResult, candidates: readonly import("../../../core/content").ContentOpportunityCandidate[]): import("../../user-flow/user-data").ContentPlanningResult {
+function withClassifiedCandidates(plan: import("../../user-flow/user-data").ContentPlanningResult, candidates: readonly import("../../../core/content").ContentOpportunityCandidate[], excludedOpportunities: readonly import("../../application/data-sources/OpportunityEvidenceService").ExcludedOpportunity[] = []): import("../../user-flow/user-data").ContentPlanningResult {
   const first = candidates[0];
   if (!first) throw new Error("안전 기준과 Project 정책을 통과한 Content Opportunity가 없습니다. 직접 입력한 주제라면 검색 의도와 안전 문구를 확인해 주세요.");
-  return Object.freeze({ ...plan, opportunityCandidates: Object.freeze(candidates), qualityTarget: first.qualityTarget, recommendedPrimaryKeyword: first.primaryKeyword, keywordCandidates: Object.freeze(candidates.map((value) => value.primaryKeyword)), providerSearchIntent: first.providerSearchIntent, searchIntent: first.searchIntent, recommendedContentType: first.contentType, relatedKeywords: first.secondaryKeywords, targetAudience: first.audience, contentGoal: first.contentAngle, recommendationReason: first.selectionRationale, confidence: first.confidence });
+  return Object.freeze({ ...plan, opportunityCandidates: Object.freeze(candidates), excludedOpportunities: Object.freeze(excludedOpportunities), qualityTarget: first.qualityTarget, recommendedPrimaryKeyword: first.primaryKeyword, keywordCandidates: Object.freeze(candidates.map((value) => value.primaryKeyword)), providerSearchIntent: first.providerSearchIntent, searchIntent: first.searchIntent, recommendedContentType: first.contentType, relatedKeywords: first.secondaryKeywords, targetAudience: first.audience, contentGoal: first.contentAngle, recommendationReason: first.selectionRationale, confidence: first.confidence });
 }
 
 function collectOpportunities(input: unknown): readonly import("../../../core/content").ContentOpportunityCandidate[] {
@@ -810,7 +844,8 @@ async function placeAvailablePublishingPosts(
       connection,
       selectedTarget,
     });
-    const ranked = rankPublishingPostCandidates(document, catalog.posts, content);
+    const ranked = rankPublishingPostCandidates(document, catalog.posts, content,
+      ownPublishedExternalPostIds(data, content));
     const placed = applyInternalLinkCatalogResult(document, ranked, "evaluated");
     console.info("[internal-link-trace] platform catalog evaluated", {
       cached: catalog.cached,
@@ -834,6 +869,24 @@ async function placeAvailablePublishingPosts(
     });
     return withInternalLinkCatalogMetadata(document, 0, "catalog_unavailable");
   }
+}
+
+// 같은 Project 의 최근 대표 이미지 프롬프트. 시각 계열이 반복되지 않게 하는 데만 쓴다.
+// 지금 생성 중인 Content 자신은 제외한다.
+function recentHeroImagePrompts(contents: UserData["contents"], projectId: string, contentId: string): readonly string[] {
+  return contents
+    .filter((content) => content.projectId === projectId && content.id !== contentId)
+    .map((content) => ({
+      prompt: content.document?.blocks.flatMap((block) => (
+        block.type === "image" && block.purpose === "hero" && block.prompt?.trim()
+          ? [block.prompt.trim()]
+          : []))[0] ?? "",
+      updatedAt: content.document?.metadata?.updatedAt ?? content.updatedAt ?? "",
+    }))
+    .filter((item) => Boolean(item.prompt))
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    .slice(0, 8)
+    .map((item) => item.prompt);
 }
 
 function qualityTargetFailure(quality: ReturnType<QualityEngine["review"]>): string {

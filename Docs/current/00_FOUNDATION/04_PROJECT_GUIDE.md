@@ -119,9 +119,9 @@ Rule Validation
 - Summary Card
 - Warning Card
 
-기존 Canvas 기반 썸네일 자동 생성 방식은 사용하지 않는다.
+대표 이미지는 도형과 텍스트를 합성해 만들지 않는다. 그 방식은 Bright Editor Platform의 품질 기준을 충족하지 못한다. 대표 이미지는 AI 생성, 사용자 업로드, Project 미디어 재사용으로만 만든다.
 
-단순한 도형과 텍스트 합성 방식은 Bright Editor Platform의 품질 기준을 충족하지 못하므로 신규 구현 대상에서 제외한다.
+본문 시각물은 다르다. 비교·체크리스트·요약·주의·인포그래픽은 **HTML 카드**로 그린다(`core/media/BrightBodyVisuals.ts`). 이미지 파일이 아니므로 AI 호출도 미디어 업로드도 없고, 글자가 선명하며 모바일에서 줄어들지 않는다. 막대그래프·비율 띠·단계 흐름·타임라인·좌우 비교·수치 타일이 여기에 속한다.
 
 이미지 기능은 Image Strategy Engine을 중심으로 설계하고, 향후 고품질 이미지 생성 도구 또는 디자인 도구 연동을 검토한다.
 

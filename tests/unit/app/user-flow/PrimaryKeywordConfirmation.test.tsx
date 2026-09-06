@@ -56,6 +56,30 @@ describe("primary keyword confirmation UI", () => {
     expect(html).toContain("건강 관리에 관심 있는 일반 성인");
   });
 
+  it("marks the candidate the existing manuscript was generated from", () => {
+    const html = renderToStaticMarkup(<PrimaryKeywordConfirmation customKeyword="" customKeywordSelected={false} disabled={false} generatedOpportunityId={opportunities[1].opportunityId} onCustomKeywordChange={vi.fn()} onReanalyzeCustom={vi.fn()} onSelectCandidate={vi.fn()} onSelectCustom={vi.fn()} opportunityCandidates={opportunities} plan={plan} request="장 건강 관리 글을 만들어줘" selectedOpportunityId={opportunities[1].opportunityId} />);
+
+    expect(html).toContain("이 후보로 원고 생성됨");
+    // Only the candidate that produced the article carries the badge.
+    expect(html.split("이 후보로 원고 생성됨")).toHaveLength(2);
+  });
+
+  it("says a proposed topic was dropped and why, instead of quietly showing a shorter list", () => {
+    const html = renderToStaticMarkup(<PrimaryKeywordConfirmation customKeyword="" customKeywordSelected={false} disabled={false} onCustomKeywordChange={vi.fn()} onReanalyzeCustom={vi.fn()} onSelectCandidate={vi.fn()} onSelectCustom={vi.fn()} opportunityCandidates={opportunities} plan={{ ...plan, excludedOpportunities: [{ selectedTopic: "혈당 관리", primaryKeyword: "혈당 관리 방법", reason: "이미 공개된 콘텐츠와 주제가 중복됩니다." }] }} request="장 건강 관리 글을 만들어줘" selectedOpportunityId={opportunities[0].opportunityId} />);
+
+    expect(html).toContain("이번 분석에서 제외된 주제 1개");
+    expect(html).toContain("혈당 관리");
+    expect(html).toContain("이미 공개된 콘텐츠와 주제가 중복됩니다.");
+    expect(html).toContain("2개 · 제외 1개");
+  });
+
+  it("shows no exclusion notice when every proposed topic survived", () => {
+    const html = renderToStaticMarkup(<PrimaryKeywordConfirmation customKeyword="" customKeywordSelected={false} disabled={false} onCustomKeywordChange={vi.fn()} onReanalyzeCustom={vi.fn()} onSelectCandidate={vi.fn()} onSelectCustom={vi.fn()} opportunityCandidates={opportunities} plan={plan} request="장 건강 관리 글을 만들어줘" selectedOpportunityId={opportunities[0].opportunityId} />);
+
+    expect(html).not.toContain("제외된 주제");
+    expect(html).not.toContain("이 후보로 원고 생성됨");
+  });
+
   it("does not call confirmation callbacks merely by rendering the planning result", () => {
     const onSelectCandidate = vi.fn();
     const onSelectCustom = vi.fn();
@@ -109,7 +133,8 @@ describe("primary keyword confirmation UI", () => {
     expect(html).toContain("콘텐츠 깊이 · 비교·선택 가이드");
     expect(html).toContain("콘텐츠 유형 · 실행 방법");
     expect(html).toContain("주제 복잡도 · 보통");
-    expect(html).toContain("데이터 출처 · Bright Studio 내부 데이터, NAVER 검색 트렌드");
+    expect(html).toContain("선정 근거 데이터 · Bright Studio 내부 데이터, NAVER 검색 트렌드");
+    expect(html).toContain("공식 출처 ·");
     expect(html).toContain("최신성 · 최신 · 신뢰도 92%");
     expect(html).toContain("상승 추세만으로 절대적인 시장 규모를 확정할 수 없습니다.");
     expect(html).toContain("전용 콘텐츠 라이브러리 분석은 아직 구현되지 않아 현재 프로젝트 메타데이터와 확인된 공개 URL만 사용합니다.");
@@ -122,6 +147,41 @@ describe("primary keyword confirmation UI", () => {
     expect(marketCandidate.qualityTarget.contentDepth).toBe("comparison");
     expect(marketCandidate.qualityTarget.topicComplexity).toBe("moderate");
     expect(marketCandidate.opportunityEvidence.some((item) => item.provider === "naverSearchTrend")).toBe(true);
+  });
+
+  /**
+   * 2026-09-05 실측: CRITICAL Claim 2건을 가진 후보가 "공식 출처 · 붙음"으로
+   * 표시됐는데, 실제 생성 시점에는 웹 검색 32건 중 어느 것도 출처 요건을
+   * 통과하지 못해 그대로 실패했다. "붙음"은 기획 단계의 계획일 뿐 실제 검증이
+   * 아니므로, 이미 확보된 것처럼 보이는 완료형 문구 대신 아직 검증 전임을
+   * 분명히 밝힌다.
+   */
+  it("does not claim an official source is already attached before generation-time preflight verifies it", () => {
+    const withCriticalClaim = {
+      ...opportunities[0],
+      verificationPlan: {
+        schemaVersion: 1,
+        mode: "explicit",
+        claims: [{
+          claimId: "claim-refund-deadline",
+          atomicity: "single_assertion",
+          field: "연회비 반환 기한",
+          kind: "duration",
+          statement: "카드 해지 후 일정 기간 내 연회비를 반환해야 한다.",
+          qualifiers: { subject: "", scope: "", basis: "", note: "" },
+          temporalRequirement: { mode: "notRequired" },
+          required: true,
+          risk: "critical",
+        }],
+        fingerprint: "vfp-test",
+      },
+    } as unknown as (typeof opportunities)[number];
+
+    const html = renderToStaticMarkup(<PrimaryKeywordConfirmation customKeyword="" customKeywordSelected={false} disabled={false} onCustomKeywordChange={vi.fn()} onReanalyzeCustom={vi.fn()} onSelectCandidate={vi.fn()} onSelectCustom={vi.fn()} opportunityCandidates={[withCriticalClaim]} plan={{ ...plan, opportunityCandidates: [withCriticalClaim] }} request="신용카드 연회비 환불 기준 글을 만들어줘" selectedOpportunityId={withCriticalClaim.opportunityId} />);
+
+    expect(html).toContain("공식 출처 · 확인 필요 (1건: 연회비 반환 기한)");
+    expect(html).toContain("아직 검증 전");
+    expect(html).not.toContain("공식 출처 · 붙음");
   });
 
   it("converts normalized confidence values to UI percentages", () => {

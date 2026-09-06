@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { evaluateApprovalSourceUrlSafety } from "../../../../core/approval";
+import { approvalSourceScriptRenderedView, evaluateApprovalSourceUrlSafety } from "../../../../core/approval";
 
 describe("ApprovalSourceUrlPolicy", () => {
   it.each([
@@ -43,6 +43,34 @@ describe("ApprovalSourceUrlPolicy", () => {
     for (const value of inputs) {
       expect(() => evaluateApprovalSourceUrlSafety(value)).not.toThrow();
       expect(evaluateApprovalSourceUrlSafety(value).safe).toBe(false);
+    }
+  });
+  /**
+   * 서버는 GET 한 번으로 받은 HTML만 읽는다. 2026-08-27 실측: 계약갱신요구권
+   * 원고의 수치 Claim 4개가 이 두 주소에 붙어 전부 떨어졌다.
+   */
+  it.each([
+    "https://law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1018577289",
+    "https://www.easylaw.go.kr/CSP/CnpClsMain.laf?ccfNo=4&cnpClsNo=1&popMenu=ov",
+    "https://www.easylaw.go.kr/CSP/CnpClsMain.laf",
+    "https://www.example.go.kr/popup/notice",
+    "https://www.example.go.kr/notice?popMenu=ov",
+  ])("names a viewer or popup endpoint that returns no body text: %s", (url) => {
+    expect(approvalSourceScriptRenderedView(url)).toBeDefined();
+  });
+
+  it.each([
+    "https://www.law.go.kr/법령/주택임대차보호법",
+    "https://www.law.go.kr/lsInfoP.do?lsiSeq=123456",
+    "https://www.easylaw.go.kr/CSP/CnpClsMain.do",
+    "https://www.moel.go.kr/news/notice/noticeView.do?bbs_seq=1",
+  ])("leaves an ordinary static page alone: %s", (url) => {
+    expect(approvalSourceScriptRenderedView(url)).toBeUndefined();
+  });
+
+  it("never throws for malformed viewer-endpoint input", () => {
+    for (const value of ["", "not a url", "https://", "\u0000"]) {
+      expect(() => approvalSourceScriptRenderedView(value)).not.toThrow();
     }
   });
 });

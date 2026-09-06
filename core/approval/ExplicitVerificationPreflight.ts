@@ -34,7 +34,8 @@ export function assessmentsFromExplicitDiscovery(input: Readonly<{ claims: reado
       const sourceContext = [source.title ?? "", claim.evidenceExcerpt, (source.pageText ?? "").slice(0, 2_000)].join(" ");
       const normalized = normalizeExplicitClaimValue(spec, claim.value, sourceContext);
       const plannedRawValue = spec.rawValue ? normalizeExplicitClaimValue(spec, spec.rawValue, sourceContext) : undefined;
-      const rawMatches = !spec.rawValue || Boolean(
+      const rawMatches = isOfficialLawSource(source)
+        || !spec.rawValue || Boolean(
         normalized
         && plannedRawValue
         && canonicalValue(normalized) === canonicalValue(plannedRawValue),
@@ -81,6 +82,19 @@ export function assessmentsFromExplicitDiscovery(input: Readonly<{ claims: reado
   return Object.freeze(output);
 }
 
+function isOfficialLawSource(source: ExplicitDiscoveredSource): boolean {
+  return [source.requestedUrl, source.finalUrl]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .some((value) => {
+      try {
+        const url = new URL(value);
+        return url.protocol === "https:" && url.hostname === "law.go.kr";
+      } catch {
+        return false;
+      }
+    });
+}
+
 function legacyFixtureFreshness(source: ExplicitDiscoveredSource): ReturnType<typeof evaluateVerificationTemporalEvidence> {
   if (source.fresh === true) return Object.freeze({ freshnessStatus: "fresh" as const, fresh: true, ...(source.observedAt ? { observedAt: source.observedAt } : {}), diagnostics: Object.freeze([] as string[]) });
   if (source.fresh === false) return Object.freeze({ freshnessStatus: "stale" as const, fresh: false, ...(source.observedAt ? { observedAt: source.observedAt } : {}), diagnostics: Object.freeze(["claim_stale"]) });
@@ -124,17 +138,36 @@ function freezeAssessments(values: readonly VerificationSourceAssessment[]): rea
   return Object.freeze(values.map((value) => Object.freeze({ ...value, diagnostics: Object.freeze([...value.diagnostics]) })));
 }
 
+/**
+ * 출처에서 찾은 값이 기획의 추측보다 앞선다.
+ *
+ * general·location·eligibility 세 종류만 `spec.rawValue` 가 있을 때만 찾은
+ * 값을 쓰고, 없으면 `spec.statement` 로 되돌렸다. 그런데 기획 규칙이
+ * "never include … source data" 라 `rawValue` 는 채워질 수 없다. 그래서 이
+ * 세 종류는 언제나 찾은 값을 버리고, 웹에 나가기 전에 쓴 문장을 권위 있는
+ * 값으로 만들었다.
+ *
+ * 2026-08-20 밝은재테크 실측: 청년내일저축계좌 원고의 CRITICAL Claim 4건이
+ * 전부 eligibility 였다. Preflight 가 korea.kr 에서 "만 15세 이상 ~ 39세 이하"
+ * 를 찾아 발췌까지 붙였는데, normalizedValue 는 기획이 쓴 "연령 요건은 해당
+ * 모집 공고에서 정한다" 가 됐다. 생성은 그 값을 정확히 보존하라는 지시를
+ * 받으므로 본문에도 숫자가 아니라 그 문장이 나갔다. 네 건 모두 같은 모양이다.
+ *
+ * money·date·ratio·duration·legal 은 처음부터 `text` 를 쓰고 있어 이 문제가
+ * 없다. 값을 담을 구조가 있는 종류와 자유 문자열인 종류를 다르게 다룰 이유는
+ * 없다 — 어느 쪽이든 출처에서 확인한 값이 기획의 추측보다 정확하다.
+ */
 function normalizeExplicitClaimValue(spec: VerificationClaimSpec, value: string, sourceContext = ""): VerificationSourceAssessment["normalizedValue"] {
   const text = value.normalize("NFKC").replace(/\s+/gu, " ").trim();
   if (!text) return undefined;
-  if (spec.kind === "general") return { kind: "general", value: { statement: spec.rawValue ? text : spec.statement.trim() || text } };
+  if (spec.kind === "general") return { kind: "general", value: { statement: text || spec.statement.trim() } };
   if (spec.kind === "money") return normalizeExplicitMoney(text, spec);
   if (spec.kind === "ratio") return normalizeExplicitRatio(text, spec);
   if (spec.kind === "date") return normalizeExplicitDate(text, spec);
   if (spec.kind === "dateRange") return normalizeExplicitDateRange(text);
   if (spec.kind === "duration") return normalizeExplicitDuration(text);
-  if (spec.kind === "location") return normalizeExplicitLocation(spec.rawValue ? text : spec.qualifiers.scope?.trim() || spec.statement.trim() || text);
-  if (spec.kind === "eligibility") return normalizeExplicitEligibility(spec.rawValue ? text : spec.statement.trim() || text, spec);
+  if (spec.kind === "location") return normalizeExplicitLocation(text || spec.qualifiers.scope?.trim() || spec.statement.trim());
+  if (spec.kind === "eligibility") return normalizeExplicitEligibility(text || spec.statement.trim(), spec);
   if (spec.kind === "legal") return normalizeExplicitLegal(text, spec, sourceContext);
   return undefined;
 }
@@ -142,9 +175,16 @@ function normalizeExplicitClaimValue(spec: VerificationClaimSpec, value: string,
 type MoneyBasis = "oneTime" | "daily" | "monthly" | "annual" | "total" | "perPerson" | "perHousehold";
 
 function normalizeExplicitMoney(text: string, spec: VerificationClaimSpec): VerificationSourceAssessment["normalizedValue"] {
+  const feeApplicability = normalizeFeeApplicabilityMoney(text, spec);
+  if (feeApplicability) return feeApplicability;
   const compact = text.replace(/,/gu, "");
-  const match = compact.match(/^(?:(최대|최소|이상|이하|미만|초과)\s*)?(?:(월|매월|월간|월별|연|연간|연별|매년|일|일일|매일|하루|1인당|인당|개인당|가구당|세대당|1회|일회|한\s*번)\s+)?(?:(최대|최소|이상|이하|미만|초과)\s*)?(-?\d+(?:\.\d+)?)\s*(억원|만원|천원|원|KRW|달러|USD)(?:\s*(이상|이하|미만|초과))?(?:\s*(?:\/\s*)?(월|매월|월간|월별|연|연간|연별|매년|일|일일|매일|하루|1인당|인당|개인당|가구당|세대당|1회|일회|한\s*번))?$/iu);
-  if (!match) return undefined;
+  /**
+   * 금액도 구절 안에서 찾는다. 사유는 normalizeExplicitRatio 와 같다.
+   * 단위(원·만원·억원 등)가 붙은 수치가 정확히 하나일 때만 값을 만든다.
+   */
+  const found = [...compact.matchAll(/(?:(최대|최소|이상|이하|미만|초과)\s*)?(?:(월|매월|월간|월별|연|연간|연별|매년|일|일일|매일|하루|1인당|인당|개인당|가구당|세대당|1회|일회|한\s*번)\s+)?(?:(최대|최소|이상|이하|미만|초과)\s*)?(-?\d+(?:\.\d+)?)\s*(억원|만원|천원|원|KRW|달러|USD)(?:\s*(이상|이하|미만|초과))?(?:\s*(?:\/\s*)?(월|매월|월간|월별|연|연간|연별|매년|일|일일|매일|하루|1인당|인당|개인당|가구당|세대당|1회|일회|한\s*번))?/giu)];
+  if (found.length !== 1) return undefined;
+  const match = found[0]!;
   const numeric = Number(match[4]);
   if (!Number.isFinite(numeric)) return undefined;
   const unit = (match[5] ?? "").toLocaleLowerCase("en-US");
@@ -168,9 +208,39 @@ function normalizeExplicitMoney(text: string, spec: VerificationClaimSpec): Veri
   };
 }
 
+function normalizeFeeApplicabilityMoney(text: string, spec: VerificationClaimSpec): VerificationSourceAssessment["normalizedValue"] {
+  const context = `${spec.field} ${spec.statement} ${spec.rawValue ?? ""} ${spec.qualifiers.subject ?? ""} ${spec.qualifiers.scope ?? ""} ${text}`;
+  if (!/(?:수수료|fee)/iu.test(context)) return undefined;
+  if (/(?:면제|없(?:다|음)|무료|free|waiv(?:e|ed))/iu.test(context)) return undefined;
+  if (!/(?:적용|부과|발생|청구|부담|낼\s*수|나올\s*수|may\s+(?:apply|be\s+(?:charged|incurred))|can\s+(?:apply|be\s+(?:charged|incurred)))/iu.test(context)) return undefined;
+  if (!/(?:수\s*있|가능|될\s*수|may|can)/iu.test(context)) return undefined;
+  return {
+    kind: "money",
+    value: {
+      semantic: "feeApplicability",
+      applicability: "mayApply",
+      basis: moneyBasis(spec),
+    },
+  };
+}
+
 function normalizeExplicitRatio(text: string, spec: VerificationClaimSpec): VerificationSourceAssessment["normalizedValue"] {
-  const match = text.match(/^(?:(최대|최소|이상|이하|미만|초과)\s*)?(-?\d+(?:\.\d+)?)\s*(%p|%|퍼센트포인트|퍼센트)(?:\s*(이상|이하|미만|초과))?$/iu);
-  if (!match) return undefined;
+  /**
+   * 구절 안에서 비율을 찾는다.
+   *
+   * 이 정규식은 문자열 처음과 끝을 묶어 값 전체가 숫자여야만 통과했다. 그런데
+   * Preflight 에 내린 지시는 "발췌 안의 가장 짧은 축약되지 않은 사실 구절" 을
+   * 값으로 달라는 것이다 — 구절을 요구해 놓고 파서는 숫자만 받았다. 2026-08-26
+   * 밝은재테크 실측: 선택약정 할인율 Claim 이 claim_normalization_failed 로 값을
+   * 잃었고, 원고에 숫자가 하나도 나가지 않았다.
+   *
+   * 단위가 붙은 수치를 구절 어디서든 찾는다. 단위를 기준으로 고르므로
+   * "24개월 약정 시 25% 할인" 에서 24 를 집지 않는다. 단위가 같은 수치가 둘
+   * 이상이면 ("25% 또는 20%") 값을 만들지 않는다 — 잘못 고르느니 비운다.
+   */
+  const found = [...text.matchAll(/(?:(최대|최소|이상|이하|미만|초과)\s*)?(-?\d+(?:\.\d+)?)\s*(%p|%|퍼센트포인트|퍼센트)(?:\s*(이상|이하|미만|초과))?/giu)];
+  if (found.length !== 1) return undefined;
+  const match = found[0]!;
   const numeric = Number(match[2]);
   if (!Number.isFinite(numeric)) return undefined;
   const unit = (match[3] ?? "").toLocaleLowerCase("ko-KR");

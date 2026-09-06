@@ -190,7 +190,7 @@ describe("current WordPress source regression", () => {
     expect(result.document.blocks).toContainEqual(expect.objectContaining({
       id: "approval-source-link-1",
       targetUrl: canonicalUrl,
-      label: "방문판매 등에 관한 법률 제30조·제32조 · 국가법령정보센터",
+      label: "국가법령정보센터",
       ownership: "system_source_projection",
     }));
     expect(result.quality).toMatchObject({ approved: true, approvalType: "standard" });
@@ -198,7 +198,7 @@ describe("current WordPress source regression", () => {
     expect(approvalQuality.approvalReadiness?.checks).toContainEqual(expect.objectContaining({ key: "standard_quality", status: "passed" }));
     expect(approvalQuality.approvalReadiness?.checks).toContainEqual(expect.objectContaining({ key: "evidence", status: "passed" }));
     expect(approvalQuality.approvalReadiness?.checks).toContainEqual(expect.objectContaining({ key: "site_readiness", status: "needs_review" }));
-    expect(html).toContain('<a class="wp-block-button__link" href="https://law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202&amp;lsJoLnkSeq=1025033501"');
+    expect(html).toContain('<ul class="bright-sources"><li><a href="https://law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202&amp;lsJoLnkSeq=1025033501"');
     expect(html).not.toContain("(law.go.kr)");
     expect(html).not.toContain(`출처: ${documentUrl}`);
     expect(evaluateHtmlIntegrity(result.document, html)).toEqual({ passed: true, issues: [] });

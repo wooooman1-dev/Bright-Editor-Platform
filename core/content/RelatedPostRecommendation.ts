@@ -2,14 +2,25 @@ import type { ContentDocument } from "./ContentDocument";
 
 export type PublicPostCandidate = Readonly<{ externalPostId: string; title: string; publishedUrl: string; categoryId?: string; categoryName?: string; publishedAt?: string; excerpt?: string; keywords?: readonly string[]; viewCount?: number }>;
 
-export function rankRelatedPosts(document: ContentDocument, candidates: readonly PublicPostCandidate[], context: Readonly<{ primaryKeyword?: string; categoryId?: string | null; categoryName?: string }> = {}): readonly PublicPostCandidate[] {
+/**
+ * `excludeExternalPostIds` carries the Posts that ARE this manuscript. Once an
+ * article is published it joins the public post catalog, so without this it can
+ * be ranked as the top candidate for its own internal link. Observed on
+ * brightjaetech.kr 2026-08-29: two published articles linked to themselves.
+ */
+export function rankRelatedPosts(document: ContentDocument, candidates: readonly PublicPostCandidate[], context: Readonly<{ primaryKeyword?: string; categoryId?: string | null; categoryName?: string; excludeExternalPostIds?: readonly string[] }> = {}): readonly PublicPostCandidate[] {
   const categoryIdentity = resolveCategoryIdentity(context.categoryId, context.categoryName);
   if (!categoryIdentity) return Object.freeze([]);
+  const excluded = new Set((context.excludeExternalPostIds ?? []).flatMap((id) => {
+    const trimmed = id?.trim();
+    return trimmed ? [trimmed] : [];
+  }));
   const used = new Set(document.blocks.flatMap((block) => block.type === "button" && block.targetUrl ? [normalizeUrl(block.targetUrl)] : []));
   const unique = new Map<string, PublicPostCandidate>();
 
   for (const candidate of candidates) {
     const normalizedUrl = normalizeUrl(candidate.publishedUrl);
+    if (excluded.has(candidate.externalPostId?.trim())) continue;
     if (!sameCategory(candidate, categoryIdentity)) continue;
     if (!candidate.title.trim() || !validPublicUrl(candidate.publishedUrl) || used.has(normalizedUrl) || unique.has(normalizedUrl)) continue;
     unique.set(normalizedUrl, candidate);

@@ -1,6 +1,7 @@
 import type { ContentDocument } from "./ContentDocument";
 import {
   determineContentPlanQualityTarget,
+  effectiveContentDepth,
   type ContentPlanQualityTarget,
   type ContentSectionType,
   type ContentTargetRange,
@@ -12,6 +13,7 @@ import {
   structuredListItems,
   structuredProseText,
   structuredTableCount,
+  structuredTableRowCounts,
 } from "./StructuredText";
 
 export type InformationSufficiencyStatus = "missing" | "mentioned" | "sufficient";
@@ -21,6 +23,8 @@ export type LongFormViolationCode =
   | "CONTENT_REQUIRED_ELEMENT_MISSING"
   | "CONTENT_REQUIRED_ELEMENT_INSUFFICIENT"
   | "CONTENT_REPETITION_DETECTED"
+  | "CONTENT_SECTION_PROSE_INSUFFICIENT"
+  | "CONTENT_DECLARED_COMPARISON_MISSING"
   /** Legacy diagnostic codes remain readable but are never newly generated. */
   | "CONTENT_TOTAL_BELOW_SAFETY_FLOOR"
   | "CONTENT_BELOW_PLANNING_TARGET"
@@ -32,6 +36,12 @@ export type LongFormSectionDiagnostic = Readonly<{
   sectionType: ContentSectionType;
   /** Telemetry only. Never used for quality or approval. */
   proseCharacters: number;
+  /**
+   * Characters of running prose only: tables and list items are removed before
+   * counting, so this is what the section actually writes out rather than
+   * tabulates.
+   */
+  narrativeCharacters: number;
   listItemCount: number;
   tableCount: number;
   informationElementCount: number;
@@ -52,6 +62,8 @@ export type LongFormDiagnostic = Readonly<{
   actualTotalProseCharacters: number;
   /** Backward-compatible telemetry alias. */
   totalProseCharacters: number;
+  /** Running prose only, with tables and list items excluded. */
+  narrativeCharacters: number;
   actualSectionCount: number;
   /** Backward-compatible telemetry alias. */
   headingCount: number;
@@ -129,7 +141,21 @@ export function analyzeLongFormDocument(document: ContentDocument, requestedTarg
     if (section.completeness !== "sufficient") {
       violations.push({ code: "CONTENT_INCOMPLETE_SECTION", heading: section.heading, actual: section.informationElementCount });
     }
+    if (!sectionNarrativeSufficient(section)) {
+      violations.push({
+        code: "CONTENT_SECTION_PROSE_INSUFFICIENT",
+        heading: section.heading,
+        minimum: minimumNarrativeFor(section.sectionType),
+        actual: section.narrativeCharacters,
+      });
+    }
   }
+  if (!declaredComparisonRealized(target, sections, sectionDetails)) {
+    violations.push({ code: "CONTENT_DECLARED_COMPARISON_MISSING", actual: 0 });
+  }
+  const narrativeTotal = sections.reduce((sum, section) => sum + section.narrativeCharacters, 0)
+    + withoutWhitespace(introductionText)
+    + withoutWhitespace(conclusionText);
   for (const item of requiredContentElements) {
     if (item.status === "missing") violations.push({ code: "CONTENT_REQUIRED_ELEMENT_MISSING", requiredElement: item.element, actual: 0 });
     if (item.status === "mentioned") violations.push({ code: "CONTENT_REQUIRED_ELEMENT_INSUFFICIENT", requiredElement: item.element, actual: 1 });
@@ -140,6 +166,7 @@ export function analyzeLongFormDocument(document: ContentDocument, requestedTarg
     ...(violations[0] ? { code: violations[0].code } : {}),
     actualTotalProseCharacters: total,
     totalProseCharacters: total,
+    narrativeCharacters: narrativeTotal,
     actualSectionCount: sections.length,
     headingCount: sections.length,
     introductionCharacters: withoutWhitespace(introductionText),
@@ -204,6 +231,53 @@ export function normalizeGeneratedSectionSemantics(
   });
 }
 
+/**
+ * Drops long-form structure entries that point at blocks the document no longer
+ * has.
+ *
+ * `longFormStructure` addresses content by block ID, so any stage that removes a
+ * block leaves the structure describing an article that no longer exists. The
+ * factual-Claim inventory is such a stage, and the desync is not theoretical:
+ * the 대출 상환방식 비교 article shipped with one dangling ID and the 정부지원금
+ * article with five. Everything that reads the structure — section diagnostics,
+ * the deterministic renderer, section-type ownership — then works from a map of
+ * blocks that are not there, so section prose measures short and the renderer
+ * silently skips content.
+ *
+ * A section whose heading is gone is dropped whole: a section entry without its
+ * heading cannot be rendered or measured as a section.
+ */
+export function pruneLongFormStructure(document: ContentDocument): ContentDocument {
+  const structure = document.metadata?.longFormStructure;
+  if (!structure || !document.metadata) return document;
+  const present = new Set(document.blocks.map((block) => block.id));
+  const introductionBlockIds = structure.introductionBlockIds.filter((id) => present.has(id));
+  const conclusionBlockIds = structure.conclusionBlockIds.filter((id) => present.has(id));
+  const sections = structure.sections
+    .filter((section) => present.has(section.headingBlockId))
+    .map((section) => Object.freeze({
+      ...section,
+      paragraphBlockIds: Object.freeze(section.paragraphBlockIds.filter((id) => present.has(id))),
+    }));
+  const unchanged = introductionBlockIds.length === structure.introductionBlockIds.length
+    && conclusionBlockIds.length === structure.conclusionBlockIds.length
+    && sections.length === structure.sections.length
+    && sections.every((section, index) =>
+      section.paragraphBlockIds.length === structure.sections[index]!.paragraphBlockIds.length);
+  if (unchanged) return document;
+  return Object.freeze({
+    ...document,
+    metadata: Object.freeze({
+      ...document.metadata,
+      longFormStructure: Object.freeze({
+        introductionBlockIds: Object.freeze(introductionBlockIds),
+        sections: Object.freeze(sections),
+        conclusionBlockIds: Object.freeze(conclusionBlockIds),
+      }),
+    }),
+  });
+}
+
 export function requiresLongFormValidation(document: ContentDocument): boolean {
   return Boolean(document.metadata?.qualityTarget || document.metadata?.longFormStructure)
     || document.blocks.some((block) => block.type === "heading" && block.level === 2);
@@ -227,21 +301,42 @@ export function formatLongFormDiagnostic(diagnostic: LongFormDiagnostic): string
   if (item.code === "CONTENT_REQUIRED_ELEMENT_MISSING") return `CONTENT_REQUIRED_ELEMENT_MISSING: ${item.requiredElement ?? "required element"}.`;
   if (item.code === "CONTENT_REQUIRED_ELEMENT_INSUFFICIENT") return `CONTENT_REQUIRED_ELEMENT_INSUFFICIENT: ${item.requiredElement ?? "required element"} was only mentioned.`;
   if (item.code === "CONTENT_REPETITION_DETECTED") return `CONTENT_REPETITION_DETECTED: ${item.actual} repeated paragraph pattern(s).`;
+  if (item.code === "CONTENT_DECLARED_COMPARISON_MISSING") return "CONTENT_DECLARED_COMPARISON_MISSING: the plan asked for a comparison and no section performs one.";
+  if (item.code === "CONTENT_SECTION_PROSE_INSUFFICIENT") return `CONTENT_SECTION_PROSE_INSUFFICIENT: "${item.heading ?? "제목 없음"}" leans on a table or list with only ${item.actual} characters of prose.`;
   return `${item.code}: legacy length diagnostic.`;
 }
 
-function sectionDiagnostic(heading: string, sectionType: ContentSectionType, text: string, target: ContentPlanQualityTarget): LongFormSectionDiagnostic {
+/**
+ * A role the writer declared is a contract the section must honour. A role
+ * guessed from heading vocabulary is not: Korean life-economy headings can
+ * hardly avoid 비교, 차이, 방법 or 기준, so enforcing structure on the guess makes
+ * the heading dictate the body and every article converge on the same shape.
+ * Guessed roles still carry their information-element minimum; only the
+ * structural promise is withheld.
+ */
+type SectionRoleSource = "declared" | "inferred";
+
+function sectionDiagnostic(
+  heading: string,
+  sectionType: ContentSectionType,
+  text: string,
+  target: ContentPlanQualityTarget,
+  roleSource: SectionRoleSource = "declared",
+): LongFormSectionDiagnostic {
   const normalizedText = normalizeStructuredText(text);
   const listItemCount = structuredListItems(normalizedText).length;
   const tableCount = structuredTableCount(text);
-  const sentenceElements = informationSentenceCount(structuredProseText(normalizedText));
-  const informationElementCount = sentenceElements + listItemCount + tableCount * 3;
+  const narrative = structuredProseText(normalizedText);
+  const narrativeCharacters = withoutWhitespace(narrative);
+  const sentenceElements = informationSentenceCount(narrative);
+  const informationElementCount = sentenceElements + listItemCount + tableInformationElements(text);
   const guidance = target.sectionGuidance[sectionType];
-  const structureSatisfied =
-    (sectionType === "checklist" ? listItemCount >= guidance.minimumListItems || informationElementCount >= guidance.minimumInformationElements + 1 : true)
+  const binding = roleSource === "declared";
+  const structureSatisfied = !binding
+    || ((sectionType === "checklist" ? listItemCount >= guidance.minimumListItems || informationElementCount >= guidance.minimumInformationElements + 1 : true)
     && (sectionType === "steps" ? orderedListItemCount(normalizedText) >= guidance.minimumListItems || orderedActionSignals(normalizedText) >= 3 : true)
     && (sectionType === "comparison" ? tableCount > 0 || comparisonSignals(normalizedText) >= 3 : true)
-    && (sectionType === "faq" ? questionAnswerSignals(normalizedText) >= 2 : true);
+    && (sectionType === "faq" ? questionAnswerSignals(normalizedText) >= 2 : true));
   const completeness: InformationSufficiencyStatus = !normalizedText
     ? "missing"
     : informationElementCount >= guidance.minimumInformationElements && structureSatisfied ? "sufficient" : "mentioned";
@@ -249,12 +344,93 @@ function sectionDiagnostic(heading: string, sectionType: ContentSectionType, tex
     heading,
     sectionType,
     proseCharacters: withoutWhitespace(normalizedText),
+    narrativeCharacters,
     listItemCount,
     tableCount,
     informationElementCount,
     completeness,
     expectedGuidance: guidance.expectedRole,
   });
+}
+
+/**
+ * A section carried by a table is not an explained section. A four-row table is
+ * worth four information elements while sections need two to four, so without
+ * this a table and two short sentences cleared the gate and the article had
+ * nothing to read. Sections whose role is inherently structural are exempt: a
+ * checklist is meant to be a list.
+ */
+const minimumSectionNarrativeCharacters = 400;
+/**
+ * Checklist, steps and FAQ sections are meant to be lists, so they are held to
+ * a lower floor rather than exempted. Exempting them left the same hole in a
+ * different shape: eight checklist items above fifty characters of prose
+ * explains nothing about why those items matter.
+ */
+const minimumListShapedNarrativeCharacters = 250;
+const listShapedSectionTypes = new Set<ContentSectionType>(["checklist", "steps", "faq"]);
+
+/**
+ * The floors the generation and review prompts must quote. They were written
+ * into three prompt strings as literals, and a manuscript is rejected against
+ * this module rather than against those strings, so the numbers are published
+ * here instead of being retyped where they can silently drift apart.
+ */
+/**
+ * 글 한 편이 얕지 않다고 말할 수 있는 최소 산문 분량.
+ *
+ * 지금까지 발행을 막는 기준은 "구조 진단 위반이 1건이라도 있는가"였다. 그래서
+ * 5,074자짜리 원고가 한 섹션 10자 부족(minimum 250 / actual 240)으로 멈췄고,
+ * 비교표를 약속했다가 산문으로 대신한 글도 같은 취급을 받았다. 섹션 단위 미달은
+ * 글의 균형 문제이지 글이 얕다는 뜻이 아니다.
+ *
+ * 애드센스가 실제로 거부하는 것은 얕은 글이므로, 차단은 글 전체 분량 하나로
+ * 옮긴다. 2,000자는 실측 기준이다 — 통과한 원고들의 본문 산문이 4,388~5,074자
+ * 였고, 그 절반 아래면 주제를 설명했다고 보기 어렵다.
+ */
+export const longFormArticleNarrativeFloor = 2_000;
+
+export const longFormNarrativeFloors = Object.freeze({
+  standard: minimumSectionNarrativeCharacters,
+  listShaped: minimumListShapedNarrativeCharacters,
+  listShapedSectionTypes: Object.freeze([...listShapedSectionTypes]),
+  article: longFormArticleNarrativeFloor,
+});
+
+function minimumNarrativeFor(sectionType: ContentSectionType): number {
+  return listShapedSectionTypes.has(sectionType)
+    ? minimumListShapedNarrativeCharacters
+    : minimumSectionNarrativeCharacters;
+}
+
+function sectionNarrativeSufficient(section: LongFormSectionDiagnostic): boolean {
+  if (!section.tableCount && !section.listItemCount) return true;
+  return section.narrativeCharacters >= minimumNarrativeFor(section.sectionType);
+}
+
+/**
+ * A plan that declares `comparison` depth, or names comparison needs, is
+ * promising the reader a comparison. An article was accepted with
+ * `contentDepth: comparison` and `comparisonNeeds` of three while containing no
+ * comparison section at all: with `tableNeeds` false there was no table
+ * requirement to fail, and a comparison that is never attempted is never
+ * checked.
+ *
+ * A section satisfies this by declaring the role or by actually contrasting
+ * things in its body, so this asks for the comparison rather than for a
+ * particular structure — the distinction `116a700` drew between a role a writer
+ * declares and one guessed from a heading.
+ */
+function declaredComparisonRealized(
+  target: ContentPlanQualityTarget,
+  sections: readonly LongFormSectionDiagnostic[],
+  sectionDetails: readonly SectionWithText[],
+): boolean {
+  const promised = effectiveContentDepth(target.contentDepth) === "comparison"
+    || target.comparisonNeeds.length > 0;
+  if (!promised || !sections.length) return true;
+  return sections.some((section, index) => section.sectionType === "comparison"
+    || comparisonSignals(normalizeStructuredText(sectionDetails[index]?.text ?? "")) >= 3);
 }
 
 function inferSections(document: ContentDocument, target: ContentPlanQualityTarget): SectionWithText[] {
@@ -264,7 +440,7 @@ function inferSections(document: ContentDocument, target: ContentPlanQualityTarg
   const flush = () => {
     if (!heading) return;
     const joined = normalizeStructuredText(text.join("\n"));
-    result.push(Object.freeze({ text: joined, diagnostic: sectionDiagnostic(heading, inferSectionType(heading), joined, target) }));
+    result.push(Object.freeze({ text: joined, diagnostic: sectionDiagnostic(heading, inferSectionType(heading), joined, target, "inferred") }));
   };
   for (const block of document.blocks) {
     if (block.type === "heading" && block.level === 2) {
@@ -327,8 +503,29 @@ function roleStatus(text: string, minimumElements: number, signal?: RegExp): Inf
   if (signal && !signal.test(normalizedText)) return "mentioned";
   const elements = informationSentenceCount(structuredProseText(normalizedText))
     + structuredListItems(normalizedText).length
-    + structuredTableCount(text) * 3;
+    + tableInformationElements(text);
   return elements >= minimumElements ? "sufficient" : "mentioned";
+}
+
+/**
+ * A table used to be worth a flat three elements however many rows it held, so
+ * a one-row table and a ten-row rate table counted the same, and a repair that
+ * emptied a table down to a single row left the score untouched and the loss
+ * invisible to `detectEditorialReviewRegression`.
+ *
+ * The weight is now the data rows. It is floored at two so a table is never
+ * worth less than the fact it states, and capped at six so a long reference
+ * table cannot carry a section that says nothing around it — the section
+ * minimums run from two to four, and a table alone is not a section.
+ */
+const minimumTableElements = 2;
+const maximumTableElements = 6;
+
+function tableInformationElements(text: string): number {
+  return structuredTableRowCounts(text).reduce(
+    (sum, dataRows) => sum + Math.min(maximumTableElements, Math.max(minimumTableElements, dataRows)),
+    0,
+  );
 }
 
 function termCoverage(requirement: string, text: string): boolean {
@@ -359,7 +556,13 @@ function orderedActionSignals(text: string): number {
 function orderedListItemCount(text: string): number {
   return [...normalizeStructuredText(text).matchAll(/(?:^|\n)\s*\d+[.)]\s+[^\n]+/gm)].length;
 }
-function comparisonSignals(text: string): number { return count(text, /비교|차이|장점|단점|반면|기준|선택|적합/g); }
+/**
+ * 기준, 선택 and 적합 were counted here but are not evidence of a comparison;
+ * ordinary life-economy prose clears three of them without comparing anything,
+ * which let a section claim the role while only naming it. What remains either
+ * contrasts two things or states a difference.
+ */
+function comparisonSignals(text: string): number { return count(text, /비교|차이|장점|단점|반면/g); }
 function questionAnswerSignals(text: string): number { return count(text, /\?|질문|답변|Q[:.]|A[:.]/gi); }
 
 function repetitionSignals(paragraphs: readonly string[]): string[] {

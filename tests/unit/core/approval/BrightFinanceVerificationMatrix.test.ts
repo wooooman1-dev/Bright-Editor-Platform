@@ -196,7 +196,12 @@ describe("Bright Finance explicit verification matrix", () => {
     });
   }
 
-  it("fails closed when one required finance Claim changes to an unsupported source value", () => {
+  /**
+   * 기획 rawValue 와 출처 값이 다르면 출처를 따른다 (50656c7). 기획은 웹에
+   * 나가지 못하므로 rawValue 는 추측이고, 원고에 들어가는 값은 출처 것이다.
+   * 어긋난 사실은 claim_raw_value_mismatch 진단으로 남는다.
+   */
+  it("records a changed source value as a difference instead of refusing it", () => {
     const scenario = scenarios[0]!;
     const sources = institutions.map((institution, sourceIndex) => {
       const claims = scenario.claims.map((claim): ExplicitDiscoveredClaim => {
@@ -225,11 +230,11 @@ describe("Bright Finance explicit verification matrix", () => {
       assessment.role === "primaryOfficial"
       && assessment.diagnostics.includes("claim:support-money"));
 
-    expect(changedPrimary?.supports).toBe(false);
+    expect(changedPrimary?.supports).toBe(true);
     expect(changedPrimary?.diagnostics).toContain("claim_raw_value_mismatch");
   });
 
-  it("does not equate a monthly planned amount with an explicitly annual source amount", () => {
+  it("records a monthly planned amount against an explicitly annual source amount", () => {
     const monthly = currentClaim(
       "monthly-support",
       "지원 금액",
@@ -252,8 +257,9 @@ describe("Bright Finance explicit verification matrix", () => {
       now: () => OBSERVED_AT,
     });
 
-    expect(assessment?.supports).toBe(false);
+    expect(assessment?.supports).toBe(true);
     expect(assessment?.diagnostics).toContain("claim_raw_value_mismatch");
+    expect(assessment?.normalizedValue).toMatchObject({ kind: "money", value: { basis: "annual" } });
   });
 });
 

@@ -78,8 +78,10 @@ export {
   assertLongFormDocument,
   assertLongFormSafetyTarget,
   formatLongFormDiagnostic,
+  longFormNarrativeFloors,
   LongFormValidationError,
   normalizeGeneratedSectionSemantics,
+  pruneLongFormStructure,
   requiresLongFormValidation,
   type LongFormDiagnostic,
   type LongFormSectionDiagnostic,
@@ -88,7 +90,7 @@ export {
 export { deriveContentTags } from "./ContentTags";
 export { placeRecommendedPosts, rankRelatedPosts, type PublicPostCandidate } from "./RelatedPostRecommendation";
 export { restoreProtectedEditorialMetadata } from "./ProtectedEditorialMetadata";
-export { restoreProtectedImageAssets } from "./ProtectedImageAssets";
+export { restoreProtectedImageAssets, restoreProtectedHeroImage } from "./ProtectedImageAssets";
 export { isVerifiedEditorialLink, restoreVerifiedEditorialLinks } from "./ProtectedEditorialLinks";
 export { buildReadableSeoTitle, ensureSeoKeywordPlacement, normalizeSeoKeyword, titleContainsPrimaryKeyword } from "./SeoKeywordPlacement";
 export type { ContentMetrics } from "./ContentMetrics";
@@ -115,7 +117,13 @@ export type {
   HeadingBlock,
   HeadingLevel,
 } from "./blocks/HeadingBlock";
-export type { ImageBlock, ImageBlockPurpose, ImageBlockSourceType } from "./blocks/ImageBlock";
+export type {
+  BrightVisualDatum,
+  BrightVisualShape,
+  ImageBlock,
+  ImageBlockPurpose,
+  ImageBlockSourceType,
+} from "./blocks/ImageBlock";
 export type { ListBlock, ListBlockStyle } from "./blocks/ListBlock";
 export type { ParagraphBlock } from "./blocks/ParagraphBlock";
 export type { TableBlock } from "./blocks/TableBlock";
@@ -139,3 +147,16 @@ export {
   ContentOptimizer,
   type ContentOptimizerOptions,
 } from "./processors/ContentOptimizer";
+export {
+  buildEditorialRepetitionContext,
+  defaultRecentEditorialPatternCount,
+  recentEditorialPattern,
+  type EditorialRepetitionContext,
+  type RecentEditorialPattern,
+} from "./EditorialRepetitionContext";
+export {
+  editorialFormatOptionsFor,
+  lifeEconomyEditorialFormatOptions,
+  type EditorialFormatOption,
+  type EditorialFormatOptionSet,
+} from "./EditorialFormatOptions";

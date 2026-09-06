@@ -86,7 +86,11 @@ describe("runApprovalSourcePreflight explicit integration", () => {
     });
   });
 
-  it("persists provider diagnostics and Claim-ID coverage when explicit coverage is incomplete", async () => {
+  /**
+   * D-045: 커버리지가 비어도 생성을 막지 않는다. 무엇이 비었는지는 결과의
+   * coverage 로 남는다.
+   */
+  it("reports incomplete Claim coverage in the result instead of rejecting", async () => {
     const secondClaim: VerificationClaimSpec = {
       ...claim,
       claimId: "claim-second",
@@ -94,70 +98,33 @@ describe("runApprovalSourcePreflight explicit integration", () => {
       kind: "general",
       statement: "지원 기간은 공식 안내에서 확인해야 한다.",
     };
-    const providerDiagnostics: AIResponse["diagnostics"] = {
-      stage: "source_preflight",
-      completionStatus: "completed",
-      responseId: "preflight-coverage-fixture",
-      configuredMaxOutputTokens: 4_000,
-      inputTokens: 120,
-      outputTokens: 240,
-      reasoningTokens: 0,
-      webSearchCalls: 1,
-      structuredOutputPresent: true,
-    };
-    const provider = new FixtureProvider(
-      [source(urls[0])],
-      { ...providerDiagnostics, webSources: [{ url: urls[0], provenance: "search_candidate" }] },
-    );
-    await expect(runApprovalSourcePreflight({
+    const provider = new FixtureProvider([source(urls[0])]);
+    const result = await runApprovalSourcePreflight({
       provider,
       snapshot,
       opportunity: ensureApprovalEvidenceContract(opportunity([claim, secondClaim]), snapshot),
       platform: "wordpress",
       contentType: "article",
       fetcher: async () => page(),
-    })).rejects.toMatchObject({
-      providerDiagnostics: expect.objectContaining({
-        responseId: "preflight-coverage-fixture",
-        stage: "source_preflight",
-        completionStatus: "completed",
-      }),
-      diagnostic: expect.objectContaining({
-        preflightResponseId: "preflight-coverage-fixture",
-        requiredClaimIds: ["claim-amount", "claim-second"],
-        coveredClaimIds: ["claim-amount"],
-        missingClaimIds: ["claim-second"],
-        coverageSources: [expect.objectContaining({
-          supportingClaimIds: ["claim-amount"],
-          rejectedClaimIds: ["claim-second"],
-        })],
-      }),
     });
+    expect(result.coverage?.status).toBe("incomplete");
+    expect(result.sources.length).toBeGreaterThan(0);
   });
 
-  it("keeps source semantic diagnostics aligned with the aggregate when semantic verification fails", async () => {
-    const provider = new FixtureProvider(
-      [source(urls[0], "100留뚯썝")],
-      { webSources: [{ url: urls[0], provenance: "search_candidate" }] },
-    );
-    await expect(runApprovalSourcePreflight({
+  /**
+   * D-045: 의미 검증 실패는 더 이상 Preflight 를 멈추지 않는다.
+   */
+  it("does not reject when the fetched page fails semantic verification", async () => {
+    const provider = new FixtureProvider([source(urls[0])]);
+    const result = await runApprovalSourcePreflight({
       provider,
       snapshot,
-      opportunity: ensureApprovalEvidenceContract(opportunity(), snapshot),
+      opportunity: ensureApprovalEvidenceContract(opportunity([claim]), snapshot),
       platform: "wordpress",
       contentType: "article",
-      fetcher: async () => page("50留뚯썝"),
-    })).rejects.toMatchObject({
-      diagnostic: expect.objectContaining({
-        semanticVerificationEvaluatedCount: 1,
-        semanticVerificationPassCount: 0,
-        coverageSources: [expect.objectContaining({ semantic: "rejected" })],
-        rejectionSamples: expect.arrayContaining([expect.objectContaining({
-          claimId: "claim-amount",
-          rejectionCode: "claim_value_not_found",
-        })]),
-      }),
+      fetcher: async () => page(),
     });
+    expect(result.sources.length).toBeGreaterThan(0);
   });
 
   it("records missing Claim-ID linkage instead of silently treating a malformed source as covered", async () => {
@@ -272,7 +239,9 @@ describe("runApprovalSourcePreflight explicit integration", () => {
         evidenceAnchorPassCount: 0,
       }),
     });
-    expect(provider.calls).toBe(1);
+    // Two calls: a rejected candidate now buys one more discovery attempt, and
+    // this fixture returns the same unusable source both times.
+    expect(provider.calls).toBe(2);
     expect(provider.requests[0]?.instruction).toMatch(/verbatim/i);
     expect(provider.requests[0]?.instruction).toMatch(/paraphrase/i);
     expect(provider.requests[0]?.instruction).toMatch(/synthesi[sz]e/i);
@@ -331,7 +300,8 @@ describe("runApprovalSourcePreflight explicit integration", () => {
         semanticVerificationPassCount: 0,
       }),
     });
-    expect(provider.calls).toBe(1);
+    // The retry attempt runs and returns the same three unusable sources.
+    expect(provider.calls).toBe(2);
   });
 
   it("verifies a current money Claim from three independent institutions when each Claim excerpt owns an active period", async () => {
@@ -416,6 +386,11 @@ describe("runApprovalSourcePreflight explicit integration", () => {
     expect(same.result.verificationSnapshot?.results[0]?.status).toBe("verified");
   });
 
+  /**
+   * 세 가지는 진단으로 남지만 판정을 막지 않는다 (D-045). 기획 rawValue 와
+   * 출처 값이 다르면 출처를 따르므로 (50656c7) raw mismatch 도 상태를 내리지
+   * 않는다. 판정을 막는 것은 발췌가 페이지에 없을 때뿐이다.
+   */
   it("preserves fetched-page diagnostics for missing value, excerpt, and raw mismatch", async () => {
     const missingValueExcerpt = "공식 안내에 따르면 지원 금액은 50만원이며 대상 조건을 반드시 확인해야 합니다.";
     const missingValue = await run([source(urls[0], "50만원", missingValueExcerpt)], async () => page("100만원", "공식 안내에 따르면 지원 금액은 100만원이며 대상 조건을 반드시 확인해야 합니다."));
@@ -426,7 +401,6 @@ describe("runApprovalSourcePreflight explicit integration", () => {
     const mismatchExcerpt = "공식 안내에 따르면 지원 금액은 100만원이며 대상 조건을 반드시 확인해야 합니다.";
     const mismatch = await run([source(urls[0], "100만원", mismatchExcerpt)], async () => page("100만원", mismatchExcerpt));
     expect(mismatch.result.verificationSnapshot?.results[0]?.diagnostics).toContain("claim_raw_value_mismatch");
-    expect(mismatch.result.verificationSnapshot?.results[0]?.status).not.toBe("verified");
   });
 
   it("rejects ambiguous unitless money instead of silently assuming KRW", () => {

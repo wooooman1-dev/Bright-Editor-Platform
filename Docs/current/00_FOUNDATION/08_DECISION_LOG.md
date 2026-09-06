@@ -704,7 +704,17 @@ Bright Studio는 콘텐츠의 최소·선호·최대 글자 수를 Planning 목�
 
 신규 Planning의 `contentDepth`는 `standard`, `deep`, `comparison`만 사용한다. `standard`는 핵심 문제의 직접 해결, `deep`은 복잡한 관계·여러 판단 기준·사례·예외·주의사항·다음 행동, `comparison`은 비교 기준·차이·장단점·상황별 선택 조건을 의미한다. 이 분류는 글자 수 유형이 아니다. 기존 `quick`과 길이 목표가 저장된 데이터는 읽기 호환을 유지하되 `quick`은 standard 정보 정책으로 해석하며 신규 결과로 만들지 않는다.
 
-Planning은 검색 의도, 독자 문제, 핵심 질문, 필수 정보 요소, 판단 기준, 필요한 예시, 주의사항과 예외, 실행 가능한 다음 행동, 비교·표·체크리스트 필요성 및 범위 경계를 하나의 호출에서 정의한다. Generation은 이 정보 계약을 충분히 설명한 뒤 종료하고, 같은 품질이면 더 간결한 결과를 선호하며, 분량 확보를 위한 반복·장황함·임의 URL을 만들지 않는다.
+Planning은 검색 의도, 독자 문제, 핵심 질문, 필수 정보 요소, 판단 기준, 필요한 예시, 주의사항과 예외, 실행 가능한 다음 행동, 비교·표·체크리스트 필요성 및 범위 경계를 하나의 호출에서 정의한다. Generation은 이 정보 계약을 충분히 설명한 뒤 종료하고, 분량 확보를 위한 반복·장황함·임의 URL을 만들지 않는다.
+
+### 2026-08-11 개정: 간결성 선호 문구 제거, 권장 분량 도입
+
+이 결정의 "같은 품질이면 더 간결한 결과를 선호하며" 항목을 제거한다. 원래 취지는 **짧다는 이유로 실패시키지 않는다**는 것이었으나, 구현은 Generation 지시에 `Prefer the shorter result when quality is equal`을 넣어 **적극적으로 짧게 쓰도록 지시**하고 있었다. 취지와 반대 방향의 과잉 구현이다.
+
+밝은재테크 Project 실측이 근거다. 발행된 글의 순수 산문 분량이 870자에서 2,304자까지 2.6배로 널뛰었고 어떤 것도 이를 통제하지 않았다. 2026-08-11 생성분은 1,455자에 4행짜리 표 두 개로, 섹션 완결 판정은 전부 통과했다. `informationElementCount`가 표 한 개를 섹션 최소치만큼 쳐 주기 때문에 표가 설명을 대체할 수 있었다.
+
+대신 Generation 지시에 **권장 분량 4,500~6,000자**(공백·표·목록 제외)를 둔다. 이는 게이트가 아니다. 미달을 이유로 차단하지 않고 품질 점수에도 반영하지 않으며, 계약이 실제로 소진되었다면 미달이 실패가 아님을 지시문에 함께 적는다. 최소·선호·최대 글자 수를 Gate 또는 승인 조건으로 쓰지 않는다는 이 결정의 핵심은 그대로 유지된다.
+
+같은 날, 표나 목록을 담은 섹션은 산문으로도 그 섹션을 설명해야 한다는 규칙을 추가했다(`CONTENT_SECTION_PROSE_INSUFFICIENT`). 이는 글 전체 분량이 아니라 한 섹션이 구조물로 설명을 대신하는 것을 막는 규칙이다.
 
 Quality Engine은 필수 정보 요소를 `missing`, `mentioned`, `sufficient`로 구분하고 `sufficient`만 충족으로 인정한다. 검색 의도, 독자 문제 해결, 섹션 역할 완결성, 정보 밀도, 정확성과 안전성, 판단 기준, 예시, 예외, 다음 행동, 반복과 장황함을 평가한다. 짧다는 이유만으로 실패시키지 않으며 길어도 필수 정보가 부족하거나 반복되면 실패한다. Generation 1회와 Quality Review 1회, standard 승인만 ready인 정책은 유지한다.
 
@@ -830,8 +840,8 @@ WordPress HTML 정규화 가능성을 고려해 원문 문자열 완전 일치�
 MVP에서 다음은 제외한다.
 
 - Public Publish
-- Scheduled Publishing
-- Existing Post Update
+- Scheduled Publishing (`D-038`에서 해제)
+- Existing Post Update (`D-046`에서 해제)
 - Existing Post Delete
 - 자동 Plugin 설치 또는 수정
 - Theme 수정
@@ -852,6 +862,718 @@ Source Authority는 고정 정부 도메인 여부와 동일한 개념으로 판
 특정 은행·카드사·보험사 또는 그 밖의 사업자가 소유한 상품의 금리, 중도해지, 상품조건, 수수료, 보험조건 Claim은 해당 Claim subject와 동일한 source owner의 HTTPS 공식 홈페이지, 상품공시, 상품설명서 또는 약관을 authoritative primary source로 인정할 수 있다. 특정 사업자 이름이나 도메인을 Core에 하드코딩하지 않고 공통 entity/source-owner matching 정책을 사용한다.
 
 Source Authority와 Claim relevance는 독립 Gate로 유지한다. 다른 사업자의 공식 페이지는 owner mismatch로 거부하고, 올바른 사업자의 공식 페이지라도 Claim과 무관하면 relevance로 거부한다. 모든 채택 Evidence는 기존 exact excerpt anchor, semantic·temporal verification과 CRITICAL Claim 100% Coverage를 통과해야 한다. NONE은 Evidence N/A, VERIFY는 실패 시 전체 Generation을 차단하지 않고 같은 Generation Prompt에서 해당 구체 Claim을 제거하거나 일반화하며, CRITICAL에만 mandatory Source Preflight와 Generation Gate를 적용한다. Generation 1회와 Quality Review 1회 정책은 변경하지 않는다.
+
+---
+
+# D-040 Approval Source Trust and Corroboration
+
+Status: Superseded by D-045
+
+Approval source readiness does not require a government, institutional, or
+other official domain, and it does not require an information-as-of date or a
+reader-visible final-review date. The required source is the URL that the AI
+actually used when preparing the manuscript.
+
+The source verifier must still fetch the URL and confirm that the page content
+is relevant to the manuscript's material factual claims. A URL or a matching
+keyword alone is not sufficient.
+
+- An accessible source whose content materially supports the claim may be
+  trusted alone when the source is an accepted official/first-party source.
+- A non-official or secondary source may be trusted only when an independent
+  second source supports the same material claim.
+- `citation`, page access, content match, corroboration, and `system_verified`
+  remain separate states.
+- Missing information dates and reader-visible review-date labels are
+  informational diagnostics, not approval-policy blockers.
+- General prose Claims do not all become mandatory blockers. Material factual
+  Claims remain subject to content-match checks; high-risk unsupported or
+  conflicting Claims may still block quality or approval policy.
+
+This decision replaces the assumption that every approval source must pass an
+official-domain allowlist and that every required Claim must have an official
+source. The source URL, source-content match, and applicable corroboration
+route are the trust conditions.
+
+---
+
+# D-041 Generated Citation URL Preservation
+
+Status: Accepted
+
+When an AI-generated manuscript contains a source URL in its body or metadata,
+that URL is an Evidence candidate even when the provider's web-search
+diagnostics omit it. The candidate remains an ordinary `citation` until the
+shared Fetch and Claim-content matcher verifies it. This prevents an unrelated
+diagnostic result from replacing the source the manuscript actually used.
+
+The workflow must merge three source inputs before Evidence verification:
+generation preflight sources, provider citation diagnostics, and URLs extracted
+from the generated document. URL presence alone never bypasses Fetch,
+content-match, or applicable corroboration rules.
+
+---
+
+# D-042 AdSense Approval Content Public Scheduling
+
+Status: Accepted
+
+An `adsense_approval` WordPress Content may use `future` scheduled publishing
+when the Workspace explicitly enables `wordpressSchedulePublicPublish`, the
+current Revision passes the complete Quality, Approval Readiness, permission,
+and platform checks, and the user confirms that specific schedule. The global
+`publicPublish` setting remains disabled; immediate public publishing is not
+enabled by this decision.
+
+This is a scheduled-public exception after review, not an approval guarantee.
+Tistory and other platforms remain governed by their own platform-specific
+scheduled publishing contracts.
+
+---
+
+# D-043 Information Date Ownership
+
+Status: Accepted
+
+*이전 제목: Information Date Placement and Source Guidance Separation. 2026-08-19
+개정.*
+
+원고는 `정보 기준일`을 쓰지 않는다. 정보 기준일과 공식 재확인 경로는 Bright
+Studio가 출처 영역에 직접 렌더링한다.
+
+이전 결정은 AI가 쓴 `정보 기준일`을 본문 끝 `정보 기준과 다시 확인할 곳` 섹션
+한 곳으로 모았다. 흩어진 날짜의 자리를 고정한 것이지, 그 섹션이 필요한지를 판단한
+것은 아니었다. 2026-08-19 밝은재테크 실측에서 같은 값이 한 화면에 두 번 나왔다.
+원고가 쓴 `정보 기준일: 2026-08-19` 문단과, 시스템이 출처 카드 아래에 찍는
+`출처 확인일: 2026-08-19 · 정보 기준일: 2026-08-19` 줄이다. 공식 재확인 경로로
+이름을 부른 정부24 역시 바로 위 출처 카드에 링크로 이미 있다.
+
+분량도 맞지 않았다. 계약이 요구한 두 문단은 113자인데 생성 계약은 모든 H2에 400자
+산문을 요구한다. 그래서 AI가 결론을 두 번 더 반복해 채웠고, 목차 한 줄과 본문 한
+섹션이 중복된 내용으로 채워졌다. 제목 `정보 기준과 다시 확인할 곳`은 할 말이 없는
+자리에 붙은 탓에 글에 문제가 있어 다시 확인해야 한다는 인상까지 준다.
+
+- 원고는 `정보 기준일`, `출처 확인일`, `최종 검토일` 중 어느 것도 쓰지 않는다.
+  세 날짜 모두 시스템 소유다.
+- `정보 기준과 다시 확인할 곳` 섹션은 요구하지 않는다.
+- 공식 재확인 경로는 시스템이 렌더링하는 출처 목록이 담당한다. 원고가 같은 기관을
+  본문 설명에서 자연스럽게 언급하는 것은 막지 않는다. 금지하는 것은 날짜를 쓰는
+  일과 별도 안내 섹션을 만드는 일이다.
+- 시스템이 출처 영역에 찍는 날짜는 `출처 확인일` 하나다. 원고가 기준일을 쓰지
+  않으므로 새 원고에는 `정보 기준일`이 표시되지 않는다. 확인일을 그대로 기준일로
+  베껴 쓰지 않는다. 같은 날짜에 이름만 둘을 붙이는 일이라 독자가 얻는 것이 없다.
+  이미 본문에 기준일이 적힌 기존 원고는 그 값을 계속 읽어 함께 표시한다.
+
+이 결정은 새 Generation과 Quality Review 결과에 적용한다. 이미 저장된 Draft는 이
+결정으로 다시 쓰지 않는다.
+
+---
+
+# D-044 Preserve Existing Manuscripts When Generating a New Content
+
+Status: Accepted
+
+When a Content already has a manuscript, the existing regeneration action keeps
+its current replacement behavior and requires explicit confirmation. The
+creation flow also exposes a separate action that creates a new Content ID from
+the confirmed planning opportunity. That action must preserve the original
+Content and route persistence, platform preparation, generation, recovery, and
+editor navigation through the new Content ID.
+
+The new Content path is a Content-level copy of the confirmed planning context,
+not a document copy. The existing manuscript, review state, and generation
+history remain attached to the original Content; generation starts a fresh
+manuscript on the new Content.
+
+같은 Content에서 확정 후보를 다른 후보로 바꾸는 경우도 새 원고로 시작한다. 이
+경우는 새 Content ID를 만들지 않으므로 위 문단의 범위 밖이었고, 그 틈으로 이전
+후보의 제목과 본문이 그대로 남았다. 2026-08-19 밝은재테크 실측: 연말정산 후보를
+확정했다가 뒤로 가서 전입신고 후보를 확정하자 Opportunity·대표 키워드·검색 의도는
+전입신고로 바뀌고 제목과 본문만 연말정산으로 남아, 생성이 연말정산 주제로 돌았고
+주제 이탈·제목 정렬·목차 범위를 포함한 품질 차단 8건이 한 번에 발생했다.
+
+- 확정 후보가 바뀌면 제목, 본문, 저장된 document, 품질 결과, 생성·검토 진단을
+  모두 비운다. 이전 후보의 결과물은 새 후보의 원고가 아니다.
+- 같은 후보를 다시 확정하는 경우는 지금까지처럼 보존한다. opportunityId는
+  fingerprint에서 결정론적으로 파생되므로 두 경우를 값으로 구분할 수 있다.
+
+---
+
+# D-045 Approval Source Scope and Verification Depth
+
+Status: Accepted
+
+이 결정은 `D-040 Approval Source Trust and Corroboration`을 대체한다. D-040은
+공식 도메인 요구를 없애고 비공식 출처라도 독립된 두 번째 출처가 같은 주장을
+뒷받침하면 신뢰할 수 있게 열었다. 실측 결과 그 경로는 두 가지를 동시에 만들었다.
+개인 블로그 두 개가 서로를 뒷받침해 통과할 수 있었고, 반대로 정부 페이지를
+근거로 쓴 원고는 페이지 내용 대조에서 계속 막혔다. 2026-08-14 밝은재테크 실측:
+승인 대기 원고 12편 중 6편이 `evidence`에서 멈췄고 그 6편의 출처 도메인은 전부
+정부·공공기관이었다.
+
+## 인용 가능한 출처의 범위
+
+승인 준비 Content가 인용할 수 있는 출처는 세 등급 중 앞의 둘이다.
+
+- `public_sector` — 정부, 공공기관, 시군구청. 법령·세율·정부 지원처럼 정부가
+  소유한 사실의 원문이다.
+- `financial_institution` — 은행, 카드사, 증권사. 예금 금리, 중도해지이율,
+  연회비, 수수료처럼 그 회사가 소유한 사실의 1차 출처다. D-037의 소유자 대조
+  원칙을 도메인 판정에서도 실행한다.
+- `unofficial` — 그 밖의 모든 곳. 개인 블로그, 커뮤니티, 비교 사이트, 언론사가
+  여기 들어온다.
+
+언론사를 `unofficial`로 두는 것은 신뢰도 판단이 아니라 범위 판단이다. 기사는
+발표를 옮긴 2차 자료라 원문이 항상 존재하고, 네이버 제휴 언론사 수백 곳의
+목록을 관리하는 비용에 견줄 이득이 없다. 언론사만 답할 수 있는 주장을 다루게
+되면 그때 이 결정을 개정한다.
+
+범위는 검증이 아니라 생성에서 강제한다. 승인 준비 생성의 웹 검색은 위 두 등급의
+도메인만 결과로 받는다. 찾을 수 없는 곳을 요구하면 생성은 주소를 지어낸다 —
+같은 실측에서 국세환급금 원고가 실재하지 않는 `j.nts.go.kr`을 들고 왔고, 국세청
+도메인 형태라 도메인 검사는 통과했다.
+
+## 검증의 깊이
+
+출처 검증은 두 가지만 확인한다.
+
+- 도메인이 위 두 등급에 속하는가
+- 그 주소가 실제로 열리는가
+
+페이지 내용과 원고 Claim의 일치는 확인하지 않는다. 인용 가능한 곳이 신뢰할 수
+있는 기관으로 좁혀져 있으므로 그 페이지에서 왔다는 사실 자체가 근거이고, 값이
+한 글자 다르다는 이유로 원고 전체를 막지 않는다. 페이지 존재 확인은 유지한다 —
+지어낸 주소를 거르는 유일한 관문이기 때문이다.
+
+비공식 출처의 교차검증 통과 경로는 제거한다. 인용 범위를 좁힌 지금 이 경로는
+그 좁힘을 우회하는 문으로만 남는다.
+
+Generation 구조화 Claim의 verbatim anchor 대조는 차단에서 진단으로 내린다. 이
+검사는 출처에서 확인한 값과 본문을 대조하는 장치이므로, 내용 대조를 하지 않는
+이상 기준값이 없다. 기록은 남긴다.
+
+## 일반 Content와 승인 준비 Content의 분리
+
+일반 Content는 승인 준비 검사를 받지 않으며 출처를 요구하지 않는다. 통과 조건은
+원고 품질뿐이다.
+
+Generation 구조화 Claim 게이트는 승인 정책 스냅샷이 있는 Content에서만 실행한다.
+이 게이트는 "CRITICAL Claim이 있는가"만 물어 왔기 때문에 일반 Content도 기획에
+CRITICAL Claim이 하나 잡히면 들어왔고, 걸리면 점수와 무관하게 승인을 껐다. 품질
+100점 일반 원고가 "1년" 한 단어로 막히던 경로가 이것이다.
+
+## 구조 진단의 차단 범위
+
+발행을 막는 구조 조건은 글 전체 산문 분량 하나로 한정한다. 섹션 단위 산문 미달과
+약속한 비교의 미실행은 진단과 최종 편집 지시로 전달하되 차단하지 않는다. 5,074자
+원고가 한 섹션 10자 부족으로 멈추는 것은 글의 완성도를 가르는 선이 아니다.
+AdSense가 거부하는 것은 얕은 글이므로 그 기준만 남긴다.
+
+## 적용 보완 (2026-08-19)
+
+이 결정은 생성 경로에만 적용되어 있었다. 승인 준비와 발행 경로에는 같은 내용
+대조가 그대로 남아, 품질 100점으로 승인된 원고가 발행 단계에서 멈췄다. 실측에서
+Claim 3건이 모두 `insufficient`였고 사유는 `claim_evidence_excerpt_not_found`,
+`claim_value_not_found`, `evidence_anchor_unverified`, `temporal_evidence_missing`
+— 전부 페이지 본문과 원고를 대조하는 검사였다.
+
+- Verification Generation Gate는 Claim별 내용 상태로 막지 않는다. 계획·Snapshot
+  지문, 미지의 결과, 중복 결과 같은 구조 무결성만 본다.
+- Claim에 출처를 연결할 때 supports·normalizedValue·freshness를 요구하지 않는다.
+  셋 다 내용 대조의 산물이라, 남겨 두면 어떤 Claim도 출처를 가질 수 없다.
+- 원고의 수치가 검증된 Claim 값과 일치하는지 보는 검사는 발행을 막지 않는다.
+  값 일치를 만들던 대조가 없으므로 통과할 수 없는 검사가 된다. 개수는 계속
+  노출한다. 검토 단계에서 생성된 수치가 바뀌는 것은 계속 막는다.
+- 계획된 Claim이 구조화 사실 목록에 연결되지 않았다는 사실은 무결성 위반이
+  아니다. 생성이 그 값을 쓰지 않기로 할 수 있다.
+- 저장된 binding과 서버 재계산 결과의 불일치는 차단 사유가 아니다. binding은
+  Snapshot에서 파생되는 값이고 재계산이 권위다. 파생값을 비교해 막으면 판정
+  규칙을 바꿀 때마다 이미 저장된 원고가 전부 발행 불가가 된다.
+- Bright Studio가 스스로 쓴 블록은 생성 Claim 검사 대상이 아니다. 출처 목록,
+  출처 링크, 출처 확인일·정보 기준일 줄이 여기에 해당한다. 계약이 요구해서
+  시스템이 넣은 날짜가 원고가 지어낸 사실로 잡히고 있었다.
+- 승인 준비 검사 문구에서 "페이지 내용과 원고 Claim 일치", "교차 확인"을 걷는다.
+  하지 않는 검사를 했다고 보고하고 있었다.
+- 사람이 편집기에서 고위험 수치를 바꾼 경우는 발행을 막지 않고 경고한다. 어떤
+  값이 어느 위치에서 바뀌었는지를 경고 문구에 함께 표시한다. 출처 내용 대조를
+  하지 않는 이상 "검증된 값"이라는 기준이 없어 차단은 통과할 수 없는 관문이
+  되지만, 값이 바뀐 사실 자체는 사용자가 알아야 한다.
+- 생성 직후 사실 검증도 페이지 내용을 대조하지 않는다. 인용문이 페이지 본문에
+  그대로 있는지와 페이지가 Claim을 의미상 뒷받침하는지를 보던 두 검사를 걷는다.
+  이 두 검사는 통과하지 못한 문장을 문단째 원고에서 삭제하므로, 남겨 두면 내용
+  검증이 완성된 글을 깎아내는 마지막 통로가 된다. 2026-08-19 밝은재테크 실측:
+  출처가 law.go.kr 조문 페이지이고 인용문까지 저장돼 있던 주택임대차보호법
+  제3조의2 우선변제권 문단이 여기서 걸려 사라졌고, 그 결과가 정보 완성도
+  85점이었다. 남는 판정은 셋이다 — 생성이 인용한 URL인가, 인용 범위 안의 공식
+  도메인인가, 그 주소가 실제로 열리는가.
+
+## 적용 보완 (2026-08-28)
+
+미연결 수치 경고를 저장된 출처 발췌와 대조해 걸러낸다.
+
+이 경고의 허용 목록은 verified Claim 에서만 만들어진다. 내용 대조를 걷어낸 뒤로
+verified 가 되는 Claim 이 없으므로 허용 목록은 항상 비고, 본문의 모든 수치가 예외
+없이 경고가 된다. 2026-08-28 실측: 근로장려금 원고의 경고 19개가 전부 국세청
+발췌에 실재하는 값이었고, 전체 원고의 개선 작업 112개 중 23개가 이 오탐이었다.
+숫자가 많은 좋은 원고일수록 경고가 늘어나 목록 전체를 못 믿게 만든다.
+
+- 경고를 내기 전에 문서에 저장된 출처 발췌에서 같은 값을 찾고, 있으면 경고하지
+  않는다. 판정이 아니라 경고를 줄이는 필터이며 발행은 여전히 막지 않는다. 비교
+  대상은 남의 페이지가 아니라 서버가 이미 가져와 문서에 저장한 발췌다.
+- 정부 문서의 축약 날짜를 한국어 전개형으로 펼쳐 함께 비교한다. 국세청 신청기간이
+  `’26.5.1.~6.1.` 이고 원고는 `2026년 5월 1일` 로 푼다. 같은 날짜인데 글자가
+  겹치지 않아 그대로 비교하면 정상값이 경고로 남는다.
+- 발췌가 없으면 걸러내지 않는다. 비교할 근거가 없는 상태이므로 전과 같이 남긴다.
+- 경고 문구를 실제 검사와 일치시킨다. "확인된 출처에 연결되지 않은 값" 은 하지
+  않는 검사를 말하고 있었다. "가져온 출처 발췌 어디에서도 찾을 수 없는 값" 으로
+  바꾼다.
+
+---
+
+# D-046 Existing Post Update
+
+Status: Accepted
+
+이 결정은 `D-036 WordPress Draft Publishing MVP`의 제외 항목 중 `Existing Post
+Update`만 해제한다. `Existing Post Delete`, 자동 Plugin 설치·수정, Theme 수정,
+여러 플랫폼 동시 실행, 자동 Retry 제외는 그대로 유지한다.
+
+발행 실행 식별자는 원고 리비전을 포함한다. 그래서 원고를 한 문장이라도 고치면
+식별자가 바뀌고, 중복 방지 장치는 그것을 처음 보는 발행으로 판단해 새 Post를
+만들었다. 2026-08-14 밝은재테크 실측: 원고 한 편이 Post 92, 95, 98, 101 네 개가
+되었고, 이미 색인된 98번을 사용자가 직접 휴지통으로 옮겨야 했다. 고칠 때마다
+주소가 새로 생기므로 색인도 매번 처음부터 시작한다.
+
+- 갱신 대상은 그 원고가 이미 차지한 Post 하나뿐이다. 다른 Post는 건드리지 않는다.
+- 갱신 요청은 `status`를 보내지 않는다. 독자가 이미 볼 수 있는 Post를 임시글로
+  되돌리지 않는다. `slug`도 보내지 않으므로 주소가 유지된다.
+- 대상 Post가 실제로 존재하는지 확인한 뒤에만 갱신한다. WordPress가 그 Post를
+  더는 갖고 있지 않으면 첫 발행이므로 새 Post를 만든다.
+- 확인 직후 대상이 사라졌다면 그 실행은 멈춘다. 사용자가 요청하지 않은 Post를
+  대신 만들지 않는다.
+- 예약 발행은 언제나 새 Post를 만든다. 예약된 공개는 정의상 새 Post다.
+- Permission은 `draft.create`를 재사용한다. 만들도록 허용한 Post를 고치는 데
+  별도 승인을 다시 받을 이유가 없다. 실행 기록의 workflow는 `draft.update`로
+  남겨 무엇이 일어났는지 구분한다.
+- 갱신 요청은 재시도해도 안전하다. 같은 본문을 두 번 써도 Post는 하나다.
+
+Review First · Draft Only 정책은 변경하지 않는다. 공개 여부는 계속 사용자가
+결정한다.
+
+---
+
+# D-047 Market Evidence Matching and Confidence Separation
+
+Status: Accepted
+
+이 결정은 외부 시장 Evidence를 후보 주제에 붙이는 방법과, 붙지 않았을 때의
+표시 방법을 정한다. `D-045`가 정한 승인 출처 범위와는 다른 층이다. 외부 시장
+Evidence는 무엇을 쓸지 고르는 기획 단계의 수요 근거이고, 승인 출처는 원고의
+사실을 뒷받침하는 인용이다. 둘은 서로를 대체하지 않는다.
+
+2026-08-19 밝은재테크 실측이 근거다. Data Source 연결 4개가 모두 `ready`이고
+스냅샷 37건, 외부 Evidence 184건이 전부 `fresh`인데도 그날 제안된 후보
+「연금저축 IRP 차이」와 「전입신고 확정일자」는 매칭 Evidence가 0건이었다.
+`marketEvidenceStatus`는 `unavailable`, `confidence`는 내부 Evidence 고정값인
+0.75만 남았다. 연결도 동기화도 정상이었고, 원인은 매칭 방식이었다.
+
+- 매칭이 부분문자열 비교다. 「연금저축」과 등록 키워드 「적금」은 같은 영역인데
+  토큰이 겹치지 않아 0건이 된다.
+- NAVER Search Trend는 연결 하나당 키워드 5개가 상한이다. 등록하지 않은
+  키워드는 데이터가 생성되지 않는다. 키워드를 늘려 해결하려면 연결을 계속
+  쪼개야 하고, 그렇게 해도 커버리지는 등록 수만큼만 늘어난다.
+- Google Search Console은 등록 대상이 아니라 사이트에 실제로 유입된 검색어를
+  가져온다. 원리상 이미 색인·노출된 주제만 보이므로 신규 주제 발굴에는 쓸 수
+  없다. 실측 시점 색인 2건, 쿼리 6개였다.
+
+## 결정
+
+**매칭은 주제군 기반으로 하되 결정론을 유지한다.** 후보의 주제·키워드와
+Evidence 키워드를 같은 주제군에 속하는지로 판정한다. 부분문자열 겹침만으로
+판정하지 않는다. 이 판정에 AI 호출을 추가하지 않는다. 매칭은 값이 같으면
+언제나 같은 결과를 내는 구조적 규칙이어야 한다. 기획 단계 비용을 늘리면서
+얻을 정확도가 아니다.
+
+**외부 시장 Evidence가 없다는 사실은 신뢰도 감점이 아니다.** 지금까지는 매칭
+Evidence의 평균 신뢰도가 곧 후보 신뢰도였기 때문에, 외부 Evidence가 붙지
+않으면 내부 Evidence 고정값만 남아 낮은 숫자가 표시되었다. 낮은 숫자는 주제가
+나쁘다는 뜻으로 읽히지만 실제로는 등록 키워드와 겹치지 않았다는 뜻뿐이다.
+외부 Evidence 유무는 `marketEvidenceStatus`가 이미 별도로 표현하므로, 신뢰도
+숫자는 그 사실을 중복해서 깎지 않는다.
+
+구체적으로 신뢰도는 매칭된 Evidence 전체가 아니라 그중 가장 강한 계층의
+평균으로 계산한다. 외부 Evidence가 하나라도 붙으면 외부만, 없으면 내부만
+평균한다. 계층을 섞으면 외부 Evidence가 이미 붙은 후보에 내부 Evidence를 더할
+때 신뢰도가 내려가는 역전이 생긴다. Evidence가 늘어서 신뢰도가 떨어지는 숫자는
+읽는 사람에게 아무 뜻도 전달하지 못한다.
+
+**등록 키워드는 기획에 힌트로만 준다.** 등록 키워드 목록을 기획 단계에 참고
+정보로 전달해, 나머지 조건이 같으면 데이터가 있는 주제를 고르도록 유도한다.
+주제 범위를 등록 키워드로 제한하지 않는다. 등록 키워드는 사용자가 그때까지
+떠올린 것일 뿐이고, 5개 상한 때문에 영역 전체를 대표하지도 못한다. 제한하면
+독자 문제 해결이라는 목적보다 데이터 편의가 앞서게 된다.
+
+## 유지하는 것
+
+외부 시장 Evidence 없이 검색량, CPC, 시장 순위, 높은 수요를 주장하지 못하게
+막는 검사는 그대로 둔다. 근거 없는 수치 주장을 막는 것은 정확한 가드레일이며,
+이 결정이 완화하는 대상이 아니다. `stale` Evidence를 최신 데이터처럼 서술하지
+못하게 하는 검사도 유지한다.
+
+## 제외
+
+- 키워드 자동 등록. 사용자가 등록한 resource를 시스템이 대신 바꾸지 않는다.
+- 외부 시장 Evidence를 원고의 출처로 사용하는 것. 출처 범위는 `D-045`가 정한
+  공식 출처만이다. 검색 트렌드 지표는 인용 출처가 아니다.
+- 매칭 판정을 위한 AI 호출.
+
+---
+
+# D-048 Every Article Guarantees One Hero Image
+
+Status: Accepted
+
+원고 한 편에는 대표 이미지 한 장이 항상 붙는다. 생성 응답이 이미지를 주지
+않아도 마찬가지다.
+
+2026-08-28 실측이 근거다. 근로장려금 원고(`content-mtcqjahd-oesz46`)는 이미지
+블록 0개로 저장됐고, 그 앞의 원고 13편은 전부 `imageCount: 1`이었다. 이미지
+블록이 없으면 대표 이미지 생성 화면 자체가 렌더링되지 않아 사용자가 이미지를
+만들 방법이 없고, 그 상태로 WordPress 초안 3784까지 발행됐다. 발행 기록은
+`featuredImageAssigned: false`인데도 `featured_media` 검증을 통과했다. 이
+검사는 블록과 업로드의 일치만 보고 존재 여부를 보지 않기 때문이다.
+
+원인은 두 곳이다. 생성 프롬프트가 "대표 이미지가 꼭 필요하지 않으면 0개를
+반환하라"고 명시적으로 허용했고, 그 뒤에 이를 보정하는 코드가 없었다. 또한
+`appendPlacementBlocks`는 모델이 준 `afterSection`과 일치하는 배치 지점이
+없으면 이미지를 경고 없이 버린다.
+
+- 생성 프롬프트는 대표 이미지 정확히 한 장을 요구한다. 0개 반환은 선택지가
+  아니다.
+- 모델 응답과 무관하게 코드가 대표 이미지를 보장한다. 파싱 결과에 `hero`
+  이미지 블록이 없으면 도입부 뒤에 직접 삽입한다. 제작 프롬프트는 넣지 않고
+  `ensureDistinctImagePrompts`가 섹션 맥락으로 채운다.
+- 판단 기준은 "이미지가 있는가"가 아니라 "`hero`가 있는가"다. 본문 이미지는
+  `applyGeneratedImageCostPolicy`가 걷어내므로, 본문 이미지만 있는 응답을
+  통과시키면 결국 0장으로 끝난다.
+- `afterSection`은 실제 배치 지점으로 맞춘다. `hero`는 도입부 뒤(0)로 고정하고
+  나머지는 존재하는 섹션 범위로 자른다.
+
+유료 이미지 생성 예산은 그대로다. 원고당 대표 이미지 한 장은 이전부터
+`automaticAIImageLimit = 1`이 허용하던 범위다.
+
+# D-049 Hero Image Visual Registers
+
+Status: Accepted
+
+대표 이미지는 시각 계열을 골라서 만든다. 최근 원고가 쓴 계열은 다시 쓰지 않는다.
+
+2026-08-28 실측이 근거다. 밝은재테크 대표 이미지 57장의 프롬프트에서 '장면'
+75%, '책상' 47%, '자연광' 43%, '계산기' 22%, '스마트폰' 22%. 주제가 서로 다른
+근로장려금 원고와 국민연금 임의계속가입 원고의 결과물이 중년 인물, 원목 식탁,
+계산기, 스프링 노트, 스마트폰, 서류, 화분, 창 자연광까지 거의 같은 사진이었다.
+
+원인은 세 곳이다.
+
+- `PURPOSE_POLICIES.hero`와 변주 목록(FOCUS/BACKGROUND/COMPOSITION/VIEWPOINT)이
+  전부 "사람이 도구로 행동하는 장면" 한 갈래였다. 사람이 없는 선택지가 목록에
+  아예 없었다. 프롬프트 57개 중 20개가 이 템플릿에서 나왔다.
+- 나머지 37개는 모델이 직접 썼는데 생성 프롬프트에 시각 지침이 없었다. Project
+  전략의 `imageStrategy`는 ALT placeholder 규칙이라 그림 지침이 아니다.
+- 중복 검사(`analyzeImagePrompts`, 임계 0.72)가 한 문서 안에서만 돈다. 원고마다
+  이미지가 1장이므로 이 검사는 한 번도 발동한 적이 없다. 대표 이미지를 원고
+  사이에서 비교한 장치가 없었다.
+
+결정:
+
+- 대표 이미지 시각 계열을 다섯 개로 나눈다. 상황 사진, 사물 정물, 평면 개념
+  그래픽, 관계 도식, 장소·환경. 사람이 등장하는 계열은 그중 하나뿐이다.
+- 같은 Project 의 최근 대표 이미지 프롬프트 8개를 생성 입력으로 넘긴다
+  (`GenerationInput.recentHeroImagePrompts`). 최근 5개 안에 쓰인 계열은 고르지
+  않고, 남은 후보 중에서 원고별로 결정적으로 회전한다.
+- 생성 프롬프트에도 계열 목록과 최근에 쓴 계열을 알려준다. 코드가 프롬프트를
+  다시 쓰는 경로만으로는 모델이 쓴 프롬프트를 못 고치기 때문이다.
+- 모델이 쓴 대표 이미지 프롬프트가 최근과 같은 계열이면 `hero_register_repeated`
+  로 잡아 다른 계열로 다시 쓴다. 발행은 막지 않는다.
+- 이미지 안에 읽을 수 있는 글자나 숫자를 그리지 않는다. 2026-08-28 근로장려금
+  대표 이미지는 "화면 글자는 보이지 않게"라고 썼는데도 '가족관계', '신청 자격
+  확인 순서' 같은 한글이 그려져 나왔다. AI가 그린 글자는 틀릴 수 있고 대표
+  이미지는 틀린 수치를 실을 수 없다.
+
+이 결정은 이미 발행된 이미지를 바꾸지 않는다. 다시 만드는 것은 장당 유료
+호출이므로 별도 판단이다.
+
+# D-050 Reader Value Metrics Are Displayed, Not Gated
+
+Status: Accepted
+
+원고가 독자에게 실제로 답을 주는지를 두 지표로 재서 보여준다. 이 지표는 발행도,
+검토 AI 호출 조건도 막지 않는다.
+
+2026-08-28 실측이 근거다. 발행된 원고 13편이 전부 완결성 100, 유용성 100,
+검색의도 100을 받았는데 그중 7편은 본문에 확인 가능한 수치가 하나도 없었다.
+같은 척도에서 근로장려금 원고는 35개(1,000자당 12.23개)였다. 100점이 13번 중
+13번 나오는 지표는 구별력이 0이고, 그 상태에서는 무엇을 고쳐도 좋아졌는지 알
+방법이 없다.
+
+지표는 두 개다.
+
+- 구체성: 본문 산문 1,000자당 단위가 붙은 수치의 개수. 1,000자당 3개를 만점으로
+  본다. '1단계', '세 가지' 같은 서술 표현은 세지 않는다.
+- 떠넘김: 답을 독자 밖으로 넘기는 문장의 수. 창구나 자료를 가리키면서 확인·조회·
+  문의를 시키는 문장만 세고, 본문 안에서 조건을 확인하라는 서술은 세지 않는다.
+  한 문장은 한 번만 센다.
+
+가중치는 0이다. 이유는 세 가지다.
+
+- `resolveQualityApproval`은 가중치가 0보다 큰 항목만 승인 판정에 쓴다. 그래서
+  총점, 승인, 발행 어느 것도 바뀌지 않는다. 발행된 원고 13편으로 확인했다 —
+  두 지표를 넣은 총점과 뺀 총점이 13편 모두 같았다.
+- `EditorialQualityPipeline`은 규칙 채점이 이미 정식 승인이면 검토 AI를 부르지
+  않는다. 저장된 문서 10편에 `skipped / rule_validation_already_standard_approved`
+  기록이 남아 있다. 점수를 게이트에 넣으면 이 스킵이 풀려 편당 약 $0.40이 새로
+  붙는다.
+- 그렇게 붙인 검토 콜은 이 문제를 못 고친다. 수치가 0개인 7편 중 6편은 저장된
+  출처 발췌가 0자다. 검토 AI는 근거로 주어지지 않은 수치를 쓸 수 없으므로 결과가
+  바뀌지 않는다. 그 원고들에 필요한 것은 검토가 아니라 출처부터 다시 하는 재생성이다.
+
+두 지표는 정규식 계수라 오탐이 있다. 정당한 창구 안내도 떠넘김으로 셀 수 있다.
+방향을 보는 값이지 합격 도장이 아니며, 이것이 게이트에 넣지 않는 또 하나의 이유다.
+
+가중치 0인 항목은 총점을 움직이지 못하므로, "수치 0개"가 개선 작업에 떠 있는데
+배지는 100점인 상태가 된다. 그래서 편집기의 총점 옆에 실제 개수를 그대로 표시한다.
+
+# D-051 Stored Evidence Reaches the Revise Call
+
+Status: Accepted
+
+생성 이후의 「AI 문서 수정」 호출에도 서버가 이미 가져와 저장한 출처 발췌를 넘긴다.
+Quality Review 경로에는 넘기지 않는다.
+
+2026-08-28 실측이 근거다. 국민연금 원고의 저장된 발췌에 "기준소득월액은 최저
+41만원에서 최고 659만원까지" 가 있는데 본문에 없었다. 수정 호출로 채우려 했으나
+모델은 금액을 빼고 "기준소득월액에 연금보험료율을 곱해 산정합니다" 까지만 썼다.
+사람이 그 두 값을 지시문에 직접 적어 넣은 뒤에야 들어갔다.
+
+원인은 모델의 실수가 아니라 규칙대로 행동한 결과다.
+
+- `contentDocumentAIContext` 는 `approvalEvidence` 를 제외한다
+  (`EditorialQualityPipeline.ts`). 수정 호출의 지시문에는 현재 문서만 들어간다.
+- 그러면서 같은 호출이 승인 정책 규칙을 받는다 — "use only verified official
+  Evidence supplied by the server … If verified Evidence is unavailable, preserve
+  the limitation instead of fabricating certainty." (`ApprovalPolicy.ts`)
+- 서버가 Evidence 를 하나도 공급하지 않으므로 모델은 한계를 유지한다. 즉 금액을
+  쓰지 않는 것이 규칙 준수다.
+
+그러므로 발췌를 넘기는 것은 새 권한이 아니라 이미 있는 규칙이 작동하게 만드는
+연결이다. 발췌만 추린 크기는 실측 중앙값 236자, 최대 4,308자로 호출당 2~5만
+토큰을 쓰는 비용에 영향이 없고 AI 호출 수도 늘지 않는다.
+
+Quality Review 경로는 그대로 둔다. 그쪽은 세 겹으로 막혀 있고 그것이 설계다.
+
+- 프롬프트가 새 사실 추가를 금지한다 (`EditorialQualityPipeline.ts`).
+- `QualityReviewFactualGuard` 가 인벤토리에 없는 "값을 말하는 문장" 을 찾으면
+  `quality_unverified_critical_surface_added` 로 후보를 통째로 거부한다.
+- 주석이 이유를 적고 있다 — Quality Review 는 두 번째 Claim 작성·근거 수집 단계가
+  될 수 없다. 검토 단계에서 넣은 값은 근거 추적 기록이 없기 때문이다.
+
+여기에 발췌만 넘겼다면 개선 AI 가 수치를 넣는 순간 서버가 결과를 폐기해 비용만
+나갔을 것이다. 수정 호출은 파이프라인을 거치지 않고 사람이 명시적으로 지시하는
+경로이므로 이 설계와 충돌하지 않는다.
+
+함께 도입: 근거 활용 지표 (`evidenceUse`, 가중치 0)
+
+저장된 발췌의 수치 중 원고가 실제로 쓴 비율을 표시한다. 2026-08-28 실측에서 발췌
+수치를 가진 12편 중 미사용 값이 39개였고, 건강보험 피부양자 원고는 13개 중 1개만
+썼다. 옛 국민연금 원고는 3개 중 0개였다.
+
+값 추출은 정규식이라 법령 호수, 페이지 UI 문구, 기준 연도가 섞인다 — 39개 중 약
+14개가 그런 값이었다. 그래서 D-050 과 같이 가중치 0 표시 전용이며 발행도 승인도
+막지 않는다. 문서 59편으로 총점이 바뀌지 않음을 확인했다.
+
+측정에서 두 가지를 바로잡았다.
+
+- 본문에서 표를 세지 않아 표에 든 금액이 "본문에 없는 값" 으로 잡혔다.
+- `2,200만 원` 과 `2,200만원` 을 다른 값으로 셌다. 공백을 먼저 지운 뒤 비교한다.
+
+이 둘을 고치기 전 49개였던 미사용 값이 39개가 되었다. 10개가 측정 오류였다.
+
+# D-038 WordPress Scheduled Publishing
+
+Status: Accepted
+
+이 결정은 `D-036 WordPress Draft Publishing MVP`의 제외 항목 중 `Scheduled Publishing`만 해제한다. `D-036`의 나머지 제외 항목인 Existing Post Delete, 자동 Plugin 설치·수정, Theme 수정, 여러 플랫폼 동시 실행, 자동 Retry는 그대로 유지한다. `Existing Post Update`는 이후 `D-046`이 해제했다. `D-034`가 Tistory 전용으로 승인한 예약 계약을 WordPress로 확장하되 Tistory 구현을 복제하지 않는다.
+
+WordPress는 Tistory와 달리 공식 REST API가 예약을 지원하므로 브라우저 자동화 Worker를 사용하지 않는다. `POST /wp-json/wp/v2/posts`에 `status`와 `date_gmt`를 전달하는 방식만 사용한다.
+
+예약 상태는 두 가지를 지원한다.
+
+- `draft` 예약: 글을 초안으로 유지하고 예약 시각만 플랫폼에 기록한다. 실제 공개는 사용자가 별도로 승인해야 한다. Review First · Draft Only 정책과 충돌하지 않으므로 기본값이다.
+- `future` 예약: `status=future`와 `date_gmt`로 등록하여 지정 시각에 자동 공개된다. 공개 발행에 해당하므로 기본 Disabled이다.
+
+`future` 예약은 Workspace Setting `wordpressSchedulePublicPublish`가 명시적으로 Enabled일 때만 실행할 수 있다. 이 설정의 기본값은 `false`이며, Workspace의 `publicPublish` 불변식은 변경하지 않는다. 즉시 공개 발행은 계속 금지한다. `adsense_approval` Content도 현재 Revision의 품질·승인준비·권한 검사를 통과한 경우에 한해 이 예약 공개 경로를 사용할 수 있다.
+
+예약 안전 정책은 `D-034`와 동일하게 적용한다.
+
+- `schedule.create` Permission 필수, 예약마다 사용자 명시 최종 확인 필수
+- 활성 예약의 중복 생성 금지
+- 예약 후 Revision, Account 또는 Category 변경 금지
+- 성공한 예약의 자동 재시도 금지
+- 로컬 Scheduler가 공개 시각까지 대기하거나 자체적으로 공개 작업을 실행하지 않음
+
+`POST /posts` 응답만으로 완료 처리하지 않는다. 생성된 External Post ID를 다시 조회하여 `D-036`의 Draft 검증 항목에 더해 요청한 `status`와 `date_gmt`가 실제로 적용되었는지 검증한다. 검증하지 못한 예약은 `scheduled_unverified`로 보존하고 자동 재시도하지 않는다.
+
+AdSense 승인 준비 단계의 Content에도 `future` 예약을 적용할 수 있다. 단, `wordpressSchedulePublicPublish` 명시적 허용, 현재 Revision의 전체 예약 준비 검사 통과, 예약별 사용자 최종 확인을 모두 요구한다. 승인 준비 통과 자체가 AdSense 승인을 보장하지는 않는다.
+
+---
+
+# D-052 발행된 글은 자기 자신을 내부링크 후보로 삼지 않는다
+
+Status: Accepted
+
+공개 글 목록에서 내부링크·관련글 후보를 고를 때, 그 원고가 이미 발행된 Post 를
+후보에서 제외한다. 판단 근거는 발행 기록(`publishingRecords`)의
+`externalPostId` 이며, 제외 목록은 호출자가 반드시 넘겨야 한다(선택 인자가
+아니다).
+
+2026-08-29 실측이 근거다. 브라이트제이테크 라이브 글과 앱 저장본을 브라우저로
+문장 단위 비교한 결과 본문은 한 글자도 다르지 않았고, 시스템이 자동으로 넣는
+링크만 달랐다.
+
+- 라이브: 「함께 읽으면 좋은 글」 = 국민연금 임의계속가입 조건
+- 저장본: 「함께 읽으면 좋은 글」 = 근로장려금 신청 조건 — 자기 자신
+
+같은 증상인 원고가 2개였다(근로장려금, 국민연금). 둘 다 아직 라이브에는 반영
+전이었다.
+
+원인은 세 가지가 겹친 것이다.
+
+- `placeRecommendedPosts` 는 후보 1등을 내부링크로 꽂으며 자기 글을 빼는 조건이
+  없었다 (`core/content/RelatedPostRecommendation.ts`).
+- 자기 글 제외 코드는 `app/api/publishing/posts/route.ts` 한 곳뿐이었고
+  `content.publishedUrl` 을 읽었다. 그 필드는 타입에만 있고 한 번도 저장된 적이
+  없다 — 문서가 있는 원고 160개 중 값이 있는 것 0개. 항상 참이 되어 아무것도
+  걸러내지 못했다.
+- 발행 준비 때 실제로 쓰이는 `InternalLinkCatalogEvaluationService` 에는 그
+  필터조차 없었다.
+
+즉 글이 워드프레스에 발행되는 순간 공개 글 목록에 들어가고, 같은 카테고리·최신
+이라 다음 갱신 때 자기 자신이 1등 후보가 된다.
+
+한 곳에만 가드가 있었던 것이 이 버그가 숨은 이유이므로, 제외 목록은
+`rankRelatedPosts` 의 `excludeExternalPostIds` 로 내려 한 군데에서만 판정하고,
+`rankPublishingPostCandidates` 의 네 번째 인자를 필수로 만들어 호출자가 조용히
+빠뜨릴 수 없게 한다. 죽어 있던 `publishedUrl` 필터는 제거한다 — 작동하지 않는
+가드를 진짜 가드 옆에 남겨 두는 것이 이 사고의 원인이었다.
+
+기존에 잘못 들어간 링크는 별도 이관이 필요 없다.
+`applyInternalLinkCatalogResult` 가 `removeAutoPlacedPublishingLinks` 로
+system_catalog 블록을 모두 걷어낸 뒤 다시 배치하므로, 승인·발행 화면을 열어
+재평가되면 자기 링크가 사라진다.
+
+## 보정 — 다시 쓴 원고까지 같은 계보로 본다
+
+첫 수정은 `contentId` 가 같은 발행 기록만 제외했다. 그것으로는 부족했다.
+
+원고를 다시 쓰면 `contentId` 가 새로 생기고 `preservedFromContentId` 로 이전
+원고를 가리킨다. 두 원고는 같은 글이므로 어느 쪽이 발행했든 그 글은 자기 글이다.
+그런데 `contentId` 만 보면 둘이 남남이라 걸러지지 않는다. 2026-08-29 실측: 다시
+쓴 국민연금 원고가 이전 판본의 글 3778 을 관련 글로 달고 있었다.
+
+첫 수정이 이걸 놓친 이유를 남긴다. 범위를 셀 때 `링크 이름 == 내 제목` 으로
+찾았다. 그건 증상을 세는 방식이라 세운 짐작이 확인만 되고 검증되지는 않는다.
+다시 쓴 원고는 제목이 「퇴직 후 … 따져보는 법」, 이전 판본은 「퇴직 뒤 … 판단하는
+기준」이라 글자가 달라 그물에 걸리지 않았다. 범위는 증상이 아니라 구조로
+세어야 한다 — 여기서는 제목이 아니라 글 번호다.
+
+구조로 다시 셌다. 문서가 있는 원고 59건, 자동 배치 링크 블록 158개(글 번호가
+빠진 블록 0개), `preservedFromContentId` 가 붙은 원고 2건. 그중 조상이 실제로
+발행한 적이 있는 것은 국민연금 1건뿐이고, 158개 링크 전수 대조에서 걸린 것도
+그 1건이었다.
+
+그러므로 `ownPublishedExternalPostIds` 는 `contentId` 하나가 아니라 계보 전체를
+본다. `preservedFromContentId` 를 위로 거슬러 올라가고, 그 구성원에서 이어받은
+원고까지 내려가며, 집합이 더 늘지 않을 때까지 반복한다. 사슬이 여러 단계여도
+덮인다.
+
+---
+
+# D-053 본문 시각물은 HTML 카드로 그린다
+
+Status: Accepted
+
+비교·체크리스트·요약·주의·인포그래픽 같은 본문 시각물은 이미지 파일이 아니라
+HTML 카드로 그린다. 모양은 목록·막대그래프·비율 띠·단계 흐름·타임라인·좌우
+비교·수치 타일 일곱 가지다 (`core/media/BrightBodyVisuals.ts`).
+
+## 왜 필요했나
+
+2026-08-29 실측이 근거다. 밝은재테크 원고 40편이 전부 같은 모양이었다.
+
+- 표 개수: 0개 17편 / 1개 25편 / 2개 13편 / 3개 4편
+- 섹션 카드: 1개 11편 / **2개 23편** / 3개 4편
+- 무료 본문 시각물: **0장**
+
+AI 는 인포그래픽 12개·체크리스트 9개·경고 9개를 설계해 놓고 있었다. 그런데 두
+곳에서 지워졌다.
+
+- 생성 프롬프트가 "Do not return source-empty inline or infographic image blocks"
+  로 반환을 금지했다.
+- `applyGeneratedImageCostPolicy` 가 hero 아닌 빈 이미지 블록을 전부 걷어냈다.
+
+같은 프롬프트가 바로 다음 문장에서 "본문 시각물은 표·목록 또는 Bright HTML/SVG
+컴포넌트로 표현하라"고 했다. 쓰라고 하면서 만들면 지웠다. 남는 선택지가 표와
+목록뿐이라 모든 글이 같은 모양이 됐다.
+
+## 왜 이미지가 아니라 HTML 인가
+
+비용이 0이다. HTML 카드는 이미지 생성 호출이 아니라 생성 응답 안의 블록 하나여서
+표를 하나 더 만드는 것과 비용이 같다. 유료 AI 이미지는 대표 이미지 한 장으로
+그대로 묶여 있다 (`automaticAIImageLimit = 1`).
+
+그리고 그림 파일이 아니므로 미디어 업로드 경로를 타지 않는다 — 고아 미디어(D-052
+직전에 고친 문제)도, 파일명 ASCII 제약도, 모바일 축소도 없다.
+
+## 무엇을 쓰고 무엇을 안 쓰나
+
+**SVG 와 자바스크립트는 쓰지 않는다.** 통과가 확인되지 않았다.
+
+라이브 실측에서 인라인 style 82개가 살아남았지만, **같은 카드의 `box-sizing` 은
+잘려 나갔다.** 워드프레스가 CSS 속성을 허용 목록으로 거른다는 뜻이다. 그래서
+살아남는 것이 확인된 속성만 쓴다 — margin, padding, border, border-radius,
+background, color, font-size, font-weight, line-height, width, max-width,
+text-align, display(block/inline-block), vertical-align, overflow.
+
+flex, grid, transform, box-shadow 는 쓰지 않는다. 잘리면 레이아웃이 조용히
+무너지고, 새 원고마다 그 자리가 비어도 아무도 모른다. 회귀 테스트가 이 금지를
+지킨다.
+
+SVG 는 첫 발행 때 조각 하나를 같이 넣어 통과 여부를 확인한 뒤에 판단한다.
+
+## 자료를 어디에 담나
+
+`ImageBlock` 에 선택 필드 두 개를 더했다.
+
+- `visual` — 모양. 없으면 `list` 로 본다. 그래서 이전에 저장된 카드는 그대로다.
+- `data` — `{ label, value?, note? }` 최대 8개. `value` 는 맨 숫자만 받는다.
+  모델이 "2,200만 원" 같은 문자열을 보내면 값 없이 라벨만 남긴다.
+
+새 블록 타입을 만들지 않았다. 블록 유니온을 건드리면 파싱·검증·저장·병합·편집기·
+렌더러가 전부 영향을 받는데, 이미 이미지 블록 위에 무료 시각물 레일이 깔려 있고
+편집기와 두 렌더러가 이미 연결돼 있었다.
+
+모양을 요구하고 자료를 안 보내면 목록으로 떨어뜨린다. 빈 상자를 내보내지 않는다.
+
+## 캔버스·캔바 금지를 어떻게 정리했나
+
+`AGENTS.md`, `04_PROJECT_GUIDE.md`, `01_SYSTEM_ARCHITECTURE.md` 세 곳의 "Canvas
+기반 썸네일 방식은 사용하지 않는다" 를 고쳤다. 원래 취지는 **대표 이미지를 도형
+합성으로 때우지 마라** 였고 그 취지는 그대로 남긴다. 본문 시각물은 대표 이미지가
+아니고 캔버스도 아니므로 이 금지의 대상이 아니다.
+
+캔바는 검토했으나 지금 쓸 수 없다. Connect API 는 유료 요금제에서만 열리고
+(현재 계정은 무료), 원고마다 자동으로 그림을 찍어내는 오토필은 **Enterprise** 를
+요구한다. 그리고 캔바는 결국 이미지 파일을 만들어 미디어 업로드 경로를 다시 탄다.
 
 ---
 

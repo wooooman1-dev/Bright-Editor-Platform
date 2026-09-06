@@ -42,7 +42,7 @@ describe("ContentDocumentEditor derived table of contents", () => {
     const toc = html.slice(tocStart, tocEnd);
     expect(tocStart).toBeGreaterThan(0);
     expect(toc).toContain("목차");
-    expect(toc).toContain("H2/H3에서 자동 생성 · 미리보기와 동일");
+    expect(toc).toContain("H2/H3에서 자동 생성 · 발행본에도 같은 목차가 붙습니다");
     expect(toc).toContain("준비와 안전");
     expect(toc).toContain("운동 전 확인");
     expect(document.blocks.some((block) => (block as { type: string }).type === "toc")).toBe(false);

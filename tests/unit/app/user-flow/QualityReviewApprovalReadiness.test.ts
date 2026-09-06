@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import type { ApprovalReadinessReport } from "../../../../core/approval";
+import {
+  approvalReadinessCheckKeys,
+  type ApprovalReadinessReport,
+} from "../../../../core/approval";
 import type { QualityCategory } from "../../../../core/quality";
 import {
+  approvalReadinessCheckStatusLabel,
   normalizeQualityReview,
   visibleApprovalReadinessChecks,
 } from "../../../../app/user-flow/quality-review-ui";
@@ -81,7 +85,15 @@ describe("quality review approval readiness UI", () => {
     expect(review.approvalReadiness?.applicationReady).toBe(true);
   });
 
-  it("hides non-applicable Evidence while preserving the canonical readiness check", () => {
+  /**
+   * Reproduces what the editor showed for `content-msrfq4gt-fc8ub1`: the panel
+   * rendered five cards and no Evidence card at all, because a non-applicable
+   * Evidence check was filtered out of the visible list. AGENTS.md ch.14 names
+   * Evidence Verification as one of the four shared approval states and requires
+   * it to be represented separately, so it must stay on screen with its own
+   * label rather than vanish.
+   */
+  it("still shows non-applicable Evidence, labelled as not mandatory", () => {
     const report = readiness(true);
     const evidenceIndex = report.checks.findIndex((check) => check.key === "evidence");
     const checks = report.checks.map((check, index) => index === evidenceIndex
@@ -89,11 +101,12 @@ describe("quality review approval readiness UI", () => {
       : check);
     const review = normalizeQualityReview(rawQuality({ ...report, checks }), { currentRevisionId: "rev-current" });
 
-    expect(review.approvalReadiness?.checks).toContainEqual(expect.objectContaining({
-      key: "evidence",
-      applicable: false,
-    }));
-    expect(visibleApprovalReadinessChecks(review.approvalReadiness!))
-      .not.toContainEqual(expect.objectContaining({ key: "evidence" }));
+    const visible = visibleApprovalReadinessChecks(review.approvalReadiness!);
+    expect(visible).toHaveLength(approvalReadinessCheckKeys.length);
+    const evidence = visible.find((check) => check.key === "evidence")!;
+    expect(evidence.applicable).toBe(false);
+    expect(approvalReadinessCheckStatusLabel(evidence)).toBe("필수 검증 대상 아님");
+    expect(approvalReadinessCheckStatusLabel(visible.find((check) => check.key === "duplicate")!))
+      .toBe("통과");
   });
 });

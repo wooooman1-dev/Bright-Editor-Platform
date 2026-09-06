@@ -126,11 +126,13 @@ describe("durable Content planning workflow", () => {
       workspaceId: "workspace-1", projectId: "project-1", contentId: "content-1", opportunityId: second.opportunityId,
       expectedRevision: 2, now: "2026-07-18T00:03:00.000Z",
     });
-    expect(selected.contents[0].title).toBe(second.selectedTopic);
+    expect(selected.contents[0].title).toBe(ready.contents[0].title);
+    expect(selected.contents[0].planningWorkflow).toMatchObject({ status: "opportunitySelected", selectedOpportunityId: second.opportunityId });
     const confirmed = createContentFromPlan(selected, {
       id: "content-1", projectId: "project-1", naturalLanguageRequest: "오늘의 건강 글을 골라줘", plan, opportunity: second,
       selectedPublishingAccountIds: [], now: "2026-07-18T00:04:00.000Z",
     }).contents[0];
+    expect(confirmed.title).toBe(second.selectedTopic);
     expect(confirmed.planningWorkflow).toMatchObject({ status: "opportunityConfirmed", selectedOpportunityId: second.opportunityId, revision: 4 });
     expect(confirmed.opportunity).toMatchObject({
       opportunityId: second.opportunityId, selectedTopic: second.selectedTopic, primaryKeyword: second.primaryKeyword,

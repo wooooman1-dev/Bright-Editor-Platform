@@ -13,6 +13,19 @@ Every new development session should begin by reading:
 3. Docs/current/03_DEVELOPMENT/01_DEVELOPMENT_START.md
 4. This HANDOFF.md
 
+## Latest Session Handoff
+
+The most recent work, its verified results, and the constraints a new session
+must not violate are in:
+
+```text
+Docs/current/04_DEVELOPMENT/13_EDITORIAL_DIVERSITY_HANDOFF.md
+```
+
+Read it before touching Planning, the content depth policy, long-form
+diagnostics, or the editorial context. It also lists what does not travel with
+the repository when moving to another computer.
+
 ---
 
 # Current Project Status

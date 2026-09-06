@@ -37,7 +37,7 @@ Never:
 - Create large god files.
 - Break existing functionality.
 - Change architecture without approval.
-- Generate low-quality Canvas thumbnail features.
+- Generate a low-quality representative image by compositing shapes and text.
 
 When uncertain, stop and explain before coding.
 
@@ -260,7 +260,8 @@ Mandatory initial baseline:
 - Article count and prose length are not approval Gates
 - Generation remains one AI call and Quality Review remains one AI call
 - Review First and Draft Only remain enabled
-- Public publishing and scheduling remain disabled until separately approved
+- Immediate public publishing remains disabled
+- Scheduled publishing is approved by `D-038 WordPress Scheduled Publishing`. `draft` scheduling is the default. `future` public scheduling requires the Workspace Setting `wordpressSchedulePublicPublish` to be explicitly enabled and is never applied to `adsense_approval` content
 - WordPress Draft Save is not complete until the saved Draft is re-read and its title, meaningful body, Category, Featured Image when applicable, and Draft status are verified
 - The new WordPress site must be designed approval-first from the beginning: working navigation, required trust pages, no empty archives, no broken pages, mobile readability, crawler accessibility, sitemap, HTTPS, and theme/plugin stability.
 - Do not mark the site application-ready until Article Approval Gate, Evidence Verification, Duplicate Risk Check, and Site Approval Readiness Gate have all passed.

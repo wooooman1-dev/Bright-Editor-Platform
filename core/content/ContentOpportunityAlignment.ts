@@ -1,4 +1,5 @@
 import type { ContentBlock } from "./ContentBlock";
+import { isSystemProjectionBlock } from "./ContentBlockOwnership";
 import { normalizeContentPlanQualityTarget } from "./ContentDepthPolicy";
 import type { ContentDocument } from "./ContentDocument";
 import type { ConfirmedContentOpportunity } from "./ContentOpportunity";
@@ -52,7 +53,7 @@ export function analyzeContentOpportunityAlignment(
   const keywordTerms = distinctiveTerms(opportunity.primaryKeyword);
   const coreTerms = [...new Set([...topicTerms, ...keywordTerms])];
   const topicKeywordCoverage = coverage(keywordTerms, opportunity.selectedTopic);
-  const headingCoverage = analyzeOpportunityOutlineCoverage(document, opportunity, coreTerms);
+  const headingCoverage = analyzeOpportunityOutlineCoverage(document, opportunity);
   const bodyCoreCoverage = coverage(coreTerms, body);
   const titleCoreCoverage = coverage(coreTerms, document.title);
   const supportedSecondary = opportunity.secondaryKeywords.filter((keyword) => phraseOrTermCoverage(keyword, allText));
@@ -82,7 +83,10 @@ export function analyzeContentOpportunityAlignment(
   const expectedPass = opportunity.expectedCoverage.length === 0
     || expectedCoverage.length >= Math.max(1, Math.ceil(opportunity.expectedCoverage.length / 3));
   const topicIdentityPass = topicKeywordPass && bodyPass && (titleTopicPass || headingPass);
-  const editorialFulfillmentPass = headingPass && intentPass && expectedPass;
+
+  // headingPass 는 더 이상 단독 AND 로 물리지 않는다. 목차 신호 하나가 실패하면
+  // 정렬 전체가 실패해 주제 충실도·제목 정렬·주제 이탈까지 함께 차단으로 표시됐다.
+  const editorialFulfillmentPass = intentPass && expectedPass;
   const structuralPass = topicIdentityPass && editorialFulfillmentPass;
   const status: OpportunityAlignmentStatus = !topicIdentityPass
     ? "mismatch"
@@ -242,7 +246,7 @@ function contentSections(document: ContentDocument): readonly ContentSection[] {
     sections.push(Object.freeze({ heading, text, informationElements: informationElements(text) }));
   };
   for (const block of document.blocks) {
-    if (block.type === "heading" && block.level === 2) {
+    if (block.type === "heading" && block.level === 2 && !isSystemProjectionBlock(block)) {
       flush();
       heading = block.text;
       texts = [];
@@ -257,35 +261,36 @@ function contentSections(document: ContentDocument): readonly ContentSection[] {
   return Object.freeze(sections);
 }
 
+/**
+ * 목차가 계획한 범위를 실제로 다루는지만 본다.
+ *
+ * 이전에는 제목마다 주제어가 들어 있는지를 함께 재고, H2·H3 전부가 주제어를 담아야
+ * 통과였다. 시스템이 본문 끝에 붙이는 `출처` 제목은 두 글자라 어떤 주제어도 담을
+ * 수 없으므로 승인용 원고는 통과할 방법이 없었다. 2026-08-19 밝은재테크 실측: 앵커
+ * 8/9, 범위 6/6인 원고가 이 한 줄 때문에 승인에서 막혔고, 목차 신호 하나가 정렬
+ * 전체를 무너뜨려 주제 충실도·제목 정렬·주제 이탈까지 함께 차단으로 표시됐다.
+ *
+ * 제목이 주제어를 담았는지는 글의 값어치를 가르는 선이 아니라 편집 취향이다. 판정도
+ * 점수도 이 값을 쓰지 않는다. 남는 질문은 하나다 — 계획한 범위가 실제 섹션으로
+ * 다뤄졌는가.
+ */
 function analyzeOpportunityOutlineCoverage(
   document: ContentDocument,
   opportunity: ConfirmedContentOpportunity,
-  coreTerms: readonly string[],
 ): Readonly<{ pass: boolean; score: number; evidence: readonly string[] }> {
-  const headings = document.blocks.flatMap((block) =>
-    block.type === "heading" && (block.level === 2 || block.level === 3) ? [block.text] : []);
   const sections = contentSections(document).filter((section) => Boolean(section.heading.trim()));
-  const anchorTerms = [...new Set([
-    ...coreTerms,
-    ...opportunity.secondaryKeywords.flatMap(distinctiveTerms),
-    ...opportunity.expectedCoverage.flatMap(distinctiveTerms),
-  ].filter((term) => term.length >= 2))];
-  const anchoredHeadings = headings.filter((heading) => headingContainsAnyTerm(heading, anchorTerms));
   const coveredScopes = opportunity.expectedCoverage.filter((scope) =>
     sections.some((section) => sectionCoversOpportunityScope(section, scope)));
-  const headingAnchorPass = headings.length > 0 && anchoredHeadings.length === headings.length;
   const scopePass = opportunity.expectedCoverage.length === 0
     || coveredScopes.length >= Math.ceil(opportunity.expectedCoverage.length * 2 / 3);
-  const anchorCoverage = headings.length ? anchoredHeadings.length / headings.length : 0;
   const scopeCoverage = opportunity.expectedCoverage.length
     ? coveredScopes.length / opportunity.expectedCoverage.length
     : 1;
 
   return Object.freeze({
-    pass: headingAnchorPass && scopePass,
-    score: Math.round(Math.min(anchorCoverage, scopeCoverage) * 100),
+    pass: scopePass,
+    score: Math.round(scopeCoverage * 100),
     evidence: Object.freeze([
-      `H2/H3 주제 앵커: ${anchoredHeadings.length}/${headings.length}`,
       `계획 범위의 H2/H3 섹션 연결: ${coveredScopes.length}/${opportunity.expectedCoverage.length}`,
     ]),
   });
@@ -297,11 +302,6 @@ function sectionCoversOpportunityScope(section: ContentSection, scope: string): 
   const scopeTerms = distinctiveTerms(scope).filter((term) => term.length >= 2);
   const matchedTerms = scopeTerms.filter((term) => normalize(section.text).includes(normalize(term)));
   return matchedTerms.length >= Math.min(2, scopeTerms.length);
-}
-
-function headingContainsAnyTerm(heading: string, terms: readonly string[]): boolean {
-  const normalizedHeading = normalize(heading);
-  return terms.some((term) => normalizedHeading.includes(normalize(term)));
 }
 
 const freeVisualPurposes = new Set(["comparison", "checklist", "infographic", "summary", "warning"]);

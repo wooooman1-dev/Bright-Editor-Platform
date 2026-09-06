@@ -24,7 +24,10 @@ describe("ContentCreationFlow recommendation progress", () => {
 
   it("locks the recommendation controls while work is running or the request changed", () => {
     expect(source).toContain('aria-busy={operation === "regenerating"}');
-    expect(source).toContain('disabled={working || dirtyRequest} onCustomKeywordChange={setCustomKeyword}');
+    // Asserts the confirmation is locked, not the order of props around it.
+    expect(source).toContain('<PrimaryKeywordConfirmation');
+    expect(source).toContain('disabled={working || dirtyRequest}');
+    expect(source).toContain('onCustomKeywordChange={setCustomKeyword}');
     expect(confirmationSource).toContain('fieldset className="mt-5 space-y-3" disabled={disabled}');
     expect(confirmationSource).toContain('disabled={!customKeywordSelected || disabled}');
     expect(source).toContain('checked={selected.includes(connection.id)} disabled={working}');
@@ -51,4 +54,15 @@ describe("ContentCreationFlow recommendation progress", () => {
     expect(source).toContain("현재 작업 취소");
     expect(source).toContain('action: "delete-content"');
   });
+
+  /**
+   * 2026-08-28 실측: Planning 이 09:16:22 에 끝났는데 화면은 09:25 까지
+   * "분석 중" 이었다. setTimeout 한 번은 서버가 1.2초 안에 끝낼 때만 맞는다.
+   */
+  it("keeps asking until the saved workflow leaves planning or generating", () => {
+    expect(source).toContain("window.setInterval(() => {");
+    expect(source).toContain("window.clearInterval(timer)");
+    expect(source).not.toContain("window.setTimeout(() => {\n      void onRefresh()");
+  });
+
 });

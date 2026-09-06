@@ -70,6 +70,12 @@ export type ApprovalSourcePreflightDiagnostic = Readonly<{
     rejectionCode?: string;
     reason?: string;
     evidenceExcerpt?: string;
+    /**
+     * The opening of the text the server's own extraction read from the page.
+     * A model cannot see what a plain fetch returns, so a rejected excerpt is
+     * only actionable next to what was actually there.
+     */
+    extractedSample?: string;
     status?: number;
     contentType?: string;
     documentFormat?: string;

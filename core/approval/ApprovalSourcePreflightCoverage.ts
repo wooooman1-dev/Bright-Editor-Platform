@@ -1,4 +1,5 @@
 import type { ContentOpportunityCandidate } from "../content";
+import { evidenceExcerptAnchored } from "./ApprovalEvidenceAnchor";
 import {
   approvalEvidenceClaimFieldsForSourceUrl,
   approvalFactMatchesPage,
@@ -327,10 +328,15 @@ function claimMatchesRequirement(
     page.requestedUrl,
     page.finalUrl,
   ].join("\n");
-  if (!containsNormalized(pageText, claim.evidenceExcerpt)) return false;
+  if (!excerptAnchoredInPage(pageText, claim.evidenceExcerpt)) return false;
   if (!claimValueMatchesText(claim.value, pageText)) return false;
+  // A direct 국가법령정보센터 조문 URL is the authoritative source for the
+  // legal proposition. Its quoted excerpt is already anchored to that source,
+  // so do not perform a second, independent numeric comparison against the
+  // planning value. Keep URL safety, page anchoring, and claim-text checks.
   if (
     requirement.plannedValue
+    && !isOfficialLawSource(page)
     && !plannedValueMatchesClaim(requirement.plannedValue, claim.value)
   ) {
     return false;
@@ -344,6 +350,19 @@ function claimMatchesRequirement(
     || canonicalQuantitiesMatch(claim.value, pageText);
 }
 
+function isOfficialLawSource(page: ApprovalSourcePage): boolean {
+  return [page.requestedUrl, page.finalUrl]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .some((value) => {
+      try {
+        const url = new URL(value);
+        return url.protocol === "https:" && url.hostname === "law.go.kr";
+      } catch {
+        return false;
+      }
+    });
+}
+
 function normalizeSubmittedClaim(
   claim: ApprovalSourcePreflightClaim,
 ): ApprovalSourcePreflightClaim {
@@ -353,6 +372,17 @@ function normalizeSubmittedClaim(
     value: claim.value.replace(/\s+/gu, " ").trim(),
     evidenceExcerpt: claim.evidenceExcerpt.replace(/\s+/gu, " ").trim(),
   });
+}
+
+/**
+ * The Claim's quoted evidence is held to the same anchoring rule the preflight
+ * applies, so a source is not accepted there and then dropped here — which is
+ * what happened while both sides ran their own exact-substring check.
+ */
+function excerptAnchoredInPage(pageText: string, excerpt: string): boolean {
+  const needle = normalizeComparable(excerpt);
+  return needle.length >= 2
+    && evidenceExcerptAnchored(normalizeComparable(pageText), needle);
 }
 
 function containsNormalized(haystack: string, needle: string): boolean {

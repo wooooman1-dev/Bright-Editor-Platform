@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  applyGeneratedFactualClaimInventory,
   assertGeneratedClaimVerificationIntegrity,
   createGeneratedClaimVerificationRecord,
   createVerificationSnapshot,
   evaluateGeneratedClaimVerificationIntegrity,
+  evaluateVerificationGenerationGate,
+  validateGeneratedFactualClaimDrafts,
+  type GeneratedFactualClaim,
   type VerificationClaimSpec,
   type VerificationSourceAssessment,
 } from "../../../../core/approval";
@@ -120,7 +124,8 @@ describe("Generated Claim verification publishing integrity", () => {
     expect(result.verifiedClaimIds).toContain(claim.claimId);
   });
 
-  it("blocks when the current manuscript changes to an unverified high-risk value", () => {
+  // D-045: 값이 바뀐 것은 막지 않고 알린다. 경고 문장이 바뀐 값과 위치를 담는다.
+  it("warns without blocking when the current manuscript changes to an unverified high-risk value", () => {
     const current = verifiedDocument();
     const changed = Object.freeze({
       ...current,
@@ -134,14 +139,128 @@ describe("Generated Claim verification publishing integrity", () => {
       currentRevisionId: editorialRevisionId(changed),
     });
 
-    expect(result.passed).toBe(false);
+    expect(result.passed).toBe(true);
     expect(result.unverifiedDetectedCount).toBeGreaterThan(0);
-    expect(result.reasons.some((reason) => reason.includes("70만원"))).toBe(true);
+    expect(result.warnings.some((warning) => warning.includes("70만원"))).toBe(true);
+    expect(result.warnings.some((warning) => warning.includes("block:p1"))).toBe(true);
+    expect(result.reasons).toEqual([]);
     expect(() => assertGeneratedClaimVerificationIntegrity({
       document: changed,
       plan,
       currentRevisionId: editorialRevisionId(changed),
-    })).toThrow("Publishing blocked: generated Claim verification failed");
+    })).not.toThrow();
+  });
+
+  /**
+   * Regression: one revision used to carry two Claim structures that disagreed.
+   * The factual inventory withdrew a Claim and deleted its sentence, while the
+   * persisted VerificationSnapshot — computed before the inventory ran — still
+   * demanded a verbatim anchor for the same Claim ID, so approval readiness was
+   * blocked for a sentence the pipeline itself had removed.
+   */
+  describe("factual inventory withdrawal inside the same revision", () => {
+    const surface = "현재 지원 금액은 50만원입니다.";
+
+    function semanticClaims(document: ContentDocument): readonly GeneratedFactualClaim[] {
+      const gate = evaluateVerificationGenerationGate({ plan, snapshot });
+      const validation = validateGeneratedFactualClaimDrafts({
+        document,
+        plan,
+        snapshot,
+        gate,
+        drafts: [{
+          claimId: claim.claimId,
+          surfaceText: surface,
+          kind: claim.kind,
+          normalizedValueJson: JSON.stringify(normalizedValue),
+          qualifiers: { subject: "", scope: "", basis: "", note: "" },
+          temporalRequirementJson: JSON.stringify(claim.temporalRequirement ?? null),
+        }],
+      });
+      expect(validation.passed).toBe(true);
+      return validation.claims;
+    }
+
+    function recorded(
+      document: ContentDocument,
+      claims: readonly GeneratedFactualClaim[],
+    ): ContentDocument {
+      return Object.freeze({
+        ...document,
+        metadata: Object.freeze({
+          ...document.metadata!,
+          generatedClaimVerification: createGeneratedClaimVerificationRecord({
+            document,
+            plan,
+            snapshot,
+            boundEditorialRevisionId: editorialRevisionId(document),
+            semanticClaims: claims,
+          }),
+        }),
+      });
+    }
+
+    it("does not block a verified Claim the inventory reported as unsupported", () => {
+      const generated = baseDocument(surface);
+      const claims = semanticClaims(generated);
+      const withdrawn = applyGeneratedFactualClaimInventory({
+        document: generated,
+        drafts: [{
+          claimId: claim.claimId,
+          planningClaimId: "",
+          origin: "generation",
+          risk: "verify",
+          surfaceText: surface,
+          statement: claim.statement,
+          kind: claim.kind,
+          normalizedValueJson: JSON.stringify(normalizedValue),
+          qualifiers: { subject: "", scope: "", basis: "", note: "" },
+          temporalRequirementJson: JSON.stringify(claim.temporalRequirement ?? null),
+          evidenceUrl: "https://primary.example/claim",
+          evidenceExcerpt: "",
+        }],
+        decisions: [{
+          retained: false,
+          evidenceStatus: "unsupported",
+          diagnosticCode: "verify_source_not_cited_by_generation",
+        }],
+        fallbackTitle: generated.title,
+      }).document;
+      // D-039: the inventory records the decision; the manuscript is untouched,
+      // so the Claim anchor it binds against is still where it was.
+      expect(withdrawn.blocks).toHaveLength(1);
+      expect(JSON.stringify(withdrawn.blocks)).toContain(surface);
+
+      const document = recorded(withdrawn, claims);
+      const result = evaluateGeneratedClaimVerificationIntegrity({
+        document,
+        plan,
+        currentRevisionId: editorialRevisionId(document),
+      });
+
+      expect(result.reasons).toEqual([]);
+      expect(result.passed).toBe(true);
+    });
+
+    it("still blocks a verified Claim whose anchor disappeared without a withdrawal", () => {
+      const generated = baseDocument(surface);
+      const claims = semanticClaims(generated);
+      const edited = Object.freeze({
+        ...generated,
+        blocks: Object.freeze([
+          Object.freeze({ id: "p1", type: "paragraph" as const, text: "지원 금액은 신청 시점에 확인하세요." }),
+        ]),
+      });
+      const document = recorded(edited, claims);
+      const result = evaluateGeneratedClaimVerificationIntegrity({
+        document,
+        plan,
+        currentRevisionId: editorialRevisionId(document),
+      });
+
+      expect(result.passed).toBe(false);
+      expect(result.reasons.join(" ")).toContain("verbatim anchor");
+    });
   });
 
   it("blocks an explicit plan when the canonical manuscript has no persisted Snapshot", () => {

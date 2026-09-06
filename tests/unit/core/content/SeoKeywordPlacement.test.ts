@@ -48,13 +48,12 @@ describe("ensureSeoKeywordPlacement", () => {
     expect(result.metadata?.longFormStructure).toEqual(longFormStructure);
   });
 
-  it("places the exact keyword in title, introduction, and metadata without changing block identity or order", () => {
+  it("places the exact keyword in title and metadata without touching the body", () => {
     const source = createDocument();
     const result = ensureSeoKeywordPlacement(source, keyword);
 
     expect(result.title).toContain(keyword);
-    expect(result.blocks[0].type).toBe("paragraph");
-    expect(result.blocks[0].type === "paragraph" ? result.blocks[0].text : "").toContain(keyword);
+    expect(result.blocks).toEqual(source.blocks);
     expect(result.metadata?.metaDescription).toContain(keyword);
     expect(result.metadata?.metaDescription?.length).toBeGreaterThanOrEqual(60);
     expect(result.metadata?.metaDescription?.length).toBeLessThanOrEqual(180);
@@ -124,5 +123,60 @@ describe("ensureSeoKeywordPlacement", () => {
   it("leaves the document unchanged when no keyword is configured", () => {
     const source = createDocument();
     expect(ensureSeoKeywordPlacement(source, "   ")).toBe(source);
+  });
+});
+
+describe("title clause preservation", () => {
+  /**
+   * 2026-08-19 밝은재테크 실측: 원고 49편 중 3편의 제목이 가운뎃점 자리에서
+   * 끊겨 문장이 되지 않았다. 나열을 접는 규칙이 서술어가 든 마지막 조각까지
+   * 버렸기 때문이다.
+   */
+  it("keeps the trailing clause when the last list part carries a predicate", () => {
+    const source = {
+      ...createDocument(),
+      title: "건강보험 피부양자 자격 조건: 가족관계·소득·재산·변동 사건을 나눠 확인하는 법",
+    };
+    const result = ensureSeoKeywordPlacement(source, "건강보험 피부양자 자격 조건");
+
+    expect(result.title).toBe("건강보험 피부양자 자격 조건: 가족관계·소득·재산·변동 사건을 나눠 확인하는 법");
+    expect(result.title).not.toBe("건강보험 피부양자 자격 조건: 가족관계");
+  });
+
+  it("keeps the reading order clause of the loan repayment title", () => {
+    const source = {
+      ...createDocument(),
+      title: "대출 상환내역 확인 방법: 이번 달 원금·이자·잔액·상환일을 읽는 순서",
+    };
+    const result = ensureSeoKeywordPlacement(source, "대출 상환내역 확인 방법");
+
+    expect(result.title).toBe("대출 상환내역 확인 방법: 이번 달 원금·이자·잔액·상환일을 읽는 순서");
+  });
+
+  it("still compacts a title whose trailing part is a bare list item", () => {
+    const source = { ...createDocument(), title: "장 건강 관리 방법: 음식·검사·운동·수면" };
+    const result = ensureSeoKeywordPlacement(source, "장 건강 관리 방법");
+
+    expect(result.title).toBe("장 건강 관리 방법: 음식");
+  });
+});
+
+
+describe("body prose is left alone", () => {
+  /**
+   * 본문에 키워드가 없으면 첫 문단 앞에 "<키워드> 관련 핵심 내용을 먼저
+   * 정리하면," 을 지어 붙였다. 사람이 쓰지 않는 문장이고 늘 같은 자리에 같은
+   * 모양으로 나타난다. 2026-08-20 밝은재테크 실측: 발행분 2편에 남아 있었다.
+   */
+  it("does not invent a sentence when the body never uses the keyword", () => {
+    const source = {
+      ...createDocument(),
+      blocks: [{ id: "intro", type: "paragraph", text: "장과 뇌는 신경과 면역 신호를 통해 서로 영향을 주고받습니다." }],
+    } as ContentDocument;
+
+    const result = ensureSeoKeywordPlacement(source, "교대근무자 수면 관리법");
+
+    expect(result.blocks).toEqual(source.blocks);
+    expect(JSON.stringify(result.blocks)).not.toContain("관련 핵심 내용을 먼저 정리하면");
   });
 });

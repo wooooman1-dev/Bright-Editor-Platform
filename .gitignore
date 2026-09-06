@@ -21,3 +21,11 @@ logs/*
 !logs/.gitkeep
 data/*
 !data/.gitkeep
+
+# Claude Code: 워크트리 체크아웃과 개인 설정은 추적하지 않는다
+.claude/worktrees/
+.claude/settings.local.json
+.claude/handover-snapshot.md
+
+_to_delete/
+_check/

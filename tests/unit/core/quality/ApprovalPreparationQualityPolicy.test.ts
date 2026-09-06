@@ -84,7 +84,7 @@ describe("approval preparation Quality policy", () => {
   });
 
   it("does not let the WordPress profile create an information-date requirement for not-required Evidence", () => {
-    const base = document("카드 명세서를 거래일, 금액, 거래처, 결제 방식 순서로 확인합니다.");
+    const base = document("카드 명세서를 거래일, 금액, 거래처, 결제 방식 순서로 확인합니다. 항목의 뜻은 카드사 약관에서 직접 확인할 수 있습니다.");
     const candidate = createContentOpportunityCandidate({
       sourceRequest: "카드 명세서 확인 방법",
       selectionMode: "automatic",

@@ -6,6 +6,7 @@ import {
   evaluateVerificationGenerationGate,
   validateGeneratedFactualClaimDrafts,
   type GeneratedFactualClaimDraft,
+  type GeneratedFactualClaimInventoryItem,
   type VerificationClaimSpec,
   type VerificationNormalizedValue,
   type VerificationSourceAssessment,
@@ -211,7 +212,13 @@ describe("Generated factual Claim semantic contract", () => {
     expect(result.reasons.join(" ")).toContain(moneyClaim.claimId);
   });
 
-  it("fails closed when one verified non-scalar Claim is omitted from the Generation semantic list", () => {
+  it("warns without blocking when one verified non-scalar Claim is omitted from the Generation semantic list", () => {
+    // D-045: 이 재계산은 "현재 본문에서 찾은 검증 토큰이 구조화 목록에
+    // 포함되는가"를 본다. evaluateStoredGeneratedFactualClaims 로 재평가할 때는
+    // 검토 편집이 anchor 위치·표현을 살짝 바꿨을 뿐인 경우와 구별할 수 없어
+    // (2026-09-04 실측: 청약저축 소득공제 원고), 차단 사유가 아니라 경고로
+    // 남긴다. Generation이 실제로 값을 빠뜨렸는지는 값 자체가 verified Snapshot과
+    // 일치하는지를 보는 위쪽 per-draft 검사가 계속 차단한다.
     const result = validateGeneratedFactualClaimDrafts({
       document,
       plan,
@@ -220,8 +227,8 @@ describe("Generated factual Claim semantic contract", () => {
       drafts: Object.freeze([validDrafts[0]!]),
     });
 
-    expect(result.passed).toBe(false);
-    expect(result.reasons.join(" ")).toContain(eligibilityClaim.claimId);
+    expect(result.passed).toBe(true);
+    expect(result.warnings.join(" ")).toContain(eligibilityClaim.claimId);
   });
 
   it("rechecks persisted semantic anchors against the current manuscript revision", () => {
@@ -252,5 +259,129 @@ describe("Generated factual Claim semantic contract", () => {
     expect(result.passed).toBe(false);
     expect(result.reasons.join(" ")).toContain(eligibilityClaim.claimId);
     expect(result.reasons.join(" ")).toContain("verbatim anchor");
+  });
+
+  describe("factual inventory withdrawal", () => {
+    const eligibilitySurface = "신청 대상은 서울특별시에 거주하는 만 19세 이상 주민입니다.";
+
+    function withInventory(
+      base: ContentDocument,
+      items: readonly GeneratedFactualClaimInventoryItem[],
+    ): ContentDocument {
+      return Object.freeze({
+        ...base,
+        metadata: Object.freeze({
+          ...base.metadata!,
+          generatedFactualClaimInventory: Object.freeze({
+            schemaVersion: 1 as const,
+            items: Object.freeze(items),
+            retainedClaimIds: Object.freeze(items
+              .filter((item) => item.disposition === "retained")
+              .map((item) => item.claimId)),
+            removedClaimCount: items.filter((item) => item.disposition === "removed").length,
+          }),
+        }),
+      });
+    }
+
+    function removedItem(
+      claimId: string,
+      surfaceText: string,
+    ): GeneratedFactualClaimInventoryItem {
+      return Object.freeze({
+        claimId,
+        origin: "generation" as const,
+        risk: "verify" as const,
+        surfaceText,
+        statement: surfaceText,
+        kind: "eligibility" as const,
+        normalizedValueJson: "{}",
+        qualifiers: Object.freeze({}),
+        locations: Object.freeze([]),
+        disposition: "removed" as const,
+        evidenceStatus: "unsupported" as const,
+        diagnosticCode: "verify_source_not_cited_by_generation",
+      });
+    }
+
+    const stored = validateGeneratedFactualClaimDrafts({
+      document,
+      plan,
+      snapshot,
+      gate,
+      drafts: validDrafts,
+    }).claims;
+
+    const withoutEligibility: ContentDocument = Object.freeze({
+      ...document,
+      blocks: Object.freeze(document.blocks.filter((block) => block.id !== "eligibility")),
+    });
+
+    it("does not block on a Claim the factual inventory withdrew from the manuscript", () => {
+      const result = evaluateStoredGeneratedFactualClaims({
+        document: withInventory(withoutEligibility, [
+          removedItem(eligibilityClaim.claimId, eligibilitySurface),
+        ]),
+        plan,
+        snapshot,
+        gate,
+        claims: stored,
+      });
+
+      expect(result.passed).toBe(true);
+      expect(result.reasons).toEqual([]);
+      expect(result.claims.map((claim) => claim.claimId)).toEqual([moneyClaim.claimId]);
+    });
+
+    it("still blocks a verified Claim whose anchor was edited away without any inventory withdrawal", () => {
+      const edited: ContentDocument = Object.freeze({
+        ...document,
+        blocks: Object.freeze(document.blocks.map((block) =>
+          block.id === "eligibility" && block.type === "paragraph"
+            ? Object.freeze({ ...block, text: "신청 대상은 부산광역시에 거주하는 만 19세 이상 주민입니다." })
+            : block)),
+      });
+      const result = evaluateStoredGeneratedFactualClaims({
+        document: withInventory(edited, [
+          Object.freeze({
+            ...removedItem(moneyClaim.claimId, "현재 지원 금액은 월 50만원입니다."),
+            kind: "money" as const,
+            risk: "critical" as const,
+            disposition: "retained" as const,
+            evidenceStatus: "critical_verified" as const,
+          }),
+        ]),
+        plan,
+        snapshot,
+        gate,
+        claims: stored,
+      });
+
+      expect(result.passed).toBe(false);
+      expect(result.reasons.join(" ")).toContain(eligibilityClaim.claimId);
+      expect(result.reasons.join(" ")).toContain("verbatim anchor");
+    });
+
+    it("grants no withdrawal exemption while the recorded surface is still published", () => {
+      const edited: ContentDocument = Object.freeze({
+        ...document,
+        blocks: Object.freeze(document.blocks.map((block) =>
+          block.id === "eligibility" && block.type === "paragraph"
+            ? Object.freeze({ ...block, text: "신청 대상은 부산광역시에 거주하는 만 19세 이상 주민입니다." })
+            : block)),
+      });
+      const result = evaluateStoredGeneratedFactualClaims({
+        document: withInventory(edited, [
+          removedItem(eligibilityClaim.claimId, "현재 지원 금액은 월 50만원입니다."),
+        ]),
+        plan,
+        snapshot,
+        gate,
+        claims: stored,
+      });
+
+      expect(result.passed).toBe(false);
+      expect(result.reasons.join(" ")).toContain(eligibilityClaim.claimId);
+    });
   });
 });

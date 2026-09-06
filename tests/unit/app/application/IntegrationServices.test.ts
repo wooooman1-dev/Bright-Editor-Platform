@@ -85,11 +85,12 @@ describe("integration infrastructure", () => {
                 items: { type: "string" },
               },
               images: {
-                maxItems: 1,
+                maxItems: 4,
                 items: {
                   properties: {
-                    afterSection: { type: "integer", enum: [0] },
-                    purpose: { type: "string", enum: ["hero"] },
+                    afterSection: { type: "integer", minimum: 0 },
+                    purpose: { type: "string", enum: ["hero", "comparison", "checklist", "infographic", "summary", "warning"] },
+                    visual: { type: "string", enum: ["", "bar", "ratio", "steps", "timeline", "compare", "stat", "list"] },
                   },
                 },
               },
@@ -176,15 +177,16 @@ describe("integration infrastructure", () => {
     fetchSpy.mockRestore();
   });
 
-  it("converts one AI JSON response into canonical blocks without forcing an image", () => {
+  it("converts one AI JSON response into canonical blocks and guarantees the hero image", () => {
     const strategy = new EditorialGenerationStrategy();
     const prose = "A complete and useful explanation for the reader with concrete context, actions, examples, and outcomes. ".repeat(20);
     const document = strategy.parse(JSON.stringify({ title: "Guide", blocks: [{ type: "paragraph", text: prose }, ...Array.from({ length: 5 }, (_, index) => [{ type: "heading", level: 2, text: `Step ${index + 1}` }, { type: "paragraph", text: prose }]).flat(), { type: "button", purpose: "cta", label: "Start", targetUrl: "https://example.com", target: "_blank" }] }), {
       contentType: "article" as never, keywords: ["guide"], platform: "tistory" as never, projectId: "project-1",
     });
     expect(document.blocks.map((block) => block.type)).toContain("button");
-    expect(document.blocks.map((block) => block.type)).not.toContain("image");
-    expect(document.blocks).toHaveLength(12);
+    expect(document.blocks.filter((block) => block.type === "image")).toHaveLength(1);
+    expect(document.blocks.find((block) => block.type === "image")).toMatchObject({ type: "image", purpose: "hero", source: "" });
+    expect(document.blocks).toHaveLength(13);
     expect(document.blocks.at(-1)).toMatchObject({ type: "button", purpose: "cta", target: "_blank" });
   });
 
@@ -207,7 +209,13 @@ describe("integration infrastructure", () => {
     ] };
 
     const document = strategy.parse(JSON.stringify(response), { contentId: "image-context", contentType: "article" as never, keywords: ["중년 아침 운동"], platform: "tistory" as never, projectId: "project-1" });
-    expect(document.blocks.some((block) => block.type === "image")).toBe(false);
+    // 그림 파일이 필요한 inline 추천은 사라지고 대표 이미지가 채워진다. infographic은
+    // 2026-08-29부터 무료 Bright 본문 시각물로 보존된다(core/media/ImageCostPolicy.ts) —
+    // 이 테스트는 그 전 기준(inline·infographic 둘 다 제거)으로 남아 있었다.
+    const images = document.blocks.filter((block) => block.type === "image");
+    expect(images).toHaveLength(2);
+    expect(images.map((block) => block.purpose)).toEqual(["hero", "infographic"]);
+    expect(images.some((block) => block.purpose === "inline")).toBe(false);
   });
 
   it("lets a complete but shallow first pass reach the bounded final editorial review", () => {

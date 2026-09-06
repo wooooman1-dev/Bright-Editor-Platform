@@ -7,6 +7,7 @@ export type RegisteredPublishingWorkflow =
   | "post.read"
   | "media.upload"
   | "draft.create"
+  | "draft.update"
   | "draft.verify"
   | "schedule.create"
   | "schedule.verify";
@@ -45,6 +46,7 @@ function workflowPermission(workflow: string): AutomationPermission {
     "post.read",
     "media.upload",
     "draft.create",
+    "draft.update",
     "draft.verify",
     "schedule.create",
     "schedule.verify",
@@ -52,9 +54,12 @@ function workflowPermission(workflow: string): AutomationPermission {
   if (!allowed.includes(workflow as RegisteredPublishingWorkflow)) throw new PublishingPermissionError("WORKFLOW_NOT_REGISTERED", "The requested publishing workflow is not registered.");
   if (workflow === "post.read") return "category.read";
   if (workflow === "schedule.verify") return "schedule.create";
+  // Rewriting a Post the user already allowed us to create needs no separate
+  // grant — the account either lets Bright Studio write that Post or it does not.
+  if (workflow === "draft.update") return "draft.create";
   return workflow as AutomationPermission;
 }
 
 function requiresFinalConfirmation(workflow: string): boolean {
-  return workflow === "draft.create" || workflow === "draft.verify" || workflow === "schedule.create";
+  return workflow === "draft.create" || workflow === "draft.update" || workflow === "draft.verify" || workflow === "schedule.create";
 }

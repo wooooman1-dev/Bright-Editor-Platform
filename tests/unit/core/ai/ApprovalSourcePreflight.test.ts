@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AIWorkflow } from "../../../../core/ai/AIWorkflow";
+import { ApprovalSourcePreflightError } from "../../../../core/ai/ApprovalSourcePreflight";
 import {
   createAIUsageRecord,
   type AIProvider,
@@ -312,7 +313,7 @@ describe("Approval Source Preflight", () => {
     );
     expect(result.document.metadata?.approvalEvidence?.sources).toMatchObject([{
       url: sourceUrl,
-      provenance: "citation",
+      provenance: "system_verified",
       cited: true,
       selected: true,
       citationExcerpt: sourceEvidenceExcerpt,
@@ -355,6 +356,35 @@ describe("Approval Source Preflight", () => {
     );
     expect(fetchMock).not.toHaveBeenCalled();
     expect(provider.requests).toHaveLength(1);
+  });
+
+  /**
+   * 2026-09-04 실측: 이 거부 경로만 diagnostic 인자를 안 넘겨서 진단이
+   * 비어 있었다(undefined). 저장된 실제 데이터에서 이 사유로 막힌 사례는
+   * 못 찾았지만(0건), todo.txt 가 말한 "approvalSourcePreflightDiagnostic
+   * 이 {} 다"는 다른 원인(저장 경로를 잘못 조회함)이었지 이 문제는 아니었다 —
+   * 그래도 이 한 경로는 실제로 비어 있었으므로 채운다.
+   */
+  it("attaches a diagnostic when no discovered candidate matches an observed web-search source", async () => {
+    const provider = new QueueProvider([preflightResponse({
+      observedUrls: [
+        "https://www.gov.kr/portal/service/serviceInfo/different",
+      ],
+    })]);
+    vi.stubGlobal("fetch", vi.fn());
+
+    let caught: unknown;
+    try {
+      await new AIWorkflow(provider, strategy).generate(generationInput());
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(ApprovalSourcePreflightError);
+    const error = caught as ApprovalSourcePreflightError;
+    expect(error.diagnostic).toBeDefined();
+    expect(error.diagnostic?.rejectionStage).toBe("source");
+    expect(error.diagnostic?.rejectionCode).toBe("discovery_sources_not_observed");
   });
 
   it("blocks before Generation when a required Claim field is missing", async () => {
@@ -487,6 +517,46 @@ describe("Approval Source Preflight", () => {
       expect(provider.requests).toHaveLength(1);
       vi.unstubAllGlobals();
     }
+  });
+
+  /**
+   * The excerpt is the model's quote of the page it read; the page text is this
+   * server's separate extraction of the same URL. The two can differ inside the
+   * quote without the evidence being any less present, which is how a 국세청 page
+   * carrying the required wording verbatim was rejected.
+   */
+  it("accepts a quote the page carries despite an extraction difference inside it", async () => {
+    const extractedVariant =
+      "공식 안내의 지원 대상과 신청 조건(변경 시 공고)을 신청 전에 확인해야 합니다.";
+    const provider = new QueueProvider([preflightResponse(), generationResponse()]);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      pageHtml({ claimExcerpt: extractedVariant }),
+      { status: 200, headers: { "content-type": "text/html; charset=utf-8" } },
+    )));
+
+    await expect(new AIWorkflow(provider, strategy).generate(generationInput()))
+      .resolves.toBeDefined();
+  });
+
+  it("still blocks a quote the page does not carry, however it is worded", async () => {
+    const unrelated =
+      "공식 안내는 신청자의 거주 기간과 차량 보유 여부를 기준으로 판단한다고 적혀 있습니다.";
+    const provider = new QueueProvider([preflightResponse({
+      sources: [source({
+        claims: [{
+          field: "eligibility",
+          value: eligibilityValue,
+          evidenceExcerpt: unrelated,
+        }],
+      })],
+    })]);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      pageHtml(),
+      { status: 200, headers: { "content-type": "text/html; charset=utf-8" } },
+    )));
+
+    await expect(new AIWorkflow(provider, strategy).generate(generationInput()))
+      .rejects.toThrow("미확보 Claim: eligibility");
   });
 
   it("uses the redirect final URL after validating the final page", async () => {

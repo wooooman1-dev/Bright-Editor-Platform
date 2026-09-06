@@ -76,7 +76,7 @@ describe("ApprovalPolicy", () => {
     expect(context).toContain("Content domain: 생활경제, 생활금융, 정부지원, 세금, 주거 정보");
     expect(context).toContain("publishing Category labels are metadata, not default search keywords");
     expect(context).toContain("Date ownership contract");
-    expect(context).toContain("Never combine 정보 기준일 with 최종 검토일");
+    expect(context).toContain("the manuscript never states a date describing its own currency or review");
     expect(context).not.toContain("wordpress_life_economy_v1");
     expect(context).not.toMatch(/Google\s*AI\s*봇|AI\s*봇에게\s*잘\s*보이/iu);
     expect(context).not.toMatch(/\b\d{3,}\s*(?:자|단어)\b/u);
@@ -136,7 +136,6 @@ describe("ApprovalPolicy", () => {
       "FABRICATED_EXPERIENCE",
       "PROFILE_SOURCE_REQUIREMENT_MISSING",
       "PROFILE_SOURCE_URL_MISSING",
-      "PROFILE_REVIEW_DATE_MISSING",
     ]));
   });
 
@@ -158,7 +157,7 @@ describe("ApprovalPolicy", () => {
     )).toEqual([]);
   });
 
-  it("blocks a combined natural-language information and final-review date sentence", () => {
+  it("does not block a combined natural-language information and final-review date sentence", () => {
     const snapshot = resolveApprovalPolicySnapshot("adsense_approval", "wordpress_life_economy_v1")!;
     const issues = evaluateApprovalPreparationText(
       "공식 자료 https://www.gov.kr/portal/main 를 확인했습니다. 정보 기준일과 최종 검토일은 2026년 7월 30일이며 실제 신청 전 최신 공고를 다시 확인해야 합니다.",
@@ -166,10 +165,7 @@ describe("ApprovalPolicy", () => {
       { reviewedAt: "2026-07-31T00:00:00.000Z" },
     );
 
-    expect(issues).toContainEqual(expect.objectContaining({
-      code: "PROFILE_REVIEW_DATE_MISSING",
-      message: expect.stringContaining("서로 다른 역할"),
-    }));
+    expect(issues).toEqual([]);
   });
 
   it("uses canonical Evidence metadata for the official HTTPS URL and system-owned review date", () => {
@@ -206,7 +202,7 @@ describe("ApprovalPolicy", () => {
     expect(issues).toEqual([]);
   });
 
-  it("blocks profile evidence when Claim coverage is incomplete even with a source URL", () => {
+  it("does not block profile evidence solely because general Claim coverage is incomplete", () => {
     const snapshot = resolveApprovalPolicySnapshot("adsense_approval", "wordpress_life_economy_v1")!;
     const issues = evaluateApprovalPreparationText(
       "핵심 Claim을 공식 자료로 확인했습니다. 정보 기준일: 2026-08-01",
@@ -221,6 +217,6 @@ describe("ApprovalPolicy", () => {
       },
     );
 
-    expect(issues).toContainEqual(expect.objectContaining({ code: "PROFILE_SOURCE_REQUIREMENT_MISSING" }));
+    expect(issues).not.toContainEqual(expect.objectContaining({ code: "PROFILE_SOURCE_REQUIREMENT_MISSING" }));
   });
 });

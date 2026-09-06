@@ -180,7 +180,11 @@ describe("Approval Evidence terminal states", () => {
     });
   });
 
-  it("classifies a selected source without any supported or generic Claim role as unsupported_claim", () => {
+  /**
+   * D-045: 연결할 Claim 역할을 못 찾아도 거부하지 않는다. 신뢰할 수 있는 곳에서
+   * 열린 페이지라는 사실이 근거이고, 역할 식별 실패로 원고를 막지 않는다.
+   */
+  it("accepts a reachable official page even when no Claim role is identified", () => {
     const unknown = source(
       "unknown-claim",
       "https://law.go.kr/new-claim",
@@ -197,11 +201,10 @@ describe("Approval Evidence terminal states", () => {
       "2026-08-03T05:10:00.000Z",
     );
 
-    expect(result.pack.status).toBe("needs_review");
+    expect(result.pack.status).toBe("verified");
     expect(result.pack.sources[0]).toMatchObject({
-      verificationStatus: "unsupported_claim",
-      claimVerificationStatus: "failed",
-      verified: false,
+      verificationStatus: "verified",
+      verified: true,
     });
   });
 });

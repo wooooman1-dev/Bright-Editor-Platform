@@ -146,3 +146,42 @@ describe("ApprovalSourceDocumentAdapter", () => {
     }
   });
 });
+
+describe("PDF title encoding", () => {
+  /**
+   * PDF 명세는 텍스트 문자열이 바이트 `FE FF` 로 시작하면 UTF-16BE 로 읽으라고
+   * 정한다. 2026-08-20 밝은재테크 실측: law.go.kr 법령 PDF 의 제목이
+   * `þÿ È 1Ç¥ Í ÎY` 로 저장됐다.
+   */
+  it("reads a UTF-16BE title written with the byte order mark", () => {
+    const title = "퇴직급여";
+    const utf16 = [0xfe, 0xff, ...[...title].flatMap((character) => {
+      const code = character.charCodeAt(0);
+      return [code >> 8, code & 0xff];
+    })];
+    const bytes = new Uint8Array([
+      ...new TextEncoder().encode("%PDF-1.4\n1 0 obj<</Title ("),
+      ...utf16,
+      ...new TextEncoder().encode(")>>endobj\nBT (Retirement benefit official claim text with enough readable evidence for deterministic comparison.) Tj ET\n%%EOF"),
+    ]);
+
+    const result = normalizeApprovalSourceDocument({
+      requestedUrl: "https://law.go.kr/lbook/lbFileDownload.do?flExt=pdf",
+      finalUrl: "https://law.go.kr/lbook/lbFileDownload.do?flExt=pdf",
+      status: 200,
+      contentType: "application/pdf",
+      bytes,
+    });
+
+    expect(result.title).toBe(title);
+  });
+
+  it("leaves a title without a byte order mark unchanged", () => {
+    const result = normalizeApprovalSourceDocument(input(
+      "%PDF-1.4\n1 0 obj<</Title (Official Claim)>>endobj\nBT (Continuing transaction official claim text with enough readable evidence for deterministic comparison.) Tj ET\n%%EOF",
+      "application/pdf",
+    ));
+
+    expect(result.title).toBe("Official Claim");
+  });
+});

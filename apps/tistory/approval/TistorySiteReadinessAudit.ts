@@ -1,3 +1,4 @@
+import { evaluatePublicPageIndexability } from "../../../core/approval";
 import type {
   SiteApprovalReadinessAdapter,
   SiteApprovalReadinessAuditInput,
@@ -144,6 +145,27 @@ export async function auditTistorySiteReadiness(
       : "공개 카테고리 경로를 확인하지 못했습니다.",
   });
 
+  /**
+   * 공개 홈이 검색 색인에서 빠져 있으면 나머지 검사는 의미가 없다.
+   *
+   * 워드프레스 감사에는 이 검사가 있는데 티스토리에는 없었다. AGENTS.md 14장이
+   * 금지하는 "약한 티스토리 승인 경로"다. 2026-08-14 실측에서 워드프레스 쪽은
+   * 게이트가 15건 전부 통과라고 보고한 같은 날 Search Console 이 세 페이지를
+   * NOINDEX 로 제외했다고 보고했다 — 열어 보지 않으면 알 수 없다.
+   */
+  const indexability = evaluatePublicPageIndexability({
+    html: page.html,
+    ...(page.xRobotsTag ? { xRobotsTag: page.xRobotsTag } : {}),
+  });
+  checks.push({
+    key: "public_indexable",
+    passed: indexability.indexable,
+    message: indexability.indexable
+      ? "공개 홈이 검색 색인에서 제외되지 않았습니다."
+      : `공개 홈이 검색 색인에서 제외되어 있습니다 (${indexability.blockedBy === "header" ? "X-Robots-Tag" : "meta robots"}: ${indexability.directive ?? "noindex"}).`,
+    ...(indexability.indexable ? {} : { action: "티스토리 관리 → 블로그 설정에서 검색엔진 수집 허용을 켜고, 사용 중인 스킨이 noindex 메타를 넣고 있는지 확인하세요." }),
+  });
+
   const linksAndText = `${page.html} ${page.text}`;
   const privacy = /(?:개인정보\s*처리방침|privacy\s*policy|privacy)/i.test(linksAndText);
   checks.push({
@@ -203,6 +225,8 @@ type PublicHtmlPage = Readonly<{
   contentType: string;
   html: string;
   text: string;
+  /** 스킨을 건드리지 않고도 색인에서 뺄 수 있는 경로라 헤더도 읽는다. */
+  xRobotsTag?: string;
   title: string;
   description: string;
 }>;
@@ -233,6 +257,7 @@ async function fetchHtmlPage(
       contentType,
       html,
       text: htmlToText(html),
+      ...(response.headers.get("x-robots-tag") ? { xRobotsTag: response.headers.get("x-robots-tag")! } : {}),
       title: extractFirst(html, /<title[^>]*>([\s\S]*?)<\/title>/i),
       description: extractFirst(html, /<meta[^>]+(?:name|property)=["'](?:description|og:description)["'][^>]+content=["']([^"']*)["'][^>]*>/i),
     });

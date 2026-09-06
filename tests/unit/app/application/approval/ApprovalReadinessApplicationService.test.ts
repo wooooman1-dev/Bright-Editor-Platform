@@ -82,7 +82,7 @@ function standardQuality(value: ContentDocument): QualityReport {
     tasks: [],
     reviewedAt: "2026-07-27T00:00:00.000Z",
     reviewedRevisionId: editorialRevisionId(value),
-    weights: { searchIntent: 0, seo: 0, readability: 0, structure: 0, completeness: 0, usefulness: 0, htmlQuality: 0, imageStrategy: 0, internalLinks: 0, cta: 0 },
+    weights: { searchIntent: 0, seo: 0, readability: 0, structure: 0, completeness: 0, usefulness: 0, htmlQuality: 0, imageStrategy: 0, internalLinks: 0, cta: 0, concreteness: 0, readerDeferral: 0, evidenceUse: 0, formality: 0 },
   };
 }
 
@@ -278,7 +278,12 @@ describe("ApprovalReadinessApplicationService", () => {
     expect(refreshed.document.metadata?.approvalReadinessExecution?.checkedAt).toBe("2026-07-27T10:30:00.000Z");
   });
 
-  it("preserves an editorial source section and reports a projection conflict instead of creating a duplicate", async () => {
+  /**
+   * D-045: 출처 섹션은 시스템이 하나만 붙인다. 원고가 이미 가진 출처 링크가
+   * canonical Evidence 와 같은 주소면 충돌이 아니라 이미 맞는 상태다. 예전에는
+   * 원고에 출처 섹션이 있다는 이유만으로 무조건 충돌로 막았다.
+   */
+  it("keeps an editorial source section that already lists the verified URLs and adds no duplicate", async () => {
     const editorialDocument: ContentDocument = {
       ...document,
       blocks: [
@@ -303,8 +308,7 @@ describe("ApprovalReadinessApplicationService", () => {
 
     expect(result.document.blocks).toContainEqual(expect.objectContaining({ id: "editorial-sources", ownership: "ai_editorial" }));
     expect(result.document.blocks).not.toContainEqual(expect.objectContaining({ id: "approval-sources-heading" }));
-    expect(result.evidence.pack).toMatchObject({ presentationStatus: "conflict" });
-    expect((result.quality as ApprovalAwareQualityReport).approvalReadiness?.checks).toContainEqual(expect.objectContaining({ key: "evidence", status: "needs_review" }));
+    expect(result.evidence.pack.presentationStatus).not.toBe("conflict");
   });
 
   it("retries a rate-limited source and never fetches official candidates concurrently", async () => {

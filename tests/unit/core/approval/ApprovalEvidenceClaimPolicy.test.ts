@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   approvalEvidenceClaimFieldsForSourceUrl,
+  approvalFactMatchesPage,
   extractProfileApprovalFacts,
   requiredApprovalFactFields,
 } from "../../../../core/approval";
@@ -179,5 +180,112 @@ describe("Approval Evidence Claim Policy", () => {
       "excessiveTerminationPenalty",
       "excessPaymentRefund",
     ]);
+  });
+
+  /**
+   * 2026-09-05 실측(content-mtnqhijd-f1m7e0, 주휴수당 조건): statutoryBasis는
+   * "근로자퇴직급여보장법·근로기준법·소득세법" 중 하나를 추출하는데, 검증
+   * 신호는 "근로자퇴직급여보장법" 하나로 고정되어 있어 근로기준법을 인용한
+   * 원고는 완벽한 출처를 대도 영원히 검증되지 않았다.
+   */
+  it("verifies statutoryBasis against whichever statute the extracted fact actually names", () => {
+    const laborStandardsFact = {
+      field: "statutoryBasis",
+      value: "근로기준법상 근로자가 4주 평균하여 1주 소정근로시간이 15시간 이상이고 1주간의 소정근로일을 개근했을 때 발생합니다.",
+    };
+    const page = {
+      title: ":: 고용노동부 모바일페이지 고객센터 ::",
+      publisher: "1350.moel.go.kr",
+      text: "근로기준법 제55조제1항 등에 따라 주휴수당은 ①근로기준법상 근로자로서 …",
+    };
+    expect(approvalFactMatchesPage(page, laborStandardsFact)).toBe(true);
+
+    const retirementFact = { field: "statutoryBasis", value: "근로자퇴직급여보장법에 따라 계산합니다." };
+    expect(approvalFactMatchesPage(page, retirementFact)).toBe(false);
+  });
+
+  /**
+   * amount/exceptions는 키워드 뒤에 오는 글자를 그대로 값으로 잡는다. 2026-09-05
+   * 실측: "이 순서의 목적은 금액을 먼저 추정하는 데 있지 않습니다"에서 amount가
+   * "을 먼저 추정하는 데 있지 않습니다"를 값으로 잡아, 어떤 출처를 대도 검증될
+   * 수 없는 조각이 필수 근거로 등록됐다. "지원 대상: 만 19세 이상"처럼 흔한
+   * 정책 문구는 계속 정상 추출되어야 한다.
+   */
+  it("does not register a sentence fragment as amount when the keyword is only the object of a negated clause", () => {
+    const document: ContentDocument = {
+      ...retirementDocument(),
+      id: "weekly-holiday-pay-1",
+      title: "주휴수당 조건",
+      blocks: [
+        { id: "p1", type: "paragraph", text: "이 순서의 목적은 금액을 먼저 추정하는 데 있지 않습니다." },
+        { id: "p2", type: "paragraph", text: "지원 대상: 만 19세 이상 거주자" },
+        { id: "p3", type: "paragraph", text: "지원 금액: 100만원" },
+      ],
+    };
+    const facts = extractProfileApprovalFacts(document, "wordpress_life_economy_v1");
+    const amountValues = facts.filter((fact) => fact.field === "amount").map((fact) => fact.value);
+    expect(amountValues).toEqual(["100만원"]);
+    expect(facts.find((fact) => fact.field === "eligibility")?.value).toBe("만 19세 이상 거주자");
+  });
+
+  /** "그 주의", "여러 주의"처럼 "주(week)"+조사 "의"가 "주의사항"으로 오인되면 안 된다. */
+  it("does not mistake a week's possessive '주의' for the word 주의(사항) in exceptions", () => {
+    const document: ContentDocument = {
+      ...retirementDocument(),
+      id: "weekly-holiday-pay-2",
+      title: "주휴수당 조건",
+      blocks: [
+        { id: "p1", type: "paragraph", text: "이후 여러 주의 표가 같은 방식으로 이어졌는지 봅니다." },
+        { id: "p2", type: "paragraph", text: "주의사항: 중도해지 시 공제되지 않습니다." },
+      ],
+    };
+    const facts = extractProfileApprovalFacts(document, "wordpress_life_economy_v1");
+    const exceptionsValues = facts.filter((fact) => fact.field === "exceptions").map((fact) => fact.value);
+    expect(exceptionsValues).toEqual(["중도해지 시 공제되지 않습니다"]);
+  });
+
+  /**
+   * 2026-09-05 실측(content-mtnqhijd-f1m7e0, 주휴수당 조건): eligibility는
+   * "지원/신청/지급/적용 대상"이라는 정해진 동사 뒤에서만 반응해, "주휴수당
+   * 대상인지는…"처럼 그 글의 주제어가 바로 앞에 오는 문장은 못 잡았다.
+   * amount/exceptions 오탐이 사라지자 eligibility가 값 없이 필수 항목으로
+   * 남아 원고가 계속 차단됐다. "대상"만 넓게 잡으면 "비교 대상", "검토 대상"
+   * 처럼 정책과 무관한 곳까지 걸리므로, 이미 statutoryBasis로 신뢰할 수 있게
+   * 확인되는 법 이름 문장이 "발생/해당/대상"까지 말하면 그 문장을 eligibility
+   * 로도 등록하는 방식으로 넓혔다.
+   */
+  it("registers a statutoryBasis-style sentence as eligibility when it also defines who it applies to, without widening 대상 generally", () => {
+    const document: ContentDocument = {
+      ...retirementDocument(),
+      id: "weekly-holiday-pay-3",
+      title: "주휴수당 조건",
+      blocks: [{
+        id: "p1",
+        type: "paragraph",
+        text: "고용노동부 1350 안내에 따르면, 근로기준법상 근로자가 4주 평균하여 1주 소정근로시간이 15시간 이상이고 1주간의 소정근로일을 개근했을 때 발생합니다.",
+      }],
+    };
+    const facts = extractProfileApprovalFacts(document, "wordpress_life_economy_v1");
+    expect(facts.find((fact) => fact.field === "eligibility")?.value).toContain("4주 평균하여 1주 소정근로시간이 15시간 이상");
+
+    const page = { title: ":: 고용노동부 모바일페이지 고객센터 ::", publisher: "1350.moel.go.kr", text: "근로기준법 제55조제1항 등에 따라 주휴수당은…" };
+    const eligibilityFact = facts.find((fact) => fact.field === "eligibility")!;
+    expect(approvalFactMatchesPage(page, eligibilityFact)).toBe(true);
+  });
+
+  it("does not register unrelated '대상' phrases (비교/검토/분석/조사 대상) as eligibility", () => {
+    const document: ContentDocument = {
+      ...retirementDocument(),
+      id: "unrelated-target-phrases",
+      title: "무관한 대상 문구",
+      blocks: [
+        { id: "p1", type: "paragraph", text: "비교 대상은 서울과 부산입니다." },
+        { id: "p2", type: "paragraph", text: "검토 대상 문서는 총 3건입니다." },
+        { id: "p3", type: "paragraph", text: "분석 대상 표본은 100명입니다." },
+        { id: "p4", type: "paragraph", text: "조사 대상 기간은 2025년입니다." },
+      ],
+    };
+    const facts = extractProfileApprovalFacts(document, "wordpress_life_economy_v1");
+    expect(facts.some((fact) => fact.field === "eligibility")).toBe(false);
   });
 });

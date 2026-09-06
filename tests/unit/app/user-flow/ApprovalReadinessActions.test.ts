@@ -53,8 +53,16 @@ function quality(revisionId: string, reviewedAt = "2026-07-28T01:00:00.000Z"): Q
       imageStrategy: 0,
       internalLinks: 0,
       cta: 0,
+      concreteness: 0,
+      readerDeferral: 0,
+      evidenceUse: 0,
+      formality: 0,
     },
   };
+}
+
+function blockedQuality(revisionId: string): QualityReport {
+  return { ...quality(revisionId), approved: false, approvalType: "none", approvalState: "blocked" };
 }
 
 function content(
@@ -167,6 +175,14 @@ describe("ApprovalReadinessActions auto run decision", () => {
 
   it("runs automatically once after the current revision receives standard quality approval", () => {
     const decision = approvalReadinessAutoRunDecision(content());
+
+    expect(decision.shouldRun).toBe(true);
+    expect(decision.hasStoredResult).toBe(false);
+  });
+
+  it("runs automatically for a current blocked quality review so independent checks are collected", () => {
+    const revisionId = editorialRevisionId(document);
+    const decision = approvalReadinessAutoRunDecision(content(document, blockedQuality(revisionId)));
 
     expect(decision.shouldRun).toBe(true);
     expect(decision.hasStoredResult).toBe(false);

@@ -26,15 +26,28 @@ export type WordPressDraftCapabilities = Readonly<{
   writableMetaKeys: readonly string[];
 }>;
 
+/**
+ * External post state requested from WordPress. `future` releases the post
+ * publicly at `scheduledAtGmt`; `draft` keeps it unpublished and only records
+ * the intended time. See D-038.
+ */
+export type WordPressPostStatus = "draft" | "future";
+
+export type WordPressDraftUpdatePayload = Readonly<
+  Omit<WordPressDraftPayload, "status"> & { status?: WordPressPostStatus }
+>;
+
 export type WordPressDraftPayload = Readonly<{
   title: string;
   content: string;
   excerpt: string;
-  status: "draft";
+  status: WordPressPostStatus;
   categories: readonly string[];
   slug?: string;
   featuredMediaId?: string;
   seoMetadata?: WordPressSeoMetadata;
+  /** Offset-bearing ISO instant. Converted to WordPress `date_gmt` on send. */
+  scheduledAt?: string;
 }>;
 
 export type WordPressDraftCreateResult = Readonly<{
@@ -51,6 +64,15 @@ export class WordPressDraftCreateUncertainError extends Error {
   }
 }
 
+export class WordPressDraftNotFoundError extends Error {
+  readonly code = "WORDPRESS_DRAFT_NOT_FOUND";
+
+  constructor() {
+    super("WordPress reported that the recorded Post ID no longer exists.");
+    this.name = "WordPressDraftNotFoundError";
+  }
+}
+
 export type WordPressExternalDraft = Readonly<{
   externalId: string;
   status: string;
@@ -60,6 +82,8 @@ export type WordPressExternalDraft = Readonly<{
   tagIds: readonly string[];
   featuredMediaId?: string;
   seoMetadata?: WordPressSeoMetadata;
+  /** Raw `date_gmt` as returned by WordPress. Naive datetime already in UTC. */
+  dateGmt?: string;
 }>;
 
 export type WordPressDraftVerification = Readonly<{
@@ -76,6 +100,7 @@ type WordPressPostResponse = Readonly<{
   tags?: readonly (string | number)[];
   featured_media?: string | number;
   meta?: Readonly<Record<string, unknown>>;
+  date_gmt?: string;
 }>;
 
 const yoastSeoMetaKeys = Object.freeze([
@@ -158,7 +183,7 @@ export class WordPressDraftPublishingAdapter implements PublishingAdapter {
     if (response.status === 401 || response.status === 403) {
       throw new Error("WordPress draft authentication or permission verification failed.");
     }
-    if (!response.ok) throw new Error("WordPress draft could not be created.");
+    if (!response.ok) throw new Error(await rejectionMessage(response, "WordPress draft could not be created."));
     let raw: WordPressPostResponse;
     try { raw = await postResponse(response); }
     catch { throw new WordPressDraftCreateUncertainError(); }
@@ -168,20 +193,75 @@ export class WordPressDraftPublishingAdapter implements PublishingAdapter {
     return Object.freeze({ externalId: String(raw.id), responseStatus: raw.status ?? "unknown" });
   }
 
+  /**
+   * Rewrites a Post that already exists instead of creating another one.
+   *
+   * Publishing the same manuscript twice used to leave two Posts, because the
+   * execution identity carries the manuscript revision: editing one sentence
+   * produced a new identity, and a new identity meant a new Post. Measured on
+   * brightjaetech.kr 2026-08-14 — one article became Posts 92, 95, 98 and 101,
+   * and the reader-facing one had to be moved to the trash by hand.
+   *
+   * Two differences from `createDraft`. `status` is omitted unless the caller
+   * asks for one, so updating an article that is already public does not quietly
+   * return it to a draft. And a failed request is an ordinary failure rather
+   * than an uncertain one: writing the same body twice leaves the same Post, so
+   * a retry cannot duplicate anything.
+   */
+  async updateDraft(
+    input: WordPressConnectionInput & Readonly<{ externalId: string; payload: WordPressDraftUpdatePayload }>,
+  ): Promise<WordPressDraftCreateResult> {
+    const externalId = postId(input.externalId);
+    const payload = updatePayload(input.payload);
+    let response: Response;
+    try {
+      response = await this.request(`${normalizeSiteUrl(input.siteUrl)}/wp-json/wp/v2/posts/${externalId}`, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          Authorization: createWordPressAuthorizationHeader(input.username, input.applicationPassword),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+    } catch {
+      throw new Error("WordPress Post could not be updated.");
+    }
+    if (response.status === 404) throw new WordPressDraftNotFoundError();
+    if (response.status === 401 || response.status === 403) {
+      throw new Error("WordPress draft authentication or permission verification failed.");
+    }
+    if (!response.ok) throw new Error(await rejectionMessage(response, "WordPress Post could not be updated."));
+    const raw = await postResponse(response);
+    if ((typeof raw.id !== "string" && typeof raw.id !== "number") || !String(raw.id).trim()) {
+      throw new Error("WordPress returned an invalid Post update response.");
+    }
+    return Object.freeze({ externalId: String(raw.id), responseStatus: raw.status ?? "unknown" });
+  }
+
   async readDraft(
     input: WordPressConnectionInput & Readonly<{ externalId: string }>,
   ): Promise<WordPressExternalDraft> {
     const externalId = postId(input.externalId);
-    const response = await this.safeRequest(
-      `${normalizeSiteUrl(input.siteUrl)}/wp-json/wp/v2/posts/${externalId}?context=edit`,
-      {
-        headers: {
-          Accept: "application/json",
-          Authorization: createWordPressAuthorizationHeader(input.username, input.applicationPassword),
+    let response: Response;
+    try {
+      response = await this.request(
+        `${normalizeSiteUrl(input.siteUrl)}/wp-json/wp/v2/posts/${externalId}?context=edit`,
+        {
+          headers: {
+            Accept: "application/json",
+            Authorization: createWordPressAuthorizationHeader(input.username, input.applicationPassword),
+          },
         },
-      },
-      "WordPress draft could not be re-read for verification.",
-    );
+      );
+    } catch {
+      throw new Error("WordPress draft could not be re-read for verification.");
+    }
+    if (response.status === 404) throw new WordPressDraftNotFoundError();
+    if (response.status === 401 || response.status === 403) {
+      throw new Error("WordPress draft authentication or permission verification failed.");
+    }
+    if (!response.ok) throw new Error("WordPress draft could not be re-read for verification.");
     return externalDraft(await postResponse(response));
   }
 
@@ -195,11 +275,26 @@ export class WordPressDraftPublishingAdapter implements PublishingAdapter {
       mediaUrls: readonly string[];
       featuredMediaId?: string;
       seoMetadata?: WordPressSeoMetadata;
+      /**
+       * 되읽었을 때 이 Post 가 가지고 있어야 할 상태.
+       *
+       * 우리가 만들 수 있는 상태는 draft 와 future 뿐이지만, 기대값은 그 둘로
+       * 좁힐 수 없다. 이미 공개된 글을 갱신하는 경우 `updateDraft` 는 status 를
+       * 보내지 않고 (공개 글을 초안으로 되돌리지 않으려고), 그러면 되읽기에서
+       * WordPress 가 publish 를 돌려준다. 기대값을 draft 로 굳히면 정상 갱신이
+       * 실패로 기록된다. WordPress 의 상태 집합은 열려 있으므로 문자열로 받는다.
+       */
+      status?: string;
+      scheduledAt?: string;
     }>,
   ): WordPressDraftVerification {
+    const expectedStatus = expected.status ?? "draft";
     const checks = Object.freeze([
       check("external_id", draft.externalId === expected.externalId),
-      check("draft_status", draft.status === "draft"),
+      check("draft_status", draft.status === expectedStatus),
+      ...(expected.scheduledAt
+        ? [check("scheduled_time", sameGmtDateTime(draft.dateGmt, expected.scheduledAt))]
+        : []),
       check("title", normalizedText(draft.title) === normalizedText(expected.title)),
       check("meaningful_content", containsExpectedMeaningfulSegments(draft.content, expected.content)),
       check("categories", sameIds(draft.categoryIds, expected.categoryIds)),
@@ -233,13 +328,18 @@ function createPayload(payload: WordPressDraftPayload): Readonly<Record<string, 
   }
   const categories = normalizedNumericIds(payload.categories, "category");
   if (!categories.length) throw new Error("WordPress draft categories are required.");
+  const scheduledAt = payload.scheduledAt?.trim();
+  if (payload.status === "future" && !scheduledAt) {
+    throw new Error("WordPress scheduled publishing requires a scheduled time.");
+  }
   const result: Record<string, unknown> = {
     title: payload.title,
     content: payload.content,
     excerpt: payload.excerpt,
-    status: "draft",
+    status: payload.status,
     categories: categories.map(Number),
   };
+  if (scheduledAt) result.date_gmt = wordpressGmtDateTime(scheduledAt);
   if (payload.slug?.trim()) result.slug = payload.slug.trim();
   if (payload.featuredMediaId !== undefined) {
     result.featured_media = Number(normalizedNumericIds([payload.featuredMediaId], "featured media")[0]);
@@ -254,9 +354,41 @@ function createPayload(payload: WordPressDraftPayload): Readonly<Record<string, 
   return result;
 }
 
+/**
+ * The same body as a create, minus the one field an update must not assert.
+ * A Post that the reader can already see keeps whatever state WordPress holds.
+ */
+function updatePayload(payload: WordPressDraftUpdatePayload): Readonly<Record<string, unknown>> {
+  const result = { ...createPayload({ ...payload, status: payload.status ?? "draft" }) } as Record<string, unknown>;
+  if (payload.status === undefined) delete result.status;
+  return Object.freeze(result);
+}
+
 async function postResponse(response: Response): Promise<WordPressPostResponse> {
   const value = await objectResponse(response, "WordPress returned an invalid draft response.");
   return value as WordPressPostResponse;
+}
+
+/**
+ * WordPress reports why it refused a write in the response body. Without it a
+ * rejected payload is indistinguishable from any other failure, so surface the
+ * REST error code and status while leaving the body itself out.
+ */
+async function rejectionMessage(response: Response, fallback: string): Promise<string> {
+  let detail = "";
+  try {
+    const value = await response.json() as unknown;
+    if (value && typeof value === "object") {
+      const body = value as Readonly<{ code?: unknown; message?: unknown }>;
+      detail = [body.code, body.message]
+        .filter((item): item is string => typeof item === "string" && Boolean(item.trim()))
+        .join(": ")
+        .slice(0, 200);
+    }
+  } catch {
+    detail = "";
+  }
+  return detail ? `${fallback} (${response.status} ${detail})` : `${fallback} (${response.status})`;
 }
 
 async function objectResponse(response: Response, message: string): Promise<Record<string, unknown>> {
@@ -275,6 +407,9 @@ function externalDraft(value: WordPressPostResponse): WordPressExternalDraft {
   }
   const featuredMediaId = externalFeaturedMediaId(value.featured_media);
   const seoMetadata = externalSeoMetadata(value.meta);
+  const dateGmt = typeof value.date_gmt === "string" && value.date_gmt.trim()
+    ? value.date_gmt.trim()
+    : undefined;
   return Object.freeze({
     externalId: String(value.id),
     status: typeof value.status === "string" ? value.status : "",
@@ -284,7 +419,36 @@ function externalDraft(value: WordPressPostResponse): WordPressExternalDraft {
     tagIds: Object.freeze((value.tags ?? []).map(String)),
     ...(featuredMediaId ? { featuredMediaId } : {}),
     ...(seoMetadata ? { seoMetadata } : {}),
+    ...(dateGmt ? { dateGmt } : {}),
   });
+}
+
+/**
+ * WordPress stores `date_gmt` as a naive UTC datetime. Convert an offset-bearing
+ * ISO instant into that shape so the request and the later re-read compare
+ * against the same value.
+ */
+export function wordpressGmtDateTime(value: string): string {
+  const normalized = value.trim();
+  if (!/(?:Z|[+-]\d{2}:\d{2})$/i.test(normalized)) {
+    throw new Error("WordPress scheduled time must include a timezone offset.");
+  }
+  const timestamp = Date.parse(normalized);
+  if (!Number.isFinite(timestamp)) throw new Error("WordPress scheduled time is invalid.");
+  return new Date(timestamp).toISOString().replace(/\.\d{3}Z$/, "");
+}
+
+function sameGmtDateTime(actual: string | undefined, expectedScheduledAt: string): boolean {
+  return Boolean(actual && naiveGmtValue(actual) === wordpressGmtDateTime(expectedScheduledAt));
+}
+
+/**
+ * Compares WordPress-returned values without re-parsing them. A naive datetime
+ * would otherwise be read as local time and shift the comparison by the host
+ * offset.
+ */
+function naiveGmtValue(value: string): string {
+  return value.trim().replace(/\.\d+/, "").replace(/z$/i, "");
 }
 
 function postId(value: string): string {

@@ -1,4 +1,5 @@
 import {
+  approvalReadinessInspectionVersion,
   canonicalizeApprovalEvidenceUrl,
   isApprovalEvidenceSelectedSource,
   resolveApprovalEvidenceRequirement,
@@ -9,7 +10,11 @@ import { editorialRevisionId } from "../../../core/quality";
 import type { UserContent } from "../../user-flow/user-data";
 import { internalLinkCatalogContextKey } from "../publishing/InternalLinkCatalogPolicy";
 
-export const approvalReadinessInspectionVersion = "4.0" as const;
+/**
+ * The inspection contract version is owned by Core so the Quality engine, the
+ * readiness service and this identity helper cannot disagree about it.
+ */
+export { approvalReadinessInspectionVersion };
 
 export function approvalReadinessExecutionIdentity(
   content: UserContent,

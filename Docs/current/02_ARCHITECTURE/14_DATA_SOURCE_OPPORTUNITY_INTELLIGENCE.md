@@ -214,6 +214,14 @@ Order is deterministic and lexicographic: reader helpfulness, factual defensibil
 
 A healthy Workspace Connection owned by another Project or left unassigned is intentionally excluded. The UI must guide the user to create a separate resource Connection rather than reusing the wrong site's Connection.
 
+### Evidence matching and confidence (D-047)
+
+Candidate-to-Evidence matching is topic-group based, not substring overlap. A candidate about `연금저축` and a registered keyword `적금` belong to the same topic group and must match; requiring a shared substring silently produced zero matches for in-domain topics. Matching stays deterministic and structural: the same inputs always yield the same result, and no Provider call is added for matching.
+
+Missing external market Evidence is not a confidence penalty. `marketEvidenceStatus` already reports that fact as its own state, so candidate confidence must not encode it a second time. A low confidence number must mean the Evidence attached to the candidate is weak, never that the registered keyword set happened not to overlap.
+
+Registered keywords are passed to Planning as a hint only. They let Planning prefer a topic that already has market data when other editorial factors are equal. They never bound the topic range: a NAVER Connection holds at most five keywords, so the registered set cannot represent the Project domain.
+
 ## 11. Quality Review
 
 Generation and Quality Review use the confirmed canonical Opportunity. The existing one Generation call plus one Quality Review call policy does not change. Deterministic review rules block unsupported market-volume/CPC/rank claims, stale-as-current claims, Ads competition as SEO difficulty, CPC/RPM revenue prediction and recommendation type as manuscript quality score.

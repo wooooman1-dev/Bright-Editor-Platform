@@ -8,13 +8,15 @@ Scope: Bright Editor Platform Core Approval Evidence
 
 Bright Studio must not assume that future sources use known URLs, fixed HTML structures, one document format, or a pre-registered Claim role.
 
-The universal verifier therefore applies one deterministic pipeline to every source proposed for approval-preparation content. The system does not promise that every source passes. It guarantees that a source cannot become verified without actual search discovery, safe Fetch, supported extraction, official-source acceptance, Claim value verification, Claim excerpt verification, and complete Planning Coverage.
+The universal verifier therefore applies one deterministic pipeline to every source proposed for approval-preparation content. Under `D-045` the trust conditions are the source's institutional scope and its actual reachability: a source cannot become trusted without real search discovery, a safe Fetch, supported extraction, and membership in an accepted scope — public-sector or a Korean financial institution publishing its own product. Content matching between the page and the manuscript Claim is recorded as a diagnostic and never decides trust. Non-official sources are excluded at generation, so there is no corroboration route for them.
 
 The completion criterion is:
 
 ```text
-Any newly discovered official source can pass from its real fetched content,
-and any missing, mismatched, or fabricated source Claim blocks Generation.
+Any newly discovered source can pass from its real fetched content and its
+applicable trust route. Missing, mismatched, or fabricated high-risk Claims
+block the applicable Gate; general Claim diagnostics do not automatically
+block manuscript Generation.
 ```
 
 ## 2. Non-negotiable guarantees
@@ -32,14 +34,14 @@ For every submitted source URL and factual Claim:
 9. Every byte sequence receives one extraction status.
 10. Every source receives one terminal verification status.
 11. The redirect final URL, HTTP status, content type, document format, extraction status, and content length are recorded.
-12. The final URL must pass the active official-source policy.
+12. The final URL must pass the public URL and content-relevance policy. Official/first-party status selects the single-source route; it is not required for every citation.
 13. Every submitted Claim must contain `field`, `value`, and `evidenceExcerpt`.
 14. The Claim field must belong to the Planning-required Claim set.
 15. The Claim evidence excerpt must exist in the fetched final page.
-16. The Claim value must exist in or be deterministically normalized from the fetched final page context.
-17. Dates, money amounts, percentages, durations, and units must match exactly after canonical normalization.
-18. Multiple sources may divide Claims, but their combined Coverage must include every required Claim.
-19. One uncovered or mismatched Claim blocks manuscript Generation.
+16. The Claim value is compared against the fetched final page context and the result is recorded. A missing or mismatched value is a diagnostic, not a trust condition.
+17. Dates, money amounts, percentages, durations, and units are normalized before that comparison so the diagnostic is meaningful.
+18. Multiple sources may divide material Claims. Non-official sources have no trust route: approval-preparation generation restricts web search to the accepted scopes, so a non-official source cannot enter the pipeline in the first place.
+19. An uncovered or mismatched material Claim is a diagnostic; only an unsupported or conflicting high-risk Claim blocks the applicable approval Gate.
 20. Known URL-to-Claim mappings are diagnostics only and are not required for a new official URL.
 21. Search candidates never change an existing verified Snapshot until selected.
 22. Unknown legal Claims receive deterministic dynamic Claim IDs and cannot silently disappear.
@@ -61,18 +63,19 @@ Confirmed Planning
 → actual format detection
 → document Adapter
 → normalized source text
-→ official-source policy
+→ source identity and official/secondary trust route
 → source evidence excerpt verification
 → Claim field/value/evidenceExcerpt verification
 → normalized quantitative value comparison
-→ combined required Claim Coverage Gate
+→ material Claim and applicable trust-route Gate
 → manuscript Generation
 → persisted verified Claim bundle
 → final deterministic Evidence verification
 → readiness projection
 ```
 
-Generation is never called when the Coverage Gate returns `incomplete`.
+Generation is blocked only when the applicable high-risk source Gate returns
+`incomplete`; general Claim coverage remains a diagnostic for the manuscript.
 
 ## 4. Source and Claim contract
 
@@ -187,7 +190,14 @@ A source ends in one of these states:
 - `duplicate_source`: the canonical source already exists;
 - `excluded`: the source remains an unselected candidate.
 
-Only `verified` contributes to final Evidence Coverage.
+`verified` means the source belongs to an accepted scope and its page was
+actually reachable. Content matching is recorded alongside it as a diagnostic
+and does not change the verdict. A source outside the accepted scopes stays
+`needs_review` and has no route to trust — it should never have been cited,
+because approval-preparation search does not surface it. Missing information
+dates or reader-visible review-date labels do not make a source unverified.
+
+`official_single` is the only trust route.
 
 ## 10. Future Claim contract
 
@@ -252,13 +262,18 @@ Typecheck, lint, focused tests, the full test suite, production build, and diff 
 
 ## 14. Safety boundary
 
-`verified` means the current deterministic rules confirmed an official source and its linked Claim. It does not resolve every possible legal interpretation or real-world dispute.
+`verified` means the current deterministic rules confirmed that the source
+belongs to an accepted scope and that its page was reachable. It does not assert
+that the page states the manuscript's numbers, and it does not resolve any legal
+interpretation or real-world dispute. The manuscript's factual accuracy rests on
+generation being restricted to those scopes, not on a post-hoc text match.
 
 The platform guarantee is exact:
 
 ```text
 Every source is safely classified.
 Every Planning-required factual Claim is checked before Generation.
-Only verified official Evidence contributes to Coverage.
+Only Evidence from an accepted scope with a reachable page contributes to
+trusted Coverage.
 Unknown or unsupported input cannot crash or falsely approve the manuscript.
 ```

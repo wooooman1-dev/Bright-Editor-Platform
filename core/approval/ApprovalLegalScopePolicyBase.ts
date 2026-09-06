@@ -26,7 +26,7 @@ export function approvalPolicyPromptContext(snapshot: ApprovalPolicySnapshot): s
   if (snapshot.profileId !== "wordpress_life_economy_v1") return base;
   return [
     base,
-    "Date ownership contract: the manuscript may state only its information date using the exact role '정보 기준일'. Never combine 정보 기준일 with 최종 검토일, 출처 확인일, or Claim 최종 검토일. Do not author or alter 출처 확인일 or Claim 최종 검토일; Bright Studio adds those system-owned dates only after Evidence verification.",
+    "Date ownership contract (D-043): the manuscript never states a date describing its own currency or review. Do not author 정보 기준일, 출처 확인일, Claim 최종 검토일 or any equivalent label; Bright Studio renders those system-owned dates beneath the verified source list after Evidence verification. Dates belonging to the subject matter, such as a statute enforcement date or an application deadline, are unaffected.",
     "Legal applicability contract: for every legal or regulatory claim, state the statutory definition, applicability conditions, current thresholds, exceptions, and direct official re-check path. Never generalize a rule for one defined legal category to every superficially similar payment, subscription, product, service, or contract.",
     "Continuing-transaction contract: never equate recurring payment with a continuing transaction under Korean law. State the one-month-and-termination-condition definition, make clear that not every automatic payment or subscription qualifies, and when Article 30 duties are mentioned verify the current amount and period thresholds from the official enforcement decree.",
   ].join("\n");
@@ -88,6 +88,9 @@ function dateRolePreparationIssues(
   snapshot: ApprovalPolicySnapshot,
   evidence: ApprovalPreparationEvidenceContext,
 ): readonly ApprovalPreparationIssue[] {
+  // D-040: information dates and reader-visible review dates are optional
+  // diagnostics, not approval-policy blockers.
+  return Object.freeze([]);
   if (snapshot.profileId !== "wordpress_life_economy_v1") return Object.freeze([]);
   const normalized = text.replace(/\s+/g, " ").trim();
   const issues: ApprovalPreparationIssue[] = [];

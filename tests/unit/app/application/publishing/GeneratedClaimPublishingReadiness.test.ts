@@ -270,7 +270,8 @@ describe("Generated Claim publishing readiness", () => {
     mocks.access.mockResolvedValue(undefined);
   });
 
-  it("blocks WordPress Draft readiness even when the stored Quality report is current and approved", () => {
+  // D-045: 값이 바뀐 것은 막지 않고, 그 이유를 발행 준비 문구에 그대로 실어 보여 준다.
+  it("passes WordPress Draft readiness with a warning message naming the changed value", () => {
     const document = changedDocument();
     const currentProject = project("wordpress");
     const content = {
@@ -318,13 +319,12 @@ describe("Generated Claim publishing readiness", () => {
     });
 
     expect(readiness.checks.find((item) => item.key === "quality_revision")?.passed).toBe(true);
-    expect(readiness.checks.find((item) => item.key === "generated_claim_verification")).toMatchObject({ passed: false });
+    expect(readiness.checks.find((item) => item.key === "generated_claim_verification")).toMatchObject({ passed: true });
     expect(readiness.checks.find((item) => item.key === "generated_claim_verification")?.message).toContain("70만원");
-    expect(readiness.ready).toBe(false);
-    expect(readiness.executable).toBe(false);
+    expect(readiness.checks.find((item) => item.key === "generated_claim_verification")?.message).toContain("발행은 막지 않으니");
   });
 
-  it("blocks Tistory Draft readiness on the same changed verified Claim", async () => {
+  it("passes Tistory Draft readiness on the same changed value and keeps the reason visible", async () => {
     const document = changedDocument();
     const currentProject = project("tistory");
     const content = {
@@ -370,8 +370,8 @@ describe("Generated Claim publishing readiness", () => {
       root: "root",
     });
 
-    expect(readiness.checks.find((item) => item.key === "generated_claim_verification")).toMatchObject({ passed: false });
+    expect(readiness.checks.find((item) => item.key === "generated_claim_verification")).toMatchObject({ passed: true });
     expect(readiness.checks.find((item) => item.key === "generated_claim_verification")?.message).toContain("70만원");
-    expect(readiness.ready).toBe(false);
+    expect(readiness.checks.find((item) => item.key === "generated_claim_verification")?.message).toContain("발행은 막지 않으니");
   });
 });

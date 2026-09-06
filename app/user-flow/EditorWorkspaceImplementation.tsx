@@ -6,8 +6,15 @@ import { analyzeContentOpportunityAlignment, calculateContentMetrics, deriveCont
 import { editorialRevisionId, type QualityCategory, type QualityReport } from "../../core/quality";
 import { PageContainer } from "../shared/ui/PageContainer";
 import { applyCanonicalDocument, type UserContent, type UserData, type UserProject } from "./user-data";
+import { canReopenPlanningCandidates } from "./content-navigation";
 import { editorPublishingPlatformVisibility } from "./editor-publishing-platform";
-import { normalizeQualityReview, visibleApprovalReadinessChecks, type NormalizedQualityReview } from "./quality-review-ui";
+import {
+  approvalReadinessCheckStatusLabel,
+  approvalReadinessCheckStatusTone,
+  normalizeQualityReview,
+  visibleApprovalReadinessChecks,
+  type NormalizedQualityReview,
+} from "./quality-review-ui";
 import { ContentDocumentEditor } from "./ContentDocumentEditor";
 import { ContentDangerZone } from "./ContentDangerZone";
 import { ContentSeoTitleStatus } from "./ContentSeoTitleStatus";
@@ -17,12 +24,15 @@ import {
   applyInternalLinkCatalogResult,
   internalLinkCatalogChanged,
   publishingCategoryNames,
+  ownPublishedExternalPostIds,
   rankPublishingPostCandidates,
   withInternalLinkCatalogMetadata,
 } from "../application/publishing/InternalLinkCatalogPolicy";
 import { WordPressManualSiteReviewActions } from "./WordPressManualSiteReviewActions";
 import { TistoryScheduleOverlay } from "./TistoryScheduleOverlay";
+import { ContentScheduleStatus } from "./ContentScheduleStatus";
 import { WordPressDraftOverlay } from "./WordPressDraftOverlay";
+import { WordPressScheduleOverlay } from "./WordPressScheduleOverlay";
 import { platformPreviewDocument } from "./PlatformPreviewDocument";
 
 type SafeConnection = Readonly<{
@@ -43,7 +53,7 @@ type Operation = "idle" | "quality" | "improving" | "applying" | "preview" | "ca
 type PostCatalogState = "idle" | "loading" | "success" | "empty" | "partial" | "session_expired" | "selector_error" | "permission_denied" | "connection_error";
 type TistoryReadiness = Readonly<{ ready: boolean; checks: readonly Readonly<{ key: string; passed: boolean; message: string }>[] }>;
 
-export function EditorWorkspace({ content, data, project, onBack, onPersist }: { content: UserContent; data: UserData; project: UserProject; onBack: () => void; onPersist: (data: UserData) => Promise<void> }) {
+export function EditorWorkspace({ content, data, project, onBack, onOpenPlanning, onPersist }: { content: UserContent; data: UserData; project: UserProject; onBack: () => void; onOpenPlanning?: () => void; onPersist: (data: UserData) => Promise<void> }) {
   const [title, setTitle] = useState(content.title);
   const [notice, setNotice] = useState(content.generationError ? `Generation unavailable: ${content.generationError}. Manual drafting is available.` : "Draft is stored locally.");
   const [saveState, setSaveState] = useState<"saved" | "saving" | "error">("saved");
@@ -388,6 +398,7 @@ export function EditorWorkspace({ content, data, project, onBack, onPersist }: {
         liveDocument,
         posts,
         effectiveContent,
+        ownPublishedExternalPostIds(data, effectiveContent),
       );
       setPostCandidates([...ranked]);
       setPostCatalogState(ranked.length ? "success" : "empty");
@@ -445,7 +456,15 @@ export function EditorWorkspace({ content, data, project, onBack, onPersist }: {
   }
 
   return <PageContainer className="py-8 sm:py-10 lg:py-12">
-    <button className="text-sm font-semibold text-[#77777f]" onClick={onBack} type="button">← Project Dashboard</button>
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <button className="text-sm font-semibold text-[#77777f]" onClick={onBack} type="button">← Project Dashboard</button>
+      {/* The stored Planning candidates survive generation, but until this the
+          editor had no route back to them, so choosing a different candidate
+          meant paying for a second Planning call and starting a new Content. */}
+      {onOpenPlanning && canReopenPlanningCandidates(content)
+        ? <button className="text-sm font-semibold text-[#77777f]" onClick={onOpenPlanning} type="button">추천 주제 후보 다시 보기 →</button>
+        : null}
+    </div>
     <header className="mt-6 flex flex-wrap items-end justify-between gap-4 border-b border-black/6 pb-7"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#ff6b6b]">{project.name}</p><h1 className="mt-2 text-3xl font-semibold">편집기</h1></div><p className={`text-sm ${saveState === "error" ? "text-red-700" : "text-[#77777f]"}`}>{saveState === "saving" ? "저장 중…" : saveState === "saved" ? `저장됨 · Revision ${historyCount}개` : "저장 실패"}</p></header>
     <OperationNotice operation={operation} />
     {liveDocument ? <StrategySummary content={content} document={liveDocument} quality={normalizedQuality} showTistoryDetails={tistoryEnabled} /> : null}
@@ -494,7 +513,9 @@ export function EditorWorkspace({ content, data, project, onBack, onPersist }: {
       <button className="mt-4 rounded-xl bg-[#ff6b6b] px-5 py-3 text-sm font-semibold text-white disabled:opacity-50" disabled={!readiness?.ready} onClick={() => setShowConfirmation(true)} type="button">Tistory 임시저장</button>
     </section>
     {showConfirmation && selectedConnection ? <section className="mt-6 rounded-[24px] border border-red-200 bg-white p-6"><h2 className="text-lg font-semibold">외부 임시저장 최종 확인 · 사용자 확인 필요</h2><dl className="mt-4 grid gap-2 text-sm"><Info label="Workspace" value={data.workspace?.name ?? ""} /><Info label="Project" value={project.name} /><Info label="대상 계정" value={selectedConnection.displayName} /><Info label="제목" value={title} /><Info label="Tistory 카테고리" value={categoryName || (categoryId === "__uncategorized__" ? "카테고리 없음" : "선택 필요")} /></dl><p className="mt-4 rounded-xl bg-[#fff0f0] p-3 text-sm">공개 발행은 하지 않습니다. 확인한 문서 버전만 Tistory 임시글로 저장합니다.</p><label className="mt-4 flex gap-3 text-sm"><input checked={finalConfirmation} onChange={(event) => setFinalConfirmation(event.target.checked)} type="checkbox" />이 제목, 미리보기, 계정, 카테고리와 임시저장 작업을 최종 확인합니다.</label><div className="mt-4 flex gap-2"><button className="rounded-xl bg-[#ff6b6b] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50" disabled={!finalConfirmation || working} onClick={() => void saveTistory()} type="button">확인하고 임시저장</button><button className="rounded-xl border px-4 py-2.5 text-sm" onClick={() => setShowConfirmation(false)} type="button">취소</button></div></section> : null}</> : null}
+    <ContentScheduleStatus contentId={content.id} data={data} onCleared={onPersist} projectId={project.id} />
     {wordpressEnabled ? <WordPressDraftOverlay connections={connections} content={content} data={data} onPersist={onPersist} project={project} /> : null}
+    {wordpressEnabled ? <WordPressScheduleOverlay stacked={tistoryEnabled} /> : null}
     {tistoryEnabled ? <TistoryScheduleOverlay /> : null}
     <p aria-live="polite" className={`mt-4 rounded-xl p-4 text-sm ${saveState === "error" ? "bg-red-50 text-red-800" : "bg-white text-[#77777f]"}`}>{notice}</p>
     <ContentDangerZone contentId={content.id} disabled={working || operation !== "idle"} onDeleted={async (next) => { await onPersist(next); onBack(); }} onDeletingChange={(active) => setOperation(active ? "deleting" : "idle")} workspaceId={project.workspaceId} />
@@ -508,7 +529,33 @@ function QualityStatus({ review }: { review: NormalizedQualityReview }) {
   if (review.status === "no_review") return <div className="mt-4 rounded-xl bg-[#f8f8fa] p-4 text-sm"><p className="font-semibold">아직 현재 문서 버전에 대한 품질 검토가 없습니다.</p><p className="mt-1 text-[#66666f]">품질 검토를 실행하면 세부 점수가 표시됩니다.</p></div>;
   if (review.status === "stale") return <div className="mt-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-900"><p className="font-semibold">문서가 수정되어 이전 품질 검토가 만료되었습니다.</p><p className="mt-1">현재 버전을 다시 검토해야 합니다.</p></div>;
   if (review.status === "not_evaluated") return <div className="mt-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-900"><p className="font-semibold">재검토 필요</p><p className="mt-1">현재 형식에서는 세부 품질 근거를 확인할 수 없거나 평가하지 못한 항목이 있습니다.</p>{review.overallScore !== null ? <p className="mt-2">서버 검토 점수 <strong>{review.overallScore}</strong></p> : null}</div>;
-  return <div className="mt-4 flex items-end gap-3"><strong className="text-4xl">{review.overallScore}</strong><span className={`mb-1 rounded-full px-3 py-1 text-sm font-semibold ${review.status === "ready" ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"}`}>{review.status === "ready" ? "standard 원고 품질 승인" : "원고 개선 필요"}</span></div>;
+  return <div className="mt-4">
+    <div className="flex items-end gap-3"><strong className="text-4xl">{review.overallScore}</strong><span className={`mb-1 rounded-full px-3 py-1 text-sm font-semibold ${review.status === "ready" ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"}`}>{review.status === "ready" ? "원고 품질 정식 승인" : "원고 개선 필요"}</span></div>
+    <ReaderValueSummary review={review} />
+  </div>;
+}
+
+/**
+ * 총점 옆에 실제 개수를 그대로 붙인다.
+ *
+ * 구체성과 떠넘김은 가중치 0이라 총점을 움직이지 못한다 (D-050). 그러면 "숫자 0개"가
+ * 개선 작업에 떠 있는데 배지는 100점인 상태가 되므로, 총점을 승인으로 오해하지 않도록
+ * 세어놓은 값을 같은 자리에 보여준다.
+ */
+function ReaderValueSummary({ review }: { review: NormalizedQualityReview }) {
+  const signal = (category: QualityCategory, name: string): number | undefined => {
+    const value = review.dimensions.find((item) => item.category === category)?.evidence.find((item) => item.signal === name)?.value;
+    return typeof value === "number" ? value : undefined;
+  };
+  const facts = signal("concreteness", "concreteFacts");
+  const perThousand = signal("concreteness", "concretePerThousand");
+  const deferrals = signal("readerDeferral", "deferrals");
+  if (facts === undefined && deferrals === undefined) return null;
+  return <p className="mt-2 text-sm text-[#66666f]">
+    {facts !== undefined ? <span className={facts === 0 ? "font-semibold text-amber-700" : undefined}>확인 가능한 수치 {facts}개{perThousand !== undefined ? ` (1,000자당 ${perThousand}개)` : ""}</span> : null}
+    {facts !== undefined && deferrals !== undefined ? " · " : ""}
+    {deferrals !== undefined ? <span className={deferrals >= 5 ? "font-semibold text-amber-700" : undefined}>답을 넘긴 문장 {deferrals}개</span> : null}
+  </p>;
 }
 function ApprovalReadinessStatus({ review }: { review: NormalizedQualityReview }) {
   const readiness = review.approvalReadiness;
@@ -551,19 +598,8 @@ function ApprovalReadinessStatus({ review }: { review: NormalizedQualityReview }
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         {visibleApprovalReadinessChecks(readiness).map((check) => {
-          const statusLabel = check.status === "passed"
-            ? "통과"
-            : check.status === "blocked"
-              ? "차단"
-              : check.status === "needs_review"
-                ? "검토 필요"
-                : "미검사";
-
-          const statusTone = check.status === "passed"
-            ? "text-emerald-700"
-            : check.status === "blocked"
-              ? "text-red-700"
-              : "text-amber-800";
+          const statusLabel = approvalReadinessCheckStatusLabel(check);
+          const statusTone = approvalReadinessCheckStatusTone(check);
 
           return (
             <article className="rounded-xl border border-black/6 bg-white p-4" key={check.key}>
@@ -602,7 +638,7 @@ function draftFailureMessage(result: Record<string, unknown>) {
   return messages[failedStep] ?? (typeof result.error === "string" ? result.error : "외부 Tistory 임시저장에 실패했습니다. 다시 시도해 주세요.");
 }
 function escapeHtml(value: string) { return value.replace(/[&<>]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[character]!); }
-function qualityLabel(category: QualityCategory) { return ({ searchIntent: "검색 의도", seo: "SEO", readability: "가독성", structure: "콘텐츠 구조", completeness: "정보 완성도", usefulness: "정보 유용성", htmlQuality: "HTML 품질", imageStrategy: "이미지 전략", internalLinks: "내부 링크", cta: "CTA" })[category]; }
+function qualityLabel(category: QualityCategory) { return ({ searchIntent: "검색 의도", seo: "SEO", readability: "가독성", structure: "콘텐츠 구조", completeness: "정보 완성도", usefulness: "정보 유용성", htmlQuality: "HTML 품질", imageStrategy: "이미지 전략", internalLinks: "내부 링크", cta: "CTA", concreteness: "구체성", readerDeferral: "떠넘김", evidenceUse: "근거 활용", formality: "문체(존댓말)" })[category]; }
 function PlacementSummary({ blocks }: { blocks: ContentDocument["blocks"] }) { const images = blocks.filter((block) => block.type === "image"), placedImages = images.filter((block) => block.source.trim()).length; const internalLinks = blocks.filter((block) => block.type === "button" && (block.purpose === "internal_link" || (!block.purpose && block.targetUrl.startsWith("/")))).length; return <section className="mt-4 grid gap-3 sm:grid-cols-2"><p className="rounded-xl bg-white p-4 text-sm"><strong>이미지</strong> · {placedImages ? `배치됨 ${placedImages}개` : images.length ? `추천됨 ${images.length}개` : "추천 없음"}</p><p className="rounded-xl bg-white p-4 text-sm"><strong>내부 링크</strong> · {internalLinks ? `배치됨 ${internalLinks}개` : "추천됨"}</p></section>; }
 function StrategySummary({ content, document, quality, showTistoryDetails }: { content: UserContent; document: ContentDocument; quality: NormalizedQualityReview; showTistoryDetails: boolean }) {
   const metadata = document.metadata;

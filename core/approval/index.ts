@@ -1,8 +1,10 @@
 export * from "./ApprovalPolicy";
 export * from "./ApprovalReadiness";
+export * from "./ApprovalReadinessDerivation";
 export * from "./ApprovalEvidenceRequirement";
 export * from "./ApprovalDuplicatePolicy";
 export * from "./ApprovalSourceDocumentAdapter";
+export * from "./ApprovalSourceLabel";
 export * from "./ApprovalSourceUrlPolicy";
 export type {
   ApprovalEvidenceVerificationResult,
@@ -35,6 +37,7 @@ export {
 } from "./ApprovalSourcePreflightDiagnostic";
 export * from "./ApprovalRequiredEvidenceCandidates";
 export * from "./ApprovalOfficialSourcePolicy";
+export * from "./ApprovalEvidenceAnchor";
 export * from "./ApprovalSourceAuthority";
 export * from "./ApprovalDateOwnership";
 export * from "./SiteApprovalReadinessAdapter";
@@ -56,6 +59,10 @@ export * from "./VerificationGenerationEvidence";
 export * from "./ExplicitVerificationPreflight";
 export * from "./GeneratedClaimBinding";
 export * from "./GeneratedFactualClaim";
+export * from "./FactualSurfaceTaxonomy";
+export * from "./PublicPageIndexability";
 export * from "./GeneratedFactualClaimInventory";
+export * from "./ApprovalEvidenceScalarPresence";
+export * from "./StoredEvidencePassages";
 export * from "./QualityReviewFactualGuard";
 export * from "./GeneratedClaimVerificationIntegrity";

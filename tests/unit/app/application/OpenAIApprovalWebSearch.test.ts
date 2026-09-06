@@ -115,7 +115,7 @@ describe("OpenAI approval web search", () => {
     const request = fetchMock.mock.calls[0]?.[1];
     const body = JSON.parse(new TextDecoder().decode(request?.body as Uint8Array)) as Record<string, unknown>;
     expect(body).toMatchObject({
-      max_output_tokens: 4_000,
+      max_output_tokens: 12_000,
       tools: [{ type: "web_search", search_context_size: "high" }],
       text: { format: { name: "approval_source_preflight", strict: true }, verbosity: "low" },
     });

@@ -34,6 +34,18 @@ describe("explicit planning contract", () => {
     expect(planningOutputFormat.schema.properties.opportunityCandidates.items.additionalProperties).toBe(false);
   });
 
+  it("keeps a critical claim kind critical even when planning answers verify", () => {
+    const eligibility = { ...candidate.verificationClaims[0], field: "청약통장 가입기간의 청약 적용", kind: "eligibility", statement: "청약통장 가입기간은 일부 주택 청약에서 자격 판단 요소로 활용될 수 있다.", rawValue: "", risk: "verify", required: false };
+    const parsed = parsePlanningResult(JSON.stringify({ ...planning, opportunityCandidates: [{ ...candidate, verificationClaims: [eligibility] }] }), { projectId: "p", selectionMode: "automatic", explicitVerificationPlanningEnabled: true });
+    expect(parsed.opportunityCandidates?.[0].verificationPlan?.claims[0]).toMatchObject({ risk: "critical", required: true });
+  });
+
+  it("leaves a claim kind that is not critical by nature at the risk planning chose", () => {
+    const general = { ...candidate.verificationClaims[0], field: "청약 안내 확인 경로", kind: "general", statement: "청약 관련 조건은 모집공고에서 확인할 수 있다.", rawValue: "", risk: "verify", required: false };
+    const parsed = parsePlanningResult(JSON.stringify({ ...planning, opportunityCandidates: [{ ...candidate, verificationClaims: [general] }] }), { projectId: "p", selectionMode: "automatic", explicitVerificationPlanningEnabled: true });
+    expect(parsed.opportunityCandidates?.[0].verificationPlan?.claims[0]).toMatchObject({ risk: "verify", required: false });
+  });
+
   it("parses explicit claims, temporal requirements, empty plans, and rejects malformed explicit responses", () => {
     const parsed = parsePlanningResult(JSON.stringify(planning), { projectId: "p", selectionMode: "automatic", explicitVerificationPlanningEnabled: true });
     expect(parsed.opportunityCandidates?.[0].verificationPlan?.mode).toBe("explicit");
@@ -58,6 +70,50 @@ describe("explicit planning contract", () => {
     expect(() => parsePlanningResult(JSON.stringify({ ...planning, opportunityCandidates: [{ ...candidate, verificationClaims: [candidate.verificationClaims[0], candidate.verificationClaims[0]] }] }), { projectId: "p", selectionMode: "automatic", explicitVerificationPlanningEnabled: true })).toThrow("Duplicate verification claim");
     expect(parsePlanningResult(JSON.stringify(planning), { projectId: "p", selectionMode: "automatic", explicitVerificationPlanningEnabled: false }).opportunityCandidates?.[0].verificationPlan).toBeUndefined();
     expect(parsePlanningResult(JSON.stringify(planning), { projectId: "p", selectionMode: "automatic", explicitVerificationPlanningEnabled: false }).opportunityCandidates?.[0].fingerprint).toBe(parsePlanningResult(JSON.stringify(planning), { projectId: "p", selectionMode: "automatic", explicitVerificationPlanningEnabled: true }).opportunityCandidates?.[0].fingerprint);
+  });
+
+  /**
+   * 2026-09-03 실측: 신용카드 소득공제 원고에서 expectedCoverage에 "기본
+   * 공제한도와 추가 한도가 계산 결과에 미치는 역할"이 있었는데, Claim은
+   * 25%/15%/30% 세 개뿐이고 한도 금액을 다루는 Claim이 하나도 없었다. Claim이
+   * 없으면 생성은 그 숫자를 쓸 수 없는데도 coverage에는 남아, 절차 설명만
+   * 반복하는 빈 섹션이 만들어졌다.
+   */
+  it("drops an expectedCoverage item that promises a fact with no matching Claim", () => {
+    const uncovered = {
+      ...planning,
+      opportunityCandidates: [{
+        ...candidate,
+        expectedCoverage: ["신청 절차", "기본 공제한도와 추가 한도가 계산 결과에 미치는 역할"],
+      }],
+    };
+    const parsed = parsePlanningResult(JSON.stringify(uncovered), { projectId: "p", selectionMode: "automatic", explicitVerificationPlanningEnabled: true });
+    expect(parsed.opportunityCandidates?.[0].expectedCoverage).toEqual(["신청 절차"]);
+  });
+
+  it("keeps an expectedCoverage item whose promised fact is covered by a Claim", () => {
+    const covered = {
+      ...planning,
+      opportunityCandidates: [{
+        ...candidate,
+        expectedCoverage: ["신청 절차", "월 지원 한도액"],
+        verificationClaims: [{ ...candidate.verificationClaims[0], field: "월 지원 한도액", statement: "월 지원 한도액은 최대 500000원이다." }],
+      }],
+    };
+    const parsed = parsePlanningResult(JSON.stringify(covered), { projectId: "p", selectionMode: "automatic", explicitVerificationPlanningEnabled: true });
+    expect(parsed.opportunityCandidates?.[0].expectedCoverage).toEqual(["신청 절차", "월 지원 한도액"]);
+  });
+
+  it("leaves expectedCoverage untouched when explicit verification planning is disabled", () => {
+    const uncovered = {
+      ...planning,
+      opportunityCandidates: [{
+        ...candidate,
+        expectedCoverage: ["신청 절차", "기본 공제한도와 추가 한도가 계산 결과에 미치는 역할"],
+      }],
+    };
+    const parsed = parsePlanningResult(JSON.stringify(uncovered), { projectId: "p", selectionMode: "automatic", explicitVerificationPlanningEnabled: false });
+    expect(parsed.opportunityCandidates?.[0].expectedCoverage).toEqual(["신청 절차", "기본 공제한도와 추가 한도가 계산 결과에 미치는 역할"]);
   });
 
   it("selects explicit and legacy formats from metadata with one provider call", async () => {
@@ -87,6 +143,23 @@ describe("explicit planning contract", () => {
     await strategy.analyze("서울 청년 지원", undefined, { projectId: "p", selectionMode: "automatic", explicitVerificationPlanningEnabled: false });
     expect(generate.mock.calls[0]?.[0].instruction).not.toContain("Verification claims rule");
     expect(generate.mock.calls[0]?.[0].metadata).not.toHaveProperty("explicitVerificationPlanning");
+  });
+
+  /**
+   * Claim statement 이 "확인해야 한다 / 법령에서 정한다" 같은 과제형으로 나오면
+   * 확인할 값 자체가 없어 Evidence 가 붙을 자리가 사라지고, 본문에 숫자가
+   * 남지 않는다. 2026-08-26 실측: 최근 원고 8건의 Claim 26개 중 12개가 과제형
+   * 문장이었고 수치 kind 는 2개뿐이었으며 실제 수치값을 확보한 Claim 은 0개였다.
+   */
+  it("tells Planning to write a fact rather than a task and to emit a numeric Claim kind", async () => {
+    const generate = vi.fn(async (request: { instruction: string; metadata?: Readonly<Record<string, string>> }) => { void request; return { content: JSON.stringify(planning), diagnostics: {} }; });
+    const strategy = new ContentPlanningStrategy({ generate } as never);
+
+    await strategy.analyze("서울 청년 지원", undefined, { projectId: "p", selectionMode: "automatic", explicitVerificationPlanningEnabled: true });
+
+    const instruction = generate.mock.calls[0]?.[0].instruction ?? "";
+    expect(instruction).toContain("must be a factual proposition about the subject itself, not a task");
+    expect(instruction).toContain("emit at least one Claim of the matching kind for it: money, ratio, date, dateRange, or duration");
   });
 
   it("forces explicit verification Planning when canonical approval context is present", async () => {

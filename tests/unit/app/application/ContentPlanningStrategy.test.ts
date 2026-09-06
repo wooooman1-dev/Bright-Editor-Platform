@@ -91,6 +91,17 @@ describe("natural-language content planning", () => {
     expect(plan.estimateDisclosure).toContain("not measured");
   });
 
+  it("tells automatic topic selection to prefer topics that can produce a CRITICAL Claim", async () => {
+    // 2026-09-04 실측: 기획 후보 222개 중 141개(63%)가 CRITICAL Claim 0개로
+    // 끝나 공식 출처가 안 붙었다. "factual defensibility"라는 말만으로는 안
+    // 걸러졌으니, 무엇을 걸러야 하는지 구체적으로 지시한다.
+    const provider = { generate: vi.fn().mockResolvedValue({ content: JSON.stringify(result), model: "test" }) };
+    await new ContentPlanningStrategy(provider).analyze("아직 작성하지 않은 생활경제 주제를 AI가 골라줘", undefined, { projectId: "project-1", selectionMode: "automatic" });
+    const instruction = provider.generate.mock.calls[0]?.[0].instruction as string;
+    expect(instruction).toContain("at least one specific eligibility rule, deadline, amount, or rate");
+    expect(instruction).toContain("63% of past automatic candidates (141 of 222) produced zero CRITICAL Claims");
+  });
+
   it("passes GSC site performance and NAVER relative trend Evidence to the single Planning prompt without changing their meaning", async () => {
     const provider = { generate: vi.fn().mockResolvedValue({ content: JSON.stringify(result), model: "test" }) };
     const gsc = createOpportunityEvidence({ workspaceId: "workspace-1", connectionId: "gsc-1", projectId: null, provider: "googleSearchConsole", evidenceType: "searchPerformance", metric: "impressions", keyword: "휴면예금", observedAt: "2026-08-05", syncedAt: "2026-08-05T00:00:00.000Z", freshness: "fresh", verified: true, value: 12, unit: "siteImpressions", confidence: 1, limitations: ["Search Console impressions are site performance, not total market demand."], sourceReference: "snapshot-gsc:row-0:impressions", resourceScope: "query" });
@@ -234,4 +245,88 @@ describe("natural-language content planning", () => {
       .toThrow("complete Content Opportunity");
   });
 
+});
+
+describe("planning editorial diversity instruction", () => {
+  const diversityContext = JSON.stringify({
+    projectStrategy: { primaryTopic: "생활재테크" },
+    editorialDiversityPolicy: {
+      rule: "새 글은 이들과 제목 문형, 소제목 문형, 도입부 화법이 겹치지 않아야 한다.",
+      recentArticles: [
+        { title: "적금 우대금리 조건 확인 방법: 가입 전 충족 가능성을 판단하는 기준", headings: ["우대금리 조건"], openingSentence: "적금 우대금리의 핵심은 조건 확인에 있습니다." },
+      ],
+      formatRule: "순번대로 돌려쓰지 말고 이번 주제가 실제로 뒷받침하는 형태를 고른다.",
+      formatOptions: [
+        { id: "procedure", name: "절차 안내형", skeleton: "준비 서류 → 단계별 절차", fitsWhen: "신청 방법을 알아야 할 때" },
+      ],
+      introStyles: ["핵심 답변을 먼저 제시하고 조건을 뒤에 설명"],
+    },
+  });
+
+  async function instructionFor(projectContext?: string): Promise<string> {
+    const provider = { generate: vi.fn().mockResolvedValue({ content: JSON.stringify(result), model: "test" }) };
+    await new ContentPlanningStrategy(provider).analyze("오늘의 생활경제 글을 골라줘", undefined, {
+      projectId: "project-finance",
+      selectionMode: "automatic",
+      ...(projectContext ? { projectContext } : {}),
+    });
+    return provider.generate.mock.calls[0]?.[0].instruction as string;
+  }
+
+  /**
+   * Nested in the context JSON the policy lost to the prompt's own wording
+   * conventions, so it has to be restated at instruction rank.
+   */
+  it("states the diversity rule in the prompt body, not only inside the context JSON", async () => {
+    const instruction = await instructionFor(diversityContext);
+    const body = instruction.slice(0, instruction.indexOf("Project strategy:"));
+
+    expect(body).toContain("Editorial diversity contract");
+    expect(body).toContain("제목 문형, 소제목 문형, 도입부 화법이 겹치지 않아야 한다");
+    expect(body).toContain("적금 우대금리 조건 확인 방법");
+    expect(body).toContain("절차 안내형");
+    expect(body).toContain("핵심 답변을 먼저 제시하고");
+  });
+
+  it("requires the candidates to differ from each other, not only from the published articles", async () => {
+    expect(await instructionFor(diversityContext))
+      .toContain("후보끼리도 제목 문형이 서로 달라야 한다");
+  });
+
+  it("keeps factual accuracy and the approval policy above the diversity contract", async () => {
+    expect(await instructionFor(diversityContext))
+      .toContain("it never outranks factual accuracy or the approval policy");
+  });
+
+  it("adds nothing when the context carries no diversity policy", async () => {
+    const instruction = await instructionFor(JSON.stringify({ projectStrategy: { primaryTopic: "생활재테크" } }));
+
+    expect(instruction).not.toContain("Editorial diversity contract");
+  });
+
+  it("adds nothing when there is no project context at all", async () => {
+    expect(await instructionFor()).not.toContain("Editorial diversity contract");
+  });
+
+  /**
+   * primaryKeyword still carries the task modifier readers search for; only the
+   * requirement that selectedTopic restate it verbatim is gone, because that is
+   * what produced `<주제> 방법: <설명절>` for every candidate.
+   */
+  /**
+   * Opportunity alignment blocks the article when selectedTopic carries under
+   * 60 percent of the primaryKeyword's terms. Telling Planning it could reword
+   * the topic cost exactly that: 정부지원금 찾는 방법 became 정부지원금 탐색과 대상
+   * 후보 정리, alignment read 50 percent, and topicFidelity,
+   * contentOpportunityConsistency and crossTopicDrift all failed at once.
+   * Diversity belongs to the title, which the generation call writes.
+   */
+  it("keeps the topic tied to the keyword and sends title variety elsewhere", async () => {
+    const instruction = await instructionFor(diversityContext);
+
+    expect(instruction).toContain("including a task modifier such as 방법, 비교, 기준");
+    expect(instruction).toContain("The selectedTopic should naturally contain the primaryKeyword phrase");
+    expect(instruction).toContain("blocks the article below 60 percent");
+    expect(instruction).toContain("Title shape is varied when the article is written, not by loosening the topic");
+  });
 });

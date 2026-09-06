@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import type { Platform } from "../../../../core/connections";
 import { connectionRepository, targetRepository } from "../../../application/connections/connection-runtime";
 import {
+  ownPublishedExternalPostIds,
   publishingCategoryIdentities,
   rankPublishingPostCandidates,
 } from "../../../application/publishing/InternalLinkCatalogPolicy";
@@ -76,11 +77,12 @@ export async function GET(request: Request) {
       selectedTarget,
       refresh: url.searchParams.get("refresh") === "true",
     });
-    const eligible = result.posts.filter((post) =>
-      !content.publishedUrl || post.publishedUrl !== content.publishedUrl);
+    // publishedUrl 을 읽던 이전 필터는 그 값이 한 번도 저장되지 않아
+    // 아무것도 걸러내지 못했다. 자기 글 제외는 발행 기록으로만 판단한다.
+    const ownExternalPostIds = ownPublishedExternalPostIds(data, content);
     const posts = content.document
-      ? rankPublishingPostCandidates(content.document, eligible, content)
-      : eligible;
+      ? rankPublishingPostCandidates(content.document, result.posts, content, ownExternalPostIds)
+      : result.posts.filter((post) => !ownExternalPostIds.includes(post.externalPostId));
 
     return NextResponse.json({
       ...result,

@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "statusMessage": "인수인계 스냅샷 기록 중",
+            "timeout": 20,
+            "command": "{ echo \"\"; echo \"## 스냅샷 $(date -Iseconds)\"; echo \"- branch: $(git rev-parse --abbrev-ref HEAD 2>/dev/null)\"; echo \"- head: $(git log -1 --oneline 2>/dev/null)\"; echo \"- dirty:\"; git status --short 2>/dev/null | sed 's/^/    /'; } >> .claude/handover-snapshot.md 2>/dev/null; echo '{\"systemMessage\":\"컨텍스트 압축 전 인수인계 스냅샷을 .claude/handover-snapshot.md 에 기록했습니다.\",\"hookSpecificOutput\":{\"hookEventName\":\"PreCompact\",\"additionalContext\":\"컨텍스트가 곧 압축되어 이 대화 내용이 사라진다. handover-scribe 팀원을 불러 todo.txt 를 갱신하고, 다음 세션이 혼자 이어받을 수 있는 상태로 남겨라. .claude/handover-snapshot.md 에 브랜치, 최근 커밋, 커밋되지 않은 변경 스냅샷이 기록되어 있다.\"}}'"
+          }
+        ]
+      }
+    ]
+  }
+}

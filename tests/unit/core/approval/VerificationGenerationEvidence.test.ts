@@ -132,4 +132,91 @@ describe("Verification Generation evidence", () => {
     expect(grouped.find((claim) => claim.claimId === annual.claimId)?.normalizedValue)
       .toMatchObject({ kind: "money", value: { amount: 6_000_000, basis: "annual" } });
   });
+  /**
+   * 판정은 생성에 넘길 값을 거르지 않는다. 2026-08-26 실측: 선택약정 요금
+   * 할인율 Claim 은 status insufficient 로 값이 생성에 도달하지 못했고,
+   * 원고는 할인율 숫자 없이 발행 가능 상태가 됐다. 페이지를 실제로 열어
+   * 뽑아낸 값이면 판정과 무관하게 넘긴다.
+   */
+  it("hands an insufficient Claim's value to Generation when the page actually carried it", () => {
+    const insufficientSnapshot: VerificationSnapshot = Object.freeze({
+      ...snapshot,
+      results: Object.freeze([Object.freeze({
+        ...result(monthly.claimId, 500_000, "monthly"),
+        status: "insufficient" as const,
+        normalizedValue: undefined,
+        freshnessPassed: false,
+        diagnostics: Object.freeze(["freshness_unknown"]),
+        sourceAssessments: Object.freeze([Object.freeze({
+          ...assessment(monthly.claimId, 500_000, "monthly"),
+          supports: false,
+          fresh: false,
+          freshnessStatus: "unknown" as const,
+          diagnostics: Object.freeze([`claim:${monthly.claimId}`, "freshness_unknown"]),
+        })]),
+      })]),
+      overallStatus: "insufficient" as const,
+    });
+
+    const sourceGroups = createVerificationGenerationClaimSources({
+      claims: [monthly],
+      snapshot: insufficientSnapshot,
+      sources: [{
+        requestedUrl: url,
+        finalUrl: url,
+        evidenceExcerpt: "지원 금액 안내",
+        pageText: "월 지원 금액은 50만원입니다.",
+        role: "primaryOfficial",
+        authoritative: true,
+        claims: Object.freeze([Object.freeze({
+          claimId: monthly.claimId,
+          value: "월 50만원",
+          evidenceExcerpt: "월 지원 금액은 50만원입니다.",
+        })]),
+      }],
+    });
+
+    expect(sourceGroups[0]?.claims[0]?.normalizedValue)
+      .toMatchObject({ kind: "money", value: { amount: 500_000 } });
+  });
+
+  /**
+   * 걷지 않은 관문: 인용한 발췌가 그 페이지에 없었으면 값도 넘기지 않는다.
+   * 지어낸 인용을 막는 장치이지 내용 대조가 아니다.
+   */
+  it("still withholds a value whose excerpt was never found on the page", () => {
+    const anchorFailed: VerificationSnapshot = Object.freeze({
+      ...snapshot,
+      results: Object.freeze([Object.freeze({
+        ...result(monthly.claimId, 500_000, "monthly"),
+        status: "insufficient" as const,
+        sourceAssessments: Object.freeze([Object.freeze({
+          ...assessment(monthly.claimId, 500_000, "monthly"),
+          supports: false,
+          diagnostics: Object.freeze([`claim:${monthly.claimId}`, "evidence_anchor_unverified"]),
+        })]),
+      })]),
+      overallStatus: "insufficient" as const,
+    });
+
+    const sourceGroups = createVerificationGenerationClaimSources({
+      claims: [monthly],
+      snapshot: anchorFailed,
+      sources: [{
+        requestedUrl: url,
+        finalUrl: url,
+        evidenceExcerpt: "지원 금액 안내",
+        pageText: "이 페이지에는 금액이 없습니다.",
+        role: "primaryOfficial",
+        authoritative: true,
+        claims: Object.freeze([Object.freeze({
+          claimId: monthly.claimId,
+          value: "월 50만원",
+          evidenceExcerpt: "월 지원 금액은 50만원입니다.",
+        })]),
+      }],
+    });
+
+    expect(sourceGroups).toHaveLength(0);
+  });
 });

@@ -14,7 +14,12 @@ describe("editorial prompt policy", () => {
     expect(routeSource).not.toContain("total paragraph text at or below 6,000");
     expect(generationSource).toContain("Planning information contract");
     expect(generationSource).toContain("missing, merely mentioned, or sufficiently explained");
-    expect(generationSource).toContain("Prefer the shorter result when quality is equal");
+    // D-035 amended 2026-08-11: the brevity preference actively produced thin
+    // articles, so Generation now carries a non-blocking recommended length.
+    // The gates it forbids stay forbidden — no minimum blocks an article.
+    expect(generationSource).not.toContain("Prefer the shorter result when quality is equal");
+    expect(generationSource).toContain("4,500 to 6,000 characters");
+    expect(generationSource).toContain("Falling below it is not a failure");
     expect(generationSource).not.toContain("target.targetLengthRange");
     expect(generationSource).not.toContain("target.targetSectionCount");
     expect(generationSource).not.toContain("safety floor");

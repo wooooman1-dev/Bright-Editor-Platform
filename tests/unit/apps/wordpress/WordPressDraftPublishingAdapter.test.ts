@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   WordPressDraftCreateUncertainError,
+  WordPressDraftNotFoundError,
   WordPressDraftPublishingAdapter,
   type WordPressExternalDraft,
 } from "../../../../apps/wordpress";
@@ -95,6 +96,87 @@ describe("WordPress draft publishing adapter", () => {
     });
     expect(verification.verified).toBe(false);
     expect(verification.checks).toContainEqual({ key: failedKey, passed: false });
+  });
+
+  /**
+   * 공개된 글을 갱신하면 updateDraft 는 status 를 보내지 않는다. 공개 글이 조용히
+   * 초안으로 돌아가면 안 되기 때문이다. 그러면 되읽기에서 WordPress 가 publish 를
+   * 돌려주는데, 기대값이 draft 로 굳어 있으면 정상 갱신이 실패로 기록된다.
+   */
+  it("accepts a published Post that stayed published after an update", () => {
+    const adapter = new WordPressDraftPublishingAdapter(vi.fn<typeof fetch>());
+    const draft: WordPressExternalDraft = {
+      externalId: "3710",
+      status: "publish",
+      title: "Approved title",
+      content: html,
+      categoryIds: ["12", "34"],
+      tagIds: [],
+      featuredMediaId: "91",
+    };
+
+    const verification = adapter.verifyDraft(draft, {
+      externalId: "3710",
+      title: "Approved title",
+      content: html,
+      categoryIds: ["12", "34"],
+      mediaUrls: ["https://example.com/uploads/image.png"],
+      featuredMediaId: "91",
+      status: "publish",
+    });
+
+    expect(verification.checks).toContainEqual({ key: "draft_status", passed: true });
+    expect(verification.verified).toBe(true);
+  });
+
+  it("still fails when a published Post came back as a draft", () => {
+    const adapter = new WordPressDraftPublishingAdapter(vi.fn<typeof fetch>());
+    const draft: WordPressExternalDraft = {
+      externalId: "3710",
+      status: "draft",
+      title: "Approved title",
+      content: html,
+      categoryIds: ["12", "34"],
+      tagIds: [],
+      featuredMediaId: "91",
+    };
+
+    const verification = adapter.verifyDraft(draft, {
+      externalId: "3710",
+      title: "Approved title",
+      content: html,
+      categoryIds: ["12", "34"],
+      mediaUrls: ["https://example.com/uploads/image.png"],
+      featuredMediaId: "91",
+      status: "publish",
+    });
+
+    expect(verification.checks).toContainEqual({ key: "draft_status", passed: false });
+    expect(verification.verified).toBe(false);
+  });
+
+  it("keeps expecting a draft when no status was requested", () => {
+    const adapter = new WordPressDraftPublishingAdapter(vi.fn<typeof fetch>());
+    const published: WordPressExternalDraft = {
+      externalId: "3710",
+      status: "publish",
+      title: "Approved title",
+      content: html,
+      categoryIds: ["12", "34"],
+      tagIds: [],
+      featuredMediaId: "91",
+    };
+
+    const verification = adapter.verifyDraft(published, {
+      externalId: "3710",
+      title: "Approved title",
+      content: html,
+      categoryIds: ["12", "34"],
+      mediaUrls: ["https://example.com/uploads/image.png"],
+      featuredMediaId: "91",
+    });
+
+    expect(verification.checks).toContainEqual({ key: "draft_status", passed: false });
   });
 
   it("accepts ordered meaningful segments through WordPress comments, wrappers, whitespace, and entities", () => {
@@ -202,6 +284,25 @@ describe("WordPress draft publishing adapter", () => {
     }).catch((failure: unknown) => failure);
     expect(error).toBeInstanceOf(Error);
     expect(error).not.toBeInstanceOf(WordPressDraftCreateUncertainError);
+  });
+
+  it("classifies a 404 re-read as a distinct not-found error so callers can tell it apart from a transient failure", async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 404 }));
+    const error = await new WordPressDraftPublishingAdapter(request).readDraft({
+      ...credentials,
+      externalId: "501",
+    }).catch((failure: unknown) => failure);
+    expect(error).toBeInstanceOf(WordPressDraftNotFoundError);
+  });
+
+  it.each([401, 403, 500])("keeps re-read HTTP %s as a generic failure, not a not-found result", async (status) => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status }));
+    const error = await new WordPressDraftPublishingAdapter(request).readDraft({
+      ...credentials,
+      externalId: "501",
+    }).catch((failure: unknown) => failure);
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(WordPressDraftNotFoundError);
   });
 });
 

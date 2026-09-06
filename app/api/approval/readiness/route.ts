@@ -20,6 +20,7 @@ export async function POST(request: Request) {
     const body = await request.json() as {
       workspaceId?: string;
       contentId?: string;
+      forceRefresh?: boolean;
     };
     const workspaceId = required(body.workspaceId, "작업공간이 필요합니다.");
     const contentId = required(body.contentId, "콘텐츠가 필요합니다.");
@@ -41,12 +42,16 @@ export async function POST(request: Request) {
         target.platformConnectionId === connection.id
         && target.platform === connection.platform));
     const executionIdentity = approvalReadinessExecutionIdentity(content, connection?.id);
-    const result = await executeApprovalReadinessOnce(executionIdentity.key, () =>
+    const executionKey = body.forceRefresh === true
+      ? `${executionIdentity.key}:refresh:${Date.now()}`
+      : executionIdentity.key;
+    const result = await executeApprovalReadinessOnce(executionKey, () =>
       new ApprovalReadinessApplicationService().execute({
         data,
         contentId,
         connection,
         selectedTarget,
+        forceRefresh: body.forceRefresh === true,
       }));
     await studioStore.set(collection, stateId, result.data);
     const saved = await studioStore.get<UserData>(collection, stateId);

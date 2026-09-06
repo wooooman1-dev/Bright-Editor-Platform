@@ -33,15 +33,26 @@ export class ApprovalReadinessApplicationService extends BaseApprovalReadinessAp
       if (document !== source) effectiveInput = { ...input, data: withNormalizedDocument(input.data, content, document) };
     }
     const result = await super.execute(effectiveInput);
+    /**
+     * A run that inspected nothing must not leave a "completed" inspection
+     * identity behind; that record is what later tells the service and the UI
+     * that the stored artefacts are current.
+     */
+    if (!result.inspectionPerformed) return result;
     return withCurrentInspectionIdentity(result, input.connection?.id);
   }
 }
 
 function withNormalizedDocument(data: UserData, content: UserContent, document: ContentDocument): UserData {
   const normalizedAt = new Date().toISOString();
-  const revisionId = editorialRevisionId(document);
+  // Approved quality follows the normalized editorial revision as before.
+  // A blocked review keeps its previous identity so the aggregate can report
+  // that Standard Quality still belongs to an older revision.
   const quality = content.quality
-    ? Object.freeze({ ...content.quality, reviewedRevisionId: revisionId })
+    ? Object.freeze({
+      ...content.quality,
+      ...(content.quality.approved ? { reviewedRevisionId: editorialRevisionId(document) } : {}),
+    })
     : undefined;
   const nextContent: UserContent = {
     ...content,

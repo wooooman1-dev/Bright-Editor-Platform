@@ -1,15 +1,12 @@
 import { canonicalizeApprovalEvidenceUrl } from "../approval";
 import {
   groupVerificationGenerationClaimEvidence,
-  verificationGenerationClaimContractMatches,
   type VerificationGenerationClaimEvidence,
-  type VerificationGenerationClaimSourceProjection,
 } from "../approval/VerificationGenerationEvidence";
 import type { VerificationSnapshot } from "../approval/VerificationClaim";
-import {
-  evaluateVerificationGenerationGate,
-  type VerificationGenerationGateResult,
-  type VerificationGenerationPlan,
+import type {
+  VerificationGenerationGateResult,
+  VerificationGenerationPlan,
 } from "../approval/VerificationGenerationGate";
 import type { AIWebSource } from "./AIProvider";
 import {
@@ -59,32 +56,24 @@ export function requireExplicitVerificationGenerationBundle(input: Readonly<{
   coverage?: ApprovalSourcePreflightCoverageResult;
   sourcePolicyCompliance?: "passed" | "failed" | "not_required";
 }>): VerificationGenerationBundle {
-  const gate = evaluateVerificationGenerationGate({
-    plan: input.plan,
-    snapshot: input.snapshot,
-  });
-  if (!gate.ready) {
-    const claims = gate.blockingClaimIds.length
-      ? gate.blockingClaimIds.join(", ")
-      : "verification-integrity";
-    throw new ApprovalSourcePreflightError(
-      `명시적 사실 검증 Gate를 통과하지 못해 원고 생성을 시작하지 않았습니다. 차단 Claim: ${claims}.`,
-    );
-  }
-
-  const snapshot = input.snapshot!;
-  const allowedUrls = new Set(
-    gate.verifiedCanonicalUrls.map(canonicalizeApprovalEvidenceUrl),
-  );
-  const allowedSourceIds = new Set(gate.verifiedSourceIds);
-  const verifiedClaimIds = new Set(gate.verifiedClaimIds);
+  /**
+   * 생성 직전 검증 Gate를 걷는다 (D-045).
+   *
+   * 이 Gate는 CRITICAL Claim 이 스냅샷에서 `verified` 여야 생성을 시작했다. 그
+   * `verified` 를 만들던 것이 Preflight 의 의미 검증과 커버리지인데, 그 둘을
+   * 걷어낸 이상 이 Gate 는 판정하는 척만 남는다. 2026-08-19 실측: "전월세 신고
+   * 대상 확인 방법" 이 Preflight 의 semantic_verification_failed 로 막혔고, 그
+   * 앞을 풀어도 이 Gate 가 같은 자리에서 다시 막았을 것이다.
+   *
+   * 번들은 이제 판정이 아니라 귀속이다. 인정 범위 안에서 실제로 열린 출처와
+   * 그 출처가 어떤 Claim 에 붙는지를 생성에 그대로 넘긴다. 본문 맨 끝 출처
+   * 목록도 이 연결에서 나온다.
+   */
+  const allowedUrls = new Set(input.sources.map((source) =>
+    canonicalizeApprovalEvidenceUrl(source.url)));
   const planById = new Map(input.plan.claims.map((claim) => [
     claim.claimId,
     claim,
-  ]));
-  const resultById = new Map(snapshot.results.map((result) => [
-    result.claimId,
-    result,
   ]));
 
   const sources = Object.freeze(input.sources.filter((source) =>
@@ -96,14 +85,7 @@ export function requireExplicitVerificationGenerationBundle(input: Readonly<{
     const url = canonicalizeApprovalEvidenceUrl(source.url);
     if (!allowedUrls.has(url) || !sourceUrls.has(url)) return [];
     const verificationClaims = Object.freeze((source.verificationClaims ?? [])
-      .filter((projection) => trustedProjection({
-        projection,
-        parentUrl: url,
-        allowedSourceIds,
-        verifiedClaimIds,
-        planById,
-        resultById,
-      })));
+      .filter((projection) => attributedProjection(projection, url, planById)));
     return [Object.freeze({
       url: source.url,
       claims: source.claims,
@@ -116,24 +98,19 @@ export function requireExplicitVerificationGenerationBundle(input: Readonly<{
   const verificationClaims = groupVerificationGenerationClaimEvidence(
     projections,
   );
-  const projectedClaimIds = new Set(
-    verificationClaims.map((claim) => claim.claimId),
-  );
-  const missingClaimIds = gate.verifiedClaimIds.filter((claimId) =>
-    !projectedClaimIds.has(claimId));
-
-  if (missingClaimIds.length) {
-    throw new ApprovalSourcePreflightError(
-      `검증된 Claim과 Claim-ID Generation 근거의 연결이 일치하지 않아 원고 생성을 시작하지 않았습니다. 미연결 Claim: ${missingClaimIds.join(", ")}.`,
-    );
-  }
-
-  if (gate.verifiedClaimIds.length > 0
-    && (!sources.length || !claimSources.length || !verificationClaims.length)) {
-    throw new ApprovalSourcePreflightError(
-      "검증된 Claim과 Generation 근거 bundle의 연결이 일치하지 않아 원고 생성을 시작하지 않았습니다.",
-    );
-  }
+  /**
+   * 연결이 비어 있어도 생성을 막지 않는다. 출처를 붙이지 못한 Claim 은 본문에
+   * 그 값을 쓰지 못할 뿐이고, 그 판단은 생성 지시가 한다.
+   */
+  const gate = Object.freeze({
+    ready: true,
+    blockingClaimIds: Object.freeze([] as string[]),
+    verifiedClaimIds: Object.freeze(verificationClaims.map((claim) => claim.claimId)),
+    verifiedSourceIds: Object.freeze(claimSources.map((source) => source.url)),
+    verifiedCanonicalUrls: Object.freeze(sources.map((source) =>
+      canonicalizeApprovalEvidenceUrl(source.url))),
+    diagnostics: Object.freeze([] as string[]),
+  });
 
   return Object.freeze({
     gate,
@@ -145,69 +122,16 @@ export function requireExplicitVerificationGenerationBundle(input: Readonly<{
   });
 }
 
-function trustedProjection(input: Readonly<{
-  projection: VerificationGenerationClaimSourceProjection;
-  parentUrl: string;
-  allowedSourceIds: ReadonlySet<string>;
-  verifiedClaimIds: ReadonlySet<string>;
-  planById: ReadonlyMap<string, VerificationGenerationPlan["claims"][number]>;
-  resultById: ReadonlyMap<string, VerificationSnapshot["results"][number]>;
-}>): boolean {
-  const projection = input.projection;
-  const projectionUrl = canonicalizeApprovalEvidenceUrl(
-    projection.source.canonicalUrl,
-  );
-  if (!projection.source.evidenceExcerpt.trim()
-    || projectionUrl !== input.parentUrl
-    || !input.allowedSourceIds.has(projection.source.sourceId)
-    || !input.verifiedClaimIds.has(projection.claimId)) {
-    return false;
-  }
-
-  const spec = input.planById.get(projection.claimId);
-  const result = input.resultById.get(projection.claimId);
-  if (!spec
-    || !result
-    || result.status !== "verified"
-    || !result.normalizedValue
-    || !verificationGenerationClaimContractMatches(
-      projection,
-      spec,
-      result.normalizedValue,
-    )) {
-    return false;
-  }
-
-  const assessment = result.sourceAssessments.find((candidate) =>
-    candidate.sourceId === projection.source.sourceId
-    && Boolean(candidate.canonicalUrl)
-    && canonicalizeApprovalEvidenceUrl(candidate.canonicalUrl!) === projectionUrl
-    && candidate.supports === true
-    && candidate.fresh === true
-    && candidate.freshnessStatus === "fresh"
-    && Boolean(candidate.normalizedValue));
-  if (!assessment || !assessment.normalizedValue) return false;
-
-  return assessment.role === projection.source.role
-    && assessment.authoritative === projection.source.authoritative
-    && canonicalJson(assessment.normalizedValue)
-      === canonicalJson(result.normalizedValue)
-    && canonicalJson(assessment.temporalEvidence)
-      === canonicalJson(projection.source.temporalEvidence);
+/**
+ * 이 투영이 이 출처에 붙는 것이 맞는가만 본다. 값이 페이지에 있는지는 묻지
+ * 않는다 (D-045).
+ */
+function attributedProjection(
+  projection: Readonly<{ claimId: string; source: Readonly<{ canonicalUrl: string }> }>,
+  parentUrl: string,
+  planById: ReadonlyMap<string, VerificationGenerationPlan["claims"][number]>,
+): boolean {
+  return canonicalizeApprovalEvidenceUrl(projection.source.canonicalUrl) === parentUrl
+    && planById.has(projection.claimId);
 }
 
-function canonicalJson(value: unknown): string {
-  return JSON.stringify(sortValue(value));
-}
-
-function sortValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sortValue);
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, item]) => [key, sortValue(item)]),
-    );
-  }
-  return value;
-}

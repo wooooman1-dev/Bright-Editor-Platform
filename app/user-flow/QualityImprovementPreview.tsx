@@ -60,7 +60,7 @@ function ScoreCard({ label, value, emphasized = false }: { label: string; value:
 }
 
 function qualityLabel(category: QualityCategory) {
-  return ({ searchIntent: "검색 의도", seo: "SEO", readability: "가독성", structure: "콘텐츠 구조", completeness: "정보 완성도", usefulness: "정보 유용성", htmlQuality: "HTML 품질", imageStrategy: "이미지 전략", internalLinks: "내부 링크", cta: "CTA" })[category];
+  return ({ searchIntent: "검색 의도", seo: "SEO", readability: "가독성", structure: "콘텐츠 구조", completeness: "정보 완성도", usefulness: "정보 유용성", htmlQuality: "HTML 품질", imageStrategy: "이미지 전략", internalLinks: "내부 링크", cta: "CTA", concreteness: "구체성", readerDeferral: "떠넘김", evidenceUse: "근거 활용", formality: "문체(존댓말)" })[category];
 }
 
 function documentToPreview(document: ContentDocument) {

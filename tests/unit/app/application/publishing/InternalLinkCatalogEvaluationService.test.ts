@@ -72,6 +72,7 @@ describe("InternalLinkCatalogEvaluationService", () => {
       document,
       connection,
       selectedTarget: true,
+      ownExternalPostIds: [],
       refresh: true,
     });
 
@@ -93,6 +94,7 @@ describe("InternalLinkCatalogEvaluationService", () => {
       document,
       connection,
       selectedTarget: true,
+      ownExternalPostIds: [],
     });
 
     expect(read).not.toHaveBeenCalled();
@@ -130,6 +132,7 @@ describe("InternalLinkCatalogEvaluationService", () => {
       document: evaluated,
       connection,
       selectedTarget: true,
+      ownExternalPostIds: [],
     });
 
     expect(read).not.toHaveBeenCalled();
@@ -165,6 +168,7 @@ describe("InternalLinkCatalogEvaluationService", () => {
       document: evaluated,
       connection,
       selectedTarget: true,
+      ownExternalPostIds: [],
       refresh: true,
     });
 
@@ -214,6 +218,7 @@ describe("InternalLinkCatalogEvaluationService", () => {
       document: staleDocument,
       connection,
       selectedTarget: true,
+      ownExternalPostIds: [],
     });
 
     expect(read).toHaveBeenCalledOnce();

@@ -159,7 +159,7 @@ Provider별 모델명, 인증, 요청 형식, 응답 변환은 Provider 구현 �
 
 Image Strategy Engine은 이미지의 필요성, 목적, 위치, 유형을 결정한다.
 
-기존 Canvas 기반 썸네일 생성 방식은 사용하지 않는다.
+대표 이미지는 도형·텍스트 합성으로 만들지 않는다. 본문 시각물은 HTML 카드로 그린다 (`core/media/BrightBodyVisuals.ts`, D-053).
 
 ```text
 Content Analysis

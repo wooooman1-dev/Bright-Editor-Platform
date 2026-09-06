@@ -1,4 +1,4 @@
-import { ContentNormalizer, type ContentDocument, type ListBlock, type TableBlock } from "../../core/content";
+import { ContentNormalizer, createContentOutline, type ButtonBlock, type ContentDocument, type ContentOutlineEntry, type ListBlock, type TableBlock } from "../../core/content";
 import { canonicalizeApprovalEvidenceUrl, readerVisibleApprovalSourceText, type ApprovalEvidenceSource } from "../../core/approval";
 import { isFreeBodyVisualBlock, renderBrightBodyVisualHtml } from "../../core/media";
 import { resolveContentSectionPresentations, resolveTablePresentation, type ContentSectionPresentation } from "../../core/presentation";
@@ -13,7 +13,7 @@ export class WordPressHtmlRenderer {
       .filter((section) => section.treatment === "card")
       .map((section) => [section.headingBlockId, section] as const));
     const consumed = new Set<string>();
-    const body = bodyBlocks.flatMap((block) => {
+    const body = bodyBlocks.flatMap((block, index) => {
       if (consumed.has(block.id)) return [];
       const card = cards.get(block.id);
       if (card) {
@@ -21,11 +21,99 @@ export class WordPressHtmlRenderer {
         sourceBlocks.forEach((source) => consumed.add(source.id));
         return [renderCard(card, sourceBlocks, document)];
       }
+      if (isSourceLink(block)) {
+        const group = consecutiveSourceLinks(bodyBlocks, index);
+        group.forEach((item) => consumed.add(item.id));
+        return [renderSourceList(group)];
+      }
       return [renderBlock(block, document)];
     }).filter(Boolean).join("\n");
-    const relatedHtml = related.length ? `<section class="bright-related-posts"><h2>관련 글 보기</h2><ul>${related.slice(0, 3).map((block) => block.type === "button" ? `<li><a href="${attribute(block.targetUrl)}"${block.target === "_blank" ? ' target="_blank" rel="noopener noreferrer"' : ""}>${escapeHtml(block.label)}</a></li>` : "").join("")}</ul></section>` : "";
-    return [body, relatedHtml].filter(Boolean).join("\n");
+    /**
+     * 목차는 티스토리에만 있었다.
+     *
+     * 편집 화면은 H2/H3 로 목차를 그리고 그 옆에 "미리보기와 동일"이라고 적어
+     * 두었는데, 워드프레스 렌더러에는 목차 코드 자체가 없었다. 2026-08-19 실측:
+     * 발행된 101번 글의 HTML 에 nav 도 앵커도 없고 H2 는 4개였다. 화면이
+     * 보여주는 것과 실제로 나가는 것이 달랐다.
+     *
+     * 목차 이름표는 <strong> 이었다. 관련 글 보기와 출처는 <h2> 로 나가므로
+     * 테마가 셋에 서로 다른 크기를 주었고, 목차만 자기 목록 항목보다 작게
+     * 보였다. 2026-08-19 실측. 세 섹션을 같은 위계로 맞춘다.
+     */
+    const anchors = headingAnchors(createContentOutline(document));
+    const toc = anchors.length >= 2 ? renderTableOfContents(anchors) : "";
+    const relatedHtml = related.length ? renderRelatedPosts(related.slice(0, 3)) : "";
+    return [toc, body, relatedHtml].filter(Boolean).join("\n");
   }
+}
+
+/**
+ * 목차와 관련 글은 읽는 글이 아니라 이동하는 장치다.
+ *
+ * 둘 다 글머리표 목록으로만 나가서 본문 문단과 글자색·크기·간격이 모두 같았다.
+ * 2026-08-19 발행분 실측: 목차 항목이 본문 문단과 구분되지 않아 글의 일부로
+ * 읽혔다. 같은 화면에서 "함께 읽으면 좋은 글" 카드만 상자로 떨어져 보였다.
+ *
+ * 상자로 감싸 본문에서 떼어 낸다. 목차는 뒤로 물러나는 회색, 관련 글은 내부
+ * 링크 카드와 같은 파란 계열로 두어 다음에 읽을 것으로 읽히게 한다.
+ *
+ * 색은 인라인 스타일로 싣는다. 테마 CSS 를 우리가 정하지 못하고, 워드프레스는
+ * 본문의 인라인 스타일을 허용 목록으로 거른다. bright-internal-link 카드에서
+ * 이미 살아남은 속성만 쓴다.
+ */
+const navigationBoxStyle = "box-sizing:border-box;max-width:100%;margin:28px 0;padding:18px 22px;border-radius:14px";
+const navigationTitleStyle = "margin:0 0 10px;font-size:1.05em;line-height:1.4";
+const navigationListStyle = "margin:0;padding-left:20px;line-height:1.9";
+
+function renderTableOfContents(anchors: ReturnType<typeof headingAnchors>): string {
+  const items = anchors.map((item) => `<li class="bright-toc-level-${item.level}" style="margin:0 0 6px"><a href="#${attribute(item.anchor)}" style="color:#3c4453;text-decoration:none">${escapeHtml(item.text)}</a></li>`).join("");
+  return `<nav class="bright-toc" aria-label="목차" style="${navigationBoxStyle};border:1px solid #dcdfe4;background:#f7f8fa"><h2 style="${navigationTitleStyle};color:#3c4453">목차</h2><ul style="${navigationListStyle};color:#4a5261">${items}</ul></nav>`;
+}
+
+function renderRelatedPosts(blocks: readonly ContentDocument["blocks"][number][]): string {
+  const items = blocks.map((block) => {
+    if (block.type !== "button") return "";
+    const target = block.target === "_blank" ? ' target="_blank" rel="noopener noreferrer"' : "";
+    return `<li style="margin:0 0 6px"><a href="${attribute(block.targetUrl)}"${target} style="color:#1456c0;text-decoration:underline;text-underline-offset:3px">${escapeHtml(block.label)}</a></li>`;
+  }).join("");
+  return `<section class="bright-related-posts" style="${navigationBoxStyle};border:1px solid #cfe0ff;background:#f3f7ff"><h2 style="${navigationTitleStyle};color:#234b8f">관련 글 보기</h2><ul style="${navigationListStyle}">${items}</ul></section>`;
+}
+
+/**
+ * 출처는 버튼이 아니라 목록이다.
+ *
+ * 출처 링크는 워드프레스 코어 버튼 블록(`wp-block-button`)으로 나갔다. 그러면
+ * 색을 우리가 아니라 테마가 정한다. 2026-08-19 밝은재테크 실측: 테마가 이
+ * 클래스에 어두운 알약 배경과 빨간 글씨를 입혀, 근거 세 건이 검은 버튼 세
+ * 개로 보였다. 바로 아래 "관련 글 보기"는 같은 button 블록인데 자체 클래스로
+ * 목록을 그려 평범하게 나왔다.
+ *
+ * 버튼은 행동을 유도하는 요소이고 출처는 읽고 확인하는 목록이다. CTA 와 제휴
+ * 링크는 버튼으로 남긴다.
+ */
+function isSourceLink(block: ContentDocument["blocks"][number]): block is ButtonBlock {
+  return block.type === "button" && block.purpose === "source" && Boolean(block.targetUrl);
+}
+
+function consecutiveSourceLinks(
+  blocks: readonly ContentDocument["blocks"][number][],
+  start: number,
+): readonly ButtonBlock[] {
+  const group: ButtonBlock[] = [];
+  for (let index = start; index < blocks.length; index += 1) {
+    const block = blocks[index];
+    if (!block || !isSourceLink(block)) break;
+    group.push(block);
+  }
+  return Object.freeze(group);
+}
+
+function renderSourceList(blocks: readonly ButtonBlock[]): string {
+  const items = blocks.map((block) => {
+    const target = block.target === "_blank" ? ' target="_blank" rel="noopener noreferrer"' : "";
+    return `<li><a href="${attribute(block.targetUrl)}"${target}>${escapeHtml(block.label)}</a></li>`;
+  }).join("");
+  return `<ul class="bright-sources">${items}</ul>`;
 }
 
 function renderCard(
@@ -45,7 +133,7 @@ function renderCard(
 }
 
 function renderBlock(block: ContentDocument["blocks"][number], document: ContentDocument): string {
-  if (block.type === "heading") return `<h${block.level}>${escapeHtml(block.text)}</h${block.level}>`;
+  if (block.type === "heading") return `<h${block.level} id="${attribute(headingAnchor(block.text))}">${escapeHtml(block.text)}</h${block.level}>`;
   if (block.type === "paragraph") {
     const readerText = readerVisibleApprovalSourceText(block);
     const text = projectVerifiedSourceReferences(block.id, readerText, document.metadata?.approvalEvidence?.sources ?? []);
@@ -60,6 +148,9 @@ function renderBlock(block: ContentDocument["blocks"][number], document: Content
   }
   if (block.type === "video") return `<p><a href="${attribute(block.source)}">${escapeHtml(block.source)}</a></p>`;
   const target = block.target === "_blank" ? ' target="_blank" rel="noopener noreferrer"' : "";
+  if (block.purpose === "internal_link" && block.targetUrl) {
+    return `<aside class="bright-internal-link" style="box-sizing:border-box;max-width:100%;margin:28px 0;padding:18px 20px;border:1px solid #cfe0ff;border-radius:14px;background:#f3f7ff"><strong style="display:block;margin-bottom:8px;color:#234b8f;font-size:15px">함께 읽으면 좋은 글</strong><a href="${attribute(block.targetUrl)}"${target} style="color:#1456c0;font-weight:700;text-decoration:underline;text-underline-offset:3px;line-height:1.65">${escapeHtml(block.label)} →</a></aside>`;
+  }
   return `<div class="wp-block-button"><a class="wp-block-button__link" href="${attribute(block.targetUrl)}"${target}>${escapeHtml(block.label)}</a></div>`;
 }
 
@@ -109,7 +200,25 @@ function renderTable(block: TableBlock): string {
   const labelStyle = presentation.firstColumnRole === "label" ? `;width:1%;min-width:${presentation.firstColumnMinimumWidth}px;white-space:nowrap;word-break:keep-all;overflow-wrap:normal` : "";
   const headers = block.headers.map((cell, index) => `<th scope="col" style="${headerStyle}${index === 0 ? labelStyle : ""}">${escapeHtml(cell)}</th>`).join("");
   const rows = block.rows.map((row) => `<tr>${row.map((cell, index) => `<td style="${cellStyle}${index === 0 ? labelStyle : ""}">${escapeHtml(cell)}</td>`).join("")}</tr>`).join("");
-  return `<figure class="wp-block-table" style="max-width:100%;margin:28px 0;overflow-x:auto;-webkit-overflow-scrolling:touch">${caption}<table style="width:100%;border-collapse:collapse;border-spacing:0;min-width:${tableMinimumWidth(block)}px;font-size:16px;line-height:1.6"><thead><tr>${headers}</tr></thead><tbody>${rows}</tbody></table></figure>`;
+  /**
+   * 표는 칸 안에서 줄어들어야 한다 — 넘치면 안 된다.
+   *
+   * 이 렌더러는 원래 figure 에 overflow-x:auto 를, table 에 min-width 를 함께
+   * 실어 보냈다. 넓은 표는 가로 스크롤로 읽게 하려던 설계다. 그런데 워드프레스는
+   * 게시물 본문의 inline style 을 허용 목록으로 걸러서, overflow-x 와
+   * -webkit-overflow-scrolling 을 지우고 min-width 는 남긴다.
+   *
+   * 2026-08-14 발행분 실측 (brightjaetech.kr):
+   *   보낸 것  style="max-width:100%;margin:28px 0;overflow-x:auto;-webkit-overflow-scrolling:touch"
+   *   남은 것  style="max-width:100%;margin:28px 0"
+   *   표       min-width:960px 유지 → 960px 표가 720px 본문 칸을 뚫고 나감
+   *
+   * 스크롤 컨테이너가 사라지는 곳에서 min-width 는 안전장치가 아니라 넘침의
+   * 원인이다. 그래서 워드프레스에서는 min-width 를 싣지 않는다. figure 의
+   * overflow-x 는 그대로 두는데, 지워지면 무해하고 지우지 않는 환경에서는
+   * 여전히 도움이 되기 때문이다.
+   */
+  return `<figure class="wp-block-table" style="max-width:100%;margin:28px 0;overflow-x:auto;-webkit-overflow-scrolling:touch">${caption}<table style="width:100%;border-collapse:collapse;border-spacing:0;table-layout:auto;font-size:16px;line-height:1.6"><thead><tr>${headers}</tr></thead><tbody>${rows}</tbody></table></figure>`;
 }
 
 function renderList(block: ListBlock): string {
@@ -117,9 +226,16 @@ function renderList(block: ListBlock): string {
   return `<${tag}>${block.items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</${tag}>`;
 }
 
-function tableMinimumWidth(block: TableBlock): number {
-  const longestCell = Math.max(0, ...block.headers.map((cell) => cell.length), ...block.rows.flat().map((cell) => cell.length));
-  return Math.min(960, Math.max(480, block.headers.length * 180, longestCell > 40 ? 720 : 0));
+/**
+ * 목차 링크와 제목의 앵커는 같은 규칙에서 나와야 한다. 제목 문자열 하나로
+ * 계산하므로 두 곳이 어긋날 수 없다.
+ */
+function headingAnchor(text: string): string {
+  return text.trim().toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "") || "section";
+}
+
+function headingAnchors(outline: readonly ContentOutlineEntry[]) {
+  return outline.map((entry) => Object.freeze({ ...entry, anchor: headingAnchor(entry.text) }));
 }
 
 function escapeHtml(value: string) { return value.replace(/[&<>]/g, (value) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[value]!); }

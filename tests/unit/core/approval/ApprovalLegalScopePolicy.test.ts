@@ -41,28 +41,29 @@ describe("approval date-role and legal-scope policy", () => {
     ].join("\n");
 
     expect(snapshot.requiredPrinciples).toContain(
-      "본문에는 정보 기준일과 공식 재확인 경로를 제공한다. 출처 확인일과 Claim 최종 검토일은 Bright Studio가 Evidence 검증 후 별도로 기록한다.",
+      "원고는 정보 기준일·출처 확인일·최종 검토일을 쓰지 않는다. 세 날짜와 공식 재확인 경로는 Bright Studio가 Evidence 검증 후 출처 영역에 직접 표시한다.",
     );
     expect(snapshot.sourceRequirements).toContain(
-      "본문 정보 기준일과 시스템 Evidence 검토일의 역할 분리",
+      "정보 기준일과 출처 확인일은 시스템이 기록한다",
     );
     expect(snapshot.qualityChecks).toContain(
       "출처 URL과 기준일·검토일의 역할 명확성",
     );
     expect(profileContract).not.toContain("정보 기준일, 최종 검토일과 공식 확인 경로를 제공한다.");
     expect(profileContract).not.toContain("정보 기준일과 최종 검토일");
-    expect(context).toContain("본문에는 정보 기준일과 공식 재확인 경로를 제공한다.");
-    expect(context).toContain("출처 확인일과 Claim 최종 검토일은 Bright Studio가 Evidence 검증 후 별도로 기록한다.");
+    expect(context).toContain("원고는 정보 기준일·출처 확인일·최종 검토일을 쓰지 않는다.");
+    expect(context).toContain("Bright Studio renders those system-owned dates beneath the verified source list");
     expect(context).not.toContain("정보 기준일, 최종 검토일과 공식 확인 경로를 제공한다.");
     expect(context).toContain("Date ownership contract");
-    expect(context).toContain("Never combine 정보 기준일 with 최종 검토일");
-    expect(context).toContain("Do not author or alter 출처 확인일 or Claim 최종 검토일");
+    expect(context).toContain("the manuscript never states a date describing its own currency or review");
+    expect(context).toContain("Do not author 정보 기준일, 출처 확인일, Claim 최종 검토일");
+    expect(context).toContain("Dates belonging to the subject matter");
     expect(context).toContain("Legal applicability contract");
     expect(context).toContain("never equate recurring payment with a continuing transaction");
     expect(context).toContain("not every automatic payment or subscription qualifies");
   });
 
-  it("blocks a combined information-date and final-review-date sentence", () => {
+  it("does not block a combined information-date and final-review-date sentence", () => {
     const issues = evaluateApprovalPreparationText(
       "공식 자료를 확인했습니다. 정보 기준일 및 최종 검토일은 2026년 8월 1일입니다.",
       snapshot,
@@ -72,10 +73,7 @@ describe("approval date-role and legal-scope policy", () => {
       },
     );
 
-    expect(issues).toContainEqual(expect.objectContaining({
-      code: "PROFILE_REVIEW_DATE_MISSING",
-      message: expect.stringContaining("서로 다른 역할"),
-    }));
+    expect(issues).not.toContainEqual(expect.objectContaining({ code: "PROFILE_REVIEW_DATE_MISSING" }));
   });
 
   it("accepts a manuscript information date separately from the system Evidence review date", () => {
@@ -124,7 +122,7 @@ describe("approval date-role and legal-scope policy", () => {
     expect(issues).not.toContainEqual(expect.objectContaining({ code: "PROFILE_REVIEW_DATE_MISSING" }));
   });
 
-  it("keeps a missing information date fail-closed for time-sensitive CRITICAL Evidence", () => {
+  it("does not require an information date for time-sensitive CRITICAL Evidence", () => {
     const issues = evaluateApprovalPreparationText(
       "현재 적용되는 변동 정보를 공식 자료로 확인했습니다.",
       snapshot,
@@ -140,10 +138,7 @@ describe("approval date-role and legal-scope policy", () => {
       },
     );
 
-    expect(issues).toContainEqual(expect.objectContaining({
-      code: "PROFILE_REVIEW_DATE_MISSING",
-      message: expect.stringContaining("정보 기준일"),
-    }));
+    expect(issues).not.toContainEqual(expect.objectContaining({ code: "PROFILE_REVIEW_DATE_MISSING" }));
   });
 
   it("passes the temporal date check when time-sensitive CRITICAL Evidence has an information date", () => {

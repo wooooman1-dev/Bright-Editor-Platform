@@ -152,7 +152,7 @@ async function generateImage(request: Request) {
     alt: text(body.alt),
     blockId,
     contentId,
-    fileName: `ai-${Date.now()}.${generated.fileExtension}`,
+    fileName: generatedImageFileName(owner.block.purpose, contentId, generated.fileExtension),
     mimeType: generated.mimeType,
     model: generated.model,
     projectId: owner.projectId,
@@ -257,6 +257,29 @@ function requiredText(value: unknown, error: string): string {
 
 function text(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+/**
+ * 생성 이미지의 파일명.
+ *
+ * `ai-${Date.now()}` 는 워드프레스에 올라가면 그대로 URL 이 된다
+ * (/wp-content/uploads/2026/08/ai-1787843165123.png). 미디어 라이브러리와
+ * 이미지 주소에 AI 로 만들었다는 표시가 남고, 파일명이 설명하는 바도 없다.
+ *
+ * 한글 파일명은 지금 구조에서 쓸 수 없다. WordPressMediaAdapter 의
+ * safeFileName 이 Content-Disposition 헤더에 넣기 위해 ASCII 밖 문자를 전부
+ * `-` 로 바꾸므로, 한글 이름은 `-------.png` 가 되어 올라간다. 그래서 ASCII
+ * 범위 안에서 용도와 날짜와 Content 를 담는다.
+ */
+function generatedImageFileName(
+  purpose: string | undefined,
+  contentId: string,
+  extension: string,
+): string {
+  const role = (purpose ?? "image").replace(/[^a-z0-9]+/gi, "").toLowerCase() || "image";
+  const day = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const suffix = contentId.split("-").filter(Boolean).at(-1) ?? "image";
+  return `${role}-${day}-${suffix}.${extension}`;
 }
 
 function safeFileName(value: string): string {

@@ -30,7 +30,7 @@ const freeVisualSource = readFileSync(join(process.cwd(), "core/media/BrightBody
     expect(imageEditorSource).toContain("AI 이미지로 교체 · 유료");
     expect(documentEditorSource).toContain("Project 이미지·파일·AI로 교체");
     expect(mediaRouteSource).toContain('owner.block.purpose !== "hero"');
-    expect(openAIProviderSource).toContain('purpose: { type: "string", enum: ["hero"] }');
+    expect(openAIProviderSource).toContain('purpose: { type: "string", enum: ["hero", "comparison", "checklist", "infographic", "summary", "warning"] }');
     expect(imageCostPolicySource).toContain('block.purpose === "hero"');
     expect(imageCostPolicySource).toContain('"infographic"');
   });
@@ -86,10 +86,11 @@ const freeVisualSource = readFileSync(join(process.cwd(), "core/media/BrightBody
     expect(imageProviderSource).toContain('fetch("https://api.openai.com/v1/images/generations"');
   });
 
-  it("creates at most one optional unique hero prompt in the existing editorial generation call", () => {
-    expect(generationSource).toContain("Return no more than one source-empty representative hero image recommendation block");
+  it("creates exactly one unique hero prompt in the existing editorial generation call", () => {
+    expect(generationSource).toContain("Return exactly one source-empty representative hero image recommendation block");
+    expect(generationSource).toContain("returning zero images is not an option");
     expect(generationSource).toContain("must never be satisfied by reusing another post's Project image");
-    expect(generationSource).toContain("Do not return source-empty inline or infographic image blocks");
+    expect(generationSource).toContain("Do not return source-empty inline image blocks");
     expect(generationSource).toContain("standalone production prompt");
     expect(generationSource).toContain("applyGeneratedImageCostPolicy");
     expect(generationSource).toContain("ensureDistinctImagePrompts");

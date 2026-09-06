@@ -46,18 +46,24 @@ describe("Content Opportunity heading coverage", () => {
 
     expect(alignment.review.headingCoverage.pass).toBe(true);
     expect(alignment.review.headingCoverage.score).toBe(100);
-    expect(alignment.review.headingCoverage.evidence).toContain("H2/H3 주제 앵커: 6/6");
     expect(alignment.review.headingCoverage.evidence).toContain("계획 범위의 H2/H3 섹션 연결: 6/6");
   });
 
-  it("continues to reject generic headings even when the body repeats opportunity terms", () => {
+  /**
+   * 제목이 주제어를 담았는지는 더 이상 재지 않는다. 시스템이 본문 끝에 붙이는
+   * `출처` 제목이 두 글자라 어떤 주제어도 담을 수 없어, 승인용 원고가 통과할
+   * 방법이 없는 검사였다. 남은 질문은 계획한 범위가 섹션으로 다뤄졌는가 하나다.
+   */
+  it("judges generic headings by the scopes their sections cover, not by their wording", () => {
     const alignment = analyzeContentOpportunityAlignment(article([
       ["먼저 알아둘 점", "비상금 목표액을 정할 때 생활비, 고정지출, 소득 안정성을 모두 고려해야 합니다. 비상금 규모 설정 방법은 개인 상황에 따라 달라집니다."],
       ["다음으로 확인할 점", "생활비 비상금과 목적자금을 구분하고 월별 적립 계획을 세워야 합니다. 비상금 통장 관리를 재점검하는 일도 중요합니다."],
     ]), opportunity);
 
-    expect(alignment.review.headingCoverage.pass).toBe(false);
-    expect(alignment.review.headingCoverage.evidence).toContain("H2/H3 주제 앵커: 0/2");
+    expect(alignment.review.headingCoverage.pass).toBe(true);
+    expect(alignment.review.headingCoverage.evidence).toContain("계획 범위의 H2/H3 섹션 연결: 4/6");
+    expect(alignment.review.headingCoverage.evidence.some((item) => item.includes("앵커"))).toBe(false);
+    expect(alignment.review.headingCoverage.blockingReason).toBeUndefined();
   });
 
   it("does not count introduction coverage as a substitute for a scoped H2/H3 section", () => {

@@ -5,7 +5,7 @@ import {
 } from "../../core/approval";
 import type { QualityApprovalType, QualityCategory, QualityDimensionResult } from "../../core/quality";
 
-const categories: readonly QualityCategory[] = ["searchIntent", "seo", "readability", "structure", "completeness", "usefulness", "htmlQuality", "imageStrategy", "internalLinks", "cta"];
+const categories: readonly QualityCategory[] = ["searchIntent", "seo", "readability", "structure", "completeness", "usefulness", "htmlQuality", "imageStrategy", "concreteness", "readerDeferral", "evidenceUse", "formality", "internalLinks", "cta"];
 const scoringCategories = new Set<QualityCategory>(["searchIntent", "seo", "readability", "structure", "completeness", "usefulness", "htmlQuality", "imageStrategy"]);
 const editorialTargets = new Set<QualityCategory>(["searchIntent", "seo", "readability", "completeness"]);
 const evidenceLabels: Readonly<Record<string, string>> = Object.freeze({
@@ -25,6 +25,13 @@ const evidenceLabels: Readonly<Record<string, string>> = Object.freeze({
   repeatedCoreAdviceCount: "반복되는 핵심 조언 수",
   vagueInstructionCount: "모호한 안내 표현 수",
   concreteCriteriaCount: "구체적인 시간·횟수·단계 기준 수",
+  concreteFacts: "확인 가능한 수치 개수",
+  concretePerThousand: "1,000자당 확인 가능한 수치",
+  proseCharacters: "본문 산문 글자 수",
+  deferrals: "답을 넘긴 문장 수",
+  evidenceValues: "출처 발췌의 수치 개수",
+  usedEvidenceValues: "본문이 사용한 수치 개수",
+  unusedEvidenceValues: "본문에 없는 발췌 수치 개수",
   practicalToolSignals: "체크리스트·기록·단계 안내 수",
   placeholderDetected: "임시 문구 감지",
   unsupportedClaimSignal: "근거 없는 주장 감지",
@@ -166,10 +173,34 @@ function normalizeApprovalReadinessCheck(value: unknown): ApprovalReadinessCheck
   })];
 }
 
+/**
+ * Every readiness check is shown, including the ones that do not apply.
+ *
+ * A non-applicable Evidence check used to be dropped here, so the Evidence card
+ * disappeared from the panel entirely — measured on the 밝은재테크 corpus that
+ * was 8 of 16 approval manuscripts, including manuscripts whose stored factual
+ * inventory shows sentences were withdrawn because their source anchor failed.
+ * AGENTS.md ch.14 lists Evidence Verification as one of the four shared approval
+ * states and requires it to be represented separately, so it is rendered with
+ * its own "not applicable" label instead of being hidden.
+ */
 export function visibleApprovalReadinessChecks(
   report: ApprovalReadinessReport,
 ): readonly ApprovalReadinessCheck[] {
-  return Object.freeze(report.checks.filter((check) => check.applicable !== false));
+  return report.checks;
+}
+
+export function approvalReadinessCheckStatusLabel(check: ApprovalReadinessCheck): string {
+  if (check.applicable === false) return "필수 검증 대상 아님";
+  if (check.status === "passed") return "통과";
+  if (check.status === "blocked") return "차단";
+  return check.status === "needs_review" ? "검토 필요" : "미검사";
+}
+
+export function approvalReadinessCheckStatusTone(check: ApprovalReadinessCheck): string {
+  if (check.applicable === false) return "text-[#66666f]";
+  if (check.status === "passed") return "text-emerald-700";
+  return check.status === "blocked" ? "text-red-700" : "text-amber-800";
 }
 
 function normalizeReasons(category: QualityCategory, value: unknown, evidence: readonly unknown[]): string[] {
@@ -230,7 +261,7 @@ function normalizeTasks(value: unknown, dimensions: readonly QualityDimensionRes
   }
   return dimensions.flatMap((dimension) => dimension.tasks.map((message) => ({ category: dimension.category, message })));
 }
-function qualityLabel(category: QualityCategory) { return ({ searchIntent: "검색 의도", seo: "SEO", readability: "가독성", structure: "콘텐츠 구조", completeness: "정보 완성도", usefulness: "정보 유용성", htmlQuality: "HTML 품질", imageStrategy: "이미지 전략", internalLinks: "내부 링크", cta: "CTA" })[category]; }
+function qualityLabel(category: QualityCategory) { return ({ searchIntent: "검색 의도", seo: "SEO", readability: "가독성", structure: "콘텐츠 구조", completeness: "정보 완성도", usefulness: "정보 유용성", htmlQuality: "HTML 품질", imageStrategy: "이미지 전략", internalLinks: "내부 링크", cta: "CTA", concreteness: "구체성", readerDeferral: "떠넘김", evidenceUse: "근거 활용", formality: "문체(존댓말)" })[category]; }
 function empty(status: QualityUiStatus): NormalizedQualityReview { return Object.freeze({ dimensions: Object.freeze([]), overallScore: null, approvalType: "none", approvalReadiness: null, status, revisionId: null, reviewedAt: null, issues: Object.freeze([]), actionableTasks: Object.freeze([]) }); }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 function text(value: unknown) { return typeof value === "string" && value.trim() ? value.trim() : null; }

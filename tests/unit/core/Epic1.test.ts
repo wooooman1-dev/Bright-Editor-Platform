@@ -99,7 +99,7 @@ describe("Epic 1 publishing, media, and quality", () => {
   it("produces an honest reusable quality report and keeps incomplete content behind the gate", () => {
     const report = new QualityEngine().review(document, { contentType: "article", platform: "tistory", primaryKeyword: "useful", searchIntent: "guide" });
     expect(report.overallScore).toBeLessThan(100);
-    expect(report.dimensions).toHaveLength(10);
+    expect(report.dimensions).toHaveLength(14);
     expect(report.approved).toBe(false);
     expect(() => new PublishingGate().assertReady(report)).toThrow("Publishing blocked");
   });

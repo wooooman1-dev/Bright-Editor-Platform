@@ -4,6 +4,7 @@ import {
   bindGeneratedClaims,
   type GeneratedClaimLocation,
 } from "./GeneratedClaimBinding";
+import { deliberatelyRemovedGeneratedFactualClaimIds } from "./GeneratedFactualClaimInventory";
 import { normalizeVerificationValue } from "./VerificationClaimNormalizer";
 import type {
   VerificationClaimKind,
@@ -46,6 +47,8 @@ export type GeneratedFactualClaim = Readonly<{
 export type GeneratedFactualClaimValidationResult = Readonly<{
   passed: boolean;
   reasons: readonly string[];
+  /** 발행을 막지는 않지만 사용자가 알아야 하는 변화. 이유를 문장에 담는다. */
+  warnings: readonly string[];
   claims: readonly GeneratedFactualClaim[];
 }>;
 
@@ -62,17 +65,28 @@ export function validateGeneratedFactualClaimDrafts(input: Readonly<{
   gate: VerificationGenerationGateResult;
   drafts: readonly GeneratedFactualClaimDraft[];
 }>): GeneratedFactualClaimValidationResult {
-  if (!input.gate.ready) {
-    return failed(["Structured Generated Claim validation requires a ready Verification Generation Gate."]);
-  }
-
+  /**
+   * Gate 준비 여부로 검증 자체를 포기하지 않는다 (D-045). 여기서 빈손으로
+   * 돌아가면 생성이 쓴 사실이 인벤토리에 하나도 기록되지 않고, 본문 끝 출처
+   * 목록을 만들 연결도 사라진다.
+   */
   const specs = new Map(input.plan.claims.map((claim) => [claim.claimId, claim]));
   const results = new Map(input.snapshot.results.map((result) => [result.claimId, result]));
   const verifiedClaimIds = new Set(input.gate.verifiedClaimIds);
   const segments = generatedClaimTextSegments(input.document);
+  /**
+   * A Claim the factual inventory withdrew from the manuscript is not a lost
+   * anchor. The inventory runs after this projection is first computed and is
+   * the last stage that edits the canonical document, so its `removed`
+   * disposition is the final word on whether the sentence is still published.
+   * Requiring a verbatim anchor for a sentence the pipeline itself deleted made
+   * the two Claim structures contradict each other inside one revision.
+   */
+  const withdrawnByInventory = deliberatelyRemovedGeneratedFactualClaimIds(input.document);
   const claims: GeneratedFactualClaim[] = [];
   const reasons: string[] = [];
   const seen = new Set<string>();
+  const withdrawn = new Set<string>();
 
   for (const draft of input.drafts) {
     const claimId = draft.claimId.trim();
@@ -123,6 +137,10 @@ export function validateGeneratedFactualClaimDrafts(input: Readonly<{
       .filter((segment) => normalizeComparableText(segment.text).includes(normalizeComparableText(surfaceText)))
       .map((segment) => segment.location);
     if (!locations.length) {
+      if (withdrawnByInventory.has(claimId)) {
+        withdrawn.add(claimId);
+        continue;
+      }
       reasons.push(`Generation 구조화 Claim의 verbatim anchor를 현재 원고에서 찾지 못했습니다: ${claimId}.`);
       continue;
     }
@@ -141,12 +159,26 @@ export function validateGeneratedFactualClaimDrafts(input: Readonly<{
     }));
   }
 
-  for (const claimId of verifiedClaimIds) {
-    if (!claims.some((claim) => claim.claimId === claimId)) {
-      reasons.push(`검증된 Claim이 Generation 구조화 사실 목록에 연결되지 않았습니다: ${claimId}.`);
-    }
-  }
+  /**
+   * 계획된 Claim 이 구조화 목록에 없다는 사실은 더 이상 무결성 위반이 아니다 (D-045).
+   *
+   * 이 검사는 "내용 검증을 통과한 Claim 이라면 원고가 그 값을 말했을 것"이라는 전제
+   * 위에 있었다. 그 전제를 만들던 내용 대조를 걷어낸 뒤 gate 의 Claim 목록은
+   * "Snapshot 결과가 있는 Claim"을 뜻할 뿐이므로, 생성이 그 값을 쓰지 않기로 한
+   * 경우까지 발행 차단이 된다. 원고가 실제로 쓴 사실은 factual inventory 가 따로
+   * 기록한다.
+   */
 
+  /**
+   * 재계산된 위치가 저장된 claim의 anchor와 어긋나는 것은 차단 사유가 아니다
+   * (D-045). 이 비교는 위 per-draft 루프와 달리 "anchor가 아예 사라졌는가"가
+   * 아니라 "검토 편집 이후 anchor 위치·표현이 살짝 달라졌는가"를 본다. 값 자체가
+   * 검토 단계에서 바뀌는 사고는 QualityReviewFactualGuard 가 이미 막으므로,
+   * 여기서 다시 차단하면 정상적인 편집(문장 다듬기, 존댓말 통일 등)까지 발행을
+   * 막는다. 2026-09-04 실측: 청약저축 소득공제 원고에서 검토가 문장을 존댓말로
+   * 다듬었을 뿐인데 300만원/40%/7천만원 Claim 5건이 전부 이 이유로 막혔다.
+   */
+  const warnings: string[] = [];
   const rebound = bindGeneratedClaims({
     document: input.document,
     plan: input.plan,
@@ -161,13 +193,14 @@ export function validateGeneratedFactualClaimDrafts(input: Readonly<{
       && claim.locations.some((location) => sameLocation(location, binding.location))
       && normalizeComparableText(claim.surfaceText).includes(normalizeComparableText(binding.matchedText)));
     if (!covered) {
-      reasons.push(`검증 factual token이 같은 Claim의 구조화 semantic anchor에 포함되지 않았습니다: ${reference.verificationClaimId} / ${binding.matchedText}.`);
+      warnings.push(`검증 factual token이 같은 Claim의 구조화 semantic anchor에 포함되지 않았습니다: ${reference.verificationClaimId} / ${binding.matchedText}. 발행은 막지 않으니 값이 바뀌었는지 확인하세요.`);
     }
   }
 
   return Object.freeze({
     passed: reasons.length === 0,
     reasons: Object.freeze([...new Set(reasons)]),
+    warnings: Object.freeze([...new Set(warnings)]),
     claims: Object.freeze(claims),
   });
 }
@@ -344,10 +377,3 @@ function sortValue(value: unknown): unknown {
   return value;
 }
 
-function failed(reasons: readonly string[]): GeneratedFactualClaimValidationResult {
-  return Object.freeze({
-    passed: false,
-    reasons: Object.freeze([...new Set(reasons)]),
-    claims: Object.freeze([]),
-  });
-}

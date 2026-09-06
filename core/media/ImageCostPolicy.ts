@@ -25,14 +25,21 @@ export function selectAutomaticImageBlock(document: ContentDocument): ImageBlock
 }
 
 /**
- * Keeps a source-empty hero recommendation only. Body visual information must use
- * a table/Bright component, Project media, or a user upload instead of paid AI generation.
- * Existing connected images are always preserved.
+ * 유료 AI 이미지는 대표 이미지 한 장으로 묶어 둔다. 그림 파일이 없는 본문 이미지
+ * 블록 중 **무료 Bright 시각물** 은 남긴다 — 그것은 이미지 생성 호출이 아니라
+ * 생성 응답 안의 블록 하나이고, 발행 때 HTML 카드로 그려진다
+ * (`renderBrightBodyVisualHtml`). 표를 하나 더 만드는 것과 비용이 같다.
+ *
+ * 2026-08-29 실측이 이 규칙을 바꾼 이유다. 밝은재테크 원고 40편에 무료 시각물이
+ * 0장이었다. 프롬프트가 반환을 금지했고, 그래도 나오면 이 함수가 지웠다. AI 가
+ * 설계한 인포그래픽 12개·체크리스트 9개·경고 9개가 전부 사라져 표만 남았다.
+ *
+ * 그림 파일을 요구하는 `inline` 은 계속 걷어낸다. 그것만은 유료 생성이 필요하다.
  */
 export function applyGeneratedImageCostPolicy(document: ContentDocument): ContentDocument {
   const blocks = document.blocks.filter((block) => {
     if (block.type !== "image" || block.source.trim() || (block.sourceType ?? "planned") !== "planned") return true;
-    return block.purpose === "hero";
+    return block.purpose === "hero" || isBrightComponentPurpose(block.purpose);
   });
   if (blocks.length === document.blocks.length) return document;
   return Object.freeze({

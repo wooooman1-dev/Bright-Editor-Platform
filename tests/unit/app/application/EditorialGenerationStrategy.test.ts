@@ -11,7 +11,7 @@ describe("EditorialGenerationStrategy information sufficiency target", () => {
     expect(request.instruction).toContain("Decision criteria");
     expect(request.instruction).toContain("Reader problem");
     expect(request.instruction).toContain("same response-writing process");
-    expect(request.instruction).toContain("Never expand content only to make it longer");
+    expect(request.instruction).toContain("never reach it by padding");
     expect(request.instruction).toContain("coverage map");
     expect(request.instruction).toContain("exactly one primary H2");
     expect(request.instruction).toContain("do not repeat the same caution or next action in every H2");
@@ -19,6 +19,15 @@ describe("EditorialGenerationStrategy information sufficiency target", () => {
     expect(request.instruction).toContain("a table is reserved for genuine multi-column comparison or lookup");
     expect(request.instruction).toContain("sectionType is semantic presentation intent, not a quota");
     expect(request.instruction).not.toMatch(/\b(?:2000|3500|5500|5,500)\b/);
+  });
+
+  it("states the measured prose floor and the comparison obligation the gates enforce", () => {
+    const request = new EditorialGenerationStrategy().createRequest(input("quick"));
+    expect(request.instruction).toContain("at least 400 characters of running prose excluding whitespace");
+    expect(request.instruction).toContain("at least 250 when its sectionType is checklist, steps, or faq");
+    expect(request.instruction).toContain("adding another bullet never satisfies it");
+    expect(request.instruction).toContain("at least one H2 must carry sectionType=comparison");
+    expect(request.instruction).toContain("a promised comparison that no section performs is rejected");
   });
 
   it("uses the deep health target and section roles", () => {
@@ -29,6 +38,21 @@ describe("EditorialGenerationStrategy information sufficiency target", () => {
     expect(request.instruction).toContain("sectionType");
     expect(request.instruction).toContain("판단 기준");
     expect(request.instruction).toContain("never invent an unverified number");
+  });
+
+  /**
+   * 2026-09-05 실측(content-mtnqhijd-f1m7e0): caseExamples 지시문이
+   * sectionType=case_example H2 자체의 지시(concrete situation, decision,
+   * application)와 겹치지 않게 하라는 말이 없어, 모델이 같은 결근 사례를
+   * 본문 case_example 섹션과 caseExamples 항목에서 두 번 서술했다. 이후
+   * content-mto0upm1-ef3773(배우자 출산휴가)에서는 sectionType=explanation인
+   * 일반 설명 섹션에서 같은 중복이 재발해, 지시를 case_example 섹션에
+   * 국한하지 않고 모든 섹션으로 넓혔다.
+   */
+  it("tells the model not to repeat a scenario any section already narrates, regardless of sectionType", () => {
+    const request = new EditorialGenerationStrategy().createRequest(input("deep"));
+    expect(request.instruction).toContain("regardless of that section's sectionType");
+    expect(request.instruction).toContain("Applying the same rule or number to a different concrete situation or a different outcome is not repetition");
   });
 
   it("does not reintroduce a legacy length target through the Opportunity snapshot", () => {
@@ -117,9 +141,193 @@ describe("EditorialGenerationStrategy information sufficiency target", () => {
   });
 });
 
+describe("EditorialGenerationStrategy hero image guarantee", () => {
+  // 2026-08-28 근로장려금 원고(content-mtcqjahd-oesz46)는 이미지 블록 0개로 저장돼
+  // 대표 이미지 생성 화면이 뜨지 않았고 그대로 초안 발행까지 갔다.
+  it("requires exactly one hero image in the generation instruction", () => {
+    const request = new EditorialGenerationStrategy().createRequest(input("quick"));
+    expect(request.instruction).toContain("Return exactly one source-empty representative hero image recommendation block");
+    expect(request.instruction).toContain("returning zero images is not an option");
+    expect(request.instruction).not.toContain("return zero when a representative image is not materially needed");
+  });
+
+  it("inserts a hero image after the introduction when the model returns no images", () => {
+    const generated = JSON.parse(response("quick")) as Generated;
+    generated.images = [];
+
+    const document = new EditorialGenerationStrategy().parse(JSON.stringify(generated), input("quick"));
+
+    const images = document.blocks.filter((block) => block.type === "image");
+    expect(images).toHaveLength(1);
+    expect(document.metadata?.imageCount).toBe(1);
+    const hero = images[0];
+    expect(hero.type === "image" && hero.purpose).toBe("hero");
+    expect(hero.type === "image" && hero.alt).toContain("노트북 청소");
+    expect(hero.type === "image" && hero.prompt?.trim()).toBeTruthy();
+    const heroIndex = document.blocks.findIndex((block) => block.type === "image");
+    const firstHeadingIndex = document.blocks.findIndex((block) => block.type === "heading");
+    expect(heroIndex).toBeGreaterThan(0);
+    expect(heroIndex).toBeLessThan(firstHeadingIndex);
+  });
+
+  it("keeps a hero image the model placed outside the section range instead of dropping it", () => {
+    const generated = JSON.parse(response("quick")) as Generated;
+    generated.images = [{ afterSection: 99, purpose: "hero", alt: "노트북 청소 준비물", prompt: "독자가 청소 준비물을 확인하는 한국어 블로그용 장면, 텍스트 없음" }];
+
+    const document = new EditorialGenerationStrategy().parse(JSON.stringify(generated), input("quick"));
+
+    const images = document.blocks.filter((block) => block.type === "image");
+    expect(images).toHaveLength(1);
+    expect(images[0].type === "image" && images[0].alt).toBe("노트북 청소 준비물");
+    const heroIndex = document.blocks.findIndex((block) => block.type === "image");
+    expect(heroIndex).toBeLessThan(document.blocks.findIndex((block) => block.type === "heading"));
+  });
+
+  it("names the visual registers and the registers the recent articles already used", () => {
+    const recent = [
+      "한국의 30~50대 성인이 밝은 책상에서 계산기와 스마트폰을 놓고 자격을 확인하는 현실적인 생활경제 기사형 사진.",
+      "한국의 중장년 성인이 밝은 책상에서 서류와 메모 노트를 확인하는 현실적인 생활경제 기사형 사진.",
+    ];
+    const request = new EditorialGenerationStrategy().createRequest({ ...input("quick"), recentHeroImagePrompts: recent });
+
+    expect(request.instruction).toContain("사물 정물");
+    expect(request.instruction).toContain("평면 개념 그래픽");
+    expect(request.instruction).toContain("관계 도식");
+    expect(request.instruction).toContain("already used these registers: 상황 사진");
+    expect(request.instruction).toContain("no readable letters or numbers anywhere");
+  });
+
+  it("omits the avoid list when the project has no earlier hero image", () => {
+    const request = new EditorialGenerationStrategy().createRequest(input("quick"));
+    expect(request.instruction).toContain("Choose the hero image's visual register deliberately");
+    expect(request.instruction).not.toContain("already used these registers");
+  });
+
+  it("does not add a second image when the model already returned one", () => {
+    const document = new EditorialGenerationStrategy().parse(response("deep"), input("deep"));
+    expect(document.blocks.filter((block) => block.type === "image")).toHaveLength(1);
+    expect(document.metadata?.imageCount).toBe(1);
+  });
+
+  /**
+   * 2026-09-04 실측: 연차휴가 원고가 "80% 이상 출근 시 15일" 규정을 조문까지
+   * 정확히 인용했지만 그 규정을 실제 숫자에 대입한 예시가 하나도 없어,
+   * 독자는 규정 문구만 받고 자기 상황에 어떻게 적용되는지는 알 수 없었다.
+   */
+  it("rejects a structured response that quotes a quantifiable CRITICAL Claim without a worked example", () => {
+    const withClaim = inputWithQuantifiableClaim();
+    expect(() => new EditorialGenerationStrategy().parse(response("deep"), withClaim))
+      .toThrow("worked example");
+  });
+
+  it("does not require a worked example when no quantifiable CRITICAL Claim exists", () => {
+    const document = new EditorialGenerationStrategy().parse(response("deep"), input("deep"));
+    expect(document.title).toBeTruthy();
+  });
+
+  it("accepts a structured response that applies the Claim's number to a concrete scenario", () => {
+    const withClaim = inputWithQuantifiableClaim();
+    const withExample = JSON.stringify({
+      ...JSON.parse(response("deep")),
+      workedExamples: [{ afterSection: 1, scenario: "예시 상황 문장", computation: "예시 계산 문장", result: "예시 결과 문장" }],
+    });
+    const document = new EditorialGenerationStrategy().parse(withExample, withClaim);
+    const text = JSON.stringify(document.blocks);
+    expect(text).toContain("예시 상황 문장");
+    expect(text).toContain("예시 계산 문장");
+    expect(text).toContain("예시 결과 문장");
+  });
+
+  /**
+   * 2026-09-04 실측(content-mtn0ukak-qwva2x, 청약저축 소득공제): Planning의
+   * examplesNeeded 3건 중 2건이 "무주택이더라도 세대주가 아닌 가입자는 같은
+   * 방식으로 공제 대상이라고 단정하기 어렵습니다" 같은 한 문장짜리 추상적
+   * 언급으로만 끝났다. examplesNeeded는 프롬프트 문장으로만 전달되고 응답을
+   * 검증하는 코드가 전혀 없었다.
+   */
+  it("rejects a structured response with no concrete case example when Planning named example scenarios", () => {
+    const withoutCaseExample = JSON.stringify({ ...JSON.parse(response("deep")), caseExamples: [] });
+    expect(() => new EditorialGenerationStrategy().parse(withoutCaseExample, input("deep")))
+      .toThrow("case example");
+  });
+
+  it("accepts a structured response with at least one concrete case example", () => {
+    const document = new EditorialGenerationStrategy().parse(response("deep"), input("deep"));
+    const text = JSON.stringify(document.blocks);
+    expect(text).toContain("테스트 상황 문장");
+    expect(text).toContain("테스트 판단 문장");
+    expect(text).toContain("테스트 결과 문장");
+  });
+
+  /**
+   * 2026-09-05 실측(content-mto0upm1-ef3773, 배우자 출산휴가): scenario/situation이
+   * "…쓰려는 근로자"처럼 완결되지 않은 명사구로 끝나면, computation/decision과
+   * 공백만으로 이어붙여 "근로자 법정 총 20일을…"처럼 두 문장이 접속 없이
+   * 붙었다. 완결형(다/까/요/경우/때 등)으로 끝나지 않는 조각에는 "인 경우,"를
+   * 붙여 자연스럽게 잇는다.
+   */
+  it("inserts a connector when a worked example's scenario ends in a bare noun phrase instead of a complete clause", () => {
+    const withExample = JSON.stringify({
+      ...JSON.parse(response("deep")),
+      workedExamples: [{
+        afterSection: 1,
+        scenario: "출산 직후부터 법정 휴가를 모두 이어서 쓰려는 근로자",
+        computation: "법정 총 20일을 한 번의 사용분으로 배치하면 사용일수는 20일입니다",
+        result: "법정 배우자 출산휴가 20일을 한 번에 사용하는 일정으로 알릴 수 있습니다",
+      }],
+    });
+    const document = new EditorialGenerationStrategy().parse(withExample, input("deep"));
+    const text = JSON.stringify(document.blocks);
+    expect(text).toContain("출산 직후부터 법정 휴가를 모두 이어서 쓰려는 근로자인 경우, 법정 총 20일을");
+  });
+
+  it("does not add a redundant connector when the scenario already ends as a complete clause", () => {
+    const withExample = JSON.stringify({
+      ...JSON.parse(response("deep")),
+      workedExamples: [{
+        afterSection: 1,
+        scenario: "이 근로자는 4주 평균 소정근로시간이 15시간 이상입니다.",
+        computation: "개근 요건도 충족했다면",
+        result: "주휴수당이 발생합니다",
+      }],
+    });
+    const document = new EditorialGenerationStrategy().parse(withExample, input("deep"));
+    const text = JSON.stringify(document.blocks);
+    expect(text).toContain("이 근로자는 4주 평균 소정근로시간이 15시간 이상입니다. 개근 요건도 충족했다면 주휴수당이 발생합니다");
+    expect(text).not.toContain("이상입니다.인 경우");
+  });
+});
+
+function inputWithQuantifiableClaim() {
+  const base = input("deep");
+  return {
+    ...base,
+    contentOpportunity: {
+      ...base.contentOpportunity,
+      verificationPlan: {
+        schemaVersion: 1,
+        mode: "explicit",
+        claims: [{
+          claimId: "claim-quantifiable",
+          atomicity: "single_assertion",
+          field: "테스트 발생 기준",
+          kind: "ratio",
+          statement: "1년간 80퍼센트 이상 출근한 근로자에게 15일의 유급휴가를 준다.",
+          qualifiers: { subject: "", scope: "", basis: "", note: "" },
+          temporalRequirement: { mode: "notRequired" },
+          required: true,
+          risk: "critical",
+        }],
+        fingerprint: "vfp-test",
+      },
+    },
+  } as unknown as ReturnType<typeof input>;
+}
+
 type Depth = "quick" | "deep";
 type Generated = {
   sections: Array<{ heading: string; sectionType: string; paragraphs: string[] }>;
+  images?: Array<Record<string, unknown>>;
   [key: string]: unknown;
 };
 
@@ -157,8 +365,8 @@ function response(depth: Depth): string {
   const quick = depth === "quick";
   const sections = quick
     ? [
-      section("준비 체크리스트", "checklist", "전원을 끄는 이유와 작업 안전에 미치는 영향을 확인합니다.\n- 전원을 끕니다.\n- 케이블을 분리합니다.\n- 마른 천을 준비합니다.\n- 통풍구를 확인합니다. " + sentence("가", 430)),
-      section("노트북 청소 순서", "steps", "실행 방법은 안전 확인 뒤 순서대로 진행하는 것입니다.\n1. 겉면을 닦습니다.\n2. 키보드를 정리합니다.\n3. 통풍구를 확인합니다. " + sentence("나", 500)),
+      section("준비 체크리스트", "checklist", "전원을 끄는 이유와 작업 안전에 미치는 영향을 확인합니다.\n- 전원을 끕니다.\n- 케이블을 분리합니다.\n- 마른 천을 준비합니다.\n- 통풍구를 확인합니다.\n" + sentence("가", 430)),
+      section("노트북 청소 순서", "steps", "실행 방법은 안전 확인 뒤 순서대로 진행하는 것입니다.\n1. 겉면을 닦습니다.\n2. 키보드를 정리합니다.\n3. 통풍구를 확인합니다.\n" + sentence("나", 500)),
       section("피해야 할 행동과 주의점", "warning", "액체를 직접 뿌리면 위험합니다. 강한 압력을 피해야 합니다. 이상이 보이면 사용을 멈추고 확인합니다. " + "다".repeat(420)),
     ]
     : [
@@ -186,6 +394,7 @@ function response(depth: Depth): string {
       : "다음 행동은 결과를 기록하고 관찰한 변화와 판단 기준을 정리한 뒤 필요한 경우 의료진에게 확인하는 것입니다. 주의사항과 예외를 놓치지 않습니다. " + "결".repeat(350)],
     images: [{ afterSection: 0, purpose: "hero", alt: quick ? "노트북 청소 준비물" : "건강검진 결과표 해석", prompt: "독자가 핵심 판단 순서를 이해하는 한국어 블로그용 장면, 텍스트 없음" }],
     cta: [],
+    caseExamples: [{ afterSection: 1, situation: "테스트 상황 문장", decision: "테스트 판단 문장", outcome: "테스트 결과 문장" }],
   });
 }
 

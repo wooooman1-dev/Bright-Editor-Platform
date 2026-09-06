@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveContentOpenDestination } from "../../../../app/user-flow/content-navigation";
+import { canReopenPlanningCandidates, resolveContentOpenDestination } from "../../../../app/user-flow/content-navigation";
 
 describe("content editor re-entry", () => {
   it("opens the editor whenever a generated document exists, even if planning failed", () => {
@@ -27,5 +27,19 @@ describe("content editor re-entry", () => {
     expect(resolveContentOpenDestination({
       planningWorkflow: { status } as never,
     })).toBe("editor");
+  });
+});
+
+describe("returning to the stored topic candidates", () => {
+  it("offers the route after generation, because generation does not consume the candidates", () => {
+    expect(canReopenPlanningCandidates({
+      planning: { opportunityCandidates: [{ opportunityId: "opportunity-1" }] } as never,
+    })).toBe(true);
+  });
+
+  it("offers no route when the Content was created without Planning", () => {
+    expect(canReopenPlanningCandidates({})).toBe(false);
+    expect(canReopenPlanningCandidates({ planning: {} as never })).toBe(false);
+    expect(canReopenPlanningCandidates({ planning: { opportunityCandidates: [] } as never })).toBe(false);
   });
 });

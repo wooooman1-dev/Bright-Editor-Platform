@@ -129,7 +129,7 @@ function extractHtml(
   input: ApprovalSourceDocumentInput,
   fallbackPublisher: string,
 ): ApprovalSourceDocumentExtraction {
-  const html = decodeUtf8(input.bytes);
+  const html = decodeUtf8(input.bytes, input.contentType);
   const title = decodeEntities(firstMatch(html, /<title[^>]*>([\s\S]*?)<\/title>/iu));
   const publisher = decodeEntities(
     firstMatch(html, /<meta[^>]+property=["']og:site_name["'][^>]+content=["']([^"']+)["'][^>]*>/iu)
@@ -143,7 +143,7 @@ function extractPlainText(
   input: ApprovalSourceDocumentInput,
   publisher: string,
 ): ApprovalSourceDocumentExtraction {
-  const text = normalizeWhitespace(decodeUtf8(input.bytes));
+  const text = normalizeWhitespace(decodeUtf8(input.bytes, input.contentType));
   const title = firstMeaningfulLine(text);
   return extractedOrEmpty("plain_text", title, publisher, text, input.bytes.byteLength);
 }
@@ -152,7 +152,7 @@ function extractJson(
   input: ApprovalSourceDocumentInput,
   publisher: string,
 ): ApprovalSourceDocumentExtraction {
-  const raw = stripBom(decodeUtf8(input.bytes)).trim();
+  const raw = stripBom(decodeUtf8(input.bytes, input.contentType)).trim();
   let value: unknown;
   try {
     value = JSON.parse(raw);
@@ -178,7 +178,7 @@ function extractXml(
   input: ApprovalSourceDocumentInput,
   publisher: string,
 ): ApprovalSourceDocumentExtraction {
-  const xml = decodeUtf8(input.bytes);
+  const xml = decodeUtf8(input.bytes, input.contentType);
   if (!/^\s*(?:<\?xml\b|<[A-Za-z_][\w:.-]*(?:\s|>|\/))/u.test(xml)) {
     return frozenExtraction(
       "xml",
@@ -201,7 +201,7 @@ function extractCsv(
   input: ApprovalSourceDocumentInput,
   publisher: string,
 ): ApprovalSourceDocumentExtraction {
-  const raw = stripBom(decodeUtf8(input.bytes));
+  const raw = stripBom(decodeUtf8(input.bytes, input.contentType));
   const rows = parseDelimitedText(raw, delimiterFor(input.contentType, raw));
   if (!rows.length) {
     return frozenExtraction(
@@ -227,7 +227,7 @@ function extractPdf(
   publisher: string,
 ): ApprovalSourceDocumentExtraction {
   const raw = decodeLatin1(input.bytes);
-  const title = decodePdfLiteral(firstMatch(raw, /\/Title\s*\(((?:\\.|[^\\)])*)\)/u));
+  const title = decodePdfLiteral(firstRawMatch(raw, /\/Title\s*\(((?:\\.|[^\\)])*)\)/u));
   const fragments = [extractPdfTextFragments(raw)];
   const extractedServerText = input.pdfTextExtractor?.(input.bytes) ?? "";
   if (extractedServerText) fragments.push(extractedServerText);
@@ -467,11 +467,37 @@ function markupToText(markup: string): string {
   return normalizeWhitespace(decodeEntities(markup.replace(/<[^>]+>/gu, " ")));
 }
 
+/**
+ * PDF 문자열은 두 가지 인코딩으로 적힌다.
+ *
+ * PDF 명세는 텍스트 문자열이 바이트 `FE FF` 로 시작하면 UTF-16BE 로 읽으라고
+ * 정한다. 이 함수는 이스케이프만 풀고 인코딩은 보지 않아서, 한글 제목이 바이트
+ * 그대로 남았다. 2026-08-20 밝은재테크 실측: law.go.kr 의 법령 PDF 출처 제목이
+ * `þÿ È 1Ç¥ Í ÎY` 로 나왔다 — `þÿ` 가 latin1 로 읽힌 BOM 이다.
+ *
+ * 이스케이프를 먼저 풀어야 BOM 바이트가 드러나므로 순서는 이스케이프 해제 →
+ * BOM 판정 → 디코딩이다. BOM 이 없으면 지금까지처럼 바이트를 그대로 쓴다.
+ */
 function decodePdfLiteral(value: string): string {
-  return normalizeWhitespace(value
+  const unescaped = value
     .replace(/\\([nrtbf()\\])/gu, (_match, escaped: string) => pdfEscapes[escaped] ?? escaped)
     .replace(/\\([0-7]{1,3})/gu, (_match, octal: string) => String.fromCharCode(Number.parseInt(octal, 8)))
-    .replace(/\\\r?\n/gu, ""));
+    .replace(/\\\r?\n/gu, "");
+  return normalizeWhitespace(decodePdfTextEncoding(unescaped));
+}
+
+function decodePdfTextEncoding(value: string): string {
+  const bigEndian = value.startsWith("\u00fe\u00ff");
+  const littleEndian = value.startsWith("\u00ff\u00fe");
+  if (!bigEndian && !littleEndian) return value;
+  const body = value.slice(2);
+  let decoded = "";
+  for (let index = 0; index + 1 < body.length; index += 2) {
+    const high = body.charCodeAt(index) & 0xff;
+    const low = body.charCodeAt(index + 1) & 0xff;
+    decoded += String.fromCharCode(bigEndian ? (high << 8) | low : (low << 8) | high);
+  }
+  return decoded;
 }
 
 function decodeEntities(value: string): string {
@@ -492,6 +518,15 @@ function safeCodePoint(value: number): string {
     : "";
 }
 
+/**
+ * 바이트를 그대로 돌려주는 짝. `firstMatch` 는 공백을 뭉개는데, PDF 문자열은
+ * 디코딩하기 전까지 바이트열이라 그 정리가 값을 부순다. UTF-16 로 적힌 `급`
+ * (U+AE09) 의 낮은 바이트가 TAB 이어서 공백으로 바뀌면 `긠` 이 된다.
+ */
+function firstRawMatch(value: string, pattern: RegExp): string {
+  return pattern.exec(value)?.[1] ?? "";
+}
+
 function firstMatch(value: string, pattern: RegExp): string {
   return pattern.exec(value)?.[1]?.replace(/\s+/gu, " ").trim() ?? "";
 }
@@ -508,8 +543,41 @@ function sourcePublisher(value: string): string {
   }
 }
 
-function decodeUtf8(bytes: Uint8Array): string {
+/**
+ * Decodes a fetched page with the encoding it declares, the way a browser does.
+ *
+ * 선언은 두 군데에 올 수 있다. HTTP 헤더의 charset 파라미터와 HTML 안의 meta
+ * 선언이다. 헤더만 읽으면 헤더에 charset 을 싣지 않고 meta 로만 알리는 사이트가
+ * 그대로 깨진다. 한국 정부·공공 사이트에 그 방식이 흔하고, 2026-08-19 gov.kr
+ * 제목이 대체 문자로 저장돼 출처 목록에 그대로 표시됐다.
+ *
+ * meta 는 문서 앞부분에 오므로 앞 4KB 만 훑는다. 그 구간은 ASCII 마커를 찾는
+ * 용도이니 어떤 인코딩으로 읽어도 라벨을 찾을 수 있다. 아무 선언도 없거나 라벨을
+ * 알아보지 못하면 지금까지처럼 UTF-8 로 읽는다.
+ */
+function decodeUtf8(bytes: Uint8Array, contentType = ""): string {
+  const declared = charsetOf(contentType) || metaCharsetOf(bytes);
+  if (declared && declared !== "utf-8" && declared !== "utf8") {
+    try {
+      return stripBom(new TextDecoder(declared, { fatal: false }).decode(bytes));
+    } catch {
+      // Unrecognized charset label falls back to UTF-8 below.
+    }
+  }
   return stripBom(new TextDecoder("utf-8", { fatal: false }).decode(bytes));
+}
+
+function charsetOf(contentType: string): string {
+  return /;\s*charset\s*=\s*"?([^;"]+)"?/iu.exec(contentType)?.[1]?.trim().toLocaleLowerCase("en-US") ?? "";
+}
+
+function metaCharsetOf(bytes: Uint8Array): string {
+  const prefix = new TextDecoder("latin1", { fatal: false })
+    .decode(bytes.subarray(0, Math.min(bytes.byteLength, 4096)));
+  const direct = /<meta[^>]+charset\s*=\s*["']?([a-z0-9_-]+)/iu.exec(prefix)?.[1];
+  if (direct) return direct.trim().toLocaleLowerCase("en-US");
+  const httpEquiv = /<meta[^>]+http-equiv\s*=\s*["']?content-type["']?[^>]*content\s*=\s*["'][^"']*charset\s*=\s*([a-z0-9_-]+)/iu.exec(prefix)?.[1];
+  return httpEquiv?.trim().toLocaleLowerCase("en-US") ?? "";
 }
 
 export function decodePdfBytesAsLatin1(bytes: Uint8Array): string {

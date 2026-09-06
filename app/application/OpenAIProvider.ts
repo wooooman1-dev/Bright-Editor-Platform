@@ -21,7 +21,7 @@ import {
   normalizeContentPlanQualityTarget,
   type ContentPlanQualityTarget,
 } from "../../core/content";
-import { openAIGenerationModel } from "./OpenAIModelPolicy";
+import { openAIGenerationModel, openAISourcePreflightModel } from "./OpenAIModelPolicy";
 import { explicitPlanningOutputFormat } from "./PlanningContracts";
 
 export class AIConfigurationError extends Error {
@@ -43,10 +43,13 @@ export class OpenAIProvider implements AIProvider {
     if (!isHeaderSafeApiKey(this.apiKey)) {
       throw new AIConfigurationError("OPENAI_API_KEY must contain only printable ASCII characters without whitespace.");
     }
+    const model = request.metadata?.task === "approval-source-preflight"
+      ? openAISourcePreflightModel()
+      : this.model;
     const editorialOutput = editorialOutputPolicy(request.metadata);
     const webSearch = approvalWebSearchPolicy(request.metadata);
     const requestBody = new TextEncoder().encode(JSON.stringify({
-      model: this.model,
+      model,
       input: request.instruction,
       ...(webSearch ? {
         tools: [webSearch],
@@ -96,14 +99,14 @@ export class OpenAIProvider implements AIProvider {
     }
     const content = responseBody.output_text ?? responseBody.output?.flatMap((item) => item.content ?? []).map((item) => item.text ?? "").join("");
     const webSources = extractWebSources(responseBody.output ?? []);
-    const model = responseBody.model ?? this.model;
+    const responseModel = responseBody.model ?? model;
     const usage = responseBody.usage;
     const webSearchCalls = responseBody.tool_usage?.web_search?.num_requests
       ?? (responseBody.output ?? []).filter((item) => item.type === "web_search_call").length;
     const aiUsage = createAIUsageRecord({
       stage: aiUsageStageForTask(request.metadata?.task),
       task: request.metadata?.task ?? "unspecified",
-      model,
+      model: responseModel,
       ...(responseBody.id ? { responseId: responseBody.id } : {}),
       recordedAt: new Date().toISOString(),
       inputTokens: usage?.input_tokens,
@@ -136,7 +139,7 @@ export class OpenAIProvider implements AIProvider {
     });
     console.info("[openai-response]", {
       ...diagnostics,
-      model,
+      model: responseModel,
       webSourceCount: webSources.length,
     });
     const stage = aiProviderStageForTask(request.metadata?.task);
@@ -155,7 +158,7 @@ export class OpenAIProvider implements AIProvider {
       });
     }
     assertOpenAIResponseOwnedIdentityPolicy(request.instruction, content);
-    return Object.freeze({ content, model, diagnostics });
+    return Object.freeze({ content, model: responseModel, diagnostics });
   }
 }
 
@@ -372,7 +375,7 @@ function editorialOutputPolicy(metadata?: Readonly<Record<string, string>>) {
   if (metadata?.task === "content-planning" && metadata.explicitVerificationPlanning === "1") return { maxOutputTokens: 12_000, verbosity: "medium" as const, format: explicitPlanningOutputFormat };
   if (metadata?.task === "approval-source-preflight") {
     return {
-      maxOutputTokens: 4_000,
+      maxOutputTokens: 12_000,
       verbosity: "low" as const,
       format: metadata.verificationMode === "explicit" ? explicitApprovalSourcePreflightFormat : approvalSourcePreflightFormat,
     };
@@ -497,6 +500,8 @@ const structuredGenerationRequired = Object.freeze([
   "conclusion",
   "images",
   "cta",
+  "workedExamples",
+  "caseExamples",
 ]);
 
 const generatedFactualClaimSchema = {
@@ -585,15 +590,26 @@ export function structuredGenerationFormat(
           },
         } },
         conclusion: { type: "array", minItems: 1, maxItems: 8, items: { type: "string" } },
-        images: { type: "array", maxItems: 1, items: {
+        images: { type: "array", maxItems: 4, items: {
           type: "object",
           additionalProperties: false,
-          required: ["afterSection", "purpose", "alt", "prompt"],
+          required: ["afterSection", "purpose", "alt", "prompt", "visual", "data"],
           properties: {
-            afterSection: { type: "integer", enum: [0] },
-            purpose: { type: "string", enum: ["hero"] },
+            afterSection: { type: "integer", minimum: 0 },
+            purpose: { type: "string", enum: ["hero", "comparison", "checklist", "infographic", "summary", "warning"] },
             alt: { type: "string" },
             prompt: { type: "string" },
+            visual: { type: "string", enum: ["", "bar", "ratio", "steps", "timeline", "compare", "stat", "list"] },
+            data: { type: "array", maxItems: 8, items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["label", "value", "note"],
+              properties: {
+                label: { type: "string" },
+                value: { type: ["number", "null"] },
+                note: { type: "string" },
+              },
+            } },
           },
         } },
         cta: { type: "array", items: {
@@ -606,6 +622,28 @@ export function structuredGenerationFormat(
             label: { type: "string" },
             targetUrl: { type: "string" },
             target: { type: "string", enum: ["_self", "_blank"] },
+          },
+        } },
+        workedExamples: { type: "array", maxItems: 3, items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["afterSection", "scenario", "computation", "result"],
+          properties: {
+            afterSection: { type: "integer", minimum: 0 },
+            scenario: { type: "string" },
+            computation: { type: "string" },
+            result: { type: "string" },
+          },
+        } },
+        caseExamples: { type: "array", maxItems: 3, items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["afterSection", "situation", "decision", "outcome"],
+          properties: {
+            afterSection: { type: "integer", minimum: 0 },
+            situation: { type: "string" },
+            decision: { type: "string" },
+            outcome: { type: "string" },
           },
         } },
         ...(options.verificationClaims

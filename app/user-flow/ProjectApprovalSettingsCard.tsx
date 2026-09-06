@@ -17,6 +17,7 @@ import {
 } from "../application/approval/ApprovalContentPolicy";
 import {
   resolveProjectStrategy,
+  updateProjectStrategy,
   type UserData,
   type UserProject,
 } from "./user-data";
@@ -40,6 +41,31 @@ export function ProjectApprovalSettingsCard({
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const profileOptions = useMemo(() => compatibleApprovalProfiles(project, persisted.approvalProfileId), [project, persisted.approvalProfileId]);
   const subtopics = (strategy.subtopics ?? []).map((value) => value.trim()).filter(Boolean);
+  const excludedTopics = (strategy.excludedTopics ?? []).map((value) => value.trim()).filter(Boolean);
+  const [subtopicsText, setSubtopicsText] = useState(subtopics.join(", "));
+  const [excludedTopicsText, setExcludedTopicsText] = useState(excludedTopics.join(", "));
+  const [strategySaveState, setStrategySaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+
+  const parseTopicList = (value: string): readonly string[] =>
+    [...new Set(value.split(",").map((item) => item.trim()).filter(Boolean))];
+
+  const strategyUnchanged = subtopicsText === subtopics.join(", ") && excludedTopicsText === excludedTopics.join(", ");
+
+  const saveStrategy = async () => {
+    setStrategySaveState("saving");
+    try {
+      const next = updateProjectStrategy(
+        data,
+        project.id,
+        { ...strategy, subtopics: parseTopicList(subtopicsText), excludedTopics: parseTopicList(excludedTopicsText) },
+        new Date().toISOString(),
+      );
+      await onPersist(next);
+      setStrategySaveState("saved");
+    } catch {
+      setStrategySaveState("error");
+    }
+  };
 
   const save = async () => {
     setSaveState("saving");
@@ -83,12 +109,45 @@ export function ProjectApprovalSettingsCard({
             <dd className="mt-1 leading-6 font-medium">{project.description || "설정되지 않음"}</dd>
           </div>
           <div className="rounded-xl bg-[#f8f8fa] p-4 sm:col-span-2">
-            <dt className="text-[#77777f]">세부 주제</dt>
-            <dd className="mt-2 flex flex-wrap gap-2">
-              {subtopics.length
-                ? subtopics.map((topic) => <span className="rounded-full border border-black/8 bg-white px-3 py-1 text-xs font-semibold" key={topic}>{topic}</span>)
-                : <span className="font-medium">설정되지 않음</span>}
-            </dd>
+            <label className="text-[#77777f]" htmlFor="project-subtopics-input">세부 주제 (쉼표로 구분)</label>
+            <textarea
+              className="mt-2 w-full rounded-lg border border-black/8 bg-white p-2 text-sm"
+              id="project-subtopics-input"
+              onChange={(event) => { setSubtopicsText(event.target.value); setStrategySaveState("idle"); }}
+              placeholder="예: 청년내일저축계좌, 근로장려금, 국민연금 임의계속가입"
+              rows={2}
+              value={subtopicsText}
+            />
+            {subtopics.length
+              ? <div className="mt-2 flex flex-wrap gap-2">{subtopics.map((topic) => <span className="rounded-full border border-black/8 bg-white px-3 py-1 text-xs font-semibold" key={topic}>{topic}</span>)}</div>
+              : null}
+          </div>
+          <div className="rounded-xl bg-[#f8f8fa] p-4 sm:col-span-2">
+            <label className="text-[#77777f]" htmlFor="project-excluded-topics-input">제외 주제 (쉼표로 구분)</label>
+            <textarea
+              className="mt-2 w-full rounded-lg border border-black/8 bg-white p-2 text-sm"
+              id="project-excluded-topics-input"
+              onChange={(event) => { setExcludedTopicsText(event.target.value); setStrategySaveState("idle"); }}
+              placeholder="예: 투자 추천, 특정 종목 매매"
+              rows={2}
+              value={excludedTopicsText}
+            />
+            {excludedTopics.length
+              ? <div className="mt-2 flex flex-wrap gap-2">{excludedTopics.map((topic) => <span className="rounded-full border border-black/8 bg-white px-3 py-1 text-xs font-semibold" key={topic}>{topic}</span>)}</div>
+              : null}
+          </div>
+          <div className="sm:col-span-2 flex items-center gap-3">
+            <button
+              className="rounded-lg bg-[#ff6b6b] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+              disabled={strategyUnchanged || strategySaveState === "saving"}
+              onClick={() => void saveStrategy()}
+              type="button"
+            >
+              세부·제외 주제 저장
+            </button>
+            {strategySaveState === "saving" ? <span className="text-sm text-[#77777f]">저장 중…</span> : null}
+            {strategySaveState === "saved" ? <span className="text-sm text-emerald-700">저장됨</span> : null}
+            {strategySaveState === "error" ? <span className="text-sm text-[#d94848]">저장 실패, 다시 시도해 주세요.</span> : null}
           </div>
         </dl>
       </section>

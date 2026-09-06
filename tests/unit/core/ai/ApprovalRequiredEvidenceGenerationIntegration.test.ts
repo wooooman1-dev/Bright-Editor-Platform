@@ -173,11 +173,20 @@ describe("approval evidence contract generation boundary", () => {
     expect(provider.requests).toHaveLength(2);
     expect(provider.requests[1]?.metadata?.task).toBe("content-generation");
     expect(result.document.metadata?.approvalEvidence).toMatchObject({
+      status: "verified",
+      reviewedAt: expect.any(String),
       coverageStatus: "verified",
       requiredFactFields: ["amount"],
       verifiedFactFields: ["amount"],
       unverifiedFactFields: [],
       sourcePolicyCompliance: "passed",
+    });
+    expect(result.document.metadata?.approvalEvidence?.sources[0]).toMatchObject({
+      provenance: "system_verified",
+      verified: true,
+      cited: true,
+      selected: true,
+      verificationStatus: "verified",
     });
     expect(provider.requests[1]?.metadata?.approvalEvidenceMode).toBe("preflight_verified");
   });

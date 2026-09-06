@@ -72,6 +72,7 @@ export function WordPressDraftOverlay({ connections, content, data, onPersist, p
   const [executionState, setExecutionState] = useState(() => resetWordPressDraftOverlayState(undefined));
   const [modalView, setModalView] = useState<WordPressDraftModalView>("preparation");
   const [showConfirmation, setShowConfirmation] = useState(false);
+  const [reusedWithoutResend, setReusedWithoutResend] = useState(false);
 
   const workspaceId = data?.workspace?.id ?? "";
   const wordpressConnections = useMemo(() => connections.filter((item) => item.platform === "wordpress"), [connections]);
@@ -226,6 +227,7 @@ export function WordPressDraftOverlay({ connections, content, data, onPersist, p
 
   useEffect(() => {
     setShowConfirmation(false);
+    setReusedWithoutResend(false);
   }, [identityKey]);
 
   const saveCategory = async () => {
@@ -265,22 +267,31 @@ export function WordPressDraftOverlay({ connections, content, data, onPersist, p
     }
   };
 
-  const submit = async () => {
-    if (!executable || !identity) return;
+  const submit = async (options: Readonly<{ explicitNewAttempt?: boolean }> = {}) => {
+    if (!identity) return;
+    if (!options.explicitNewAttempt && !executable) return;
+    setReusedWithoutResend(false);
     setExecutionState((current) => reduceWordPressDraftOverlayState(current, {
       type: "execution_started",
       identityKey,
-      notice: "워드프레스에 공개되지 않은 임시글을 저장하고 외부 상태를 검증하고 있습니다.",
+      notice: options.explicitNewAttempt
+        ? "워드프레스에서 이전 임시글이 아직 있는지 확인하고 있습니다."
+        : "워드프레스에 공개되지 않은 임시글을 저장하고 외부 상태를 검증하고 있습니다.",
     }));
     try {
-      const result = await requestWordPressDraftCreation(submissionGuard);
+      const result = await requestWordPressDraftCreation(submissionGuard, fetch, options);
       if (!result) return;
+      setReusedWithoutResend(Boolean(result.reused));
       setExecutionState((current) => reduceWordPressDraftOverlayState(current, {
         type: "execution_completed",
         identityKey,
         readiness: result.readiness,
         record: result.record,
-        notice: result.record?.safeMessage ?? "워드프레스 실행 결과를 저장했습니다.",
+        notice: result.reused
+          ? "이전에 저장된 임시글과 내용이 같아 다시 전송하지 않았습니다. 워드프레스에서 그 글을 지웠다면 아래에서 삭제 여부를 확인한 뒤 다시 저장하세요."
+          : options.explicitNewAttempt && !result.error && result.record?.status === "verified"
+            ? "워드프레스에서 이전 임시글이 삭제된 것을 확인하고, 새 임시글을 방금 저장했습니다. 아래 완료 카드의 외부 글 ID로 워드프레스에서 새 글을 확인하세요."
+            : result.error ?? result.record?.safeMessage ?? "워드프레스 실행 결과를 저장했습니다.",
       }));
       setShowConfirmation(false);
       setModalView((current) => reduceWordPressDraftModalView(current, {
@@ -311,7 +322,11 @@ export function WordPressDraftOverlay({ connections, content, data, onPersist, p
 
       {showOutcome && outcome && connection ? <>
         <WordPressCompletionCard connection={connection} outcome={outcome} record={record!} />
-        <button className="mt-5 rounded-xl border px-4 py-2.5 text-sm font-semibold" onClick={() => setModalView((current) => reduceWordPressDraftModalView(current, { type: "show_preparation" }))} type="button">준비 화면으로 돌아가기</button>
+        {reusedWithoutResend && record?.status === "verified" ? <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">위 결과는 이전에 저장한 임시글을 재사용한 것으로, 방금 새로 전송되지 않았습니다. 워드프레스에서 그 글을 삭제했다면 <strong>임시글 다시 저장</strong>을 누르면 삭제 여부를 확인한 뒤 새 임시글을 저장합니다.</p> : null}
+        <div className="mt-5 flex flex-wrap gap-3">
+          <button className="rounded-xl border px-4 py-2.5 text-sm font-semibold" onClick={() => setModalView((current) => reduceWordPressDraftModalView(current, { type: "show_preparation" }))} type="button">준비 화면으로 돌아가기</button>
+          {record?.status === "verified" ? <button className="rounded-xl border border-[#ff6b6b] px-4 py-2.5 text-sm font-semibold text-[#ff6b6b] disabled:opacity-50" disabled={executionLoading} onClick={() => void submit({ explicitNewAttempt: true })} type="button">{executionLoading ? "확인 중…" : "임시글 다시 저장"}</button> : null}
+        </div>
       </> : <>
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
           <label className="text-sm font-semibold">워드프레스 계정

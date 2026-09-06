@@ -6,7 +6,48 @@ import {
   type ContentDocument,
   type PublicPostCandidate,
 } from "../../../core/content";
-import type { UserContent } from "../../user-flow/user-data";
+import type { UserContent, UserData, UserProject } from "../../user-flow/user-data";
+import { isPublishingExecutionRecord } from "../../../core/publishing";
+
+/**
+ * The publishing category a freshly generated article should use.
+ *
+ * `publishingCategoryIdentities` reads `content.publishingPreparation`, which is
+ * written by the publishing preparation flow — that is, only once the user has
+ * opened publishing for this article. A newly generated article therefore has
+ * no category, internal link placement is skipped as `category_missing`, and
+ * the links appear only after the candidate list is refreshed later. The
+ * Project already declares the category to use for the account in
+ * `defaultWordPressCategories`; this reads it when the content has none yet.
+ *
+ * The preparation flow still overwrites this with platform-validated
+ * categories, so this never competes with a real selection: it only fills the
+ * window between generating an article and opening its publishing panel.
+ */
+export function withProjectDefaultPublishingCategories(
+  content: UserContent,
+  project: UserProject | undefined,
+): UserContent {
+  if (content.publishingPreparation?.wordpress) return content;
+  const accountId = content.publishingAccountId?.trim()
+    ?? project?.strategy?.defaultPublishingAccountId?.trim();
+  if (!accountId) return content;
+  const categories = (project?.strategy?.defaultWordPressCategories ?? [])
+    .filter((category) => category.publishingAccountId === accountId && category.id);
+  if (!categories.length) return content;
+  return Object.freeze({
+    ...content,
+    publishingPreparation: Object.freeze({
+      ...content.publishingPreparation,
+      wordpress: Object.freeze({
+        publishingAccountId: accountId,
+        categoryIds: Object.freeze(categories.map((category) => String(category.id))),
+        categoryNames: Object.freeze(categories.map((category) => category.name ?? String(category.id))),
+        updatedAt: content.updatedAt,
+      }),
+    }),
+  });
+}
 
 export type PublishingCategoryIdentity = Readonly<{
   id?: string | null;
@@ -111,10 +152,79 @@ export function removeAutoPlacedPublishingLinks(
     : { ...document, blocks: Object.freeze(blocks) };
 }
 
+/**
+ * Every manuscript that is a version of this one.
+ *
+ * Rewriting an article creates a NEW manuscript with a new contentId and a
+ * `preservedFromContentId` pointing at the one it replaces. The rewrite and the
+ * original are the same article, so a Post published by either is this
+ * manuscript's own Post. Measured 2026-08-29: the rewritten 국민연금 manuscript
+ * carried its predecessor's Post 3778 as a related post, because contentId
+ * alone does not connect the two.
+ *
+ * The walk goes both ways — up through `preservedFromContentId` and down to
+ * anything preserved from a member — and repeats until the set stops growing,
+ * so a chain of several rewrites is covered.
+ */
+function contentLineageIds(data: UserData, content: UserContent): ReadonlySet<string> {
+  const contents = data.contents ?? [];
+  const byId = new Map(contents.map((item) => [item.id, item]));
+  const ids = new Set<string>([content.id]);
+
+  let cursor: UserContent | undefined = content;
+  let guard = 0;
+  while (cursor?.preservedFromContentId && guard < contents.length + 1) {
+    guard += 1;
+    const parent = cursor.preservedFromContentId;
+    if (ids.has(parent)) break;
+    ids.add(parent);
+    cursor = byId.get(parent);
+  }
+
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const item of contents) {
+      const parent = item.preservedFromContentId;
+      if (!parent || !ids.has(parent) || ids.has(item.id)) continue;
+      ids.add(item.id);
+      grew = true;
+    }
+  }
+  return ids;
+}
+
+/**
+ * Every Post this manuscript — or any other version of it — has been published
+ * to.
+ *
+ * `UserContent.publishedUrl` exists but is never written — 160 manuscripts,
+ * none with a value — so the filter that read it in the posts route never
+ * excluded anything. The publishing records are the only place the identity of
+ * a manuscript's own Post is actually stored, so the exclusion reads them.
+ */
+export function ownPublishedExternalPostIds(
+  data: UserData,
+  content: UserContent,
+): readonly string[] {
+  const lineage = contentLineageIds(data, content);
+  const ids = (data.publishingRecords ?? [])
+    .filter(isPublishingExecutionRecord)
+    .flatMap((record) => {
+      if (record.workspaceId !== content.workspaceId) return [];
+      if (record.projectId !== content.projectId) return [];
+      if (!lineage.has(record.contentId)) return [];
+      const externalPostId = record.externalPostId?.trim();
+      return externalPostId ? [externalPostId] : [];
+    });
+  return Object.freeze([...new Set(ids)]);
+}
+
 export function rankPublishingPostCandidates(
   document: ContentDocument,
   candidates: readonly PublicPostCandidate[],
   content: UserContent,
+  ownExternalPostIds: readonly string[],
 ): readonly PublicPostCandidate[] {
   const categories = publishingCategoryIdentities(content);
   if (!categories.length) return Object.freeze([]);
@@ -126,6 +236,7 @@ export function rankPublishingPostCandidates(
       primaryKeyword: content.primaryKeyword,
       categoryId: category.id,
       categoryName: category.name ?? undefined,
+      excludeExternalPostIds: ownExternalPostIds,
     });
     for (const candidate of ranked) {
       const key = normalizeUrl(candidate.publishedUrl);

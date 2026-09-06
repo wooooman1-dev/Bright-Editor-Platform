@@ -108,6 +108,32 @@ describe("ProjectApprovalSettingsCard", () => {
     expect(html).not.toContain("WordPress · 생활경제");
   });
 
+  /**
+   * 2026-09-04: subtopics·excludedTopics 는 읽기 전용 칩으로만 보여줬다.
+   * updateProjectStrategy 는 이미 있었으니 편집 입력만 추가한다.
+   */
+  it("renders editable subtopics and excludedTopics fields seeded with the persisted strategy", () => {
+    const value = project({
+      defaultPlatform: "tistory",
+      subtopics: ["청년내일저축계좌", "근로장려금"],
+      excludedTopics: ["투자 추천"],
+    });
+
+    const html = renderToStaticMarkup(
+      <ProjectApprovalSettingsCard
+        data={data(value)}
+        onPersist={vi.fn(async () => undefined)}
+        project={value}
+      />,
+    );
+
+    expect(html).toContain("세부 주제");
+    expect(html).toContain("제외 주제");
+    expect(html).toContain("청년내일저축계좌, 근로장려금");
+    expect(html).toContain("투자 추천");
+    expect(html).toContain("세부·제외 주제 저장");
+  });
+
   it("keeps a persisted legacy profile visible instead of silently replacing it", () => {
     const value = project({
       defaultPlatform: "tistory",

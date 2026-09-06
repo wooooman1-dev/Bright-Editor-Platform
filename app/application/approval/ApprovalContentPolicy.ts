@@ -8,6 +8,11 @@ import {
   type ContentPurpose,
 } from "../../../core/approval";
 import {
+  buildEditorialRepetitionContext,
+  editorialFormatOptionsFor,
+  type ContentDocument,
+} from "../../../core/content";
+import {
   resolveProjectStrategy,
   type ProjectContentStrategy,
   type UserContent,
@@ -130,14 +135,72 @@ export function contentApprovalPromptContext(content: UserContent): string | und
   return snapshot ? approvalPolicyPromptContext(snapshot) : undefined;
 }
 
+/**
+ * Depth classification runs keyword regexes over the whole context string, so
+ * the recent-article summary must be removed first. Its titles carry the very
+ * words the classifier keys on, which would pin every new candidate to the
+ * depth the previous articles already used.
+ */
+export type EditorialDiversityPolicyContext = Readonly<{
+  rule?: string;
+  recentArticles?: readonly Readonly<{
+    title: string;
+    headings?: readonly string[];
+    openingSentence?: string;
+  }>[];
+  formatRule?: string;
+  formatOptions?: readonly Readonly<{ id: string; name: string; skeleton: string; fitsWhen: string }>[];
+  introStyles?: readonly string[];
+}>;
+
+/**
+ * Planning receives the editorial context as one JSON string. Nested inside it,
+ * the diversity policy competes with the prompt's own prose instructions and
+ * loses; reading it back out lets the caller state it as an instruction of the
+ * same rank. Returns undefined when the context carries no policy.
+ */
+export function editorialDiversityPolicyFromContext(
+  context: string | undefined,
+): EditorialDiversityPolicyContext | undefined {
+  if (!context?.trim()) return undefined;
+  try {
+    const parsed = JSON.parse(context) as Record<string, unknown>;
+    const policy = parsed?.editorialDiversityPolicy;
+    return policy && typeof policy === "object" ? policy as EditorialDiversityPolicyContext : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function editorialContextWithoutDiversityPolicy(context: string): string {
+  try {
+    const parsed = JSON.parse(context) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== "object" || !("editorialDiversityPolicy" in parsed)) return context;
+    const rest: Record<string, unknown> = { ...parsed };
+    delete rest.editorialDiversityPolicy;
+    return JSON.stringify(rest);
+  } catch {
+    return context;
+  }
+}
+
 export function contentBoundEditorialContext(
   projectContext: Readonly<Record<string, unknown>>,
   content: UserContent,
+  recentDocuments: readonly ContentDocument[] = [],
 ): string {
+  const repetition = buildEditorialRepetitionContext(recentDocuments);
   const stableProjectContext = Object.freeze(Object.fromEntries(
     Object.entries(projectContext).filter(([key]) => key !== "approvalPolicy"),
   ));
-  const approvalPolicy = contentApprovalPromptContext(content);
+  const snapshot = resolveContentApprovalSnapshot(content);
+  const approvalPolicy = snapshot ? approvalPolicyPromptContext(snapshot) : undefined;
+  /**
+   * Offered from the first article, unlike the recent-article summary, because a
+   * Project with nothing published yet still has to choose a shape and that
+   * first choice is what the later ones are compared against.
+   */
+  const formats = editorialFormatOptionsFor(snapshot?.profileId);
   const sourceRequest = content.opportunity?.sourceRequest
     ?? content.planningWorkflow?.request
     ?? content.naturalLanguageRequest
@@ -151,6 +214,25 @@ export function contentBoundEditorialContext(
       ...stableProjectContext,
       ...(approvalPolicy ? { approvalPolicy } : {}),
     },
+    ...(repetition || formats
+      ? {
+        editorialDiversityPolicy: {
+          ...(formats
+            ? {
+              formatRule: formats.rule,
+              formatOptions: formats.options,
+              introStyles: formats.introStyles,
+            }
+            : {}),
+          ...(repetition
+            ? {
+              rule: repetition.instruction,
+              recentArticles: repetition.recent,
+            }
+            : {}),
+        },
+      }
+      : {}),
     ownedIdentityPolicy: {
       sourceRequest,
       selectionMode,
